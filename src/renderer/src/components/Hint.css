@@ -1,0 +1,48 @@
+.hint-wrap {
+  display: contents;
+}
+
+.hint-bubble {
+  position: fixed;
+  z-index: 300;
+  background: #2b2b2b;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  animation: hint-in 0.12s ease-out;
+}
+.hint-bubble.right {
+  transform: translateY(-50%);
+}
+.hint-bubble.bottom {
+  transform: translateX(-50%);
+}
+.hint-bubble.top {
+  transform: translate(-50%, -100%);
+}
+
+.hint-keys {
+  color: var(--text-dim);
+  margin-left: 9px;
+  letter-spacing: 1px;
+}
+
+@keyframes hint-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hint-bubble {
+    animation: none;
+  }
+}

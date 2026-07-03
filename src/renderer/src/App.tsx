@@ -5,6 +5,7 @@ import { ConversationView } from './components/ConversationView'
 import { ReviewModal } from './components/ReviewModal'
 import { SettingsModal } from './components/Settings/SettingsModal'
 import { RoarBear } from './components/brand/RoarBear'
+import { Hint } from './components/Hint'
 import { IconPanel } from './components/icons'
 import { useAppStore } from './state/store'
 import './App.css'
@@ -31,6 +32,41 @@ function App(): React.JSX.Element {
     init()
   }, [init])
 
+  // Global shortcuts: Cmd+N new conversation, Cmd+B sidebar, Cmd+, settings,
+  // Cmd+/ model menu, Cmd+L focus the composer.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
+      const s = useAppStore.getState()
+      switch (e.key) {
+        case 'n':
+          e.preventDefault()
+          s.goHome()
+          break
+        case 'b':
+          e.preventDefault()
+          s.toggleSidebar()
+          break
+        case ',':
+          e.preventDefault()
+          s.openSettings()
+          break
+        case '/':
+          e.preventDefault()
+          s.toggleModelMenu()
+          break
+        case 'l': {
+          e.preventDefault()
+          const ta = document.querySelector<HTMLTextAreaElement>('.composer textarea')
+          ta?.focus()
+          break
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const convo = view.kind === 'conversation' ? conversations[view.id] : null
 
   return (
@@ -39,9 +75,11 @@ function App(): React.JSX.Element {
       <div className={'main' + (collapsed ? ' sidebar-collapsed' : '')}>
         <div className="topbar">
           {collapsed ? (
-            <button className="chrome-btn" title="Show sidebar" onClick={toggleSidebar}>
-              <IconPanel />
-            </button>
+            <Hint label="Toggle Sidebar" keys="⌘B" side="bottom">
+              <button className="chrome-btn" onClick={toggleSidebar}>
+                <IconPanel />
+              </button>
+            </Hint>
           ) : null}
           {convo ? (
             <div className="breadcrumb">

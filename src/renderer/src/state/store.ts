@@ -59,6 +59,8 @@ function orderByRecency(conversations: Record<string, Convo>): string[] {
 
 interface AppState {
   sidebarCollapsed: boolean
+  // Incremented by the Cmd+/ shortcut; the mounted ModelPicker toggles on change.
+  modelMenuTick: number
   view: View
   conversations: Record<string, Convo>
   convoOrder: string[]
@@ -73,6 +75,7 @@ interface AppState {
   init(): void
   refreshProviders(): Promise<void>
   toggleSidebar(): void
+  toggleModelMenu(): void
   goHome(): void
   openScheduled(): void
   openConvo(id: string): void
@@ -186,6 +189,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   return {
     sidebarCollapsed: false,
+    modelMenuTick: 0,
     view: { kind: 'home' },
     conversations: {},
     convoOrder: [],
@@ -238,6 +242,7 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+    toggleModelMenu: () => set((s) => ({ modelMenuTick: s.modelMenuTick + 1 })),
     goHome: () => set({ view: { kind: 'home' } }),
     openScheduled: () => set({ view: { kind: 'scheduled' } }),
     openConvo: (id) => {

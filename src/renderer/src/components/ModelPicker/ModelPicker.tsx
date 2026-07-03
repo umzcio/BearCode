@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ProviderId } from '@shared/types'
 import { modelDisplay, useAppStore } from '../../state/store'
 import { ProviderIcon } from '../ProviderIcon'
+import { Hint } from '../Hint'
 import { IconChevronDown, IconSearch } from '../icons'
 import './ModelPicker.css'
 
@@ -10,34 +11,53 @@ export function ModelPicker(): React.JSX.Element {
   const modelRef = useAppStore((s) => s.modelRef)
   const selectModel = useAppStore((s) => s.selectModel)
   const openSettings = useAppStore((s) => s.openSettings)
+  const modelMenuTick = useAppStore((s) => s.modelMenuTick)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
+  const lastTick = useRef(modelMenuTick)
 
   const current = modelDisplay(providers, modelRef)
+
+  // Cmd+/ toggles the menu. Compare against the last seen tick so this only
+  // fires on a real tick change, not on mount or StrictMode's double-run.
+  useEffect(() => {
+    if (lastTick.current === modelMenuTick) return
+    lastTick.current = modelMenuTick
+    setOpen((o) => !o)
+  }, [modelMenuTick])
 
   useEffect(() => {
     if (!open) return undefined
     const close = (e: MouseEvent): void => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
     }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
     document.addEventListener('click', close)
-    return () => document.removeEventListener('click', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('click', close)
+      window.removeEventListener('keydown', onKey)
+    }
   }, [open])
 
   return (
     <div className="model-picker" ref={rootRef}>
-      <button className="pill-btn" onClick={() => setOpen((o) => !o)}>
-        {modelRef ? (
-          <ProviderIcon provider={modelRef.slice(0, modelRef.indexOf('/')) as ProviderId} />
-        ) : (
-          <span className="provider-dot" style={{ background: current.color }} />
-        )}
-        <span>{current.name}</span>
-        <span className="chev">
-          <IconChevronDown />
-        </span>
-      </button>
+      <Hint label="Select Model" keys="⌘/" side="top" disabled={open}>
+        <button className="pill-btn" onClick={() => setOpen((o) => !o)}>
+          {modelRef ? (
+            <ProviderIcon provider={modelRef.slice(0, modelRef.indexOf('/')) as ProviderId} />
+          ) : (
+            <span className="provider-dot" style={{ background: current.color }} />
+          )}
+          <span>{current.name}</span>
+          <span className="chev">
+            <IconChevronDown />
+          </span>
+        </button>
+      </Hint>
       {open ? (
         <div className="menu model-menu">
           {providers.map((provider) => {

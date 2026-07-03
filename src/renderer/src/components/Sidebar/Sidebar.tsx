@@ -1,6 +1,7 @@
 import { useAppStore } from '../../state/store'
 import { relativeAge } from '../../lib/time'
 import bearMark from '../../assets/bear.svg'
+import { Hint } from '../Hint'
 import {
   IconChevronLeft,
   IconChevronRight,
@@ -42,9 +43,11 @@ export function Sidebar(): React.JSX.Element {
   return (
     <div className={'sidebar' + (collapsed ? ' collapsed' : '')}>
       <div className="chrome">
-        <button className="chrome-btn" title="Hide sidebar" onClick={toggleSidebar}>
-          <IconPanel />
-        </button>
+        <Hint label="Toggle Sidebar" keys="⌘B" side="bottom">
+          <button className="chrome-btn" onClick={toggleSidebar}>
+            <IconPanel />
+          </button>
+        </Hint>
         <button className="chrome-btn" disabled title="Back">
           <IconChevronLeft />
         </button>
@@ -57,10 +60,12 @@ export function Sidebar(): React.JSX.Element {
         </span>
       </div>
 
-      <button className={'nav-item' + (view.kind === 'home' ? ' selected' : '')} onClick={goHome}>
-        <IconPlus />
-        New Conversation
-      </button>
+      <Hint label="New Conversation" keys="⌘N" side="right">
+        <button className={'nav-item' + (view.kind === 'home' ? ' selected' : '')} onClick={goHome}>
+          <IconPlus />
+          New Conversation
+        </button>
+      </Hint>
       <button className="nav-item" onClick={() => showToast('Conversation history is coming soon')}>
         <IconHistory />
         Conversation History
@@ -131,10 +136,12 @@ export function Sidebar(): React.JSX.Element {
       </div>
 
       <div className="sidebar-footer">
-        <button className="nav-item" onClick={openSettings}>
-          <IconSettings />
-          Settings
-        </button>
+        <Hint label="Open Settings" keys="⌘," side="right">
+          <button className="nav-item" onClick={openSettings}>
+            <IconSettings />
+            Settings
+          </button>
+        </Hint>
       </div>
     </div>
   )
