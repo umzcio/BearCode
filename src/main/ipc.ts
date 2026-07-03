@@ -20,7 +20,12 @@ import {
 } from './ursa/run'
 import { filePathFor, getDiff, revertFile } from './ursa/diffs'
 import * as db from './db'
-import { cancelRunOrchestrator, startRunOrchestrator, useOrchestrator } from './orchestrator'
+import {
+  cancelRunOrchestrator,
+  resumeInterruptedRuns,
+  startRunOrchestrator,
+  useOrchestrator
+} from './orchestrator'
 
 function broadcast(channel: string, ...args: unknown[]): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -38,6 +43,14 @@ const sink = {
   metaChanged(meta: ConversationMeta): void {
     broadcast('bearcode:conversation-meta', meta)
   }
+}
+
+// Called once from main/index.ts after the window is ready (risk 6). Uses
+// the same `sink` the IPC handlers below stream through, so a conversation
+// this finds mid-run gets the same live `bearcode:run-state` broadcast a
+// real Stop click would produce.
+export async function bootResumeInterruptedRuns(): Promise<void> {
+  await resumeInterruptedRuns(sink)
 }
 
 export function registerIpc(): void {

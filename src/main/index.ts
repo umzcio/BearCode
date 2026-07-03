@@ -1,9 +1,21 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { registerIpc } from './ipc'
+import { bootResumeInterruptedRuns, registerIpc } from './ipc'
 import { runDevSmoke } from './devSmoke'
 import icon from '../../resources/icon.png?asset'
+
+// `ready-to-show` re-fires on renderer reloads (e.g. a dev-server restart,
+// same caveat as `runDevSmoke`'s own guard in devSmoke.ts); the crash-resume
+// scan (risk 6) must only ever run once per process.
+let bootResumeRan = false
+function runBootResumeOnce(): void {
+  if (bootResumeRan) return
+  bootResumeRan = true
+  void bootResumeInterruptedRuns().catch((err) => {
+    console.error('[ursa] bootResumeInterruptedRuns failed:', err)
+  })
+}
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -32,6 +44,7 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+    runBootResumeOnce()
     runDevSmoke(mainWindow)
   })
 

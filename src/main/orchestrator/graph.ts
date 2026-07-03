@@ -17,6 +17,7 @@ import { parseModelRef } from '../ursa/providers/registry'
 import { maybeGenerateTitle } from '../ursa/title'
 import { makeModel } from './models'
 import { textDeltaEvent, thinkingDeltaEvent } from './bridge'
+import { getCheckpointer } from './checkpointer'
 
 // The tuple shape yielded by `.stream(..., { streamMode: "messages", subgraphs: true })`
 // with a single (non-array) streamMode: [namespace, [chunk, metadata]]. (The
@@ -61,7 +62,13 @@ export async function runGraph(opts: {
   appendEvent(conversationId, userEvent)
 
   const model = makeModel(modelRef)
-  const agent = createDeepAgent({ model })
+  // A real SQLite-backed checkpointer (src/main/orchestrator/checkpointer.ts,
+  // its own `checkpoints.db`, separate from the `events` table above) so the
+  // graph's execution state survives a crash, not just the token stream
+  // (verified construction/option name: planning/replatform-api-notes.md
+  // section (e), `CreateDeepAgentParams.checkpointer?: BaseCheckpointSaver |
+  // boolean`, deepagents/dist/agent-DURA4_mf.d.ts line ~2568).
+  const agent = createDeepAgent({ model, checkpointer: getCheckpointer() })
 
   const answerId = randomUUID()
   let answer = ''
