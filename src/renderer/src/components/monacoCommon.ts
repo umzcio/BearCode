@@ -72,25 +72,38 @@ export function attachCommenting(
   ed: monaco.editor.ICodeEditor,
   onAdd: (line: number, text: string) => void
 ): monaco.IDisposable {
+  const container = ed.getContainerDomNode()
+
+  // The composer is a view zone (reserves vertical space so code below
+  // shifts down) plus a separate overlay card. The card is pinned to the
+  // container's visible width, NOT the content width, so its action row can
+  // never fall off the right edge in a narrow pane.
+  const ZONE_HEIGHT = 150
   let zoneId: string | null = null
-
-  const removeZone = (): void => {
-    if (!zoneId) return
-    const id = zoneId
-    zoneId = null
-    ed.changeViewZones((acc) => acc.removeZone(id))
-  }
-
+  let overlay: HTMLElement | null = null
+  let overlayLine = 0
   let activeLine: monaco.editor.IEditorDecorationsCollection | null = null
 
-  const clearActiveLine = (): void => {
+  const positionOverlay = (): void => {
+    if (!overlay) return
+    overlay.style.top = `${ed.getBottomForLineNumber(overlayLine) - ed.getScrollTop()}px`
+  }
+
+  const closeComposer = (): void => {
     activeLine?.clear()
     activeLine = null
+    overlay?.remove()
+    overlay = null
+    if (zoneId) {
+      const id = zoneId
+      zoneId = null
+      ed.changeViewZones((acc) => acc.removeZone(id))
+    }
   }
 
   const openComposer = (line: number): void => {
-    removeZone()
-    clearActiveLine()
+    closeComposer()
+    overlayLine = line
     // Highlight the line being commented on while the composer is open.
     activeLine = ed.createDecorationsCollection([
       {
@@ -99,8 +112,8 @@ export function attachCommenting(
       }
     ])
 
-    const node = document.createElement('div')
-    node.className = 'comment-zone-wrap'
+    overlay = document.createElement('div')
+    overlay.className = 'comment-overlay'
     const card = document.createElement('div')
     card.className = 'comment-zone'
     const ta = document.createElement('textarea')
@@ -127,32 +140,33 @@ export function attachCommenting(
     add.disabled = true
     actions.append(mic, spacer, cancel, add)
     card.append(ta, actions)
-    node.append(card)
+    overlay.append(card)
+    container.appendChild(overlay)
 
-    const close = (): void => {
-      clearActiveLine()
-      removeZone()
-    }
-    cancel.onclick = close
+    cancel.onclick = closeComposer
     add.onclick = (): void => {
       const value = ta.value.trim()
       if (value) onAdd(line, value)
-      close()
+      closeComposer()
     }
     ta.oninput = (): void => {
       add.disabled = ta.value.trim().length === 0
     }
     ta.onkeydown = (e): void => {
       e.stopPropagation()
-      if (e.key === 'Escape') close()
+      if (e.key === 'Escape') closeComposer()
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         add.click()
       }
     }
+
+    // An empty spacer zone reserves the room; the card overlays it.
+    const spacerZone = document.createElement('div')
     ed.changeViewZones((acc) => {
-      zoneId = acc.addZone({ afterLineNumber: line, heightInPx: 138, domNode: node })
+      zoneId = acc.addZone({ afterLineNumber: line, heightInPx: ZONE_HEIGHT, domNode: spacerZone })
     })
+    positionOverlay()
     window.setTimeout(() => ta.focus(), 60)
   }
 
@@ -168,7 +182,6 @@ export function attachCommenting(
   })
 
   // Floating Comment button pinned to the right edge of the hovered line.
-  const container = ed.getContainerDomNode()
   const fab = document.createElement('button')
   fab.className = 'comment-fab'
   fab.innerHTML = FAB_SVG
@@ -190,7 +203,10 @@ export function attachCommenting(
     if (!container.contains(ev.relatedTarget as Node)) hideFab()
   }
   container.addEventListener('mouseleave', leave)
-  const scroll = ed.onDidScrollChange(hideFab)
+  const scroll = ed.onDidScrollChange(() => {
+    hideFab()
+    positionOverlay()
+  })
   fab.onclick = (): void => {
     hideFab()
     openComposer(fabLine)
@@ -198,8 +214,7 @@ export function attachCommenting(
 
   return {
     dispose: () => {
-      clearActiveLine()
-      removeZone()
+      closeComposer()
       mouse.dispose()
       move.dispose()
       scroll.dispose()

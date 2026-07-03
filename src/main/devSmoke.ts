@@ -158,6 +158,27 @@ export function runDevSmoke(win: BrowserWindow): void {
     await js(`window.__bearcodeStore.getState().openReview(${JSON.stringify(diffId)})`)
     await new Promise((r) => setTimeout(r, 3000))
     await shot('review')
+    if (process.env['BEARCODE_SMOKE_COMMENT']) {
+      // Open the file code tab then trigger a comment composer on line 4.
+      await js(
+        `(() => {
+          const s = window.__bearcodeStore.getState();
+          const convo = s.conversations[s.convoOrder[0]];
+          const diff = [...convo.events].reverse().find((e) => e.type === 'file_diff');
+          if (diff && diff.files[0]) s.openReviewForFile(s.convoOrder[0], diff.files[0].path);
+        })()`
+      )
+      await new Promise((r) => setTimeout(r, 1500))
+      await js(
+        `(() => {
+          const gutters = document.querySelectorAll('.margin-view-overlays .line-numbers');
+          const el = gutters[3] || gutters[0];
+          if (el) el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        })()`
+      )
+      await new Promise((r) => setTimeout(r, 1200))
+      await shot('comment')
+    }
     await js(`window.__bearcodeStore.getState().closeReview()`)
     const dir = process.env['BEARCODE_SMOKE_DIR']
     if (dir) {
