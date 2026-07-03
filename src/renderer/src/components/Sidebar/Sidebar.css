@@ -17,12 +17,13 @@
   }
 }
 
-/* Native macOS traffic lights sit over this row (hiddenInset title bar). */
+/* Native macOS traffic lights sit over this row, pinned to the same line
+   by trafficLightPosition in src/main/index.ts. */
 .chrome {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 2px 4px 16px 62px;
+  padding: 2px 4px 16px 78px;
   -webkit-app-region: drag;
 }
 

@@ -14,7 +14,10 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#131313',
-    titleBarStyle: 'hiddenInset',
+    titleBarStyle: 'hidden',
+    // Keep the native traffic lights on the same line as the sidebar
+    // chrome row (toggle + history arrows).
+    trafficLightPosition: { x: 20, y: 22 },
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
