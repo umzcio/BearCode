@@ -49,9 +49,28 @@ const RESEARCHER_SUBAGENT = {
     'factual summary. Do not ask clarifying questions; answer with what you know.'
 }
 
-// Known subagent names (currently just the one above). Used as an allowlist
-// when deriving `agentId` from stream metadata -- see agentIdOf below.
-const SUBAGENT_NAMES = new Set([RESEARCHER_SUBAGENT.name])
+// Known subagent names. Includes our one named subagent PLUS deepagents'
+// built-in "general-purpose" subagent (GENERAL_PURPOSE_SUBAGENT.name,
+// deepagents/dist/langsmith-wdF8zG42.js ~2286).
+//
+// Task 8 review fix: `createDeepAgent()`'s exposed `CreateDeepAgentParams`
+// (deepagents/dist/agent-DURA4_mf.d.ts ~2518-2653) has NO `generalPurposeAgent`
+// boolean -- that flag only exists on the internal `SubAgentMiddlewareOptions`
+// consumed by `createSubAgentMiddleware` (~1502), which `createDeepAgent`
+// itself always calls with `generalPurposeAgent: false` (langsmith-wdF8zG42.js
+// ~5814-5820) because it pre-injects the GP subagent into `inlineSubagents`
+// beforehand. That injection (~5788-5803) is unconditional unless EITHER a
+// model-derived harness profile sets `generalPurposeSubagent.enabled === false`
+// (not something this call site controls -- it's keyed off the model
+// identifier, not a createDeepAgent param) OR our own `subagents` array
+// already contains an entry literally named "general-purpose" (~5792). So
+// there is no way to pass a simple option here to suppress it; the real
+// second registered subagent (findings above) is unavoidable with this
+// deepagents version. Per the review's documented fallback, allowlist it
+// instead of trying to disable it, so a "general-purpose" delegation gets
+// its own attributed pill rather than silently merging into the main
+// agent's stream.
+const SUBAGENT_NAMES = new Set([RESEARCHER_SUBAGENT.name, 'general-purpose'])
 
 // Derive the producing agent's id from a streamed chunk's metadata (and, as
 // documentation, its namespace). VERIFIED LIVE (BEARCODE_DEBUG_NS, Task 8):
