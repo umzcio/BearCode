@@ -2,7 +2,7 @@
 // before/after pairs live in the diffs table; Accept in the review pane
 // writes to disk, Reject discards.
 import { randomUUID } from 'crypto'
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
 import { dirname, relative } from 'path'
 import { diffLines } from 'diff'
 import { app } from 'electron'
@@ -47,6 +47,8 @@ export function countChanges(
   return { additions, deletions }
 }
 
+// Write-through (Antigravity model): the change lands on disk immediately
+// and is recorded here so the user can review, comment on, or revert it.
 export function stageFile(
   groupId: string,
   conversationId: string,
@@ -55,22 +57,26 @@ export function stageFile(
   afterText: string
 ): FileDiffFile {
   const fileId = randomUUID()
+  const status = beforeText === '' && !existsSync(absPath) ? 'created' : 'modified'
+  mkdirSync(dirname(absPath), { recursive: true })
+  writeFileSync(absPath, afterText)
   getDb()
     .prepare(
       `INSERT INTO diffs (id, conversation_id, path, before_text, after_text, state, group_id)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?)`
+       VALUES (?, ?, ?, ?, ?, 'applied', ?)`
     )
     .run(fileId, conversationId, absPath, beforeText, afterText, groupId)
+  console.log(`[ursa] change applied: ${absPath}`)
   const { additions, deletions } = countChanges(beforeText, afterText)
   return {
     fileId,
     path: absPath,
-    status: beforeText === '' && !existsSync(absPath) ? 'created' : 'modified',
+    status,
     beforeText,
     afterText,
     additions,
     deletions,
-    state: 'pending'
+    state: 'applied'
   }
 }
 
@@ -80,7 +86,8 @@ interface DiffRow {
   path: string
   before_text: string
   after_text: string
-  state: 'pending' | 'accepted' | 'rejected'
+  // Older rows carry pending/accepted from the staged-diff era.
+  state: 'pending' | 'accepted' | 'rejected' | 'applied'
   group_id: string
 }
 
@@ -94,7 +101,7 @@ function rowToFile(row: DiffRow, projectPath: string | null): FileDiffFile {
     afterText: row.after_text,
     additions,
     deletions,
-    state: row.state
+    state: row.state === 'rejected' ? 'reverted' : 'applied'
   }
 }
 
@@ -108,23 +115,21 @@ export function getDiff(groupId: string): FileDiff {
   return { diffId: groupId, files: rows.map((r) => rowToFile(r, projectPath)) }
 }
 
-export function acceptFile(fileId: string): void {
-  const row = getDb().prepare(`SELECT * FROM diffs WHERE id = ?`).get(fileId) as DiffRow | undefined
-  if (!row || row.state !== 'pending') return
-  mkdirSync(dirname(row.path), { recursive: true })
-  writeFileSync(row.path, row.after_text)
-  getDb().prepare(`UPDATE diffs SET state = 'accepted' WHERE id = ?`).run(fileId)
-  console.log(`[ursa] diff accepted: ${row.path}`)
-}
-
 export function filePathFor(fileId: string): string | null {
   const row = getDb().prepare(`SELECT path FROM diffs WHERE id = ?`).get(fileId) as
     { path: string } | undefined
   return row?.path ?? null
 }
 
-export function rejectFile(fileId: string): void {
-  getDb()
-    .prepare(`UPDATE diffs SET state = 'rejected' WHERE id = ? AND state = 'pending'`)
-    .run(fileId)
+// Undo an applied change: restore the before-state (or remove a created file).
+export function revertFile(fileId: string): void {
+  const row = getDb().prepare(`SELECT * FROM diffs WHERE id = ?`).get(fileId) as DiffRow | undefined
+  if (!row || row.state === 'rejected') return
+  if (row.before_text === '') {
+    if (existsSync(row.path)) unlinkSync(row.path)
+  } else {
+    writeFileSync(row.path, row.before_text)
+  }
+  getDb().prepare(`UPDATE diffs SET state = 'rejected' WHERE id = ?`).run(fileId)
+  console.log(`[ursa] change reverted: ${row.path}`)
 }

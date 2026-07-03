@@ -6,7 +6,10 @@
 
 import type { ReactNode } from 'react'
 
-function renderInline(text: string): ReactNode[] {
+// Inline code that names a workspace file, e.g. `index.html` or `src/app.ts`.
+const FILE_RE = /^[\w./-]+\.[A-Za-z0-9]{1,8}$/
+
+function renderInline(text: string, onFileClick?: (path: string) => void): ReactNode[] {
   const out: ReactNode[] = []
   const re = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g
   let last = 0
@@ -16,11 +19,20 @@ function renderInline(text: string): ReactNode[] {
     if (m.index > last) out.push(text.slice(last, m.index))
     const tok = m[0]
     if (tok.startsWith('`')) {
-      out.push(
-        <code key={key++} className="tok">
-          {tok.slice(1, -1)}
-        </code>
-      )
+      const inner = tok.slice(1, -1)
+      if (onFileClick && FILE_RE.test(inner)) {
+        out.push(
+          <code key={key++} className="tok file" onClick={() => onFileClick(inner)}>
+            {inner}
+          </code>
+        )
+      } else {
+        out.push(
+          <code key={key++} className="tok">
+            {inner}
+          </code>
+        )
+      }
     } else if (tok.startsWith('**')) {
       out.push(<b key={key++}>{tok.slice(2, -2)}</b>)
     } else {
@@ -105,15 +117,17 @@ function parseBlocks(text: string): Block[] {
 function List({
   ordered,
   items,
-  tail
+  tail,
+  onFileClick
 }: {
   ordered: boolean
   items: string[]
   tail: ReactNode
+  onFileClick?: (path: string) => void
 }): React.JSX.Element {
   const rows = items.map((item, j) => (
     <li key={j}>
-      {renderInline(item)}
+      {renderInline(item, onFileClick)}
       {j === items.length - 1 ? tail : null}
     </li>
   ))
@@ -122,10 +136,12 @@ function List({
 
 export function Markdown({
   text,
-  trailing
+  trailing,
+  onFileClick
 }: {
   text: string
   trailing?: ReactNode
+  onFileClick?: (path: string) => void
 }): React.JSX.Element {
   const blocks = parseBlocks(text)
   const lastIndex = blocks.length - 1
@@ -133,10 +149,19 @@ export function Markdown({
     <>
       {blocks.map((block, i) => {
         const tail = trailing && i === lastIndex ? trailing : null
-        if (block.kind === 'h5') return <h5 key={i}>{renderInline(block.text)}</h5>
-        if (block.kind === 'ol') return <List key={i} ordered items={block.items} tail={tail} />
+        if (block.kind === 'h5') return <h5 key={i}>{renderInline(block.text, onFileClick)}</h5>
+        if (block.kind === 'ol')
+          return <List key={i} ordered items={block.items} tail={tail} onFileClick={onFileClick} />
         if (block.kind === 'ul')
-          return <List key={i} ordered={false} items={block.items} tail={tail} />
+          return (
+            <List
+              key={i}
+              ordered={false}
+              items={block.items}
+              tail={tail}
+              onFileClick={onFileClick}
+            />
+          )
         if (block.kind === 'code')
           return (
             <pre key={i} className="code-block">
@@ -146,7 +171,7 @@ export function Markdown({
           )
         return (
           <p key={i}>
-            {renderInline(block.text)}
+            {renderInline(block.text, onFileClick)}
             {tail}
           </p>
         )

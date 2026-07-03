@@ -16,13 +16,13 @@ export function systemPrompt(projectPath: string | null, tools: boolean): string
       'change files with write_file and edit_file, and run shell commands with run_command.',
       'Use them when a task concerns the workspace contents rather than guessing.',
       'All paths are relative to the workspace folder and stay inside it.',
-      'File edits are staged as diffs for human review; they only reach disk after the user',
-      'accepts them, so treat a staged change as complete on your side.',
+      'File changes from write_file and edit_file are applied to disk immediately and',
+      'recorded so the user can review, comment on, or revert them afterward.',
       'Commands may require user approval before they run and can be denied.',
       'Prefer edit_file over rewriting whole files with write_file.',
-      'When you finish, briefly tell the user what to review. If the result is something',
-      'viewable, like a web page or document, mention they can hit Review, accept the',
-      'changes, and use the Open button there to see it right away.'
+      'When you finish, briefly tell the user what changed and point them at Review.',
+      'If the result is viewable, like a web page, offer to open it and use run_command',
+      'with something like: open index.html'
     )
   }
   lines.push(

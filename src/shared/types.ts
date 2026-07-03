@@ -103,7 +103,7 @@ export interface FileDiffFile {
   afterText: string
   additions: number
   deletions: number
-  state: 'pending' | 'accepted' | 'rejected'
+  state: 'applied' | 'reverted'
 }
 
 export interface FileDiff {
@@ -148,8 +148,7 @@ export interface BearcodeApi {
   }
   diffs: {
     get(diffId: string): Promise<FileDiff>
-    accept(fileId: string): Promise<void>
-    reject(fileId: string): Promise<void>
+    revert(fileId: string): Promise<void>
     open(fileId: string): Promise<void>
   }
   tools: {

@@ -10,6 +10,7 @@ type ToolResultEvent = Extract<Event, { type: 'tool_result' }>
 interface ToolStepProps {
   call: ToolCallEvent
   result?: ToolResultEvent
+  convoId: string
 }
 
 function inputStr(call: ToolCallEvent, key: string): string | null {
@@ -75,8 +76,24 @@ function summaryFor(call: ToolCallEvent, result?: ToolResultEvent): React.ReactN
   }
 }
 
-export function ToolStep({ call, result }: ToolStepProps): React.JSX.Element {
+export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  const openReviewForFile = useAppStore((s) => s.openReviewForFile)
+
+  // Write steps open the review pane at that file, like Antigravity.
+  if ((call.tool === 'write_file' || call.tool === 'edit_file') && result?.stats) {
+    const stats = result.stats
+    return (
+      <div className="step">
+        <div className="step-row" onClick={() => openReviewForFile(convoId, stats.path)}>
+          {summaryFor(call, result)}
+          <span className="chev">
+            <IconChevronRightSmall />
+          </span>
+        </div>
+      </div>
+    )
+  }
 
   if (call.tool === 'run_command') {
     const command =

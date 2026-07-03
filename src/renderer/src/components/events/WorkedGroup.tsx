@@ -13,6 +13,7 @@ interface WorkedGroupProps {
   startedAt?: number
   workedSeconds?: number
   showBear: boolean
+  convoId: string
 }
 
 export function WorkedGroup({
@@ -20,7 +21,8 @@ export function WorkedGroup({
   live,
   startedAt,
   workedSeconds,
-  showBear
+  showBear,
+  convoId
 }: WorkedGroupProps): React.JSX.Element {
   const [collapsed, setCollapsed] = useState(false)
   const [elapsed, setElapsed] = useState(0)
@@ -50,6 +52,7 @@ export function WorkedGroup({
           key={ev.id}
           call={ev}
           result={result && result.type === 'tool_result' ? result : undefined}
+          convoId={convoId}
         />
       )
     }

@@ -20,8 +20,8 @@ export interface StagedStats {
 
 export interface ToolContext {
   projectPath: string
-  // Staging hook provided by the run loop: write tools never touch disk.
-  // Returns the staged change's line counts for the step row display.
+  // Write hook provided by the run loop: applies the change to disk and
+  // records it for review. Returns line counts for the step row display.
   stage?(absPath: string, beforeText: string, afterText: string): StagedStats
 }
 
@@ -196,7 +196,7 @@ function runCommand(
 
 TOOLS.write_file = {
   description:
-    'Write a file in the workspace. The change is staged as a diff for human review; it is not applied until the user accepts it.',
+    'Write a file in the workspace. The change is applied to disk immediately and recorded for the user to review or revert.',
   inputSchema: writeSchema,
   async execute(input, ctx) {
     const { path, content } = writeSchema.parse(input)
@@ -205,7 +205,7 @@ TOOLS.write_file = {
     if (!ctx.stage) throw new Error('Staging unavailable')
     const stats = ctx.stage(abs, before, content)
     return {
-      output: `Change staged for review: ${path}. The user must accept it before it is written to disk.`,
+      output: `Wrote ${path} (+${stats.additions} -${stats.deletions}). The change is on disk; the user can review or revert it.`,
       stats
     }
   }
@@ -213,7 +213,7 @@ TOOLS.write_file = {
 
 TOOLS.edit_file = {
   description:
-    'Replace old_str (which must be unique in the file) with new_str. The change is staged as a diff for human review. Prefer this over rewriting whole files.',
+    'Replace old_str (which must be unique in the file) with new_str. The change is applied to disk immediately and recorded for review. Prefer this over rewriting whole files.',
   inputSchema: editSchema,
   async execute(input, ctx) {
     const { path, old_str, new_str } = editSchema.parse(input)
@@ -226,7 +226,7 @@ TOOLS.edit_file = {
     if (!ctx.stage) throw new Error('Staging unavailable')
     const stats = ctx.stage(abs, before, before.replace(old_str, new_str))
     return {
-      output: `Change staged for review: ${path}. The user must accept it before it is written to disk.`,
+      output: `Edited ${path} (+${stats.additions} -${stats.deletions}). The change is on disk; the user can review or revert it.`,
       stats
     }
   }

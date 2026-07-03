@@ -79,11 +79,17 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                       startedAt={convo.startedAt}
                       workedSeconds={workedSecondsByTurn.get(turn.user.id)}
                       showBear={live}
+                      convoId={convoId}
                     />
                   ) : null}
                   {turn.texts.map((t) =>
                     t.text.length > 0 ? (
-                      <AssistantText key={t.id} text={t.text} streaming={streaming} />
+                      <AssistantText
+                        key={t.id}
+                        text={t.text}
+                        streaming={streaming}
+                        convoId={convoId}
+                      />
                     ) : null
                   )}
                   {turn.diffs.map((d) => (

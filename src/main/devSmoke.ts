@@ -138,8 +138,8 @@ export function runDevSmoke(win: BrowserWindow): void {
     }
   }
 
-  // Phase 5 acceptance: open the review modal on the staged diff, accept all
-  // pending files, and verify they landed on disk.
+  // Open the review pane on the turn's diff, screenshot it, and verify the
+  // write-through files are on disk.
   const reviewAndAccept = async (): Promise<void> => {
     const diffInfo = (await js(
       `(() => {
@@ -158,17 +158,6 @@ export function runDevSmoke(win: BrowserWindow): void {
     await js(`window.__bearcodeStore.getState().openReview(${JSON.stringify(diffId)})`)
     await new Promise((r) => setTimeout(r, 3000))
     await shot('review')
-    const accepted = await js(
-      `(async () => {
-        const d = await window.bearcode.diffs.get(${JSON.stringify(diffId)});
-        let n = 0;
-        for (const f of d.files) {
-          if (f.state === 'pending') { await window.bearcode.diffs.accept(f.fileId); n++; }
-        }
-        return n;
-      })()`
-    )
-    console.log(`[ursa] smoke: accepted ${String(accepted)} file(s)`)
     await js(`window.__bearcodeStore.getState().closeReview()`)
     const dir = process.env['BEARCODE_SMOKE_DIR']
     if (dir) {
@@ -179,6 +168,19 @@ export function runDevSmoke(win: BrowserWindow): void {
           `[ursa] smoke: on-disk ${p}: ${ok ? `EXISTS (${statSync(abs).size} bytes)` : 'MISSING'}`
         )
       }
+    }
+    // BEARCODE_SMOKE_REVERT=1: revert the first file and re-check the disk.
+    if (process.env['BEARCODE_SMOKE_REVERT'] && dir) {
+      await js(
+        `(async () => {
+          const d = await window.bearcode.diffs.get(${JSON.stringify(diffId)});
+          if (d.files[0]) await window.bearcode.diffs.revert(d.files[0].fileId);
+        })()`
+      )
+      const abs = join(dir, paths[0])
+      console.log(
+        `[ursa] smoke: after revert ${paths[0]}: ${existsSync(abs) ? 'STILL EXISTS' : 'REMOVED'}`
+      )
     }
   }
 

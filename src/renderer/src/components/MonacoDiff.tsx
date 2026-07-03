@@ -1,43 +1,26 @@
 // Loaded lazily by ReviewPanel so the Monaco chunk only downloads when a diff
 // is actually reviewed.
 import { useEffect, useRef } from 'react'
-import * as monaco from 'monaco-editor'
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-
-self.MonacoEnvironment = {
-  getWorker: () => new editorWorker()
-}
-
-monaco.editor.defineTheme('bearcode-dark', {
-  base: 'vs-dark',
-  inherit: true,
-  rules: [],
-  colors: {
-    'editor.background': '#1c1c1c',
-    'editor.foreground': '#a8a8a8',
-    'diffEditor.insertedTextBackground': '#3ecf8e17',
-    'diffEditor.insertedLineBackground': '#3ecf8e12',
-    'diffEditor.removedTextBackground': '#f06a6a17',
-    'diffEditor.removedLineBackground': '#f06a6a12',
-    'editorLineNumber.foreground': '#6f6f6f',
-    'editorGutter.background': '#1c1c1c',
-    'scrollbarSlider.background': '#33333388',
-    'scrollbarSlider.hoverBackground': '#3d3d3d99'
-  }
-})
+import { EDITOR_OPTIONS, attachCommenting, decorateCommentedLines, monaco } from './monacoCommon'
 
 interface MonacoDiffProps {
   original: string
   modified: string
   language?: string
+  commentedLines?: number[]
+  onAddComment?: (line: number, text: string) => void
 }
 
 export default function MonacoDiff({
   original,
   modified,
-  language = 'markdown'
+  language = 'markdown',
+  commentedLines,
+  onAddComment
 }: MonacoDiffProps): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
+  const modifiedEd = useRef<monaco.editor.ICodeEditor | null>(null)
+  const decorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null)
 
   useEffect(() => {
     const host = hostRef.current
@@ -46,26 +29,33 @@ export default function MonacoDiff({
     const originalModel = monaco.editor.createModel(original, language)
     const modifiedModel = monaco.editor.createModel(modified, language)
     const editor = monaco.editor.createDiffEditor(host, {
-      theme: 'bearcode-dark',
-      readOnly: true,
+      ...EDITOR_OPTIONS,
       renderSideBySide: false,
-      automaticLayout: true,
-      minimap: { enabled: false },
-      scrollBeyondLastLine: false,
-      fontSize: 12.5,
-      fontFamily: "'SF Mono', ui-monospace, Menlo, Consolas, monospace",
-      lineHeight: 22,
       renderOverviewRuler: false,
       hideUnchangedRegions: { enabled: false }
     })
     editor.setModel({ original: originalModel, modified: modifiedModel })
+    modifiedEd.current = editor.getModifiedEditor()
+
+    const commenting = onAddComment ? attachCommenting(modifiedEd.current, onAddComment) : undefined
 
     return () => {
+      commenting?.dispose()
+      modifiedEd.current = null
       editor.dispose()
       originalModel.dispose()
       modifiedModel.dispose()
     }
+    // onAddComment intentionally not a dependency: rebinding tears down Monaco.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [original, modified, language])
+
+  useEffect(() => {
+    decorations.current?.clear()
+    if (modifiedEd.current && commentedLines?.length) {
+      decorations.current = decorateCommentedLines(modifiedEd.current, commentedLines)
+    }
+  }, [commentedLines])
 
   return <div ref={hostRef} className="monaco-host" />
 }

@@ -22,8 +22,7 @@ const bearcode: BearcodeApi = {
   },
   diffs: {
     get: (diffId: string) => ipcRenderer.invoke('bearcode:diffs:get', diffId),
-    accept: (fileId: string) => ipcRenderer.invoke('bearcode:diffs:accept', fileId),
-    reject: (fileId: string) => ipcRenderer.invoke('bearcode:diffs:reject', fileId),
+    revert: (fileId: string) => ipcRenderer.invoke('bearcode:diffs:revert', fileId),
     open: (fileId: string) => ipcRenderer.invoke('bearcode:diffs:open', fileId)
   },
   tools: {

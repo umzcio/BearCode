@@ -72,6 +72,8 @@ interface AppState {
   workspacePath: string | null
   settingsOpen: boolean
   reviewDiffId: string | null
+  // File path the review pane should focus when it opens (chip/step clicks).
+  reviewFocusPath: string | null
   toast: string | null
 
   init(): void
@@ -97,6 +99,7 @@ interface AppState {
   saveSettings(patch: Partial<AppSettings>): Promise<void>
   deleteAllConversations(): Promise<void>
   openReview(diffId: string): void
+  openReviewForFile(convoId: string, path: string): void
   closeReview(): void
   showToast(message: string): void
 }
@@ -204,6 +207,7 @@ export const useAppStore = create<AppState>((set, get) => {
     workspacePath: null,
     settingsOpen: false,
     reviewDiffId: null,
+    reviewFocusPath: null,
     toast: null,
 
     init: () => {
@@ -358,8 +362,24 @@ export const useAppStore = create<AppState>((set, get) => {
       get().showToast('All conversations deleted')
     },
 
-    openReview: (diffId) => set({ reviewDiffId: diffId }),
-    closeReview: () => set({ reviewDiffId: null }),
+    openReview: (diffId) => set({ reviewDiffId: diffId, reviewFocusPath: null }),
+    openReviewForFile: (convoId, path) => {
+      const convo = get().conversations[convoId]
+      if (!convo) return
+      const name = path.split('/').pop() ?? path
+      for (let i = convo.events.length - 1; i >= 0; i--) {
+        const ev = convo.events[i]
+        if (ev.type !== 'file_diff') continue
+        const match = ev.files.find(
+          (f) => f.path === path || f.path.endsWith('/' + name) || f.path === name
+        )
+        if (match) {
+          set({ reviewDiffId: ev.diffId, reviewFocusPath: match.path })
+          return
+        }
+      }
+    },
+    closeReview: () => set({ reviewDiffId: null, reviewFocusPath: null }),
 
     showToast: (message) => {
       if (toastTimer) clearTimeout(toastTimer)
