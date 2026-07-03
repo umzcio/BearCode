@@ -1,0 +1,20 @@
+# Planning & internal docs — never commit these
+planning/
+*.plan.md
+PLAN*.md
+.claude/
+
+# macOS
+.DS_Store
+
+# Node / build output
+node_modules/
+dist/
+out/
+release/
+.eslintcache
+*.log*
+
+# Local env & secrets
+.env
+.env.*

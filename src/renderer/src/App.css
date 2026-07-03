@@ -1,0 +1,41 @@
+.phase0 {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  -webkit-app-region: drag;
+}
+
+.phase0-mark {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 8px;
+}
+
+.phase0-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.phase0-subtitle {
+  color: var(--text-dim);
+  font-size: 13.5px;
+}
+
+.phase0-status {
+  margin-top: 18px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text-mid);
+}
+
+.phase0-status.ok {
+  color: var(--green);
+}
+
+.phase0-status.failed {
+  color: var(--red);
+}

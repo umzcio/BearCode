@@ -1,0 +1,40 @@
+/* Design tokens from design/bearcode-prototype.html — the pixel-level source of truth. */
+:root {
+  --bg: #131313;
+  --bg-window: #1b1b1b;
+  --bg-sidebar: #171717;
+  --bg-raised: #232323;
+  --bg-hover: #262626;
+  --bg-active: #2e2e2e;
+  --border: #2c2c2c;
+  --border-soft: #242424;
+  --text: #e7e7e7;
+  --text-mid: #a8a8a8;
+  --text-dim: #6f6f6f;
+  --accent: #4c8dff;
+  --green: #3ecf8e;
+  --red: #f06a6a;
+  --amber: #e0b568;
+  --mono: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  --radius: 12px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+  color: var(--text);
+  font-size: 14px;
+  user-select: none;
+}
