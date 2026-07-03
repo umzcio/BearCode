@@ -63,17 +63,30 @@ interface StateSnapshotLike {
 }
 type GetStateCapable = { getState(config: unknown): Promise<StateSnapshotLike> }
 
+// `count` lets the caller detect the parallel-interrupt case (more than one
+// approval-requiring tool call raised in the same superstep) and refuse to
+// guess which one a bare `Command({ resume })` should target.
+interface PendingInterruptInfo {
+  value: unknown
+  count: number
+}
+
 async function findPendingInterrupt(
   agent: unknown,
   threadId: string
-): Promise<unknown | undefined> {
+): Promise<PendingInterruptInfo | undefined> {
   const snapshot = await (agent as GetStateCapable).getState({
     configurable: { thread_id: threadId }
   })
+  let count = 0
+  let value: unknown
   for (const task of snapshot.tasks) {
-    if (task.interrupts.length > 0) return task.interrupts[0].value
+    for (const it of task.interrupts) {
+      if (count === 0) value = it.value
+      count += 1
+    }
   }
-  return undefined
+  return count > 0 ? { value, count } : undefined
 }
 
 interface DriveContext {
@@ -88,10 +101,22 @@ interface DriveContext {
   diffGroupId: string
   signal: AbortSignal
   writeCursor: { i: number }
-  // Tool-call ids whose tool_call Event has already been emitted by the
-  // caller (the approval resume path emits the 'approved'/'denied' update
-  // itself, before re-driving the stream) so drive() doesn't double-emit.
+  // Local event ids (see callIdMap below) whose tool_call Event has already
+  // been emitted by the caller (the approval resume path emits the
+  // 'approved'/'denied' update itself, before re-driving the stream) so
+  // drive() doesn't double-emit.
   alreadyAnnounced: Set<string>
+  // Provider tool-call id (tc.id, e.g. LangChain/OpenRouter's own id, which
+  // can repeat across iterations for non-Anthropic providers) -> a locally
+  // minted uuid used as the Event id everywhere. `events.id` is a GLOBAL
+  // PRIMARY KEY across all conversations (src/main/db/index.ts), so reusing
+  // the provider's id verbatim collides once it repeats (legacy run.ts
+  // around line 293 has the same fix: `const evId = randomUUID()`). This
+  // map is shared by reference across the pause/resume split (the same
+  // DriveContext, and thus the same Map, is threaded through
+  // pendingApprovals/continueAfterApproval) so the tool_call emitted before
+  // the pause and the tool_result emitted after resume pair on the same id.
+  callIdMap: Map<string, string>
 }
 
 interface DriveResult {
@@ -222,13 +247,40 @@ async function drive(
     const aiMsg = aiById.get(msgId)
     for (const tc of aiMsg?.tool_calls ?? []) {
       if (!tc.id) continue
+      // Mint (or recall) the local id for this provider tool-call id up
+      // front, before checking alreadyAnnounced -- see callIdMap's doc
+      // comment on DriveContext. Recall matters across the pause/resume
+      // split: the same tc.id is seen again after resume, and must map to
+      // the SAME local id that was used for the pre-pause tool_call emit.
+      let localId = ctx.callIdMap.get(tc.id)
+      if (!localId) {
+        localId = randomUUID()
+        ctx.callIdMap.set(tc.id, localId)
+      }
       const toolResult = toolMsgById.get(tc.id)
       if (!toolResult) {
         // No result yet: this is the tool the graph paused on (run_command
         // awaiting approval). Check the checkpointed state to confirm, per
         // the raw-interrupt() pattern (planning/replatform-api-notes.md (d2)).
-        const pendingValue = await findPendingInterrupt(agent, ctx.conversationId)
-        if (pendingValue !== undefined) {
+        const pending = await findPendingInterrupt(agent, ctx.conversationId)
+        if (pending !== undefined) {
+          if (pending.count > 1) {
+            // Parallel interrupts: the approval-resume path issues a bare,
+            // unkeyed `Command({ resume })` (continueAfterApproval below),
+            // which cannot safely target one interrupt out of several
+            // pending ones. Since this is the command-approval SECURITY
+            // gate, silently applying that resume to an ambiguous set
+            // could execute a command the user meant to deny, or leave a
+            // second approval prompt never surfaced. Fail the turn
+            // deterministically instead -- caught by the try/catch in
+            // runGraph/continueAfterApproval, which emits a clear `error`
+            // Event via failTurn(). Full multi-interrupt support (a
+            // per-task keyed resume) is a follow-up; not needed for the POC.
+            throw new Error(
+              `${pending.count} tool calls require approval in the same step; ` +
+                'parallel approvals are not yet supported.'
+            )
+          }
           // Not persisted here (matching legacy run.ts): only the final
           // approvalState ('approved'/'denied', emitted once resolved, see
           // continueAfterApproval below) is written to the events table.
@@ -236,22 +288,22 @@ async function drive(
           // event id once the final state is appended.
           ctx.sink.emit(ctx.conversationId, {
             type: 'tool_call',
-            id: tc.id,
+            id: localId,
             tool: (tc.name as ToolName) ?? 'run_command',
             input: tc.args,
             approvalState: 'pending'
           })
           ctx.sink.setState(ctx.conversationId, 'awaiting-approval')
-          return { paused: true, pendingCallId: tc.id, pendingInput: tc.args }
+          return { paused: true, pendingCallId: localId, pendingInput: tc.args }
         }
         // No result and no interrupt: the tool is still genuinely running
         // (shouldn't happen once the stream is exhausted) -- skip silently.
         continue
       }
-      if (!ctx.alreadyAnnounced.has(tc.id)) {
+      if (!ctx.alreadyAnnounced.has(localId)) {
         emitAndPersist(ctx.conversationId, ctx.sink, {
           type: 'tool_call',
-          id: tc.id,
+          id: localId,
           tool: (tc.name as ToolName) ?? 'run_command',
           input: tc.args,
           approvalState: 'auto'
@@ -264,7 +316,7 @@ async function drive(
       emitAndPersist(ctx.conversationId, ctx.sink, {
         type: 'tool_result',
         id: randomUUID(),
-        callId: tc.id,
+        callId: localId,
         output: truncated ? output.slice(0, 50000) + '\n… output truncated' : output,
         durationMs: 0,
         truncated,
@@ -394,7 +446,8 @@ export async function runGraph(opts: {
     diffGroupId,
     signal,
     writeCursor: { i: 0 },
-    alreadyAnnounced: new Set()
+    alreadyAnnounced: new Set(),
+    callIdMap: new Map()
   }
 
   try {
