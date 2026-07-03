@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ProviderId, SettingsInfo } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { ProviderIcon } from '../ProviderIcon'
@@ -29,6 +29,14 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
 
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({})
   const [ollamaUrl, setOllamaUrl] = useState(settings.ollamaBaseUrl)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') close()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [close])
 
   const configured = (id: ProviderId): boolean =>
     providers.find((p) => p.id === id)?.keyConfigured ?? false
@@ -84,8 +92,16 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                   'status-dot' + (providers.find((p) => p.id === 'ollama')?.reachable ? ' ok' : '')
                 }
               />
-              <span className="key-label">Base URL</span>
-              <input type="text" value={ollamaUrl} onChange={(e) => setOllamaUrl(e.target.value)} />
+              <span className="key-label icon-label" title="Base URL">
+                <ProviderIcon provider="ollama" size={14} />
+                Ollama
+              </span>
+              <input
+                type="text"
+                value={ollamaUrl}
+                placeholder="http://localhost:11434"
+                onChange={(e) => setOllamaUrl(e.target.value)}
+              />
               <button
                 className="small-btn"
                 disabled={ollamaUrl === settings.ollamaBaseUrl}

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { DEMO_DIFF } from '../demo/data'
 import { useAppStore } from '../state/store'
 import { IconClose } from './icons'
@@ -11,6 +11,18 @@ export function ReviewModal(): React.JSX.Element | null {
   const closeReview = useAppStore((s) => s.closeReview)
   const showToast = useAppStore((s) => s.showToast)
   const [fileIndex, setFileIndex] = useState(0)
+
+  useEffect(() => {
+    if (!diffId) return undefined
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        setFileIndex(0)
+        closeReview()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [diffId, closeReview])
 
   if (!diffId) return null
   const files = DEMO_DIFF[diffId] ?? []
