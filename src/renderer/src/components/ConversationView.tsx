@@ -50,7 +50,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const showToast = useAppStore((s) => s.showToast)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const running = convo.runPhase === 'working' || convo.runPhase === 'streaming'
+  const running = convo.runState === 'running'
   const turns = groupTurns(convo.events)
 
   useEffect(() => {
@@ -64,7 +64,10 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
         <div className="convo-inner">
           {turns.map((turn, i) => {
             const isLast = i === turns.length - 1
-            const live = isLast && convo.runPhase === 'working'
+            // Working phase: run active, no prose yet. Streaming: prose flowing.
+            const hasText = turn.texts.some((t) => t.text.length > 0)
+            const live = isLast && running && !hasText
+            const streaming = isLast && running && hasText
             return (
               <div key={turn.user.id} className="turn-pair">
                 <div className="msg-user">{turn.user.text}</div>
@@ -78,13 +81,11 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                       showBear={live}
                     />
                   ) : null}
-                  {turn.texts.map((t) => (
-                    <AssistantText
-                      key={t.id}
-                      text={t.text}
-                      streaming={isLast && convo.runPhase === 'streaming'}
-                    />
-                  ))}
+                  {turn.texts.map((t) =>
+                    t.text.length > 0 ? (
+                      <AssistantText key={t.id} text={t.text} streaming={streaming} />
+                    ) : null
+                  )}
                   {turn.diffs.map((d) => (
                     <DiffCard key={d.id} diffId={d.diffId} />
                   ))}

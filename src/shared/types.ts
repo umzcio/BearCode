@@ -50,9 +50,44 @@ export type Event =
     }
   | { type: 'error'; id: string; message: string; recoverable: boolean }
 
-// Phase 0: hello-world round trip. The full surface from spec 3.1
-// (conversations, run, diffs, tools, models, settings, keys, workspace)
-// lands with the phases that implement it.
+// ---- Provider layer ----
+
+export type ProviderId = 'anthropic' | 'openai' | 'google' | 'openrouter' | 'ollama'
+
+export interface ModelInfo {
+  id: string
+  label: string
+}
+
+// A model reference is "provider/modelId"; the modelId itself may contain
+// slashes (OpenRouter), so always split on the first slash only.
+export type ModelRef = string
+
+export interface ProviderModels {
+  id: ProviderId
+  displayName: string
+  color: string
+  requiresKey: boolean
+  keyConfigured: boolean
+  reachable: boolean
+  models: ModelInfo[]
+  note?: string
+}
+
+// ---- Settings ----
+
+export interface AppSettings {
+  ollamaBaseUrl: string
+  autoApproveCommands: boolean
+  defaultModelRef: ModelRef | null
+}
+
+export interface SettingsInfo extends AppSettings {
+  dataPath: string
+}
+
+// ---- IPC surface ----
+
 export interface PingResult {
   message: 'pong'
   electron: string
@@ -62,4 +97,32 @@ export interface PingResult {
 
 export interface BearcodeApi {
   ping(): Promise<PingResult>
+  run: {
+    start(
+      conversationId: string,
+      userText: string,
+      modelRef: ModelRef,
+      projectPath: string | null
+    ): Promise<void>
+    cancel(conversationId: string): Promise<void>
+  }
+  models: {
+    list(): Promise<ProviderModels[]>
+  }
+  keys: {
+    set(provider: ProviderId, key: string): Promise<void>
+    status(): Promise<Record<ProviderId, boolean>>
+  }
+  settings: {
+    get(): Promise<SettingsInfo>
+    set(patch: Partial<AppSettings>): Promise<SettingsInfo>
+  }
+  conversations: {
+    clear(): Promise<void>
+  }
+  workspace: {
+    pick(): Promise<string | null>
+  }
+  onEvent(cb: (conversationId: string, event: Event) => void): () => void
+  onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void
 }

@@ -1,7 +1,9 @@
+import { useEffect } from 'react'
 import { Sidebar } from './components/Sidebar/Sidebar'
 import { Home } from './components/Home'
 import { ConversationView } from './components/ConversationView'
 import { ReviewModal } from './components/ReviewModal'
+import { SettingsModal } from './components/Settings/SettingsModal'
 import { RoarBear } from './components/brand/RoarBear'
 import { IconPanel } from './components/icons'
 import { useAppStore } from './state/store'
@@ -23,6 +25,11 @@ function App(): React.JSX.Element {
   const conversations = useAppStore((s) => s.conversations)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const toast = useAppStore((s) => s.toast)
+  const init = useAppStore((s) => s.init)
+
+  useEffect(() => {
+    init()
+  }, [init])
 
   const convo = view.kind === 'conversation' ? conversations[view.id] : null
 
@@ -48,6 +55,7 @@ function App(): React.JSX.Element {
         {view.kind === 'scheduled' ? <ScheduledView /> : null}
         {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}
         <ReviewModal />
+        <SettingsModal />
       </div>
       {toast ? <div className="toast">{toast}</div> : null}
     </div>

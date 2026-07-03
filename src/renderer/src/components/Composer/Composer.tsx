@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
+import { refConfigured, useAppStore } from '../../state/store'
 import { IconArrowUp, IconChevronDown, IconMic, IconMonitor, IconPlus, IconStop } from '../icons'
 import './Composer.css'
 
@@ -18,10 +19,16 @@ export function Composer({
   showEnvRow = false,
   autoFocus = false
 }: ComposerProps): React.JSX.Element {
+  const providers = useAppStore((s) => s.providers)
+  const modelRef = useAppStore((s) => s.modelRef)
+  const openSettings = useAppStore((s) => s.openSettings)
   const [value, setValue] = useState('')
   const [envOpen, setEnvOpen] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const envRef = useRef<HTMLDivElement>(null)
+
+  const canSend = refConfigured(providers, modelRef)
+  const showNotice = providers.length > 0 && !canSend
 
   useEffect(() => {
     const ta = taRef.current
@@ -41,13 +48,21 @@ export function Composer({
 
   const submit = (): void => {
     const text = value.trim()
-    if (!text || running) return
+    if (!text || running || !canSend) return
     setValue('')
     onSend(text)
   }
 
   return (
     <div className="composer">
+      {showNotice ? (
+        <div className="composer-notice">
+          No API key for the selected model.{' '}
+          <span className="notice-link" onClick={openSettings}>
+            Open Settings
+          </span>
+        </div>
+      ) : null}
       <textarea
         ref={taRef}
         rows={1}
@@ -74,7 +89,7 @@ export function Composer({
           <button className="icon-btn send-btn stop" title="Stop" onClick={onStop}>
             <IconStop />
           </button>
-        ) : value.trim() ? (
+        ) : value.trim() && canSend ? (
           <button className="icon-btn send-btn" title="Send" onClick={submit}>
             <IconArrowUp />
           </button>

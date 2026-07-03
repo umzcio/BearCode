@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import { PROVIDERS } from '../../demo/data'
-import { useAppStore } from '../../state/store'
+import { modelDisplay, useAppStore } from '../../state/store'
 import { IconChevronDown, IconSearch } from '../icons'
 import './ModelPicker.css'
 
 export function ModelPicker(): React.JSX.Element {
-  const model = useAppStore((s) => s.model)
+  const providers = useAppStore((s) => s.providers)
+  const modelRef = useAppStore((s) => s.modelRef)
   const selectModel = useAppStore((s) => s.selectModel)
+  const openSettings = useAppStore((s) => s.openSettings)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
+
+  const current = modelDisplay(providers, modelRef)
 
   useEffect(() => {
     if (!open) return undefined
@@ -23,26 +26,29 @@ export function ModelPicker(): React.JSX.Element {
   return (
     <div className="model-picker" ref={rootRef}>
       <button className="pill-btn" onClick={() => setOpen((o) => !o)}>
-        <span className="provider-dot" style={{ background: model.color }} />
-        <span>{model.name}</span>
+        <span className="provider-dot" style={{ background: current.color }} />
+        <span>{current.name}</span>
         <span className="chev">
           <IconChevronDown />
         </span>
       </button>
       {open ? (
         <div className="menu model-menu">
-          {PROVIDERS.map((provider) => {
+          {providers.map((provider) => {
+            const dimmed = provider.requiresKey && !provider.keyConfigured
             const models =
               provider.id === 'openrouter' && search
-                ? provider.models.filter((m) => m.toLowerCase().includes(search.toLowerCase()))
+                ? provider.models.filter((m) =>
+                    m.label.toLowerCase().includes(search.toLowerCase())
+                  )
                 : provider.models
             return (
               <div key={provider.id}>
                 <div className="menu-group-label">
                   <span className="provider-dot" style={{ background: provider.color }} />
-                  {provider.name}
+                  {provider.displayName}
                 </div>
-                {provider.id === 'openrouter' ? (
+                {provider.id === 'openrouter' && !dimmed ? (
                   <div className="menu-search">
                     <IconSearch />
                     <input
@@ -53,20 +59,41 @@ export function ModelPicker(): React.JSX.Element {
                     />
                   </div>
                 ) : null}
-                {models.map((name) => (
+                {!provider.reachable ? (
+                  <div className="menu-item disabled">
+                    <span>{provider.note ?? 'Not reachable'}</span>
+                  </div>
+                ) : dimmed ? (
                   <div
-                    key={name}
-                    className={'menu-item' + (name === model.name ? ' selected' : '')}
+                    className="menu-item add-key"
                     onClick={() => {
-                      selectModel(name, provider.color)
                       setOpen(false)
+                      openSettings()
                     }}
                   >
-                    <span>{name}</span>
-                    {provider.local ? <span className="badge local">local</span> : null}
-                    <span className="check">✓</span>
+                    <span>Add API key</span>
                   </div>
-                ))}
+                ) : (
+                  models.map((model) => {
+                    const ref = `${provider.id}/${model.id}`
+                    return (
+                      <div
+                        key={model.id}
+                        className={'menu-item' + (ref === modelRef ? ' selected' : '')}
+                        onClick={() => {
+                          selectModel(ref)
+                          setOpen(false)
+                        }}
+                      >
+                        <span>{model.label}</span>
+                        {provider.id === 'ollama' ? (
+                          <span className="badge local">local</span>
+                        ) : null}
+                        <span className="check">✓</span>
+                      </div>
+                    )
+                  })
+                )}
               </div>
             )
           })}

@@ -1,7 +1,8 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import type { PingResult } from '../shared/types'
+import { registerIpc } from './ipc'
+import { runDevSmoke } from './devSmoke'
 import icon from '../../resources/icon.png?asset'
 
 function createWindow(): void {
@@ -28,6 +29,7 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+    runDevSmoke(mainWindow)
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -40,18 +42,6 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
-}
-
-function registerIpc(): void {
-  ipcMain.handle('bearcode:ping', (): PingResult => {
-    console.log('[ursa] ping received')
-    return {
-      message: 'pong',
-      electron: process.versions.electron,
-      node: process.versions.node,
-      respondedAt: Date.now()
-    }
-  })
 }
 
 app.whenReady().then(() => {

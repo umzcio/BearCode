@@ -17,13 +17,24 @@ import './Sidebar.css'
 export function Sidebar(): React.JSX.Element {
   const collapsed = useAppStore((s) => s.sidebarCollapsed)
   const view = useAppStore((s) => s.view)
-  const groups = useAppStore((s) => s.groups)
+  const convoOrder = useAppStore((s) => s.convoOrder)
   const conversations = useAppStore((s) => s.conversations)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const goHome = useAppStore((s) => s.goHome)
   const openScheduled = useAppStore((s) => s.openScheduled)
   const openConvo = useAppStore((s) => s.openConvo)
+  const openSettings = useAppStore((s) => s.openSettings)
   const showToast = useAppStore((s) => s.showToast)
+
+  // Conversations grouped by project, keeping creation order within groups.
+  const groups: { label: string; convoIds: string[] }[] = []
+  for (const id of convoOrder) {
+    const convo = conversations[id]
+    if (!convo) continue
+    const group = groups.find((g) => g.label === convo.projectLabel)
+    if (group) group.convoIds.push(id)
+    else groups.push({ label: convo.projectLabel, convoIds: [id] })
+  }
 
   return (
     <div className={'sidebar' + (collapsed ? ' collapsed' : '')}>
@@ -65,13 +76,14 @@ export function Sidebar(): React.JSX.Element {
           <button className="chrome-btn" title="Filter">
             <IconFilter />
           </button>
-          <button className="chrome-btn" title="New project">
+          <button className="chrome-btn" title="New project" onClick={goHome}>
             <IconFolderPlus />
           </button>
         </div>
       </div>
 
       <div className="projects-scroll">
+        {groups.length === 0 ? <div className="empty-note">No conversations yet</div> : null}
         {groups.map((group) => (
           <div className="proj-group" key={group.label}>
             <div className="proj-label">
@@ -80,8 +92,7 @@ export function Sidebar(): React.JSX.Element {
             </div>
             {group.convoIds.map((id) => {
               const convo = conversations[id]
-              const running =
-                convo.seedDot || convo.runPhase === 'working' || convo.runPhase === 'streaming'
+              const running = convo.runState === 'running' || convo.runState === 'awaiting-approval'
               const selected = view.kind === 'conversation' && view.id === id
               return (
                 <div
@@ -93,17 +104,15 @@ export function Sidebar(): React.JSX.Element {
                 >
                   <span className="name">{convo.title}</span>
                   {running ? <span className="dot" /> : null}
-                  {!running && convo.age ? <span className="age">{convo.age}</span> : null}
                 </div>
               )
             })}
-            {group.emptyNote ? <div className="empty-note">{group.emptyNote}</div> : null}
           </div>
         ))}
       </div>
 
       <div className="sidebar-footer">
-        <button className="nav-item" onClick={() => showToast('Settings are coming soon')}>
+        <button className="nav-item" onClick={openSettings}>
           <IconSettings />
           Settings
         </button>

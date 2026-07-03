@@ -34,3 +34,7 @@
 .menu-search input::placeholder {
   color: var(--text-dim);
 }
+
+.menu-item.add-key {
+  color: var(--accent);
+}

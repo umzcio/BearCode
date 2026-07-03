@@ -77,3 +77,16 @@
   left: 0;
   min-width: 220px;
 }
+
+.composer-notice {
+  padding: 10px 18px 0;
+  font-size: 13px;
+  color: var(--amber);
+}
+.composer-notice .notice-link {
+  color: var(--accent);
+  cursor: pointer;
+}
+.composer-notice .notice-link:hover {
+  text-decoration: underline;
+}

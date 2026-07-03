@@ -1,40 +1,53 @@
 import { create } from 'zustand'
-import type { Event } from '@shared/types'
-import {
-  DEFAULT_MODEL,
-  DEMO_ASSISTANT_TEXT,
-  DEMO_COMMAND_LABEL,
-  DEMO_COMMAND_OUTPUT,
-  DEMO_EXPLORED_OUTPUT,
-  DEMO_THINKING,
-  HOME_WORKSPACE,
-  MOCK_GROUPS
-} from '../demo/data'
+import type {
+  AppSettings,
+  Event,
+  ModelRef,
+  ProviderId,
+  ProviderModels,
+  RunState,
+  SettingsInfo
+} from '@shared/types'
 
-export type RunPhase = 'idle' | 'working' | 'streaming' | 'done'
+export type ConvoRunState = RunState | 'idle'
 
 export interface Convo {
   id: string
+  projectPath: string | null
   projectLabel: string
   title: string
-  age?: string
-  seedDot?: boolean
   events: Event[]
-  runPhase: RunPhase
+  runState: ConvoRunState
   startedAt?: number
 }
 
 export type View = { kind: 'home' } | { kind: 'conversation'; id: string } | { kind: 'scheduled' }
 
+// "Worked for Ns" per agent turn, keyed by the turn's user_message event id.
+// The working phase ends when prose starts streaming.
+export const workedSecondsByTurn = new Map<string, number>()
+const turnStartByConvo = new Map<string, { turnId: string; startedAt: number; frozen: boolean }>()
+
+function basename(p: string): string {
+  const parts = p.replace(/\/$/, '').split('/')
+  return parts[parts.length - 1] || p
+}
+
 interface AppState {
   sidebarCollapsed: boolean
   view: View
   conversations: Record<string, Convo>
-  groups: { label: string; convoIds: string[]; emptyNote?: string }[]
-  model: { name: string; color: string }
+  convoOrder: string[]
+  providers: ProviderModels[]
+  modelRef: ModelRef | null
+  settings: SettingsInfo | null
+  workspacePath: string | null
+  settingsOpen: boolean
   reviewDiffId: string | null
   toast: string | null
 
+  init(): void
+  refreshProviders(): Promise<void>
   toggleSidebar(): void
   goHome(): void
   openScheduled(): void
@@ -43,269 +56,223 @@ interface AppState {
   send(convoId: string, text: string): void
   cancelRun(convoId: string): void
   retryRun(convoId: string): void
-  selectModel(name: string, color: string): void
+  selectModel(ref: ModelRef): void
+  pickWorkspace(): Promise<void>
+  openSettings(): void
+  closeSettings(): void
+  saveKey(provider: ProviderId, key: string): Promise<void>
+  saveSettings(patch: Partial<AppSettings>): Promise<void>
+  deleteAllConversations(): Promise<void>
   openReview(diffId: string): void
   closeReview(): void
   showToast(message: string): void
 }
 
-const seededConvos: Record<string, Convo> = {}
-for (const group of MOCK_GROUPS) {
-  for (const seed of group.convos) {
-    seededConvos[seed.id] = {
-      id: seed.id,
-      projectLabel: group.label,
-      title: seed.name,
-      age: seed.age,
-      seedDot: seed.activeRun,
-      events: [],
-      runPhase: 'idle'
+let toastTimer: ReturnType<typeof setTimeout> | undefined
+let initialized = false
+
+export function modelDisplay(
+  providers: ProviderModels[],
+  ref: ModelRef | null
+): { name: string; color: string } {
+  if (ref) {
+    const slash = ref.indexOf('/')
+    const providerId = ref.slice(0, slash)
+    const modelId = ref.slice(slash + 1)
+    const provider = providers.find((p) => p.id === providerId)
+    if (provider) {
+      const model = provider.models.find((m) => m.id === modelId)
+      return { name: model?.label ?? modelId, color: provider.color }
     }
   }
+  return { name: 'Choose a model', color: '#6f6f6f' }
 }
 
-let eventSeq = 0
-const nextId = (): string => `ev-${++eventSeq}`
-
-// "Worked for Ns" per agent turn, keyed by the turn's user_message event id.
-// The working phase ends when prose starts streaming, which is earlier than
-// turn_meta.endedAt, so it gets its own record.
-export const workedSecondsByTurn = new Map<string, number>()
-
-// Pending timers per conversation so Stop and unload can cancel a demo run.
-const timers = new Map<string, ReturnType<typeof setTimeout>[]>()
-const addTimer = (convoId: string, t: ReturnType<typeof setTimeout>): void => {
-  const list = timers.get(convoId) ?? []
-  list.push(t)
-  timers.set(convoId, list)
+export function refConfigured(providers: ProviderModels[], ref: ModelRef | null): boolean {
+  if (!ref) return false
+  const providerId = ref.slice(0, ref.indexOf('/'))
+  const provider = providers.find((p) => p.id === providerId)
+  return Boolean(provider && provider.keyConfigured && provider.reachable)
 }
-const clearTimers = (convoId: string): void => {
-  for (const t of timers.get(convoId) ?? []) clearTimeout(t)
-  timers.delete(convoId)
-}
-
-let toastTimer: ReturnType<typeof setTimeout> | undefined
 
 export const useAppStore = create<AppState>((set, get) => {
   function patchConvo(id: string, patch: Partial<Convo>): void {
-    set((s) => ({
-      conversations: { ...s.conversations, [id]: { ...s.conversations[id], ...patch } }
-    }))
-  }
-  function appendEvent(convoId: string, event: Event): void {
     set((s) => {
-      const convo = s.conversations[convoId]
-      return {
-        conversations: {
-          ...s.conversations,
-          [convoId]: { ...convo, events: [...convo.events, event] }
-        }
-      }
+      const convo = s.conversations[id]
+      if (!convo) return s
+      return { conversations: { ...s.conversations, [id]: { ...convo, ...patch } } }
     })
   }
 
-  function lastUserMessageId(convoId: string): string | undefined {
-    const events = get().conversations[convoId].events
-    for (let i = events.length - 1; i >= 0; i--) {
-      if (events[i].type === 'user_message') return events[i].id
-    }
-    return undefined
+  function upsertEvent(convoId: string, event: Event): void {
+    set((s) => {
+      const convo = s.conversations[convoId]
+      if (!convo) return s
+      const index = convo.events.findIndex((e) => e.id === event.id)
+      const events =
+        index >= 0
+          ? convo.events.map((e, i) => (i === index ? event : e))
+          : [...convo.events, event]
+      return { conversations: { ...s.conversations, [convoId]: { ...convo, events } } }
+    })
   }
 
-  // Scripted agent run mirroring the prototype simulation. From Phase 4 the
-  // same store is fed by real ursa events over IPC instead.
-  function runDemoTurn(convoId: string): void {
-    const startedAt = Date.now()
-    patchConvo(convoId, { runPhase: 'working', startedAt })
+  function handleEvent(convoId: string, event: Event): void {
+    // Track per-turn worked time: a turn's working phase runs from its
+    // user_message until the first streamed prose or a terminal error.
+    if (event.type === 'user_message') {
+      turnStartByConvo.set(convoId, { turnId: event.id, startedAt: Date.now(), frozen: false })
+      patchConvo(convoId, { startedAt: Date.now() })
+    } else if (event.type === 'assistant_text' || event.type === 'error') {
+      const turn = turnStartByConvo.get(convoId)
+      if (turn && !turn.frozen) {
+        turn.frozen = true
+        workedSecondsByTurn.set(
+          turn.turnId,
+          Math.max(1, Math.round((Date.now() - turn.startedAt) / 1000))
+        )
+      }
+    }
+    upsertEvent(convoId, event)
+  }
 
-    addTimer(
-      convoId,
-      setTimeout(() => {
-        appendEvent(convoId, {
-          type: 'thinking',
-          id: nextId(),
-          text: DEMO_THINKING,
-          durationMs: 3000
-        })
-      }, 900)
-    )
-
-    addTimer(
-      convoId,
-      setTimeout(() => {
-        const callId = nextId()
-        appendEvent(convoId, {
-          type: 'tool_call',
-          id: callId,
-          tool: 'list_dir',
-          input: { path: '.', depth: 2 },
-          approvalState: 'auto'
-        })
-        appendEvent(convoId, {
-          type: 'tool_result',
-          id: nextId(),
-          callId,
-          output: DEMO_EXPLORED_OUTPUT,
-          durationMs: 300,
-          truncated: false
-        })
-      }, 2000)
-    )
-
-    addTimer(
-      convoId,
-      setTimeout(() => {
-        const callId = nextId()
-        appendEvent(convoId, {
-          type: 'tool_call',
-          id: callId,
-          tool: 'run_command',
-          input: { command: DEMO_COMMAND_LABEL },
-          approvalState: 'approved'
-        })
-        appendEvent(convoId, {
-          type: 'tool_result',
-          id: nextId(),
-          callId,
-          output: DEMO_COMMAND_OUTPUT,
-          exitCode: 0,
-          durationMs: 1200,
-          truncated: false
-        })
-      }, 3200)
-    )
-
-    addTimer(
-      convoId,
-      setTimeout(() => {
-        const secs = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
-        const turnId = lastUserMessageId(convoId)
-        if (turnId) workedSecondsByTurn.set(turnId, secs)
-        patchConvo(convoId, { runPhase: 'streaming' })
-        const textId = nextId()
-        appendEvent(convoId, { type: 'assistant_text', id: textId, text: '' })
-
-        let pos = 0
-        const step = (): void => {
-          pos = Math.min(pos + 2, DEMO_ASSISTANT_TEXT.length)
-          set((s) => {
-            const convo = s.conversations[convoId]
-            const events = convo.events.map((e) =>
-              e.id === textId && e.type === 'assistant_text'
-                ? { ...e, text: DEMO_ASSISTANT_TEXT.slice(0, pos) }
-                : e
-            )
-            return { conversations: { ...s.conversations, [convoId]: { ...convo, events } } }
-          })
-          if (pos < DEMO_ASSISTANT_TEXT.length) {
-            addTimer(convoId, setTimeout(step, 18))
-          } else {
-            appendEvent(convoId, {
-              type: 'file_diff',
-              id: nextId(),
-              diffId: 'demo-diff',
-              files: [
-                {
-                  path: 'Chapter001/AppendixD.md',
-                  additions: 64,
-                  deletions: 0,
-                  status: 'created'
-                }
-              ]
-            })
-            appendEvent(convoId, {
-              type: 'turn_meta',
-              id: nextId(),
-              provider: 'demo',
-              model: get().model.name,
-              startedAt,
-              endedAt: Date.now()
-            })
-            patchConvo(convoId, { runPhase: 'done' })
-          }
-        }
-        addTimer(convoId, setTimeout(step, 18))
-      }, 4700)
-    )
+  function ensureDefaultModel(): void {
+    const { providers, settings, modelRef } = get()
+    if (modelRef && refConfigured(providers, modelRef)) return
+    const stored = settings?.defaultModelRef ?? null
+    if (stored && refConfigured(providers, stored)) {
+      set({ modelRef: stored })
+      return
+    }
+    for (const p of providers) {
+      if (p.keyConfigured && p.reachable && p.models.length > 0) {
+        set({ modelRef: `${p.id}/${p.models[0].id}` })
+        return
+      }
+    }
+    // Nothing configured: keep a sensible visible selection so the picker
+    // has an anchor; the composer shows the add-a-key notice.
+    if (!modelRef) {
+      const first = providers.find((p) => p.models.length > 0)
+      if (first) set({ modelRef: `${first.id}/${first.models[0].id}` })
+    }
   }
 
   return {
     sidebarCollapsed: false,
     view: { kind: 'home' },
-    conversations: seededConvos,
-    groups: MOCK_GROUPS.map((g) => ({
-      label: g.label,
-      convoIds: g.convos.map((c) => c.id),
-      emptyNote: g.emptyNote
-    })),
-    model: DEFAULT_MODEL,
+    conversations: {},
+    convoOrder: [],
+    providers: [],
+    modelRef: null,
+    settings: null,
+    workspacePath: null,
+    settingsOpen: false,
     reviewDiffId: null,
     toast: null,
+
+    init: () => {
+      if (initialized) return
+      initialized = true
+      window.bearcode.onEvent(handleEvent)
+      window.bearcode.onRunStateChange((convoId, state) => {
+        patchConvo(convoId, { runState: state })
+      })
+      void (async () => {
+        const settings = await window.bearcode.settings.get()
+        set({ settings })
+        await get().refreshProviders()
+      })()
+    },
+
+    refreshProviders: async () => {
+      const providers = await window.bearcode.models.list()
+      set({ providers })
+      ensureDefaultModel()
+    },
 
     toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
     goHome: () => set({ view: { kind: 'home' } }),
     openScheduled: () => set({ view: { kind: 'scheduled' } }),
-
-    openConvo: (id) => {
-      set({ view: { kind: 'conversation', id } })
-      const convo = get().conversations[id]
-      if (convo.events.length === 0) {
-        appendEvent(id, { type: 'user_message', id: nextId(), text: convo.title })
-        runDemoTurn(id)
-      }
-    },
+    openConvo: (id) => set({ view: { kind: 'conversation', id } }),
 
     startFromHome: (text) => {
-      const id = `c-${Date.now()}`
+      const { modelRef, workspacePath } = get()
+      if (!modelRef) return
+      const id = crypto.randomUUID()
       const title = text.length > 42 ? text.slice(0, 42) + '…' : text
       set((s) => ({
         conversations: {
           ...s.conversations,
           [id]: {
             id,
-            projectLabel: HOME_WORKSPACE.projectLabel,
+            projectPath: workspacePath,
+            projectLabel: workspacePath ? basename(workspacePath) : 'No folder',
             title,
             events: [],
-            runPhase: 'idle'
+            runState: 'idle'
           }
         },
-        groups: s.groups.map((g) =>
-          g.label === HOME_WORKSPACE.projectLabel ? { ...g, convoIds: [id, ...g.convoIds] } : g
-        ),
+        convoOrder: [id, ...s.convoOrder],
         view: { kind: 'conversation', id }
       }))
-      appendEvent(id, { type: 'user_message', id: nextId(), text })
-      runDemoTurn(id)
+      void window.bearcode.run.start(id, text, modelRef, workspacePath)
     },
 
     send: (convoId, text) => {
-      appendEvent(convoId, { type: 'user_message', id: nextId(), text })
-      runDemoTurn(convoId)
+      const { modelRef, conversations } = get()
+      if (!modelRef) return
+      void window.bearcode.run.start(convoId, text, modelRef, conversations[convoId].projectPath)
     },
 
     cancelRun: (convoId) => {
-      const convo = get().conversations[convoId]
-      if (convo.runPhase !== 'working' && convo.runPhase !== 'streaming') return
-      clearTimers(convoId)
-      const secs = convo.startedAt
-        ? Math.max(1, Math.round((Date.now() - convo.startedAt) / 1000))
-        : 1
-      const turnId = lastUserMessageId(convoId)
-      if (turnId && !workedSecondsByTurn.has(turnId)) workedSecondsByTurn.set(turnId, secs)
-      appendEvent(convoId, {
-        type: 'error',
-        id: nextId(),
-        message: 'Cancelled',
-        recoverable: true
-      })
-      patchConvo(convoId, { runPhase: 'done' })
+      void window.bearcode.run.cancel(convoId)
     },
 
     retryRun: (convoId) => {
-      runDemoTurn(convoId)
+      const { conversations, modelRef } = get()
+      if (!modelRef) return
+      const convo = conversations[convoId]
+      const lastUser = [...convo.events].reverse().find((e) => e.type === 'user_message')
+      if (!lastUser || lastUser.type !== 'user_message') return
+      void window.bearcode.run.start(convoId, lastUser.text, modelRef, convo.projectPath)
     },
 
-    selectModel: (name, color) => set({ model: { name, color } }),
+    selectModel: (ref) => {
+      set({ modelRef: ref })
+      void window.bearcode.settings.set({ defaultModelRef: ref }).then((settings) => {
+        set({ settings })
+      })
+    },
+
+    pickWorkspace: async () => {
+      const path = await window.bearcode.workspace.pick()
+      if (path) set({ workspacePath: path })
+    },
+
+    openSettings: () => set({ settingsOpen: true }),
+    closeSettings: () => set({ settingsOpen: false }),
+
+    saveKey: async (provider, key) => {
+      await window.bearcode.keys.set(provider, key)
+      await get().refreshProviders()
+      get().showToast(key ? 'API key saved' : 'API key removed')
+    },
+
+    saveSettings: async (patch) => {
+      const settings = await window.bearcode.settings.set(patch)
+      set({ settings })
+      if (patch.ollamaBaseUrl !== undefined) await get().refreshProviders()
+    },
+
+    deleteAllConversations: async () => {
+      await window.bearcode.conversations.clear()
+      turnStartByConvo.clear()
+      workedSecondsByTurn.clear()
+      set({ conversations: {}, convoOrder: [], view: { kind: 'home' } })
+      get().showToast('All conversations deleted')
+    },
+
     openReview: (diffId) => set({ reviewDiffId: diffId }),
     closeReview: () => set({ reviewDiffId: null }),
 
