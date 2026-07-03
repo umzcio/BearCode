@@ -1,0 +1,335 @@
+/* Agent turn event components, styles from the prototype. */
+
+.agent-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.worked-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-mid);
+  font-size: 14px;
+  padding: 4px 2px;
+  cursor: pointer;
+  width: fit-content;
+  border-radius: 7px;
+  user-select: none;
+}
+.worked-head:hover {
+  color: var(--text);
+}
+.worked-head .chev {
+  display: flex;
+  color: var(--text-dim);
+  transition: transform 0.18s;
+}
+.worked-head .chev svg {
+  width: 13px;
+  height: 13px;
+}
+.worked-head.collapsed-state .chev {
+  transform: rotate(-90deg);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  padding-left: 18px;
+  overflow: hidden;
+}
+.steps.collapsed {
+  display: none;
+}
+
+.step {
+  margin: 1px 0;
+}
+.step-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: var(--text-mid);
+  font-size: 13.5px;
+  cursor: pointer;
+  user-select: none;
+  width: fit-content;
+  max-width: 100%;
+}
+.step-row:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.step-row b {
+  font-weight: 600;
+  color: inherit;
+}
+.step-row .mono {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step-row .chev {
+  display: flex;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  transition: transform 0.18s;
+}
+.step-row .chev svg {
+  width: 12px;
+  height: 12px;
+}
+.step.open .step-row .chev {
+  transform: rotate(90deg);
+}
+.step-row.static {
+  cursor: default;
+}
+.step-row.static:hover {
+  background: none;
+  color: var(--text-mid);
+}
+
+.step-body {
+  display: none;
+  margin: 4px 0 8px 8px;
+  border-left: 2px solid var(--border);
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text-mid);
+  line-height: 1.6;
+  white-space: pre-line;
+}
+.step.open .step-body {
+  display: block;
+}
+.step-body.md {
+  white-space: normal;
+}
+.step-body.term {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: #191919;
+  border: 1px solid var(--border-soft);
+  border-left: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.step-body .ok {
+  color: var(--green);
+}
+.step-body h5 {
+  font-size: 13px;
+  color: var(--text);
+  margin: 8px 0 4px;
+  font-weight: 700;
+}
+.step-body h5:first-child {
+  margin-top: 0;
+}
+.step-body p {
+  margin-bottom: 8px;
+}
+.step-body p:last-child {
+  margin-bottom: 0;
+}
+
+.bear-amble {
+  padding: 10px 0 4px 26px;
+}
+
+.agent-text {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--text);
+  padding: 6px 2px 0;
+  user-select: text;
+}
+.agent-text p {
+  margin-bottom: 12px;
+}
+.agent-text p:last-child {
+  margin-bottom: 0;
+}
+.agent-text ol {
+  margin: 0 0 12px 22px;
+}
+.agent-text li {
+  margin-bottom: 6px;
+  line-height: 1.6;
+}
+.agent-text b {
+  font-weight: 650;
+}
+
+/* --- Diff card --- */
+.diff-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  margin-top: 12px;
+  overflow: hidden;
+}
+.diff-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  font-size: 13.5px;
+}
+.diff-head .summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  color: var(--text);
+}
+.diff-head .plus {
+  color: var(--green);
+  font-weight: 600;
+}
+.diff-head .minus {
+  color: var(--red);
+  font-weight: 600;
+}
+.diff-head .chev {
+  display: flex;
+  color: var(--text-dim);
+  transition: transform 0.18s;
+}
+.diff-head .chev svg {
+  width: 12px;
+  height: 12px;
+}
+.diff-card.closed .diff-head .chev {
+  transform: rotate(-90deg);
+}
+.review-btn {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 13px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.review-btn:hover {
+  background: var(--bg-hover);
+}
+.review-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.diff-files {
+  border-top: 1px solid var(--border-soft);
+}
+.diff-card.closed .diff-files {
+  display: none;
+}
+.diff-file {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.diff-file:hover {
+  background: var(--bg-hover);
+}
+.diff-file .ftype {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.diff-file .fname {
+  color: var(--text);
+  font-weight: 500;
+}
+.diff-file .fpath {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.diff-file .stats {
+  flex-shrink: 0;
+}
+.diff-file .stats .plus {
+  color: var(--green);
+}
+.diff-file .stats .minus {
+  color: var(--red);
+  margin-left: 6px;
+}
+
+/* --- Error card --- */
+.error-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  background: rgba(240, 106, 106, 0.08);
+  border: 1px solid rgba(240, 106, 106, 0.35);
+  font-size: 13.5px;
+  color: var(--text);
+}
+.error-card .error-msg {
+  flex: 1;
+}
+.retry-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 13px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.retry-btn:hover {
+  background: var(--bg-hover);
+}
+
+/* --- Message actions --- */
+.msg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  padding-top: 6px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.agent-turn:hover .msg-actions {
+  opacity: 1;
+}
+.msg-actions .icon-btn {
+  width: 27px;
+  height: 27px;
+  color: var(--text-dim);
+}
+.msg-actions .icon-btn svg {
+  width: 14px;
+  height: 14px;
+}

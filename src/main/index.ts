@@ -19,7 +19,10 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // Live run tickers and streamed text must keep moving while the
+      // window is unfocused or minimized.
+      backgroundThrottling: false
     }
   })
 

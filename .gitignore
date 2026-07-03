@@ -18,3 +18,6 @@ release/
 # Local env & secrets
 .env
 .env.*
+
+# Test artifacts
+.playwright-mcp/

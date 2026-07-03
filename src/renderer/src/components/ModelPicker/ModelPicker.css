@@ -1,0 +1,36 @@
+.model-picker {
+  position: relative;
+}
+
+.model-menu {
+  bottom: 40px;
+  left: 0;
+}
+
+.menu-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 6px 4px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-dim);
+}
+.menu-search svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.menu-search input {
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  width: 100%;
+}
+.menu-search input::placeholder {
+  color: var(--text-dim);
+}

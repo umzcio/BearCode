@@ -1,0 +1,36 @@
+/* Brand pixel-art animations, ported from design/bearcode-animations.html. */
+
+.paw {
+  display: inline-flex;
+}
+.paw svg {
+  display: block;
+  shape-rendering: crispEdges;
+}
+.paw .pad {
+  animation: pad-pulse 1.7s ease-in-out infinite;
+  opacity: 0.3;
+}
+@keyframes pad-pulse {
+  0%,
+  55%,
+  100% {
+    opacity: 0.3;
+  }
+  22% {
+    opacity: 1;
+  }
+}
+
+.pixel-bear svg,
+.roar-bear svg {
+  display: block;
+  shape-rendering: crispEdges;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .paw .pad {
+    animation: none !important;
+    opacity: 1;
+  }
+}
