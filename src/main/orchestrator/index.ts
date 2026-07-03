@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto'
-import type { Event } from '../../shared/types'
+import type { ConversationMeta, Event } from '../../shared/types'
 import type { RunSink } from '../ursa/run'
 import { getSettings } from '../settings'
-import { appendEvent, getConversationMeta, getEvents, listConversations } from '../db'
+import { appendEvent, getConversationMeta, getZombieRunIds, listConversations } from '../db'
 import { runGraph } from './graph'
 import { getCheckpointer } from './checkpointer'
 
@@ -49,15 +49,16 @@ export function cancelRunOrchestrator(conversationId: string): void {
 // `listConversations()` -- synchronously walks every conversation's last
 // event and appends a synthetic `{ type: 'error', message: 'Cancelled' }`
 // event to any conversation that didn't end in `turn_meta`/`error`
-// (`cancelZombieRuns` in db/index.ts). A live Stop-button cancellation
-// writes that exact same `{ error, message: 'Cancelled' }` shape (see
-// `cancelRunOrchestrator`'s caller in `startRunOrchestrator` and the legacy
-// equivalent in `ursa/run.ts`). So "last event is that Cancelled marker"
-// reliably identifies every conversation that is not cleanly finished,
-// whether it was closed live moments ago or just synthesized after a crash
-// on this very boot.
+// (`cancelZombieRuns` in db/index.ts). That function returns the exact list
+// of conversation IDs it patched, cached and re-exposed via
+// `getZombieRunIds()`. This scan consumes that authoritative list directly
+// -- it does NOT re-derive "was this dangling" by matching the wording of
+// the synthetic event (`message === 'Cancelled'`); that string is an
+// internal implementation detail of `cancelZombieRuns` and a live Stop-button
+// cancellation happens to write the same shape, so string-matching it here
+// would be one rename away from silently breaking this safety net.
 //
-// For each such conversation this cross-checks the SQLite checkpointer
+// For each dangling conversation this cross-checks the SQLite checkpointer
 // (a SEPARATE store from `events`, see checkpointer.ts) via `getTuple`: if
 // LangGraph persisted execution state for that conversation's thread_id,
 // that proves the checkpointer round-trips (written during the run, read
@@ -70,15 +71,30 @@ export function cancelRunOrchestrator(conversationId: string): void {
 // is ever left reporting `running`/`awaiting-approval` by (re)broadcasting
 // `cancelled` for every affected conversation, so a live renderer's state
 // can never disagree with what's durably on disk.
+
+// Pure selection: which conversations need the resume scan's cross-check.
+// A conversation is dangling if the boot scan patched it (`zombieIds`) and
+// it does not already have a live run in this process (`activeIds`) --
+// the latter is a narrow TOCTOU guard: if a user re-ran a dangling
+// conversation in the moment between boot and this scan reaching it, don't
+// flash it back to 'cancelled' out from under the run that just started.
+export function selectDanglingConversations(
+  metas: ConversationMeta[],
+  zombieIds: readonly string[],
+  activeIds: ReadonlySet<string> = new Set()
+): ConversationMeta[] {
+  const zombieSet = new Set(zombieIds)
+  return metas.filter((m) => zombieSet.has(m.id) && !activeIds.has(m.id))
+}
+
 export async function resumeInterruptedRuns(sink: RunSink): Promise<void> {
   const checkpointer = getCheckpointer()
-  for (const meta of listConversations()) {
-    const events = getEvents(meta.id)
-    const last = events[events.length - 1]
-    const isDanglingMarker =
-      last?.type === 'error' && last.message === 'Cancelled' && last.recoverable
-    if (!isDanglingMarker) continue
-
+  const candidates = selectDanglingConversations(
+    listConversations(),
+    getZombieRunIds(),
+    new Set(aborts.keys())
+  )
+  for (const meta of candidates) {
     try {
       const tuple = await checkpointer.getTuple({ configurable: { thread_id: meta.id } })
       if (tuple) {
