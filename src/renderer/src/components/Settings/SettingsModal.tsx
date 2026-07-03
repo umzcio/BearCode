@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ProviderId, SettingsInfo } from '@shared/types'
 import { useAppStore } from '../../state/store'
+import { ProviderIcon } from '../ProviderIcon'
 import { IconClose } from '../icons'
 import './Settings.css'
 
@@ -51,7 +52,10 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
             {KEY_PROVIDERS.map((p) => (
               <div className="key-row" key={p.id}>
                 <span className={'status-dot' + (configured(p.id) ? ' ok' : '')} />
-                <span className="key-label">{p.label}</span>
+                <span className="key-label icon-label">
+                  <ProviderIcon provider={p.id} size={14} />
+                  {p.label}
+                </span>
                 <input
                   type="password"
                   placeholder={configured(p.id) ? 'Configured' : p.placeholder}

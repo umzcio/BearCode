@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ProviderId } from '@shared/types'
 import { modelDisplay, useAppStore } from '../../state/store'
+import { ProviderIcon } from '../ProviderIcon'
 import { IconChevronDown, IconSearch } from '../icons'
 import './ModelPicker.css'
 
@@ -26,7 +28,11 @@ export function ModelPicker(): React.JSX.Element {
   return (
     <div className="model-picker" ref={rootRef}>
       <button className="pill-btn" onClick={() => setOpen((o) => !o)}>
-        <span className="provider-dot" style={{ background: current.color }} />
+        {modelRef ? (
+          <ProviderIcon provider={modelRef.slice(0, modelRef.indexOf('/')) as ProviderId} />
+        ) : (
+          <span className="provider-dot" style={{ background: current.color }} />
+        )}
         <span>{current.name}</span>
         <span className="chev">
           <IconChevronDown />
@@ -45,7 +51,9 @@ export function ModelPicker(): React.JSX.Element {
             return (
               <div key={provider.id}>
                 <div className="menu-group-label">
-                  <span className="provider-dot" style={{ background: provider.color }} />
+                  <span className="group-icon">
+                    <ProviderIcon provider={provider.id} size={14} />
+                  </span>
                   {provider.displayName}
                 </div>
                 {provider.id === 'openrouter' && !dimmed ? (

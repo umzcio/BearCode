@@ -38,3 +38,12 @@
 .menu-item.add-key {
   color: var(--accent);
 }
+
+.menu-group-label .group-icon {
+  display: flex;
+  color: var(--text);
+}
+.pill-btn svg:first-child {
+  width: 15px;
+  height: 15px;
+}
