@@ -355,50 +355,91 @@
   padding: 40px 0;
 }
 
-/* --- Inline comment composer (Monaco view zone) --- */
-.comment-zone {
-  background: #202020;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+/* --- Inline comment composer (Monaco view zone), Antigravity card --- */
+.comment-zone-wrap {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  padding: 8px 16px 8px 24px;
   z-index: 10;
 }
+.comment-zone {
+  background: #232323;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  padding: 12px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(560px, 100%);
+  pointer-events: auto;
+}
 .comment-zone textarea {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 7px;
+  background: #2e2e2e;
+  border: none;
+  border-radius: 11px;
   color: var(--text);
   font-family: inherit;
-  font-size: 13px;
-  padding: 7px 10px;
+  font-size: 14px;
+  padding: 11px 14px;
   resize: none;
-  height: 44px;
+  height: 42px;
   outline: none;
+}
+.comment-zone textarea::placeholder {
+  color: var(--text-dim);
 }
 .comment-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 6px;
+  align-items: center;
+  gap: 14px;
 }
-.comment-btn {
+.comment-spacer {
+  flex: 1;
+}
+.comment-mic {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  display: flex;
+  padding: 4px;
+}
+.comment-mic svg {
+  width: 16px;
+  height: 16px;
+}
+.comment-cancel {
+  background: none;
+  border: none;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
-  padding: 5px 11px;
-  border-radius: 7px;
+  color: var(--text-mid);
   cursor: pointer;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  padding: 7px 6px;
+}
+.comment-cancel:hover {
   color: var(--text);
 }
-.comment-btn.primary {
-  background: rgba(76, 141, 255, 0.18);
-  border-color: rgba(76, 141, 255, 0.45);
-  color: #9dbcff;
+.comment-add {
+  background: #3566c9;
+  border: none;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  padding: 8px 16px;
+}
+.comment-add:hover {
+  background: #3f74e0;
+}
+.comment-add:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.commenting-line {
+  background: rgba(76, 141, 255, 0.14);
 }
 .commented-line {
   background: rgba(76, 141, 255, 0.08);

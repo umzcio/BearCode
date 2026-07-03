@@ -77,35 +77,77 @@ export function attachCommenting(
     ed.changeViewZones((acc) => acc.removeZone(id))
   }
 
+  let activeLine: monaco.editor.IEditorDecorationsCollection | null = null
+
+  const clearActiveLine = (): void => {
+    activeLine?.clear()
+    activeLine = null
+  }
+
   const openComposer = (line: number): void => {
     removeZone()
+    clearActiveLine()
+    // Highlight the line being commented on while the composer is open.
+    activeLine = ed.createDecorationsCollection([
+      {
+        range: new monaco.Range(line, 1, line, 1),
+        options: { isWholeLine: true, className: 'commenting-line' }
+      }
+    ])
+
     const node = document.createElement('div')
-    node.className = 'comment-zone'
+    node.className = 'comment-zone-wrap'
+    const card = document.createElement('div')
+    card.className = 'comment-zone'
     const ta = document.createElement('textarea')
     ta.placeholder = 'Leave a comment'
+    ta.rows = 1
     const actions = document.createElement('div')
     actions.className = 'comment-actions'
+    const mic = document.createElement('button')
+    mic.className = 'comment-mic'
+    mic.title = 'Voice input: coming soon'
+    mic.disabled = true
+    mic.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">' +
+      '<rect x="9" y="3" width="6" height="11" rx="3"/>' +
+      '<path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg>'
+    const spacer = document.createElement('span')
+    spacer.className = 'comment-spacer'
     const cancel = document.createElement('button')
     cancel.textContent = 'Cancel'
-    cancel.className = 'comment-btn'
+    cancel.className = 'comment-cancel'
     const add = document.createElement('button')
     add.textContent = 'Add Comment'
-    add.className = 'comment-btn primary'
-    actions.append(cancel, add)
-    node.append(ta, actions)
-    cancel.onclick = removeZone
+    add.className = 'comment-add'
+    add.disabled = true
+    actions.append(mic, spacer, cancel, add)
+    card.append(ta, actions)
+    node.append(card)
+
+    const close = (): void => {
+      clearActiveLine()
+      removeZone()
+    }
+    cancel.onclick = close
     add.onclick = (): void => {
       const value = ta.value.trim()
       if (value) onAdd(line, value)
-      removeZone()
+      close()
+    }
+    ta.oninput = (): void => {
+      add.disabled = ta.value.trim().length === 0
     }
     ta.onkeydown = (e): void => {
       e.stopPropagation()
-      if (e.key === 'Escape') removeZone()
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) add.click()
+      if (e.key === 'Escape') close()
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        add.click()
+      }
     }
     ed.changeViewZones((acc) => {
-      zoneId = acc.addZone({ afterLineNumber: line, heightInPx: 104, domNode: node })
+      zoneId = acc.addZone({ afterLineNumber: line, heightInPx: 138, domNode: node })
     })
     window.setTimeout(() => ta.focus(), 60)
   }
@@ -152,6 +194,7 @@ export function attachCommenting(
 
   return {
     dispose: () => {
+      clearActiveLine()
       removeZone()
       mouse.dispose()
       move.dispose()
