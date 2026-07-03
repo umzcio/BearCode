@@ -342,6 +342,8 @@
 .monaco-host {
   flex: 1;
   min-width: 0;
+  /* Anchors the floating Comment button to this editor's coordinates. */
+  position: relative;
 }
 .diff-loading {
   flex: 1;
