@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { Sidebar } from './components/Sidebar/Sidebar'
 import { Home } from './components/Home'
 import { ConversationView } from './components/ConversationView'
-import { ReviewModal } from './components/ReviewModal'
+import { ReviewPanel } from './components/ReviewPanel'
 import { SettingsModal } from './components/Settings/SettingsModal'
 import { RoarBear } from './components/brand/RoarBear'
 import { Hint } from './components/Hint'
@@ -92,9 +92,9 @@ function App(): React.JSX.Element {
         {view.kind === 'home' ? <Home /> : null}
         {view.kind === 'scheduled' ? <ScheduledView /> : null}
         {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}
-        <ReviewModal />
         <SettingsModal />
       </div>
+      <ReviewPanel />
       {toast ? <div className="toast">{toast}</div> : null}
     </div>
   )

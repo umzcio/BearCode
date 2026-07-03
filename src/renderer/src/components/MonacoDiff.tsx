@@ -1,4 +1,4 @@
-// Loaded lazily by ReviewModal so the Monaco chunk only downloads when a diff
+// Loaded lazily by ReviewPanel so the Monaco chunk only downloads when a diff
 // is actually reviewed.
 import { useEffect, useRef } from 'react'
 import * as monaco from 'monaco-editor'

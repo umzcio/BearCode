@@ -26,6 +26,14 @@ export type Event =
       exitCode?: number
       durationMs: number
       truncated: boolean
+      // For write_file/edit_file: the staged change, so the step row can
+      // render "Created foo.html +28 -0" like a real timeline entry.
+      stats?: {
+        path: string
+        status: 'created' | 'modified' | 'deleted'
+        additions: number
+        deletions: number
+      }
     }
   | {
       type: 'file_diff'

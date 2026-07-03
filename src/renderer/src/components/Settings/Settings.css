@@ -1,3 +1,14 @@
+.modal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
 .settings-panel {
   width: min(1120px, calc(100% - 56px));
   height: min(780px, calc(100% - 56px));

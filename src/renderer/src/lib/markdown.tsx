@@ -1,7 +1,8 @@
 // Minimal markdown renderer for agent prose and thinking bodies.
-// Supports: ### subheads, paragraphs, ordered lists, **bold**, *italic*,
-// `inline code` (amber chips). No raw HTML ever touches the DOM.
-// `trailing` (the streaming cursor) is appended inside the last paragraph.
+// Supports: # to #### headings, paragraphs, ordered and unordered lists,
+// fenced code blocks, **bold**, *italic*, `inline code` (amber chips).
+// No raw HTML ever touches the DOM.
+// `trailing` (the streaming cursor) is appended inside the last block.
 
 import type { ReactNode } from 'react'
 
@@ -32,46 +33,91 @@ function renderInline(text: string): ReactNode[] {
 }
 
 type Block =
-  { kind: 'p'; text: string } | { kind: 'h5'; text: string } | { kind: 'ol'; items: string[] }
+  | { kind: 'p'; text: string }
+  | { kind: 'h5'; text: string }
+  | { kind: 'ol'; items: string[] }
+  | { kind: 'ul'; items: string[] }
+  | { kind: 'code'; lang: string; text: string }
 
 function parseBlocks(text: string): Block[] {
   const blocks: Block[] = []
   let para: string[] = []
-  let list: string[] = []
+  let ol: string[] = []
+  let ul: string[] = []
+  let code: string[] | null = null
+  let codeLang = ''
 
-  const flushPara = (): void => {
+  const flush = (): void => {
     if (para.length) {
       blocks.push({ kind: 'p', text: para.join(' ') })
       para = []
     }
-  }
-  const flushList = (): void => {
-    if (list.length) {
-      blocks.push({ kind: 'ol', items: list })
-      list = []
+    if (ol.length) {
+      blocks.push({ kind: 'ol', items: ol })
+      ol = []
+    }
+    if (ul.length) {
+      blocks.push({ kind: 'ul', items: ul })
+      ul = []
     }
   }
 
   for (const line of text.split('\n')) {
     const t = line.trim()
-    if (t === '') {
-      flushPara()
-      flushList()
-    } else if (t.startsWith('### ')) {
-      flushPara()
-      flushList()
-      blocks.push({ kind: 'h5', text: t.slice(4) })
+    if (code !== null) {
+      if (t.startsWith('```')) {
+        blocks.push({ kind: 'code', lang: codeLang, text: code.join('\n') })
+        code = null
+      } else {
+        code.push(line.replace(/\t/g, '  '))
+      }
+      continue
+    }
+    if (t.startsWith('```')) {
+      flush()
+      code = []
+      codeLang = t.slice(3).trim()
+    } else if (t === '') {
+      flush()
+    } else if (/^#{1,4}\s/.test(t)) {
+      flush()
+      blocks.push({ kind: 'h5', text: t.replace(/^#{1,4}\s/, '') })
     } else if (/^\d+\.\s/.test(t)) {
-      flushPara()
-      list.push(t.replace(/^\d+\.\s/, ''))
+      para.length && flush()
+      ul.length && flush()
+      ol.push(t.replace(/^\d+\.\s/, ''))
+    } else if (/^[-*]\s/.test(t)) {
+      para.length && flush()
+      ol.length && flush()
+      ul.push(t.replace(/^[-*]\s/, ''))
     } else {
-      flushList()
+      ol.length && flush()
+      ul.length && flush()
       para.push(t)
     }
   }
-  flushPara()
-  flushList()
+  // An unterminated fence still renders as code so streaming looks right.
+  if (code !== null) blocks.push({ kind: 'code', lang: codeLang, text: code.join('\n') })
+  flush()
   return blocks
+}
+
+function List({
+  ordered,
+  items,
+  tail
+}: {
+  ordered: boolean
+  items: string[]
+  tail: ReactNode
+}): React.JSX.Element {
+  const rows = items.map((item, j) => (
+    <li key={j}>
+      {renderInline(item)}
+      {j === items.length - 1 ? tail : null}
+    </li>
+  ))
+  return ordered ? <ol>{rows}</ol> : <ul>{rows}</ul>
 }
 
 export function Markdown({
@@ -88,16 +134,15 @@ export function Markdown({
       {blocks.map((block, i) => {
         const tail = trailing && i === lastIndex ? trailing : null
         if (block.kind === 'h5') return <h5 key={i}>{renderInline(block.text)}</h5>
-        if (block.kind === 'ol')
+        if (block.kind === 'ol') return <List key={i} ordered items={block.items} tail={tail} />
+        if (block.kind === 'ul')
+          return <List key={i} ordered={false} items={block.items} tail={tail} />
+        if (block.kind === 'code')
           return (
-            <ol key={i}>
-              {block.items.map((item, j) => (
-                <li key={j}>
-                  {renderInline(item)}
-                  {j === block.items.length - 1 ? tail : null}
-                </li>
-              ))}
-            </ol>
+            <pre key={i} className="code-block">
+              <code>{block.text}</code>
+              {tail}
+            </pre>
           )
         return (
           <p key={i}>

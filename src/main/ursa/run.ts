@@ -284,6 +284,7 @@ export async function startRun(
         const toolStartedAt = Date.now()
         let output: string
         let exitCode: number | undefined
+        let stats: Extract<Event, { type: 'tool_result' }>['stats']
         if (!approved) {
           output = 'User denied this command.'
         } else {
@@ -292,9 +293,20 @@ export async function startRun(
             const raw = await def.execute(call.input, {
               projectPath,
               stage: (absPath, beforeText, afterText) => {
-                stagedFiles.push(
-                  stageFile(diffGroupId, conversationId, absPath, beforeText, afterText)
+                const staged = stageFile(
+                  diffGroupId,
+                  conversationId,
+                  absPath,
+                  beforeText,
+                  afterText
                 )
+                stagedFiles.push(staged)
+                return {
+                  path: relative(projectPath, staged.path) || staged.path,
+                  status: staged.status,
+                  additions: staged.additions,
+                  deletions: staged.deletions
+                }
               }
             })
             if (typeof raw === 'string') {
@@ -302,6 +314,7 @@ export async function startRun(
             } else {
               output = raw.output
               exitCode = raw.exitCode
+              stats = raw.stats
             }
           } catch (err) {
             output = `Error: ${err instanceof Error ? err.message : String(err)}`
@@ -316,7 +329,8 @@ export async function startRun(
           output,
           exitCode,
           durationMs: Date.now() - toolStartedAt,
-          truncated
+          truncated,
+          stats
         })
         toolMsg.content.push({
           type: 'tool-result',

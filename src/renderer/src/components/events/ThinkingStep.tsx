@@ -10,7 +10,8 @@ export function ThinkingStep({
   text: string
   durationMs: number
 }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
+  // Reasoning is part of the show: expanded by default, collapsible.
+  const [open, setOpen] = useState(true)
   const secs = Math.max(1, Math.round(durationMs / 1000))
   return (
     <div className={'step' + (open ? ' open' : '')}>

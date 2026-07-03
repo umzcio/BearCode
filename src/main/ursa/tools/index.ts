@@ -11,10 +11,18 @@ import type { ToolName } from '../../../shared/types'
 
 const execFileAsync = promisify(execFile)
 
+export interface StagedStats {
+  path: string
+  status: 'created' | 'modified' | 'deleted'
+  additions: number
+  deletions: number
+}
+
 export interface ToolContext {
   projectPath: string
   // Staging hook provided by the run loop: write tools never touch disk.
-  stage?(absPath: string, beforeText: string, afterText: string): void
+  // Returns the staged change's line counts for the step row display.
+  stage?(absPath: string, beforeText: string, afterText: string): StagedStats
 }
 
 export interface UrsaTool {
@@ -23,7 +31,10 @@ export interface UrsaTool {
   inputSchema: z.ZodType
   // run_command needs approval before execution (spec 6.2)
   requiresApproval?: boolean
-  execute(input: unknown, ctx: ToolContext): Promise<string | { output: string; exitCode: number }>
+  execute(
+    input: unknown,
+    ctx: ToolContext
+  ): Promise<string | { output: string; exitCode?: number; stats?: StagedStats }>
 }
 
 function jailPath(projectPath: string, p: string | undefined): string {
@@ -192,8 +203,11 @@ TOOLS.write_file = {
     const abs = jailPath(ctx.projectPath, path)
     const before = existsSync(abs) ? readFileSync(abs, 'utf8') : ''
     if (!ctx.stage) throw new Error('Staging unavailable')
-    ctx.stage(abs, before, content)
-    return `Change staged for review: ${path}. The user must accept it before it is written to disk.`
+    const stats = ctx.stage(abs, before, content)
+    return {
+      output: `Change staged for review: ${path}. The user must accept it before it is written to disk.`,
+      stats
+    }
   }
 }
 
@@ -210,8 +224,11 @@ TOOLS.edit_file = {
     if (count === 0) throw new Error(`old_str not found in ${path}`)
     if (count > 1) throw new Error(`old_str appears ${count} times in ${path}; it must be unique`)
     if (!ctx.stage) throw new Error('Staging unavailable')
-    ctx.stage(abs, before, before.replace(old_str, new_str))
-    return `Change staged for review: ${path}. The user must accept it before it is written to disk.`
+    const stats = ctx.stage(abs, before, before.replace(old_str, new_str))
+    return {
+      output: `Change staged for review: ${path}. The user must accept it before it is written to disk.`,
+      stats
+    }
   }
 }
 

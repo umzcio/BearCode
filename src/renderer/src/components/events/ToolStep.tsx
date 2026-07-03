@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Event } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { IconChevronRightSmall } from '../icons'
@@ -21,7 +21,7 @@ function inputStr(call: ToolCallEvent, key: string): string | null {
   return null
 }
 
-function summaryFor(call: ToolCallEvent): React.ReactNode {
+function summaryFor(call: ToolCallEvent, result?: ToolResultEvent): React.ReactNode {
   switch (call.tool) {
     case 'list_dir': {
       const path = inputStr(call, 'path')
@@ -44,6 +44,25 @@ function summaryFor(call: ToolCallEvent): React.ReactNode {
       return (
         <span>
           Searched for <b>{pattern ?? 'a pattern'}</b>
+        </span>
+      )
+    }
+    case 'write_file':
+    case 'edit_file': {
+      const path = inputStr(call, 'path')
+      const name = path ? (path.split('/').pop() ?? path) : 'a file'
+      const stats = result?.stats
+      const verb =
+        stats?.status === 'created' ? 'Created' : call.tool === 'write_file' ? 'Wrote' : 'Edited'
+      return (
+        <span>
+          {result ? verb : 'Writing'} <b>{name}</b>
+          {stats ? (
+            <span className="step-stats">
+              <span className="plus">+{stats.additions}</span>
+              <span className="minus">-{stats.deletions}</span>
+            </span>
+          ) : null}
         </span>
       )
     }
@@ -93,7 +112,7 @@ export function ToolStep({ call, result }: ToolStepProps): React.JSX.Element {
   return (
     <div className={'step' + (open ? ' open' : '')}>
       <div className="step-row" onClick={() => setOpen((o) => !o)}>
-        {summaryFor(call)}
+        {summaryFor(call, result)}
         <span className="chev">
           <IconChevronRightSmall />
         </span>
@@ -111,16 +130,54 @@ function PendingCommand({
   command: string
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
+  const saveSettings = useAppStore((s) => s.saveSettings)
+
+  const allowOnce = (): void => approveTool(callId, true)
+  const allowAlways = (): void => {
+    void saveSettings({ autoApproveCommands: true })
+    approveTool(callId, true)
+  }
+  const deny = (): void => approveTool(callId, false)
+
+  // Number keys answer the prompt, matching the option badges.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === '1') allowOnce()
+      else if (e.key === '2') allowAlways()
+      else if (e.key === '3') deny()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId])
+
   return (
     <div className="step">
-      <div className="step-row static approval-row">
-        <span>Run</span>
-        <span className="mono">{command}</span>
-        <button className="approve-btn run" onClick={() => approveTool(callId, true)}>
-          Run
+      <div className="step-row static">
+        <span>
+          Run <span className="mono">{command}</span>?
+        </span>
+      </div>
+      <div className="waiting-note">Waiting for your input…</div>
+      <div className="approval-card">
+        <div className="approval-title">Allow running this command?</div>
+        <div className="approval-cmd">{command}</div>
+        <button className="approval-opt" onClick={allowOnce}>
+          <span className="opt-num">1</span>
+          Yes, allow this time
         </button>
-        <button className="approve-btn deny" onClick={() => approveTool(callId, false)}>
-          Deny
+        <button className="approval-opt" onClick={allowAlways}>
+          <span className="opt-num">2</span>
+          Yes, always allow commands
+          <span className="opt-hint">turns on auto-approve in Settings</span>
+        </button>
+        <button className="approval-opt" onClick={deny}>
+          <span className="opt-num">3</span>
+          No, deny it
+          <span className="opt-hint">the agent is told you declined</span>
         </button>
       </div>
     </div>
