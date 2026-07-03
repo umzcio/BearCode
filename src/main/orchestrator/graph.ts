@@ -1,14 +1,20 @@
-// The orchestrator's streaming graph: a bare deep agent (no tools, no
-// checkpointer yet, Tasks 6/7) whose token stream is bridged into BearCode's
-// existing Event contract and RunSink, mirroring the legacy engine's
-// upsert-by-id streaming pattern (src/main/ursa/run.ts).
+// The orchestrator's streaming graph: createDeepAgent() is called with no
+// custom `tools` here, but it is never actually tool-free -- deepagents
+// always injects its own built-ins (the write_todos planning tool,
+// filesystem tools, and a `task` subagent tool) regardless of the `tools`
+// option. Those built-in tool calls are not yet surfaced as Events; emitting
+// tool_call/tool_result content blocks for them is Task 6's job. Today only
+// the token stream is bridged into BearCode's existing Event contract and
+// RunSink, mirroring the legacy engine's upsert-by-id streaming pattern
+// (src/main/ursa/run.ts).
 import { randomUUID } from 'crypto'
 import { createDeepAgent } from 'deepagents'
 import type { AIMessageChunk } from '@langchain/core/messages'
 import type { Event } from '../../shared/types'
 import type { RunSink } from '../ursa/run'
-import { appendEvent } from '../db'
+import { appendEvent, getConversationMeta } from '../db'
 import { parseModelRef } from '../ursa/providers/registry'
+import { maybeGenerateTitle } from '../ursa/title'
 import { makeModel } from './models'
 import { textDeltaEvent, thinkingDeltaEvent } from './bridge'
 
@@ -21,7 +27,7 @@ type MessagesStreamChunk = [string[], [AIMessageChunk, Record<string, unknown>]]
 
 // Pull the reasoning text out of a streamed content block. Two shapes are
 // observed live from the deep agent stream:
-//   1. A standardized `reasoning` block ({ type: "reasoning", reasoning }) —
+//   1. A standardized `reasoning` block ({ type: "reasoning", reasoning }):
 //      populated by providers/adapters that normalize thinking (verified in
 //      @langchain/core content/index.d.ts).
 //   2. A provider-specific `non_standard` block whose `value.type === "thinking"`
@@ -120,6 +126,16 @@ export async function runGraph(opts: {
   }
   appendEvent(conversationId, turnMeta)
   sink.emit(conversationId, turnMeta)
+
+  // Mirrors legacy run.ts: fire-and-forget title generation on the first
+  // completed turn, refreshing the sidebar via sink.metaChanged once the
+  // title lands. Skipped on cancellation, same as legacy.
+  if (!signal.aborted) {
+    void maybeGenerateTitle(conversationId, providerId, modelId, userText, answer, (id) => {
+      const meta = getConversationMeta(id)
+      if (meta) sink.metaChanged(meta)
+    })
+  }
 
   sink.setState(conversationId, signal.aborted ? 'cancelled' : 'done')
 }

@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto'
+import type { Event } from '../../shared/types'
 import type { RunSink } from '../ursa/run'
 import { getSettings } from '../settings'
+import { appendEvent, getConversationMeta } from '../db'
 import { runGraph } from './graph'
 
 export function useOrchestrator(): boolean {
@@ -23,15 +25,14 @@ export async function startRunOrchestrator(
     const cancelled = controller.signal.aborted
     const message = cancelled ? 'Cancelled' : err instanceof Error ? err.message : String(err)
     if (!cancelled) console.error(`[ursa] orchestrator run failed (${modelRef}):`, message)
-    sink.emit(conversationId, {
-      type: 'error',
-      id: randomUUID(),
-      message,
-      recoverable: true
-    })
+    const event: Event = { type: 'error', id: randomUUID(), message, recoverable: true }
+    sink.emit(conversationId, event)
+    appendEvent(conversationId, event)
     sink.setState(conversationId, cancelled ? 'cancelled' : 'error')
   } finally {
     aborts.delete(conversationId)
+    const meta = getConversationMeta(conversationId)
+    if (meta) sink.metaChanged(meta)
   }
 }
 
