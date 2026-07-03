@@ -52,7 +52,11 @@ export const EDITOR_OPTIONS = {
   fontFamily: "'SF Mono', ui-monospace, Menlo, Consolas, monospace",
   lineHeight: 22,
   glyphMargin: true,
-  contextmenu: false
+  contextmenu: false,
+  // Antigravity wraps long lines; it also keeps view-zone widgets (the
+  // comment composer) from outgrowing the visible pane.
+  wordWrap: 'on' as const,
+  overviewRulerLanes: 0
 } as const
 
 export { monaco }
