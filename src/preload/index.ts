@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AppSettings,
   BearcodeApi,
+  ConversationMeta,
   Event,
   ModelRef,
   ProviderId,
@@ -29,6 +30,11 @@ const bearcode: BearcodeApi = {
     set: (patch: Partial<AppSettings>) => ipcRenderer.invoke('bearcode:settings:set', patch)
   },
   conversations: {
+    list: () => ipcRenderer.invoke('bearcode:conversations:list'),
+    get: (id: string) => ipcRenderer.invoke('bearcode:conversations:get', id),
+    create: (projectPath: string | null) =>
+      ipcRenderer.invoke('bearcode:conversations:create', projectPath),
+    delete: (id: string) => ipcRenderer.invoke('bearcode:conversations:delete', id),
     clear: () => ipcRenderer.invoke('bearcode:conversations:clear')
   },
   workspace: {
@@ -48,6 +54,11 @@ const bearcode: BearcodeApi = {
     ): void => cb(conversationId, state)
     ipcRenderer.on('bearcode:run-state', listener)
     return () => ipcRenderer.removeListener('bearcode:run-state', listener)
+  },
+  onConversationMeta: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, meta: ConversationMeta): void => cb(meta)
+    ipcRenderer.on('bearcode:conversation-meta', listener)
+    return () => ipcRenderer.removeListener('bearcode:conversation-meta', listener)
   }
 }
 

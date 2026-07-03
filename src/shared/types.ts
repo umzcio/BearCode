@@ -74,6 +74,17 @@ export interface ProviderModels {
   note?: string
 }
 
+// ---- Conversations ----
+
+export interface ConversationMeta {
+  id: string
+  projectPath: string | null
+  title: string | null
+  modelRef: ModelRef | null
+  createdAt: number
+  updatedAt: number
+}
+
 // ---- Settings ----
 
 export interface AppSettings {
@@ -118,6 +129,10 @@ export interface BearcodeApi {
     set(patch: Partial<AppSettings>): Promise<SettingsInfo>
   }
   conversations: {
+    list(): Promise<ConversationMeta[]>
+    get(id: string): Promise<Event[]>
+    create(projectPath: string | null): Promise<ConversationMeta>
+    delete(id: string): Promise<void>
     clear(): Promise<void>
   }
   workspace: {
@@ -125,4 +140,5 @@ export interface BearcodeApi {
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void
+  onConversationMeta(cb: (meta: ConversationMeta) => void): () => void
 }

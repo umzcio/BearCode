@@ -1,9 +1,11 @@
 import { useAppStore } from '../../state/store'
+import { relativeAge } from '../../lib/time'
 import bearMark from '../../assets/bear.svg'
 import {
   IconChevronLeft,
   IconChevronRight,
   IconClock,
+  IconClose,
   IconFilter,
   IconFolder,
   IconFolderPlus,
@@ -23,6 +25,7 @@ export function Sidebar(): React.JSX.Element {
   const goHome = useAppStore((s) => s.goHome)
   const openScheduled = useAppStore((s) => s.openScheduled)
   const openConvo = useAppStore((s) => s.openConvo)
+  const deleteConvo = useAppStore((s) => s.deleteConvo)
   const openSettings = useAppStore((s) => s.openSettings)
   const showToast = useAppStore((s) => s.showToast)
 
@@ -103,7 +106,23 @@ export function Sidebar(): React.JSX.Element {
                   onClick={() => openConvo(id)}
                 >
                   <span className="name">{convo.title}</span>
-                  {running ? <span className="dot" /> : null}
+                  {running ? (
+                    <span className="dot" />
+                  ) : (
+                    <>
+                      <span className="age">{relativeAge(convo.updatedAt)}</span>
+                      <button
+                        className="del"
+                        title="Delete conversation"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (window.confirm(`Delete "${convo.title}"?`)) deleteConvo(id)
+                        }}
+                      >
+                        <IconClose size={12} />
+                      </button>
+                    </>
+                  )}
                 </div>
               )
             })}

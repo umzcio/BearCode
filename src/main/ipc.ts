@@ -1,9 +1,23 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
-import type { AppSettings, Event, PingResult, ProviderId, RunState } from '../shared/types'
+import type {
+  AppSettings,
+  ConversationMeta,
+  Event,
+  PingResult,
+  ProviderId,
+  RunState
+} from '../shared/types'
 import { keyStatus, setKey } from './keys'
 import { setSettings, settingsInfo } from './settings'
 import { listAllModels } from './ursa/providers/registry'
-import { cancelRun, clearConversations, setWorkspace, startRun } from './ursa/run'
+import {
+  cancelRun,
+  clearConversations,
+  forgetConversation,
+  setWorkspace,
+  startRun
+} from './ursa/run'
+import * as db from './db'
 
 function broadcast(channel: string, ...args: unknown[]): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -17,6 +31,9 @@ const sink = {
   },
   setState(conversationId: string, state: RunState): void {
     broadcast('bearcode:run-state', conversationId, state)
+  },
+  metaChanged(meta: ConversationMeta): void {
+    broadcast('bearcode:conversation-meta', meta)
   }
 }
 
@@ -62,8 +79,18 @@ export function registerIpc(): void {
     return settingsInfo()
   })
 
+  ipcMain.handle('bearcode:conversations:list', () => db.listConversations())
+  ipcMain.handle('bearcode:conversations:get', (_e, id: string) => db.getEvents(id))
+  ipcMain.handle('bearcode:conversations:create', (_e, projectPath: string | null) =>
+    db.createConversation(projectPath)
+  )
+  ipcMain.handle('bearcode:conversations:delete', (_e, id: string) => {
+    forgetConversation(id)
+    db.deleteConversation(id)
+  })
   ipcMain.handle('bearcode:conversations:clear', () => {
     clearConversations()
+    db.clearAll()
   })
 
   ipcMain.handle('bearcode:workspace:pick', async () => {

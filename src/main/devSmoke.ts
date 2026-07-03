@@ -42,10 +42,53 @@ function importKeys(): void {
 const QUESTION =
   'What is the capital of Australia? Answer in one short sentence, and name which model you are.'
 
+// BEARCODE_SMOKE=inspect: dump restored state after a relaunch (Phase 3
+// acceptance), open the most recent conversation, and screenshot.
+function inspect(win: BrowserWindow): void {
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const dump = await win.webContents.executeJavaScript(
+          `(async () => {
+            const s = window.__bearcodeStore.getState();
+            const list = s.convoOrder.map((id) => {
+              const c = s.conversations[id];
+              return { title: c.title, projectLabel: c.projectLabel, modelRef: c.modelRef };
+            });
+            if (s.convoOrder.length > 0) {
+              s.openConvo(s.convoOrder[0]);
+              await new Promise((r) => setTimeout(r, 1200));
+              const c = window.__bearcodeStore.getState().conversations[s.convoOrder[0]];
+              return JSON.stringify({ list, firstConvoEvents: c.events.map((e) => e.type) }, null, 1);
+            }
+            return JSON.stringify({ list }, null, 1);
+          })()`
+        )
+        console.log(`[ursa] inspect: ${dump}`)
+        const img = await win.webContents.capturePage()
+        writeFileSync('/tmp/bearcode-smoke-inspect.png', img.toPNG())
+        console.log('[ursa] inspect: saved /tmp/bearcode-smoke-inspect.png')
+      } catch (e) {
+        console.error('[ursa] inspect failed:', e)
+      }
+    })()
+  }, 4000)
+}
+
+let smokeRan = false
+
 export function runDevSmoke(win: BrowserWindow): void {
+  // ready-to-show re-fires on renderer reloads (e.g. a dev-server restart);
+  // the smoke drill must only ever run once per process.
+  if (smokeRan) return
+  smokeRan = true
   importKeys()
   const smoke = process.env['BEARCODE_SMOKE']
   if (!smoke) return
+  if (smoke === 'inspect') {
+    inspect(win)
+    return
+  }
   const refs = smoke.split(',').map((r) => r.trim())
 
   const shot = (name: string): Promise<void> =>

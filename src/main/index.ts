@@ -44,6 +44,19 @@ function createWindow(): void {
   }
 }
 
+// One instance only: the SQLite database and key vault live in userData and
+// must never be shared by concurrent app processes.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+}
+app.on('second-instance', () => {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (win) {
+    if (win.isMinimized()) win.restore()
+    win.focus()
+  }
+})
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.bearcode.app')
 

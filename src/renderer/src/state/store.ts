@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   AppSettings,
+  ConversationMeta,
   Event,
   ModelRef,
   ProviderId,
@@ -16,6 +17,9 @@ export interface Convo {
   projectPath: string | null
   projectLabel: string
   title: string
+  modelRef: ModelRef | null
+  updatedAt: number
+  loaded: boolean
   events: Event[]
   runState: ConvoRunState
   startedAt?: number
@@ -31,6 +35,26 @@ const turnStartByConvo = new Map<string, { turnId: string; startedAt: number; fr
 function basename(p: string): string {
   const parts = p.replace(/\/$/, '').split('/')
   return parts[parts.length - 1] || p
+}
+
+function fromMeta(meta: ConversationMeta): Convo {
+  return {
+    id: meta.id,
+    projectPath: meta.projectPath,
+    projectLabel: meta.projectPath ? basename(meta.projectPath) : 'No folder',
+    title: meta.title ?? 'New conversation',
+    modelRef: meta.modelRef,
+    updatedAt: meta.updatedAt,
+    loaded: false,
+    events: [],
+    runState: 'idle'
+  }
+}
+
+function orderByRecency(conversations: Record<string, Convo>): string[] {
+  return Object.values(conversations)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((c) => c.id)
 }
 
 interface AppState {
@@ -53,6 +77,7 @@ interface AppState {
   openScheduled(): void
   openConvo(id: string): void
   startFromHome(text: string): void
+  deleteConvo(id: string): void
   send(convoId: string, text: string): void
   cancelRun(convoId: string): void
   retryRun(convoId: string): void
@@ -178,9 +203,29 @@ export const useAppStore = create<AppState>((set, get) => {
       window.bearcode.onRunStateChange((convoId, state) => {
         patchConvo(convoId, { runState: state })
       })
+      window.bearcode.onConversationMeta((meta) => {
+        set((s) => {
+          const existing = s.conversations[meta.id]
+          if (!existing) return s
+          const conversations = {
+            ...s.conversations,
+            [meta.id]: {
+              ...existing,
+              title: meta.title ?? existing.title,
+              modelRef: meta.modelRef,
+              updatedAt: meta.updatedAt
+            }
+          }
+          return { conversations, convoOrder: orderByRecency(conversations) }
+        })
+      })
       void (async () => {
         const settings = await window.bearcode.settings.get()
         set({ settings })
+        const metas = await window.bearcode.conversations.list()
+        const conversations: Record<string, Convo> = {}
+        for (const meta of metas) conversations[meta.id] = fromMeta(meta)
+        set({ conversations, convoOrder: orderByRecency(conversations) })
         await get().refreshProviders()
       })()
     },
@@ -194,34 +239,57 @@ export const useAppStore = create<AppState>((set, get) => {
     toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
     goHome: () => set({ view: { kind: 'home' } }),
     openScheduled: () => set({ view: { kind: 'scheduled' } }),
-    openConvo: (id) => set({ view: { kind: 'conversation', id } }),
+    openConvo: (id) => {
+      set({ view: { kind: 'conversation', id } })
+      const convo = get().conversations[id]
+      if (!convo) return
+      // Restore the model the conversation last used.
+      if (convo.modelRef && refConfigured(get().providers, convo.modelRef)) {
+        set({ modelRef: convo.modelRef })
+      }
+      if (!convo.loaded && convo.runState === 'idle') {
+        void window.bearcode.conversations.get(id).then((events) => {
+          patchConvo(id, { events, loaded: true })
+        })
+      }
+    },
 
     startFromHome: (text) => {
       const { modelRef, workspacePath } = get()
       if (!modelRef) return
-      const id = crypto.randomUUID()
-      const title = text.length > 42 ? text.slice(0, 42) + '…' : text
-      set((s) => ({
-        conversations: {
-          ...s.conversations,
-          [id]: {
-            id,
-            projectPath: workspacePath,
-            projectLabel: workspacePath ? basename(workspacePath) : 'No folder',
-            title,
-            events: [],
-            runState: 'idle'
+      void (async () => {
+        const meta = await window.bearcode.conversations.create(workspacePath)
+        const provisional = text.length > 42 ? text.slice(0, 42) + '…' : text
+        const convo = { ...fromMeta(meta), title: provisional, loaded: true }
+        set((s) => {
+          const conversations = { ...s.conversations, [meta.id]: convo }
+          return {
+            conversations,
+            convoOrder: orderByRecency(conversations),
+            view: { kind: 'conversation', id: meta.id }
           }
-        },
-        convoOrder: [id, ...s.convoOrder],
-        view: { kind: 'conversation', id }
-      }))
-      void window.bearcode.run.start(id, text, modelRef, workspacePath)
+        })
+        await window.bearcode.run.start(meta.id, text, modelRef, workspacePath)
+      })()
+    },
+
+    deleteConvo: (id) => {
+      void window.bearcode.conversations.delete(id).then(() => {
+        set((s) => {
+          const conversations = { ...s.conversations }
+          delete conversations[id]
+          const view =
+            s.view.kind === 'conversation' && s.view.id === id ? { kind: 'home' as const } : s.view
+          return { conversations, convoOrder: orderByRecency(conversations), view }
+        })
+        get().showToast('Conversation deleted')
+      })
     },
 
     send: (convoId, text) => {
       const { modelRef, conversations } = get()
       if (!modelRef) return
+      patchConvo(convoId, { modelRef })
       void window.bearcode.run.start(convoId, text, modelRef, conversations[convoId].projectPath)
     },
 
