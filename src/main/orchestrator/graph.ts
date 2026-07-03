@@ -194,6 +194,11 @@ const emitAndPersist = (conversationId: string, sink: RunSink, event: Event): vo
   appendEvent(conversationId, event)
 }
 
+// See the doc comment at this constant's one use site (in the messages-
+// stream loop below) for why this must be a single stable value, not a
+// per-chunk fresh uuid.
+const FALLBACK_TOOL_MESSAGE_ID = 'tool-message:no-id'
+
 // Consume the next unconsumed staged file for a write_file/edit_file tool
 // call, in call order (the backend pushes staged files in execution order,
 // which matches the order tool_result messages are seen in).
@@ -292,7 +297,16 @@ async function drive(
     const agentId = agentIdOf(metadata)
     const key = agentId ?? 'main'
     if (isToolMessageChunk(chunk)) {
-      const id = chunk.tool_call_id || chunk.id || randomUUID()
+      // ToolMessageChunk is always tagged with tool_call_id in practice: it's
+      // how LangGraph's tool-executing node pairs a result back to the AI
+      // message's tool_calls[].id (the `.id` fallback covers producers that
+      // only set the chunk's own message id). If a chunk somehow arrives with
+      // neither, DO NOT mint a fresh uuid per chunk here -- concat-by-id
+      // above merges fragments of the SAME message keyed on this id, so a
+      // fresh id per chunk would put every fragment in its own bucket and
+      // silently drop the merge instead of just losing attribution. Fall
+      // back to one shared, stable id so same-turn fragments still concat.
+      const id = chunk.tool_call_id || chunk.id || FALLBACK_TOOL_MESSAGE_ID
       const prev = toolMsgById.get(id)
       toolMsgById.set(id, prev ? (prev.concat(chunk) as ToolMessageChunk) : chunk)
       if (!toolAgentById.has(id)) toolAgentById.set(id, agentId)
@@ -464,9 +478,52 @@ export function resolveInterrupt(
 ): boolean {
   const pending = pendingApprovals.get(conversationId)
   if (!pending || pending.pendingCallId !== callId) return false
+  // Defense in depth: cancelRunOrchestrator (src/main/orchestrator/index.ts)
+  // is the primary fix -- it deletes this conversation's pendingApprovals
+  // entry (via cancelPendingApproval below) the instant Stop is clicked, so
+  // a later Approve/Deny normally finds nothing here at all. But if a Stop
+  // and an in-flight Approve/Deny IPC call ever race, ctx.signal.aborted is
+  // the authoritative "this run is over" signal (same field failTurn below
+  // checks), so refuse to resume a cancelled run even if its pending-approval
+  // entry is somehow still present.
+  if (pending.signal.aborted) {
+    pendingApprovals.delete(conversationId)
+    return false
+  }
   pendingApprovals.delete(conversationId)
   void continueAfterApproval(pending, approved)
   return true
+}
+
+// Called from cancelRunOrchestrator (src/main/orchestrator/index.ts) when
+// Stop is clicked while a run is parked awaiting command approval (risk 4).
+// Legacy run.ts handles this by having the abort signal resolve the pending
+// JS approval promise as denied (see its `controller.signal.addEventListener`
+// near line 311); there is no equivalent live promise here -- interrupt()
+// suspends the graph itself and returns control up through drive() to
+// runGraph/continueAfterApproval, which parks the resumable state in
+// pendingApprovals and returns. So the pendingApprovals entry IS the pending
+// decision: deleting it here is what makes cancellation deterministic --
+// resolveInterrupt above can then never find it again, so a stale Approve
+// click is a no-op and the run_command tool's interrupt() is never resumed
+// with an approval, which means the shell command can never execute.
+// Emits the same 'denied' tool_call shape a real Deny click would, so the
+// renderer's PendingCommand UI (which keys off approvalState) stops showing
+// live Approve/Deny buttons for it. Returns the sink so the caller (which
+// only tracks AbortControllers, not sinks, per conversation) can finish
+// tearing the run down to a terminal 'cancelled' state.
+export function cancelPendingApproval(conversationId: string): RunSink | undefined {
+  const pending = pendingApprovals.get(conversationId)
+  if (!pending) return undefined
+  pendingApprovals.delete(conversationId)
+  emitAndPersist(pending.conversationId, pending.sink, {
+    type: 'tool_call',
+    id: pending.pendingCallId,
+    tool: 'run_command',
+    input: pending.pendingInput,
+    approvalState: 'denied'
+  })
+  return pending.sink
 }
 
 async function continueAfterApproval(pending: PendingApproval, approved: boolean): Promise<void> {

@@ -3,7 +3,7 @@ import type { ConversationMeta, Event } from '../../shared/types'
 import type { RunSink } from '../ursa/run'
 import { getSettings } from '../settings'
 import { appendEvent, getConversationMeta, getZombieRunIds, listConversations } from '../db'
-import { resolveInterrupt, runGraph } from './graph'
+import { cancelPendingApproval, resolveInterrupt, runGraph } from './graph'
 import { getCheckpointer } from './checkpointer'
 
 export function useOrchestrator(): boolean {
@@ -48,8 +48,30 @@ export async function startRunOrchestrator(
   if (meta) sink.metaChanged(meta)
 }
 
+// Final-review Critical 1 fix: without this, Stop during a command-approval
+// pause was a no-op -- aborting the AbortController alone does nothing,
+// because at this point the graph isn't awaiting anything on that signal; it
+// is suspended inside a LangGraph interrupt() with its resumable state parked
+// in graph.ts's pendingApprovals map (see startRunOrchestrator's `paused`
+// comment above and cancelPendingApproval's doc comment in graph.ts). A later
+// Approve click would then still resume the graph and actually run the shell
+// command. Mirrors legacy run.ts's pattern (abort denies the pending
+// approval) adapted to the no-live-promise shape of an interrupt: delete the
+// pendingApprovals entry (so a stale Approve/Deny is provably a no-op, see
+// resolveInterrupt's `pending.signal.aborted` guard too) and drive this
+// conversation to the same terminal 'cancelled' state startRunOrchestrator's
+// own catch block produces for a plain mid-stream Stop.
 export function cancelRunOrchestrator(conversationId: string): void {
   aborts.get(conversationId)?.abort()
+  const sink = cancelPendingApproval(conversationId)
+  if (!sink) return
+  aborts.delete(conversationId)
+  const event: Event = { type: 'error', id: randomUUID(), message: 'Cancelled', recoverable: true }
+  sink.emit(conversationId, event)
+  appendEvent(conversationId, event)
+  sink.setState(conversationId, 'cancelled')
+  const meta = getConversationMeta(conversationId)
+  if (meta) sink.metaChanged(meta)
 }
 
 // Resolves a command-approval interrupt raised by the orchestrator's

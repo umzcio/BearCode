@@ -102,6 +102,11 @@ export function runDevSmoke(win: BrowserWindow): void {
   const js = (script: string): Promise<unknown> => win.webContents.executeJavaScript(script)
 
   // BEARCODE_SMOKE_APPROVE=allow|deny answers command-approval pauses.
+  // BEARCODE_SMOKE_APPROVE=cancel clicks Stop instead (final-review Critical 1
+  // live-verification path: confirms cancelRun during awaiting-approval denies
+  // the pending command and reaches a terminal 'cancelled' state, mirroring
+  // the allow/deny branch below but via cancelRun(convoId) instead of
+  // approveTool(callId, approved)).
   const approveMode = process.env['BEARCODE_SMOKE_APPROVE']
 
   const waitForIdle = async (timeoutMs: number): Promise<string> => {
@@ -122,7 +127,17 @@ export function runDevSmoke(win: BrowserWindow): void {
         await new Promise((r) => setTimeout(r, 500))
         await shot('approval-pending')
         const answered = await js(
-          `(() => {
+          approveMode === 'cancel'
+            ? `(() => {
+                const s = window.__bearcodeStore.getState();
+                const convo = s.conversations[s.convoOrder[0]];
+                const pending = [...convo.events].reverse().find(
+                  (e) => e.type === 'tool_call' && e.approvalState === 'pending'
+                );
+                if (pending) s.cancelRun(s.convoOrder[0]);
+                return Boolean(pending);
+              })()`
+            : `(() => {
             const s = window.__bearcodeStore.getState();
             const convo = s.conversations[s.convoOrder[0]];
             const pending = [...convo.events].reverse().find(
@@ -133,7 +148,9 @@ export function runDevSmoke(win: BrowserWindow): void {
           })()`
         )
         if (answered) {
-          console.log(`[ursa] smoke: ${approveMode === 'allow' ? 'approved' : 'denied'} a command`)
+          console.log(
+            `[ursa] smoke: ${approveMode === 'allow' ? 'approved' : approveMode === 'cancel' ? 'cancelled (Stop)' : 'denied'} a command`
+          )
         }
       } else if (state !== 'running' && state !== 'missing') {
         return state

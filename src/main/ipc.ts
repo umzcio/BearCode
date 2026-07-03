@@ -50,7 +50,28 @@ const sink = {
 // the same `sink` the IPC handlers below stream through, so a conversation
 // this finds mid-run gets the same live `bearcode:run-state` broadcast a
 // real Stop click would produce.
+//
+// Final-review Important 2 fix: gated behind useOrchestrator() so a
+// legacy-only user (flag off) never touches the orchestrator's checkpointer
+// at all. resumeInterruptedRuns (src/main/orchestrator/index.ts) calls
+// getCheckpointer() unconditionally, which lazily creates/opens
+// checkpoints.db (src/main/orchestrator/checkpointer.ts) on first use --
+// with the flag off that file must never be created, and the legacy engine
+// (src/main/ursa/) already has its own crash-safety net (cancelZombieRuns in
+// src/main/db/index.ts, which runs unconditionally on the very first DB
+// access and needs no checkpointer at all), so there is nothing for this scan
+// to do for a legacy-only boot.
 export async function bootResumeInterruptedRuns(): Promise<void> {
+  // useOrchestrator() is a plain settings-flag getter (src/main/orchestrator/
+  // index.ts), not a React hook -- this is a main-process-only file with no
+  // React involved at all. The name just happens to match eslint-plugin-
+  // react-hooks' /^use[A-Z]/ heuristic, and unlike the other call sites in
+  // this file (all inside anonymous ipcMain.handle callbacks, which the rule
+  // doesn't flag), this one is a bare statement in a named async function
+  // declaration, which the rule's heuristic mistakes for an invalid hook call
+  // site.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  if (!useOrchestrator()) return
   await resumeInterruptedRuns(sink)
 }
 
