@@ -10,13 +10,14 @@ export type RunState = 'running' | 'awaiting-approval' | 'done' | 'error' | 'can
 
 export type Event =
   | { type: 'user_message'; id: string; text: string }
-  | { type: 'thinking'; id: string; text: string; durationMs: number }
+  | { type: 'thinking'; id: string; text: string; durationMs: number; agentId?: string }
   | {
       type: 'tool_call'
       id: string
       tool: ToolName
       input: unknown
       approvalState: ApprovalState
+      agentId?: string
     }
   | {
       type: 'tool_result'
@@ -34,6 +35,7 @@ export type Event =
         additions: number
         deletions: number
       }
+      agentId?: string
     }
   | {
       type: 'file_diff'
@@ -46,7 +48,7 @@ export type Event =
         status: 'created' | 'modified' | 'deleted'
       }[]
     }
-  | { type: 'assistant_text'; id: string; text: string }
+  | { type: 'assistant_text'; id: string; text: string; agentId?: string }
   | {
       type: 'turn_meta'
       id: string

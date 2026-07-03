@@ -16,6 +16,33 @@ interface WorkedGroupProps {
   convoId: string
 }
 
+// Mirrors src/main/orchestrator/agentId.ts#subagentLabel. Kept as a small
+// inline copy since the renderer's tsconfig doesn't include src/main.
+function subagentLabel(agentId?: string): string | null {
+  if (!agentId || agentId === 'main') return null
+  return agentId
+}
+
+// Absent/'main' agentId means the primary agent; a subagent's steps get a
+// small pill so multi-agent output is visibly attributed without a full
+// multi-agent UI.
+function AgentAttributed({
+  agentId,
+  children
+}: {
+  agentId?: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  const label = subagentLabel(agentId)
+  if (!label) return <>{children}</>
+  return (
+    <div className="agent-attributed">
+      <span className="agent-pill">{label}</span>
+      {children}
+    </div>
+  )
+}
+
 export function WorkedGroup({
   steps,
   live,
@@ -44,16 +71,21 @@ export function WorkedGroup({
   for (let i = 0; i < steps.length; i++) {
     const ev = steps[i]
     if (ev.type === 'thinking') {
-      rows.push(<ThinkingStep key={ev.id} text={ev.text} durationMs={ev.durationMs} />)
+      rows.push(
+        <AgentAttributed key={ev.id} agentId={ev.agentId}>
+          <ThinkingStep text={ev.text} durationMs={ev.durationMs} />
+        </AgentAttributed>
+      )
     } else if (ev.type === 'tool_call') {
       const result = steps.find((r) => r.type === 'tool_result' && r.callId === ev.id)
       rows.push(
-        <ToolStep
-          key={ev.id}
-          call={ev}
-          result={result && result.type === 'tool_result' ? result : undefined}
-          convoId={convoId}
-        />
+        <AgentAttributed key={ev.id} agentId={ev.agentId}>
+          <ToolStep
+            call={ev}
+            result={result && result.type === 'tool_result' ? result : undefined}
+            convoId={convoId}
+          />
+        </AgentAttributed>
       )
     }
   }
