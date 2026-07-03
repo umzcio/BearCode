@@ -20,6 +20,7 @@ import {
 } from './ursa/run'
 import { filePathFor, getDiff, revertFile } from './ursa/diffs'
 import * as db from './db'
+import { cancelRunOrchestrator, startRunOrchestrator, useOrchestrator } from './orchestrator'
 
 function broadcast(channel: string, ...args: unknown[]): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -60,12 +61,14 @@ export function registerIpc(): void {
     ) => {
       setWorkspace(conversationId, projectPath)
       // Fire and forget: progress flows back over bearcode:event.
-      void startRun(conversationId, userText, modelRef, sink)
+      if (useOrchestrator()) void startRunOrchestrator(conversationId, userText, modelRef, sink)
+      else void startRun(conversationId, userText, modelRef, sink)
     }
   )
 
   ipcMain.handle('bearcode:run:cancel', (_e, conversationId: string) => {
-    cancelRun(conversationId)
+    if (useOrchestrator()) cancelRunOrchestrator(conversationId)
+    else cancelRun(conversationId)
   })
 
   ipcMain.handle('bearcode:models:list', () => listAllModels())
