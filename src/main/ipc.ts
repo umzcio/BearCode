@@ -22,6 +22,7 @@ import { filePathFor, getDiff, revertFile } from './ursa/diffs'
 import * as db from './db'
 import {
   cancelRunOrchestrator,
+  resolveApprovalOrchestrator,
   resumeInterruptedRuns,
   startRunOrchestrator,
   useOrchestrator
@@ -92,9 +93,10 @@ export function registerIpc(): void {
     const path = filePathFor(fileId)
     if (path) void shell.openPath(path)
   })
-  ipcMain.handle('bearcode:tools:approve', (_e, callId: string, approved: boolean) =>
-    resolveApproval(callId, approved)
-  )
+  ipcMain.handle('bearcode:tools:approve', (_e, callId: string, approved: boolean) => {
+    if (useOrchestrator()) resolveApprovalOrchestrator(callId, approved)
+    else resolveApproval(callId, approved)
+  })
 
   ipcMain.handle('bearcode:keys:set', (_e, provider: ProviderId, key: string) => {
     setKey(provider, key)

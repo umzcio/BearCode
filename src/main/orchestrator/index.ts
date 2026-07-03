@@ -3,7 +3,7 @@ import type { ConversationMeta, Event } from '../../shared/types'
 import type { RunSink } from '../ursa/run'
 import { getSettings } from '../settings'
 import { appendEvent, getConversationMeta, getZombieRunIds, listConversations } from '../db'
-import { runGraph } from './graph'
+import { resolveInterrupt, runGraph } from './graph'
 import { getCheckpointer } from './checkpointer'
 
 export function useOrchestrator(): boolean {
@@ -21,7 +21,19 @@ export async function startRunOrchestrator(
   const controller = new AbortController()
   aborts.set(conversationId, controller)
   try {
-    await runGraph({ conversationId, userText, modelRef, sink, signal: controller.signal })
+    const { paused } = await runGraph({
+      conversationId,
+      userText,
+      modelRef,
+      sink,
+      signal: controller.signal
+    })
+    // Paused at a command-approval interrupt (risk 4): the run isn't done,
+    // it's parked in graph.ts's pendingApprovals until
+    // resolveApprovalOrchestrator resumes it. Keep this conversation's
+    // AbortController alive (Stop and the approval lookup below both need
+    // it) and skip the "run finished" bookkeeping until it actually does.
+    if (paused) return
   } catch (err) {
     const cancelled = controller.signal.aborted
     const message = cancelled ? 'Cancelled' : err instanceof Error ? err.message : String(err)
@@ -30,15 +42,31 @@ export async function startRunOrchestrator(
     sink.emit(conversationId, event)
     appendEvent(conversationId, event)
     sink.setState(conversationId, cancelled ? 'cancelled' : 'error')
-  } finally {
-    aborts.delete(conversationId)
-    const meta = getConversationMeta(conversationId)
-    if (meta) sink.metaChanged(meta)
   }
+  aborts.delete(conversationId)
+  const meta = getConversationMeta(conversationId)
+  if (meta) sink.metaChanged(meta)
 }
 
 export function cancelRunOrchestrator(conversationId: string): void {
   aborts.get(conversationId)?.abort()
+}
+
+// Resolves a command-approval interrupt raised by the orchestrator's
+// run_command tool (risk 4, src/main/orchestrator/tools.ts +
+// src/main/orchestrator/graph.ts's `resolveInterrupt`/`pendingApprovals`).
+// Wired from bearcode:tools:approve in src/main/ipc.ts when useOrchestrator()
+// is true, mirroring the legacy engine's resolveApproval (src/main/ursa/run.ts).
+export function resolveApprovalOrchestrator(callId: string, approved: boolean): void {
+  // bearcode:tools:approve (src/main/ipc.ts) only carries a callId, not a
+  // conversationId (matching the legacy engine's resolveApproval, which is
+  // also keyed globally by callId). `aborts` holds every conversation with a
+  // live run, including ones parked awaiting approval (startRunOrchestrator
+  // above keeps the AbortController alive across a pause -- it only clears
+  // it once the run truly finishes), so trying each is a correct, cheap scan.
+  for (const conversationId of aborts.keys()) {
+    if (resolveInterrupt(conversationId, callId, approved)) return
+  }
 }
 
 // Boot-time crash-resume scan (risk 6).

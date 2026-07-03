@@ -1,8 +1,26 @@
 // The contract shared by main, preload, and renderer.
 // Change deliberately and update all three layers together.
 
+// The legacy engine's tool set is 'list_dir' | 'read_file' | 'search_files' |
+// 'write_file' | 'edit_file' | 'run_command'. The orchestrator engine's tools
+// are Deep Agents' always-on built-ins (createDeepAgent() injects these
+// regardless of a custom `tools` option: 'ls' | 'read_file' | 'write_file' |
+// 'edit_file' | 'glob' | 'grep', a `write_todos` planning tool, and a `task`
+// subagent tool) plus one custom 'run_command' tool (src/main/orchestrator
+// /tools.ts). Both engines' names are unioned here so a single Event type
+// serves either engine.
 export type ToolName =
-  'list_dir' | 'read_file' | 'search_files' | 'write_file' | 'edit_file' | 'run_command'
+  | 'list_dir'
+  | 'read_file'
+  | 'search_files'
+  | 'write_file'
+  | 'edit_file'
+  | 'run_command'
+  | 'ls'
+  | 'glob'
+  | 'grep'
+  | 'write_todos'
+  | 'task'
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
