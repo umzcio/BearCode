@@ -150,6 +150,7 @@ export interface BearcodeApi {
     get(diffId: string): Promise<FileDiff>
     accept(fileId: string): Promise<void>
     reject(fileId: string): Promise<void>
+    open(fileId: string): Promise<void>
   }
   tools: {
     approve(callId: string, approved: boolean): Promise<void>

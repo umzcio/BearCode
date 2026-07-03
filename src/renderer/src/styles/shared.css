@@ -210,3 +210,9 @@ code.tok {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
   z-index: 200;
 }
+
+.menu-divider {
+  height: 1px;
+  background: var(--border-soft);
+  margin: 5px 4px;
+}

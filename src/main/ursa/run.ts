@@ -43,13 +43,38 @@ function loadHistory(conversationId: string): ModelMessage[] {
   if (cached) return cached
   const history: ModelMessage[] = []
   const pendingCalls = new Map<string, ToolName>()
+  const unanswered = new Map<string, ToolName>()
+
+  // Providers reject a replayed history whose tool call has no result (for
+  // example after a crash mid-tool). Close any dangling call synthetically
+  // so old conversations stay usable.
+  const flushUnanswered = (): void => {
+    for (const [callId, toolName] of unanswered) {
+      history.push({
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: callId,
+            toolName,
+            output: { type: 'text', value: 'No result was recorded for this call.' }
+          }
+        ]
+      })
+    }
+    unanswered.clear()
+  }
+
   for (const event of db.getEvents(conversationId)) {
     if (event.type === 'user_message') {
+      flushUnanswered()
       history.push({ role: 'user', content: event.text })
     } else if (event.type === 'assistant_text' && event.text) {
+      flushUnanswered()
       history.push({ role: 'assistant', content: event.text })
     } else if (event.type === 'tool_call') {
       pendingCalls.set(event.id, event.tool)
+      unanswered.set(event.id, event.tool)
       history.push({
         role: 'assistant',
         content: [
@@ -57,6 +82,7 @@ function loadHistory(conversationId: string): ModelMessage[] {
         ]
       })
     } else if (event.type === 'tool_result') {
+      unanswered.delete(event.callId)
       const toolName = pendingCalls.get(event.callId) ?? 'read_file'
       history.push({
         role: 'tool',
@@ -71,6 +97,7 @@ function loadHistory(conversationId: string): ModelMessage[] {
       })
     }
   }
+  flushUnanswered()
   histories.set(conversationId, history)
   return history
 }
@@ -204,7 +231,15 @@ export async function startRun(
         // Some models (often local ones) reject tool definitions outright:
         // retry once without tools and say so (spec section 5).
         const msg = err instanceof Error ? err.message : String(err)
-        if (useTools && !toolsRetried && /tool/i.test(msg) && !controller.signal.aborted) {
+        // Only retry without tools when the provider says tools themselves
+        // are unsupported, not for any error that merely mentions a tool.
+        if (
+          useTools &&
+          !toolsRetried &&
+          /tool/i.test(msg) &&
+          /support|unavailable|not allowed|no endpoints/i.test(msg) &&
+          !controller.signal.aborted
+        ) {
           toolsRetried = true
           useTools = false
           emitAndPersist({
@@ -255,20 +290,24 @@ export async function startRun(
       for (const call of toolCalls) {
         const def = TOOLS[call.toolName as ToolName]
         const needsApproval = Boolean(def?.requiresApproval) && !getSettings().autoApproveCommands
+        // Event ids must be ours, not the provider's: OpenRouter reuses ids
+        // like "functions.list_dir:0" across iterations, which collides in
+        // the events table. call.toolCallId still names the SDK message parts.
+        const evId = randomUUID()
         let approved = true
         if (needsApproval) {
           // Pause the run for Run/Deny (spec 6.2). Persist only the decided
           // state; a quit while pending becomes Cancelled on next boot.
           sink.emit(conversationId, {
             type: 'tool_call',
-            id: call.toolCallId,
+            id: evId,
             tool: call.toolName as ToolName,
             input: call.input,
             approvalState: 'pending'
           })
           sink.setState(conversationId, 'awaiting-approval')
           approved = await new Promise<boolean>((resolveApprovalPromise) => {
-            approvals.set(call.toolCallId, resolveApprovalPromise)
+            approvals.set(evId, resolveApprovalPromise)
             controller.signal.addEventListener('abort', () => resolveApprovalPromise(false))
           })
           if (controller.signal.aborted) throw new Error('Cancelled')
@@ -276,7 +315,7 @@ export async function startRun(
         }
         emitAndPersist({
           type: 'tool_call',
-          id: call.toolCallId,
+          id: evId,
           tool: call.toolName as ToolName,
           input: call.input,
           approvalState: needsApproval ? (approved ? 'approved' : 'denied') : 'auto'
@@ -325,7 +364,7 @@ export async function startRun(
         emitAndPersist({
           type: 'tool_result',
           id: randomUUID(),
-          callId: call.toolCallId,
+          callId: evId,
           output,
           exitCode,
           durationMs: Date.now() - toolStartedAt,

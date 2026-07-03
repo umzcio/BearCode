@@ -55,6 +55,10 @@ function App(): React.JSX.Element {
           e.preventDefault()
           s.toggleModelMenu()
           break
+        case ';':
+          e.preventDefault()
+          s.toggleProjectMenu()
+          break
         case 'l': {
           e.preventDefault()
           const ta = document.querySelector<HTMLTextAreaElement>('.composer textarea')

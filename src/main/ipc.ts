@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
   AppSettings,
   ConversationMeta,
@@ -18,7 +18,7 @@ import {
   setWorkspace,
   startRun
 } from './ursa/run'
-import { acceptFile, getDiff, rejectFile } from './ursa/diffs'
+import { acceptFile, filePathFor, getDiff, rejectFile } from './ursa/diffs'
 import * as db from './db'
 
 function broadcast(channel: string, ...args: unknown[]): void {
@@ -73,6 +73,10 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:diffs:get', (_e, diffId: string) => getDiff(diffId))
   ipcMain.handle('bearcode:diffs:accept', (_e, fileId: string) => acceptFile(fileId))
   ipcMain.handle('bearcode:diffs:reject', (_e, fileId: string) => rejectFile(fileId))
+  ipcMain.handle('bearcode:diffs:open', (_e, fileId: string) => {
+    const path = filePathFor(fileId)
+    if (path) void shell.openPath(path)
+  })
   ipcMain.handle('bearcode:tools:approve', (_e, callId: string, approved: boolean) =>
     resolveApproval(callId, approved)
   )

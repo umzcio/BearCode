@@ -19,7 +19,10 @@ export function systemPrompt(projectPath: string | null, tools: boolean): string
       'File edits are staged as diffs for human review; they only reach disk after the user',
       'accepts them, so treat a staged change as complete on your side.',
       'Commands may require user approval before they run and can be denied.',
-      'Prefer edit_file over rewriting whole files with write_file.'
+      'Prefer edit_file over rewriting whole files with write_file.',
+      'When you finish, briefly tell the user what to review. If the result is something',
+      'viewable, like a web page or document, mention they can hit Review, accept the',
+      'changes, and use the Open button there to see it right away.'
     )
   }
   lines.push(

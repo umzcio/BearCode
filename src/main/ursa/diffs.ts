@@ -117,6 +117,12 @@ export function acceptFile(fileId: string): void {
   console.log(`[ursa] diff accepted: ${row.path}`)
 }
 
+export function filePathFor(fileId: string): string | null {
+  const row = getDb().prepare(`SELECT path FROM diffs WHERE id = ?`).get(fileId) as
+    { path: string } | undefined
+  return row?.path ?? null
+}
+
 export function rejectFile(fileId: string): void {
   getDb()
     .prepare(`UPDATE diffs SET state = 'rejected' WHERE id = ? AND state = 'pending'`)

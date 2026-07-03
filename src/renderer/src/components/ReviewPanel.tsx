@@ -74,15 +74,21 @@ function ReviewPanelInner({ diffId }: { diffId: string }): React.JSX.Element {
     else await window.bearcode.diffs.reject(fileId)
     setFileState(fileId, accept ? 'accepted' : 'rejected')
     showToast(accept ? 'Changes accepted' : 'Change rejected')
-    if (pendingCount <= 1) closeReview()
   }
 
   const acceptAll = async (): Promise<void> => {
     for (const f of files) {
       if (f.state === 'pending') await window.bearcode.diffs.accept(f.fileId)
     }
+    setDiff((d) =>
+      d
+        ? {
+            ...d,
+            files: d.files.map((f) => (f.state === 'pending' ? { ...f, state: 'accepted' } : f))
+          }
+        : d
+    )
     showToast('All changes accepted')
-    closeReview()
   }
 
   const name = file ? (file.path.split('/').pop() ?? file.path) : ''
@@ -160,6 +166,11 @@ function ReviewPanelInner({ diffId }: { diffId: string }): React.JSX.Element {
           <span className={'file-state ' + file.state}>
             {file.state === 'accepted' ? 'Accepted' : 'Rejected'}
           </span>
+        ) : null}
+        {file && file.state === 'accepted' ? (
+          <button className="foot-btn" onClick={() => void window.bearcode.diffs.open(file.fileId)}>
+            Open
+          </button>
         ) : null}
         {files.length > 1 && pendingCount > 1 ? (
           <button className="foot-btn accept" onClick={() => void acceptAll()}>

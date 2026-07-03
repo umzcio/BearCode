@@ -61,6 +61,8 @@ interface AppState {
   sidebarCollapsed: boolean
   // Incremented by the Cmd+/ shortcut; the mounted ModelPicker toggles on change.
   modelMenuTick: number
+  // Incremented by the Cmd+; shortcut; the Home project menu toggles on change.
+  projectMenuTick: number
   view: View
   conversations: Record<string, Convo>
   convoOrder: string[]
@@ -87,6 +89,8 @@ interface AppState {
   retryRun(convoId: string): void
   selectModel(ref: ModelRef): void
   pickWorkspace(): Promise<void>
+  setWorkspace(path: string | null): void
+  toggleProjectMenu(): void
   openSettings(): void
   closeSettings(): void
   saveKey(provider: ProviderId, key: string): Promise<void>
@@ -190,6 +194,7 @@ export const useAppStore = create<AppState>((set, get) => {
   return {
     sidebarCollapsed: false,
     modelMenuTick: 0,
+    projectMenuTick: 0,
     view: { kind: 'home' },
     conversations: {},
     convoOrder: [],
@@ -327,6 +332,8 @@ export const useAppStore = create<AppState>((set, get) => {
       const path = await window.bearcode.workspace.pick()
       if (path) set({ workspacePath: path })
     },
+    setWorkspace: (path) => set({ workspacePath: path }),
+    toggleProjectMenu: () => set((s) => ({ projectMenuTick: s.projectMenuTick + 1 })),
 
     openSettings: () => set({ settingsOpen: true }),
     closeSettings: () => set({ settingsOpen: false }),
