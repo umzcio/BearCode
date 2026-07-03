@@ -33,6 +33,51 @@ import { buildTools } from './tools'
 // @langchain/langgraph/dist/pregel/types.d.ts.)
 type MessagesStreamChunk = [string[], [BaseMessageChunk, Record<string, unknown>]]
 
+// One named subagent, registered via createDeepAgent's `subagents` option
+// (planning/replatform-api-notes.md section (a), `SubAgent` interface,
+// deepagents/dist/agent-DURA4_mf.d.ts ~1342). A short, distinct instruction
+// so a delegating prompt reliably invokes it through the built-in `task`
+// tool rather than the main agent answering directly.
+const RESEARCHER_SUBAGENT = {
+  name: 'researcher',
+  description:
+    'Delegate research-style lookups here: gathering and summarizing facts on a topic. ' +
+    'Use the task tool with subagent_type "researcher" whenever the user asks you to ' +
+    'delegate research or a summary to a subagent.',
+  systemPrompt:
+    'You are a focused research assistant. Given a topic, produce a concise, ' +
+    'factual summary. Do not ask clarifying questions; answer with what you know.'
+}
+
+// Known subagent names (currently just the one above). Used as an allowlist
+// when deriving `agentId` from stream metadata -- see agentIdOf below.
+const SUBAGENT_NAMES = new Set([RESEARCHER_SUBAGENT.name])
+
+// Derive the producing agent's id from a streamed chunk's metadata (and, as
+// documentation, its namespace). VERIFIED LIVE (BEARCODE_DEBUG_NS, Task 8):
+//
+//   - The MAIN agent's model chunks arrive under namespace
+//     ["model_request:<uuid>"] with metadata.lc_agent_name === undefined.
+//   - A SUBAGENT's chunks (the deep agent's built-in `task` tool invokes the
+//     subagent via subagent.invoke(); deepagents/dist/langsmith-*.js
+//     createTaskTool sets `metadata.lc_agent_name = subagent_type` on the
+//     nested config) arrive under a NESTED namespace
+//     ["tools:<uuid>", "model_request:<uuid>"] with
+//     metadata.lc_agent_name === "researcher".
+//
+// So the subagent NAME is NOT in the namespace path (only a generic "tools:"
+// segment is) -- the authoritative, name-carrying signal is
+// `metadata.lc_agent_name`. We read it and allowlist it against the actually-
+// registered subagent names, so an unexpected value can never become a bogus
+// pill. This also inherently satisfies the "model_request:<uuid> must never
+// become an agentId" guard (Task 5 recon): the main model node carries no
+// lc_agent_name, so it falls through to `undefined` (main, unset agentId).
+function agentIdOf(metadata: Record<string, unknown>): string | undefined {
+  const name = metadata?.lc_agent_name
+  if (typeof name === 'string' && SUBAGENT_NAMES.has(name)) return name
+  return undefined
+}
+
 // Pull the reasoning text out of a streamed content block. Two shapes are
 // observed live from the deep agent stream:
 //   1. A standardized `reasoning` block ({ type: "reasoning", reasoning }):
@@ -172,22 +217,50 @@ async function drive(
   input: unknown,
   ctx: DriveContext
 ): Promise<DriveResult> {
-  const answerId = randomUUID()
-  let answer = ''
-  let thinkId = ''
-  let think = ''
-  let thinkStartedAt = 0
-  let thinkEndedAt = 0
+  // Text/reasoning accumulators are split per producing agent (keyed by
+  // agentIdOf's result, 'main' standing in for undefined/main) so
+  // a subagent's answer/thinking text never gets appended into the main
+  // agent's accumulating strings -- each agent gets its own upsert-by-id
+  // Event stream (bridge.ts's textDeltaEvent/thinkingDeltaEvent take an
+  // optional agentId, tagging every delta so the renderer's AgentAttributed
+  // wrapper (WorkedGroup.tsx) can render a distinct pill per subagent).
+  interface AgentTextState {
+    answerId: string
+    answer: string
+    thinkId: string
+    think: string
+    thinkStartedAt: number
+    thinkEndedAt: number
+  }
+  const textStates = new Map<string, AgentTextState>()
+  const stateFor = (key: string): AgentTextState => {
+    let s = textStates.get(key)
+    if (!s) {
+      s = {
+        answerId: randomUUID(),
+        answer: '',
+        thinkId: '',
+        think: '',
+        thinkStartedAt: 0,
+        thinkEndedAt: 0
+      }
+      textStates.set(key, s)
+    }
+    return s
+  }
 
   const aiById = new Map<string, AIMessageChunk>()
   const aiOrder: string[] = []
+  const aiAgentById = new Map<string, string | undefined>()
   const toolMsgById = new Map<string, ToolMessageChunk>()
+  const toolAgentById = new Map<string, string | undefined>()
 
-  // subgraphs:true is set per the verified API notes so subagent streams are
-  // tagged by namespace; this task has no subagents, so every chunk is the main
-  // agent and no agentId is attributed. Subagent attribution lands with the
-  // multi-agent task. (The main graph's own model node namespaces as
-  // "model_request:<id>", which is NOT a subagent and must not be labelled.)
+  // subgraphs:true (per the verified API notes) exposes the subagent's
+  // nested stream. Each yielded item is [namespace, [chunk, metadata]];
+  // agentIdOf(metadata) (module scope, above) reads metadata.lc_agent_name
+  // -- the deep agent's `task` tool tags every subagent chunk with the
+  // subagent's name there, while the main graph's "model_request" node has
+  // none -- so the main agent stays unattributed and never mislabelled.
   const stream = await agent.stream(input, {
     streamMode: 'messages',
     subgraphs: true,
@@ -196,48 +269,63 @@ async function drive(
   })
 
   for await (const item of stream) {
-    const [, [chunk]] = item as MessagesStreamChunk
+    const [, [chunk, metadata]] = item as MessagesStreamChunk
+    const agentId = agentIdOf(metadata)
+    const key = agentId ?? 'main'
     if (isToolMessageChunk(chunk)) {
       const id = chunk.tool_call_id || chunk.id || randomUUID()
       const prev = toolMsgById.get(id)
       toolMsgById.set(id, prev ? (prev.concat(chunk) as ToolMessageChunk) : chunk)
+      if (!toolAgentById.has(id)) toolAgentById.set(id, agentId)
       continue
     }
     const aiChunk = chunk as AIMessageChunk
+    const s = stateFor(key)
     for (const block of aiChunk.contentBlocks ?? []) {
       const reasoning = reasoningTextOf(block)
       if (reasoning) {
-        if (!thinkId) {
-          thinkId = randomUUID()
-          thinkStartedAt = Date.now()
+        if (!s.thinkId) {
+          s.thinkId = randomUUID()
+          s.thinkStartedAt = Date.now()
         }
-        think += reasoning
+        s.think += reasoning
         ctx.sink.emit(
           ctx.conversationId,
-          thinkingDeltaEvent(thinkId, think, Date.now() - thinkStartedAt)
+          thinkingDeltaEvent(s.thinkId, s.think, Date.now() - s.thinkStartedAt, agentId)
         )
       } else if (block.type === 'text' && block.text) {
-        if (thinkId && !thinkEndedAt) thinkEndedAt = Date.now()
-        answer += block.text
-        ctx.sink.emit(ctx.conversationId, textDeltaEvent(answerId, answer))
+        if (s.thinkId && !s.thinkEndedAt) s.thinkEndedAt = Date.now()
+        s.answer += block.text
+        ctx.sink.emit(ctx.conversationId, textDeltaEvent(s.answerId, s.answer, agentId))
       }
     }
-    const msgId = aiChunk.id ?? '__current__'
+    const msgId = aiChunk.id ?? `${key}:__current__`
     const prevAi = aiById.get(msgId)
-    if (!prevAi) aiOrder.push(msgId)
+    if (!prevAi) {
+      aiOrder.push(msgId)
+      aiAgentById.set(msgId, agentId)
+    }
     aiById.set(msgId, prevAi ? (prevAi.concat(aiChunk) as AIMessageChunk) : aiChunk)
   }
 
   // Persist merged blocks (same pattern as legacy run.ts: deltas stream live,
   // only the closed, merged block is written to the events table).
-  if (thinkId && think) {
-    appendEvent(
-      ctx.conversationId,
-      thinkingDeltaEvent(thinkId, think, (thinkEndedAt || Date.now()) - thinkStartedAt)
-    )
-  }
-  if (answer) {
-    appendEvent(ctx.conversationId, textDeltaEvent(answerId, answer))
+  for (const [key, s] of textStates) {
+    const agentId = key === 'main' ? undefined : key
+    if (s.thinkId && s.think) {
+      appendEvent(
+        ctx.conversationId,
+        thinkingDeltaEvent(
+          s.thinkId,
+          s.think,
+          (s.thinkEndedAt || Date.now()) - s.thinkStartedAt,
+          agentId
+        )
+      )
+    }
+    if (s.answer) {
+      appendEvent(ctx.conversationId, textDeltaEvent(s.answerId, s.answer, agentId))
+    }
   }
 
   // Emit tool_call/tool_result Events for every tool call surfaced by this
@@ -245,6 +333,7 @@ async function drive(
   // carried from Task 5 review: these were previously dropped silently).
   for (const msgId of aiOrder) {
     const aiMsg = aiById.get(msgId)
+    const msgAgentId = aiAgentById.get(msgId)
     for (const tc of aiMsg?.tool_calls ?? []) {
       if (!tc.id) continue
       // Mint (or recall) the local id for this provider tool-call id up
@@ -291,7 +380,8 @@ async function drive(
             id: localId,
             tool: (tc.name as ToolName) ?? 'run_command',
             input: tc.args,
-            approvalState: 'pending'
+            approvalState: 'pending',
+            agentId: msgAgentId
           })
           ctx.sink.setState(ctx.conversationId, 'awaiting-approval')
           return { paused: true, pendingCallId: localId, pendingInput: tc.args }
@@ -300,13 +390,19 @@ async function drive(
         // (shouldn't happen once the stream is exhausted) -- skip silently.
         continue
       }
+      // Prefer the agentId the tool_result chunk itself was namespaced
+      // under (toolAgentById); fall back to the AI message's agentId if the
+      // result somehow wasn't observed with a namespace (shouldn't happen,
+      // but keeps attribution best-effort rather than silently dropping it).
+      const resultAgentId = toolAgentById.get(tc.id) ?? msgAgentId
       if (!ctx.alreadyAnnounced.has(localId)) {
         emitAndPersist(ctx.conversationId, ctx.sink, {
           type: 'tool_call',
           id: localId,
           tool: (tc.name as ToolName) ?? 'run_command',
           input: tc.args,
-          approvalState: 'auto'
+          approvalState: 'auto',
+          agentId: msgAgentId
         })
       }
       const output = textOf(toolResult.content)
@@ -320,7 +416,8 @@ async function drive(
         output: truncated ? output.slice(0, 50000) + '\n… output truncated' : output,
         durationMs: 0,
         truncated,
-        stats
+        stats,
+        agentId: resultAgentId
       })
     }
   }
@@ -431,6 +528,7 @@ export async function runGraph(opts: {
   const agent = createDeepAgent({
     model,
     checkpointer: getCheckpointer(),
+    subagents: [RESEARCHER_SUBAGENT],
     ...(backend ? { backend, tools: buildTools(projectPath as string) } : {})
   })
 
