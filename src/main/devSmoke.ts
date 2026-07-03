@@ -40,6 +40,7 @@ function importKeys(): void {
 }
 
 const QUESTION =
+  process.env['BEARCODE_SMOKE_PROMPT'] ??
   'What is the capital of Australia? Answer in one short sentence, and name which model you are.'
 
 // BEARCODE_SMOKE=inspect: dump restored state after a relaunch (Phase 3
@@ -105,7 +106,7 @@ export function runDevSmoke(win: BrowserWindow): void {
       const state = (await js(
         `(() => {
           const s = window.__bearcodeStore.getState();
-          const convo = Object.values(s.conversations)[0];
+          const convo = s.conversations[s.convoOrder[0]];
           return convo ? convo.runState : 'missing';
         })()`
       )) as string
@@ -127,6 +128,10 @@ export function runDevSmoke(win: BrowserWindow): void {
             `window.__bearcodeStore.getState().saveKey(${JSON.stringify(fakeKeyProvider)}, 'sk-bogus-smoke-key')`
           )
         }
+        const dir = process.env['BEARCODE_SMOKE_DIR']
+        if (dir) {
+          await js(`window.__bearcodeStore.setState({ workspacePath: ${JSON.stringify(dir)} })`)
+        }
         await js(`window.__bearcodeStore.getState().refreshProviders()`)
         await new Promise((r) => setTimeout(r, 1000))
 
@@ -140,7 +145,7 @@ export function runDevSmoke(win: BrowserWindow): void {
             await js(
               `(() => {
                 const s = window.__bearcodeStore.getState();
-                const id = Object.keys(s.conversations)[0];
+                const id = s.convoOrder[0];
                 s.send(id, ${JSON.stringify(QUESTION)});
               })()`
             )
@@ -154,13 +159,14 @@ export function runDevSmoke(win: BrowserWindow): void {
         const result = await js(
           `(() => {
             const s = window.__bearcodeStore.getState();
-            const convo = Object.values(s.conversations)[0];
+            const convo = s.conversations[s.convoOrder[0]];
             const turns = [];
             let current = null;
             for (const e of convo.events) {
               if (e.type === 'user_message') { current = { answer: '', model: null, errors: [] }; turns.push(current); }
               else if (!current) continue;
               else if (e.type === 'assistant_text') current.answer = e.text;
+              else if (e.type === 'tool_call') current.tools = (current.tools||[]).concat(e.tool);
               else if (e.type === 'turn_meta') current.model = e.provider + '/' + e.model;
               else if (e.type === 'error') current.errors.push(e.message);
             }

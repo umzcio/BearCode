@@ -11,26 +11,41 @@ interface ToolStepProps {
   result?: ToolResultEvent
 }
 
+function inputStr(call: ToolCallEvent, key: string): string | null {
+  const input = call.input
+  if (typeof input === 'object' && input !== null && key in input) {
+    const v = (input as Record<string, unknown>)[key]
+    if (typeof v === 'string' && v) return v
+  }
+  return null
+}
+
 function summaryFor(call: ToolCallEvent): React.ReactNode {
   switch (call.tool) {
-    case 'list_dir':
+    case 'list_dir': {
+      const path = inputStr(call, 'path')
       return (
         <span>
-          Explored <b>2 folders</b>
+          Explored <b>{path && path !== '.' ? path : 'the workspace'}</b>
         </span>
       )
-    case 'read_file':
+    }
+    case 'read_file': {
+      const path = inputStr(call, 'path')
       return (
         <span>
-          Read <b>1 file</b>
+          Read <b>{path ? path.split('/').pop() : 'a file'}</b>
         </span>
       )
-    case 'search_files':
+    }
+    case 'search_files': {
+      const pattern = inputStr(call, 'pattern')
       return (
         <span>
-          Searched <b>the workspace</b>
+          Searched for <b>{pattern ?? 'a pattern'}</b>
         </span>
       )
+    }
     default:
       return (
         <span>

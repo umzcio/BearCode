@@ -1,16 +1,19 @@
-// The ursa chat loop for Phase 2-3: streamText via the AI SDK, mapped onto
-// BearCode's Event vocabulary. Streaming deltas are pushed to the renderer
-// incrementally but persisted as one merged event per block when the block
-// closes. Tools, approval gating, and the iteration cap arrive in Phases 4-5;
-// the SDK never auto-executes anything here.
+// The ursa agent loop (spec 6.3): streamText via the AI SDK, wrapped in
+// BearCode's own iteration cap, tool execution, and event emission. The SDK
+// never auto-executes a tool. Streaming deltas are pushed to the renderer
+// incrementally but persisted as one merged event per block on close.
+// Approval gating and write tools land in Phase 5.
 import { randomUUID } from 'crypto'
-import { streamText } from 'ai'
-import type { ModelMessage } from 'ai'
-import type { ConversationMeta, Event, RunState } from '../../shared/types'
+import { streamText, tool } from 'ai'
+import type { AssistantModelMessage, ModelMessage, Tool, ToolModelMessage } from 'ai'
+import type { ConversationMeta, Event, RunState, ToolName } from '../../shared/types'
 import { getProvider, parseModelRef } from './providers/registry'
 import { systemPrompt } from './systemPrompt'
 import { maybeGenerateTitle } from './title'
+import { TOOLS } from './tools'
 import * as db from '../db'
+
+const MAX_ITERATIONS = 25
 
 export interface RunSink {
   emit(conversationId: string, event: Event): void
@@ -28,10 +31,33 @@ function loadHistory(conversationId: string): ModelMessage[] {
   const cached = histories.get(conversationId)
   if (cached) return cached
   const history: ModelMessage[] = []
+  const pendingCalls = new Map<string, ToolName>()
   for (const event of db.getEvents(conversationId)) {
-    if (event.type === 'user_message') history.push({ role: 'user', content: event.text })
-    else if (event.type === 'assistant_text' && event.text) {
+    if (event.type === 'user_message') {
+      history.push({ role: 'user', content: event.text })
+    } else if (event.type === 'assistant_text' && event.text) {
       history.push({ role: 'assistant', content: event.text })
+    } else if (event.type === 'tool_call') {
+      pendingCalls.set(event.id, event.tool)
+      history.push({
+        role: 'assistant',
+        content: [
+          { type: 'tool-call', toolCallId: event.id, toolName: event.tool, input: event.input }
+        ]
+      })
+    } else if (event.type === 'tool_result') {
+      const toolName = pendingCalls.get(event.callId) ?? 'read_file'
+      history.push({
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: event.callId,
+            toolName,
+            output: { type: 'text', value: event.output }
+          }
+        ]
+      })
     }
   }
   histories.set(conversationId, history)
@@ -60,6 +86,14 @@ export function cancelRun(conversationId: string): void {
   aborts.get(conversationId)?.abort()
 }
 
+function buildAiTools(): Record<string, Tool> {
+  const out: Record<string, Tool> = {}
+  for (const [name, def] of Object.entries(TOOLS)) {
+    out[name] = tool({ description: def.description, inputSchema: def.inputSchema })
+  }
+  return out
+}
+
 export async function startRun(
   conversationId: string,
   userText: string,
@@ -73,15 +107,12 @@ export async function startRun(
   const { provider: providerId, modelId } = parseModelRef(modelRef)
   const provider = getProvider(providerId)
   const history = loadHistory(conversationId)
+  const projectPath = workspacePaths.get(conversationId) ?? null
   db.setModelRef(conversationId, modelRef)
 
-  // A retry after an error re-sends the same text; the unanswered user
-  // message is already in history, so don't append a duplicate.
   const last = history[history.length - 1]
   const isRetry = last?.role === 'user' && last.content === userText
-  if (!isRetry) {
-    history.push({ role: 'user', content: userText })
-  }
+  if (!isRetry) history.push({ role: 'user', content: userText })
   const userEvent: Event = { type: 'user_message', id: randomUUID(), text: userText }
   sink.emit(conversationId, userEvent)
   if (!isRetry) db.appendEvent(conversationId, userEvent)
@@ -91,69 +122,160 @@ export async function startRun(
   sink.setState(conversationId, 'running')
 
   const startedAt = Date.now()
-  let thinkingText = ''
-  let thinkingId: string | null = null
-  let thinkingStartedAt = 0
-  let thinkingEndedAt = 0
-  let answerText = ''
-  let answerId: string | null = null
   let usage: { inputTokens: number; outputTokens: number } | undefined
+  let useTools = projectPath !== null
+  let toolsRetried = false
 
-  const persistBlocks = (): void => {
-    if (thinkingId && thinkingText) {
-      db.appendEvent(conversationId, {
-        type: 'thinking',
-        id: thinkingId,
-        text: thinkingText,
-        durationMs: (thinkingEndedAt || Date.now()) - thinkingStartedAt
-      })
-    }
-    if (answerId && answerText) {
-      db.appendEvent(conversationId, { type: 'assistant_text', id: answerId, text: answerText })
-    }
+  const emitAndPersist = (event: Event): void => {
+    sink.emit(conversationId, event)
+    db.appendEvent(conversationId, event)
   }
 
   try {
-    const result = streamText({
-      model: provider.make(modelId),
-      system: systemPrompt(workspacePaths.get(conversationId) ?? null),
-      messages: history,
-      abortSignal: controller.signal,
-      providerOptions: provider.providerOptions?.(modelId)
-    })
+    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+      let thinkingText = ''
+      let thinkingId: string | null = null
+      let thinkingStartedAt = 0
+      let thinkingEndedAt = 0
+      let answerText = ''
+      let answerId: string | null = null
+      const toolCalls: { toolCallId: string; toolName: string; input: unknown }[] = []
 
-    for await (const part of result.fullStream) {
-      if (part.type === 'reasoning-delta') {
-        if (!thinkingId) {
-          thinkingId = randomUUID()
-          thinkingStartedAt = Date.now()
+      try {
+        const result = streamText({
+          model: provider.make(modelId),
+          system: systemPrompt(projectPath, useTools),
+          messages: history,
+          tools: useTools ? buildAiTools() : undefined,
+          abortSignal: controller.signal,
+          providerOptions: provider.providerOptions?.(modelId)
+        })
+
+        for await (const part of result.fullStream) {
+          if (part.type === 'reasoning-delta') {
+            if (!thinkingId) {
+              thinkingId = randomUUID()
+              thinkingStartedAt = Date.now()
+            }
+            thinkingText += part.text
+            sink.emit(conversationId, {
+              type: 'thinking',
+              id: thinkingId,
+              text: thinkingText,
+              durationMs: Date.now() - thinkingStartedAt
+            })
+          } else if (part.type === 'text-delta') {
+            if (!answerId) answerId = randomUUID()
+            if (thinkingId && !thinkingEndedAt) thinkingEndedAt = Date.now()
+            answerText += part.text
+            sink.emit(conversationId, { type: 'assistant_text', id: answerId, text: answerText })
+          } else if (part.type === 'tool-call') {
+            toolCalls.push({
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              input: part.input
+            })
+          } else if (part.type === 'finish') {
+            const u = part.totalUsage
+            if (u && u.inputTokens !== undefined && u.outputTokens !== undefined) {
+              usage = {
+                inputTokens: (usage?.inputTokens ?? 0) + u.inputTokens,
+                outputTokens: (usage?.outputTokens ?? 0) + u.outputTokens
+              }
+            }
+          } else if (part.type === 'error') {
+            throw part.error
+          }
         }
-        thinkingText += part.text
-        sink.emit(conversationId, {
+      } catch (err) {
+        // Some models (often local ones) reject tool definitions outright:
+        // retry once without tools and say so (spec section 5).
+        const msg = err instanceof Error ? err.message : String(err)
+        if (useTools && !toolsRetried && /tool/i.test(msg) && !controller.signal.aborted) {
+          toolsRetried = true
+          useTools = false
+          emitAndPersist({
+            type: 'error',
+            id: randomUUID(),
+            message: 'Tools are unavailable for this model. Continuing without tools.',
+            recoverable: false
+          })
+          continue
+        }
+        throw err
+      }
+
+      // Persist merged streaming blocks for this iteration.
+      if (thinkingId && thinkingText) {
+        db.appendEvent(conversationId, {
           type: 'thinking',
           id: thinkingId,
           text: thinkingText,
-          durationMs: Date.now() - thinkingStartedAt
+          durationMs: (thinkingEndedAt || Date.now()) - thinkingStartedAt
         })
-      } else if (part.type === 'text-delta') {
-        if (!answerId) answerId = randomUUID()
-        if (thinkingId && !thinkingEndedAt) thinkingEndedAt = Date.now()
-        answerText += part.text
-        sink.emit(conversationId, { type: 'assistant_text', id: answerId, text: answerText })
-      } else if (part.type === 'finish') {
-        const u = part.totalUsage
-        if (u && u.inputTokens !== undefined && u.outputTokens !== undefined) {
-          usage = { inputTokens: u.inputTokens, outputTokens: u.outputTokens }
-        }
-      } else if (part.type === 'error') {
-        throw part.error
       }
+      if (answerId && answerText) {
+        db.appendEvent(conversationId, { type: 'assistant_text', id: answerId, text: answerText })
+      }
+
+      if (toolCalls.length === 0) {
+        if (answerText) history.push({ role: 'assistant', content: answerText })
+        break
+      }
+
+      // Record the assistant turn (text + tool calls) in neutral history.
+      const assistantMsg: AssistantModelMessage = {
+        role: 'assistant',
+        content: [
+          ...(answerText ? [{ type: 'text' as const, text: answerText }] : []),
+          ...toolCalls.map((c) => ({
+            type: 'tool-call' as const,
+            toolCallId: c.toolCallId,
+            toolName: c.toolName,
+            input: c.input
+          }))
+        ]
+      }
+      history.push(assistantMsg)
+
+      const toolMsg: ToolModelMessage = { role: 'tool', content: [] }
+      for (const call of toolCalls) {
+        emitAndPersist({
+          type: 'tool_call',
+          id: call.toolCallId,
+          tool: call.toolName as ToolName,
+          input: call.input,
+          approvalState: 'auto'
+        })
+        const toolStartedAt = Date.now()
+        let output: string
+        try {
+          const def = TOOLS[call.toolName as ToolName]
+          if (!def || !projectPath) throw new Error(`Unknown tool: ${call.toolName}`)
+          output = await def.execute(call.input, { projectPath })
+        } catch (err) {
+          output = `Error: ${err instanceof Error ? err.message : String(err)}`
+        }
+        const truncated = output.length > 50000
+        if (truncated) output = output.slice(0, 50000) + '\n… output truncated'
+        emitAndPersist({
+          type: 'tool_result',
+          id: randomUUID(),
+          callId: call.toolCallId,
+          output,
+          durationMs: Date.now() - toolStartedAt,
+          truncated
+        })
+        toolMsg.content.push({
+          type: 'tool-result',
+          toolCallId: call.toolCallId,
+          toolName: call.toolName,
+          output: { type: 'text', value: output }
+        })
+      }
+      history.push(toolMsg)
     }
 
-    if (answerText) {
-      history.push({ role: 'assistant', content: answerText })
-    }
-    persistBlocks()
     const turnMeta: Event = {
       type: 'turn_meta',
       id: randomUUID(),
@@ -163,23 +285,21 @@ export async function startRun(
       endedAt: Date.now(),
       usage
     }
-    sink.emit(conversationId, turnMeta)
-    db.appendEvent(conversationId, turnMeta)
+    emitAndPersist(turnMeta)
     sink.setState(conversationId, 'done')
 
-    // First completed turn names the conversation, in the background.
-    void maybeGenerateTitle(conversationId, providerId, modelId, userText, answerText, (id) => {
+    const lastMsg = history[history.length - 1]
+    const finalText =
+      lastMsg?.role === 'assistant' && typeof lastMsg.content === 'string' ? lastMsg.content : ''
+    void maybeGenerateTitle(conversationId, providerId, modelId, userText, finalText, (id) => {
       const meta = db.getConversationMeta(id)
       if (meta) sink.metaChanged(meta)
     })
   } catch (err) {
-    persistBlocks()
     const cancelled = controller.signal.aborted
     const message = cancelled ? 'Cancelled' : err instanceof Error ? err.message : String(err)
     if (!cancelled) console.error(`[ursa] run failed (${modelRef}):`, message)
-    const errorEvent: Event = { type: 'error', id: randomUUID(), message, recoverable: true }
-    sink.emit(conversationId, errorEvent)
-    db.appendEvent(conversationId, errorEvent)
+    emitAndPersist({ type: 'error', id: randomUUID(), message, recoverable: true })
     sink.setState(conversationId, cancelled ? 'cancelled' : 'error')
   } finally {
     aborts.delete(conversationId)
