@@ -1,7 +1,16 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
-import type { FileDiff, FileDiffFile } from '@shared/types'
+import { Suspense, lazy, useEffect, useState } from 'react'
+import type { Event, FileDiff, FileDiffFile } from '@shared/types'
 import { useAppStore } from '../state/store'
-import { IconClose, IconFile } from './icons'
+import {
+  IconChevronDown,
+  IconClose,
+  IconDots,
+  IconFile,
+  IconLines,
+  IconOverview,
+  IconPanel,
+  IconSearch
+} from './icons'
 import './ReviewPanel.css'
 
 const MonacoDiff = lazy(() => import('./MonacoDiff'))
@@ -36,6 +45,11 @@ function baseName(path: string): string {
   return path.split('/').pop() ?? path
 }
 
+function dirName(path: string): string {
+  const name = baseName(path)
+  return path.slice(0, Math.max(0, path.length - name.length - 1))
+}
+
 interface ReviewComment {
   id: number
   path: string
@@ -54,17 +68,31 @@ function ReviewPanelInner({ diffId }: { diffId: string }): React.JSX.Element {
   const closeReview = useAppStore((s) => s.closeReview)
   const focusPath = useAppStore((s) => s.reviewFocusPath)
   const view = useAppStore((s) => s.view)
+  const conversations = useAppStore((s) => s.conversations)
   const send = useAppStore((s) => s.send)
   const showToast = useAppStore((s) => s.showToast)
   const [diff, setDiff] = useState<FileDiff | null>(null)
-  // 'review' shows the diff; a file path shows that file's full code.
+  // 'overview' | 'review' | a file path (that file's full-code tab)
   const [tab, setTab] = useState<string>('review')
-  const [filePath, setFilePath] = useState<string | null>(null)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [comments, setComments] = useState<ReviewComment[]>([])
-  // Ref, not state: Monaco captures the add-comment closure once at mount.
-  const nextId = useRef(1)
 
   const convoId = view.kind === 'conversation' ? view.id : null
+  const convo = convoId ? conversations[convoId] : null
+
+  // The user prompt this diff belongs to, for the For Turn chip.
+  let turnPrompt = ''
+  if (convo) {
+    let sawDiff = false
+    for (let i = convo.events.length - 1; i >= 0; i--) {
+      const ev: Event = convo.events[i]
+      if (ev.type === 'file_diff' && ev.diffId === diffId) sawDiff = true
+      else if (sawDiff && ev.type === 'user_message') {
+        turnPrompt = ev.text
+        break
+      }
+    }
+  }
 
   useEffect(() => {
     let stale = false
@@ -87,14 +115,10 @@ function ReviewPanelInner({ diffId }: { diffId: string }): React.JSX.Element {
   if (focusPath && focusPath !== seenFocus) {
     setSeenFocus(focusPath)
     setTab(focusPath)
-    setFilePath(focusPath)
   }
 
   const files = diff?.files ?? []
-  const current: FileDiffFile | undefined =
-    tab === 'review'
-      ? (files.find((f) => f.path === filePath) ?? files[0])
-      : (files.find((f) => f.path === tab) ?? files[0])
+  const fileTab = files.find((f) => f.path === tab)
 
   const revert = async (file: FileDiffFile): Promise<void> => {
     await window.bearcode.diffs.revert(file.fileId)
@@ -109,9 +133,10 @@ function ReviewPanelInner({ diffId }: { diffId: string }): React.JSX.Element {
     showToast('Change reverted')
   }
 
+  // Functional update: Monaco captures this closure once at mount, so the
+  // id derives from the previous list, never from render-time state.
   const addComment = (path: string) => (line: number, text: string) => {
-    const id = nextId.current++
-    setComments((c) => [...c, { id, path, line, text }])
+    setComments((c) => [...c, { id: (c[c.length - 1]?.id ?? 0) + 1, path, line, text }])
   }
 
   const sendComments = (): void => {
@@ -126,11 +151,18 @@ function ReviewPanelInner({ diffId }: { diffId: string }): React.JSX.Element {
   const commentedLines = (path: string): number[] =>
     comments.filter((c) => c.path === path).map((c) => c.line)
 
-  const crumb = current ? current.path.split('/') : []
+  const soon = (): void => showToast('Coming soon')
 
   return (
     <div className="review-side">
       <div className="review-tabs">
+        <button
+          className={'review-tab' + (tab === 'overview' ? ' active' : '')}
+          onClick={() => setTab('overview')}
+        >
+          <IconOverview />
+          Overview
+        </button>
         <button
           className={'review-tab' + (tab === 'review' ? ' active' : '')}
           onClick={() => setTab('review')}
@@ -142,128 +174,202 @@ function ReviewPanelInner({ diffId }: { diffId: string }): React.JSX.Element {
           <button
             key={f.fileId}
             className={'review-tab' + (tab === f.path ? ' active' : '')}
-            onClick={() => {
-              setTab(f.path)
-              setFilePath(f.path)
-            }}
+            onClick={() => setTab(f.path)}
           >
-            <span className="ftype">{'</>'}</span>
+            <span className="code-mark">{'</>'}</span>
             {baseName(f.path)}
           </button>
         ))}
-        <button className="close" title="Close" onClick={closeReview}>
-          <IconClose />
+        <button className="panel-close" title="Close panel" onClick={closeReview}>
+          <IconPanel />
         </button>
       </div>
 
-      <div className="review-crumb">
-        {crumb.map((part, i) => (
-          <span key={i} className="crumb-part">
-            {i > 0 ? <span className="crumb-sep">›</span> : null}
-            <span className={i === crumb.length - 1 ? 'crumb-file' : ''}>{part}</span>
-          </span>
-        ))}
-        {current ? (
-          <span className="crumb-stats">
-            <span className="plus">+{current.additions}</span>
-            <span className="minus">-{current.deletions}</span>
-          </span>
-        ) : null}
-      </div>
-
-      {tab === 'review' && files.length > 1 ? (
-        <div className="review-file-strip">
-          {files.map((f) => (
-            <button
-              key={f.fileId}
-              className={'strip-file' + (f.path === current?.path ? ' selected' : '')}
-              onClick={() => setFilePath(f.path)}
-            >
-              <span className="fname">{baseName(f.path)}</span>
-              {f.state === 'reverted' ? (
-                <span className="file-state reverted">Reverted</span>
-              ) : (
-                <span className="stats">
-                  <span className="plus">+{f.additions}</span>
-                  <span className="minus">-{f.deletions}</span>
-                </span>
-              )}
-            </button>
-          ))}
+      {tab === 'overview' ? (
+        <div className="review-scroll">
+          <div className="overview-body">
+            <div className="overview-title">Overview</div>
+            {turnPrompt ? <div className="overview-prompt">{turnPrompt}</div> : null}
+            <div className="overview-sub">
+              {files.length} file{files.length === 1 ? '' : 's'} changed
+            </div>
+            {files.map((f) => (
+              <button key={f.fileId} className="overview-file" onClick={() => setTab(f.path)}>
+                <span className="code-mark">{'</>'}</span>
+                <span className="fname">{baseName(f.path)}</span>
+                <span className="fdir">{dirName(f.path)}</span>
+                {f.state === 'reverted' ? (
+                  <span className="file-state reverted">Reverted</span>
+                ) : (
+                  <span className="stats">
+                    <span className="plus">+{f.additions}</span>
+                    <span className="minus">-{f.deletions}</span>
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
 
-      <div className="review-side-body">
-        {current ? (
-          <Suspense fallback={<div className="diff-loading">Loading…</div>}>
-            {tab === 'review' ? (
-              <MonacoDiff
-                key={current.fileId}
-                original={current.beforeText}
-                modified={current.afterText}
-                language={languageFor(current.path)}
-                commentedLines={commentedLines(current.path)}
-                onAddComment={addComment(current.path)}
-              />
-            ) : (
-              <MonacoCode
-                key={current.fileId + ':code'}
-                value={current.afterText}
-                language={languageFor(current.path)}
-                commentedLines={commentedLines(current.path)}
-                onAddComment={addComment(current.path)}
-              />
-            )}
-          </Suspense>
-        ) : (
-          <div className="diff-loading">Loading changes…</div>
-        )}
-      </div>
-
-      {comments.length > 0 ? (
-        <div className="comment-list">
-          {comments.map((c) => (
-            <div className="comment-row" key={c.id}>
-              <span className="comment-loc">
-                {baseName(c.path)}:{c.line}
-              </span>
-              <span className="comment-text">{c.text}</span>
-              <button
-                className="comment-del"
-                title="Remove comment"
-                onClick={() => setComments((list) => list.filter((x) => x.id !== c.id))}
-              >
+      {tab === 'review' ? (
+        <>
+          <div className="review-head">
+            <span className="review-head-title">Review</span>
+            <span className="turn-chip">
+              <span className="turn-chip-label">For Turn</span>
+              <span className="turn-chip-text">{turnPrompt || 'This conversation'}</span>
+              <button className="turn-chip-x" title="Close review" onClick={closeReview}>
                 <IconClose size={12} />
               </button>
-            </div>
-          ))}
-        </div>
+            </span>
+            <span className="review-head-icons">
+              <button className="head-icon" title="More actions" onClick={soon}>
+                <IconDots />
+              </button>
+              <button className="head-icon" title="Search changes" onClick={soon}>
+                <IconSearch />
+              </button>
+              <button className="head-icon" title="Comment: click a line number" onClick={soon}>
+                <IconLines />
+              </button>
+            </span>
+          </div>
+          <div className="review-scroll">
+            {files.map((f) => {
+              const isCollapsed = collapsed[f.fileId] ?? false
+              return (
+                <div className="file-section" key={f.fileId}>
+                  <div
+                    className="file-section-head"
+                    onClick={() => setCollapsed((c) => ({ ...c, [f.fileId]: !isCollapsed }))}
+                  >
+                    <span className="code-mark">{'</>'}</span>
+                    <span className="fname">{baseName(f.path)}</span>
+                    <span className="fdir">{dirName(f.path)}</span>
+                    <span className="head-actions" onClick={(e) => e.stopPropagation()}>
+                      {f.state === 'reverted' ? (
+                        <span className="file-state reverted">Reverted</span>
+                      ) : (
+                        <>
+                          <button
+                            className="mini-btn"
+                            onClick={() => void window.bearcode.diffs.open(f.fileId)}
+                          >
+                            Open
+                          </button>
+                          <button className="mini-btn" onClick={() => void revert(f)}>
+                            Revert
+                          </button>
+                        </>
+                      )}
+                    </span>
+                    <span className="stats">
+                      <span className="plus">+{f.additions}</span>
+                      <span className="minus">-{f.deletions}</span>
+                    </span>
+                    <span className={'chev' + (isCollapsed ? ' closed' : '')}>
+                      <IconChevronDown />
+                    </span>
+                  </div>
+                  {!isCollapsed ? (
+                    <div className="file-section-body">
+                      <Suspense fallback={<div className="diff-loading">Loading…</div>}>
+                        {f.status === 'created' ? (
+                          <MonacoCode
+                            key={f.fileId}
+                            value={f.afterText}
+                            language={languageFor(f.path)}
+                            commentedLines={commentedLines(f.path)}
+                            onAddComment={addComment(f.path)}
+                            fitContent
+                            washAdded
+                          />
+                        ) : (
+                          <MonacoDiff
+                            key={f.fileId}
+                            original={f.beforeText}
+                            modified={f.afterText}
+                            language={languageFor(f.path)}
+                            commentedLines={commentedLines(f.path)}
+                            onAddComment={addComment(f.path)}
+                            fitContent
+                          />
+                        )}
+                      </Suspense>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+            {files.length === 0 ? <div className="diff-loading">Loading changes…</div> : null}
+          </div>
+        </>
       ) : null}
 
-      <div className="review-side-foot">
-        <span className="foot-hint">Click a line number to comment</span>
-        {current?.state === 'reverted' ? (
-          <span className="file-state reverted">Reverted</span>
-        ) : null}
-        {current && current.state === 'applied' ? (
-          <>
-            <button className="foot-btn" onClick={() => void revert(current)}>
-              Revert
+      {fileTab ? (
+        <>
+          <div className="review-crumb">
+            {fileTab.path.split('/').map((part, i, arr) => (
+              <span key={i} className="crumb-part">
+                {i > 0 ? <span className="crumb-sep">›</span> : null}
+                {i === arr.length - 1 ? <span className="code-mark">{'</>'}</span> : null}
+                <span className={i === arr.length - 1 ? 'crumb-file' : ''}>{part}</span>
+              </span>
+            ))}
+            <span className="review-head-icons">
+              <button className="head-icon" title="More actions" onClick={soon}>
+                <IconDots />
+              </button>
+              <button
+                className="head-icon"
+                title="Open file"
+                onClick={() => void window.bearcode.diffs.open(fileTab.fileId)}
+              >
+                <IconFile />
+              </button>
+            </span>
+          </div>
+          <div className="review-code-body">
+            <Suspense fallback={<div className="diff-loading">Loading…</div>}>
+              <MonacoCode
+                key={fileTab.fileId + ':code'}
+                value={fileTab.afterText}
+                language={languageFor(fileTab.path)}
+                commentedLines={commentedLines(fileTab.path)}
+                onAddComment={addComment(fileTab.path)}
+              />
+            </Suspense>
+          </div>
+        </>
+      ) : null}
+
+      {comments.length > 0 ? (
+        <>
+          <div className="comment-list">
+            {comments.map((c) => (
+              <div className="comment-row" key={c.id}>
+                <span className="comment-loc">
+                  {baseName(c.path)}:{c.line}
+                </span>
+                <span className="comment-text">{c.text}</span>
+                <button
+                  className="comment-del"
+                  title="Remove comment"
+                  onClick={() => setComments((list) => list.filter((x) => x.id !== c.id))}
+                >
+                  <IconClose size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="comment-send">
+            <button className="foot-btn accept" onClick={sendComments}>
+              Send {comments.length === 1 ? '1 comment' : `${comments.length} comments`}
             </button>
-            <button
-              className="foot-btn"
-              onClick={() => void window.bearcode.diffs.open(current.fileId)}
-            >
-              Open
-            </button>
-          </>
-        ) : null}
-        {comments.length > 0 && convoId ? (
-          <button className="foot-btn accept" onClick={sendComments}>
-            Send {comments.length === 1 ? '1 comment' : `${comments.length} comments`}
-          </button>
-        ) : null}
-      </div>
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }

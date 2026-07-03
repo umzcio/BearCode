@@ -7,15 +7,32 @@ self.MonacoEnvironment = {
   getWorker: () => new editorWorker()
 }
 
+// Monokai-flavored syntax over our dark chrome, with Antigravity's olive
+// wash on inserted lines.
 monaco.editor.defineTheme('bearcode-dark', {
   base: 'vs-dark',
   inherit: true,
-  rules: [],
+  rules: [
+    { token: 'tag', foreground: 'f92672' },
+    { token: 'metatag', foreground: 'f92672' },
+    { token: 'metatag.html', foreground: 'f92672' },
+    { token: 'metatag.content.html', foreground: 'e6db74' },
+    { token: 'attribute.name', foreground: 'e6db74' },
+    { token: 'attribute.value', foreground: 'ff6188' },
+    { token: 'attribute.value.html', foreground: 'ff6188' },
+    { token: 'string', foreground: 'e6db74' },
+    { token: 'keyword', foreground: 'f92672' },
+    { token: 'number', foreground: 'ae81ff' },
+    { token: 'comment', foreground: '75715e' },
+    { token: 'delimiter.html', foreground: 'c8c8c8' },
+    { token: 'attribute.value.number.css', foreground: 'ae81ff' },
+    { token: 'attribute.value.unit.css', foreground: 'ae81ff' }
+  ],
   colors: {
     'editor.background': '#181818',
-    'editor.foreground': '#a8a8a8',
-    'diffEditor.insertedTextBackground': '#3ecf8e17',
-    'diffEditor.insertedLineBackground': '#3ecf8e12',
+    'editor.foreground': '#dcdcdc',
+    'diffEditor.insertedTextBackground': '#00000000',
+    'diffEditor.insertedLineBackground': '#31391f66',
     'diffEditor.removedTextBackground': '#f06a6a17',
     'diffEditor.removedLineBackground': '#f06a6a12',
     'editorLineNumber.foreground': '#6f6f6f',

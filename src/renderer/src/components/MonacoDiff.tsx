@@ -9,6 +9,9 @@ interface MonacoDiffProps {
   language?: string
   commentedLines?: number[]
   onAddComment?: (line: number, text: string) => void
+  // Size the host to the diff content and let the parent scroll instead,
+  // for Antigravity-style stacked file sections.
+  fitContent?: boolean
 }
 
 export default function MonacoDiff({
@@ -16,7 +19,8 @@ export default function MonacoDiff({
   modified,
   language = 'markdown',
   commentedLines,
-  onAddComment
+  onAddComment,
+  fitContent = false
 }: MonacoDiffProps): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const modifiedEd = useRef<monaco.editor.ICodeEditor | null>(null)
@@ -32,15 +36,37 @@ export default function MonacoDiff({
       ...EDITOR_OPTIONS,
       renderSideBySide: false,
       renderOverviewRuler: false,
-      hideUnchangedRegions: { enabled: false }
+      renderIndicators: false,
+      hideUnchangedRegions: { enabled: false },
+      ...(fitContent
+        ? {
+            scrollbar: {
+              vertical: 'hidden' as const,
+              handleMouseWheel: false,
+              alwaysConsumeMouseWheel: false
+            }
+          }
+        : {})
     })
     editor.setModel({ original: originalModel, modified: modifiedModel })
-    modifiedEd.current = editor.getModifiedEditor()
+    const mod = editor.getModifiedEditor()
+    modifiedEd.current = mod
 
-    const commenting = onAddComment ? attachCommenting(modifiedEd.current, onAddComment) : undefined
+    const disposables: monaco.IDisposable[] = []
+    if (fitContent) {
+      const updateHeight = (): void => {
+        const h = mod.getContentHeight()
+        host.style.height = `${h + 4}px`
+        editor.layout()
+      }
+      disposables.push(editor.onDidUpdateDiff(updateHeight))
+      disposables.push(mod.onDidContentSizeChange(updateHeight))
+      updateHeight()
+    }
+    if (onAddComment) disposables.push(attachCommenting(mod, onAddComment))
 
     return () => {
-      commenting?.dispose()
+      disposables.forEach((d) => d.dispose())
       modifiedEd.current = null
       editor.dispose()
       originalModel.dispose()
@@ -48,7 +74,7 @@ export default function MonacoDiff({
     }
     // onAddComment intentionally not a dependency: rebinding tears down Monaco.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [original, modified, language])
+  }, [original, modified, language, fitContent])
 
   useEffect(() => {
     decorations.current?.clear()
