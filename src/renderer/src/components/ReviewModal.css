@@ -135,6 +135,18 @@
   font-size: 13px;
 }
 
+.file-state {
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.file-state.accepted {
+  color: var(--green);
+}
+.file-state.rejected {
+  color: var(--red);
+}
+
 .review-foot {
   display: flex;
   align-items: center;

@@ -80,6 +80,7 @@ interface AppState {
   deleteConvo(id: string): void
   send(convoId: string, text: string): void
   cancelRun(convoId: string): void
+  approveTool(callId: string, approved: boolean): void
   retryRun(convoId: string): void
   selectModel(ref: ModelRef): void
   pickWorkspace(): Promise<void>
@@ -295,6 +296,10 @@ export const useAppStore = create<AppState>((set, get) => {
 
     cancelRun: (convoId) => {
       void window.bearcode.run.cancel(convoId)
+    },
+
+    approveTool: (callId, approved) => {
+      void window.bearcode.tools.approve(callId, approved)
     },
 
     retryRun: (convoId) => {

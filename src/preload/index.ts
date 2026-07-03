@@ -20,6 +20,15 @@ const bearcode: BearcodeApi = {
   models: {
     list: () => ipcRenderer.invoke('bearcode:models:list')
   },
+  diffs: {
+    get: (diffId: string) => ipcRenderer.invoke('bearcode:diffs:get', diffId),
+    accept: (fileId: string) => ipcRenderer.invoke('bearcode:diffs:accept', fileId),
+    reject: (fileId: string) => ipcRenderer.invoke('bearcode:diffs:reject', fileId)
+  },
+  tools: {
+    approve: (callId: string, approved: boolean) =>
+      ipcRenderer.invoke('bearcode:tools:approve', callId, approved)
+  },
   keys: {
     set: (provider: ProviderId, key: string) =>
       ipcRenderer.invoke('bearcode:keys:set', provider, key),

@@ -14,9 +14,11 @@ import {
   cancelRun,
   clearConversations,
   forgetConversation,
+  resolveApproval,
   setWorkspace,
   startRun
 } from './ursa/run'
+import { acceptFile, getDiff, rejectFile } from './ursa/diffs'
 import * as db from './db'
 
 function broadcast(channel: string, ...args: unknown[]): void {
@@ -67,6 +69,13 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('bearcode:models:list', () => listAllModels())
+
+  ipcMain.handle('bearcode:diffs:get', (_e, diffId: string) => getDiff(diffId))
+  ipcMain.handle('bearcode:diffs:accept', (_e, fileId: string) => acceptFile(fileId))
+  ipcMain.handle('bearcode:diffs:reject', (_e, fileId: string) => rejectFile(fileId))
+  ipcMain.handle('bearcode:tools:approve', (_e, callId: string, approved: boolean) =>
+    resolveApproval(callId, approved)
+  )
 
   ipcMain.handle('bearcode:keys:set', (_e, provider: ProviderId, key: string) => {
     setKey(provider, key)

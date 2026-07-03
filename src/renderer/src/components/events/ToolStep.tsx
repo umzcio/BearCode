@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Event } from '@shared/types'
+import { useAppStore } from '../../state/store'
 import { IconChevronRightSmall } from '../icons'
 import './events.css'
 
@@ -63,30 +64,29 @@ export function ToolStep({ call, result }: ToolStepProps): React.JSX.Element {
       typeof call.input === 'object' && call.input !== null && 'command' in call.input
         ? String((call.input as { command: unknown }).command)
         : ''
+    if (call.approvalState === 'pending') {
+      return <PendingCommand callId={call.id} command={command} />
+    }
+    const verb = call.approvalState === 'denied' ? 'Denied' : 'Ran'
     return (
-      <>
-        <div className="step">
-          <div className="step-row static">{summaryFor(call)}</div>
+      <div className={'step' + (open ? ' open' : '')}>
+        <div className="step-row" onClick={() => setOpen((o) => !o)}>
+          <span>{verb}</span>
+          <span className="mono">{command}</span>
+          <span className="chev">
+            <IconChevronRightSmall />
+          </span>
         </div>
-        <div className={'step' + (open ? ' open' : '')}>
-          <div className="step-row" onClick={() => setOpen((o) => !o)}>
-            <span>Ran</span>
-            <span className="mono">{command}</span>
-            <span className="chev">
-              <IconChevronRightSmall />
-            </span>
-          </div>
-          <div className="step-body term">
-            {result ? result.output : 'Running…'}
-            {result && result.exitCode !== undefined ? (
-              <>
-                {'\n'}
-                <span className="ok">exit code {result.exitCode}</span>
-              </>
-            ) : null}
-          </div>
+        <div className="step-body term">
+          {result ? result.output : 'Running…'}
+          {result && result.exitCode !== undefined ? (
+            <>
+              {'\n'}
+              <span className="ok">exit code {result.exitCode}</span>
+            </>
+          ) : null}
         </div>
-      </>
+      </div>
     )
   }
 
@@ -99,6 +99,30 @@ export function ToolStep({ call, result }: ToolStepProps): React.JSX.Element {
         </span>
       </div>
       <div className="step-body">{result ? result.output : 'Working…'}</div>
+    </div>
+  )
+}
+
+function PendingCommand({
+  callId,
+  command
+}: {
+  callId: string
+  command: string
+}): React.JSX.Element {
+  const approveTool = useAppStore((s) => s.approveTool)
+  return (
+    <div className="step">
+      <div className="step-row static approval-row">
+        <span>Run</span>
+        <span className="mono">{command}</span>
+        <button className="approve-btn run" onClick={() => approveTool(callId, true)}>
+          Run
+        </button>
+        <button className="approve-btn deny" onClick={() => approveTool(callId, false)}>
+          Deny
+        </button>
+      </div>
     </div>
   )
 }

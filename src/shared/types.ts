@@ -85,6 +85,24 @@ export interface ConversationMeta {
   updatedAt: number
 }
 
+// ---- Diffs ----
+
+export interface FileDiffFile {
+  fileId: string
+  path: string
+  status: 'created' | 'modified' | 'deleted'
+  beforeText: string
+  afterText: string
+  additions: number
+  deletions: number
+  state: 'pending' | 'accepted' | 'rejected'
+}
+
+export interface FileDiff {
+  diffId: string
+  files: FileDiffFile[]
+}
+
 // ---- Settings ----
 
 export interface AppSettings {
@@ -119,6 +137,14 @@ export interface BearcodeApi {
   }
   models: {
     list(): Promise<ProviderModels[]>
+  }
+  diffs: {
+    get(diffId: string): Promise<FileDiff>
+    accept(fileId: string): Promise<void>
+    reject(fileId: string): Promise<void>
+  }
+  tools: {
+    approve(callId: string, approved: boolean): Promise<void>
   }
   keys: {
     set(provider: ProviderId, key: string): Promise<void>

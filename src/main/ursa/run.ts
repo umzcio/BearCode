@@ -11,7 +11,18 @@ import { getProvider, parseModelRef } from './providers/registry'
 import { systemPrompt } from './systemPrompt'
 import { maybeGenerateTitle } from './title'
 import { TOOLS } from './tools'
+import { stageFile } from './diffs'
+import { getSettings } from '../settings'
 import * as db from '../db'
+import { relative } from 'path'
+import type { FileDiffFile } from '../../shared/types'
+
+// Pending run_command approvals: callId -> resolver (spec 6.2).
+const approvals = new Map<string, (approved: boolean) => void>()
+export function resolveApproval(callId: string, approved: boolean): void {
+  approvals.get(callId)?.(approved)
+  approvals.delete(callId)
+}
 
 const MAX_ITERATIONS = 25
 
@@ -125,6 +136,8 @@ export async function startRun(
   let usage: { inputTokens: number; outputTokens: number } | undefined
   let useTools = projectPath !== null
   let toolsRetried = false
+  const diffGroupId = randomUUID()
+  const stagedFiles: FileDiffFile[] = []
 
   const emitAndPersist = (event: Event): void => {
     sink.emit(conversationId, event)
@@ -240,21 +253,59 @@ export async function startRun(
 
       const toolMsg: ToolModelMessage = { role: 'tool', content: [] }
       for (const call of toolCalls) {
+        const def = TOOLS[call.toolName as ToolName]
+        const needsApproval = Boolean(def?.requiresApproval) && !getSettings().autoApproveCommands
+        let approved = true
+        if (needsApproval) {
+          // Pause the run for Run/Deny (spec 6.2). Persist only the decided
+          // state; a quit while pending becomes Cancelled on next boot.
+          sink.emit(conversationId, {
+            type: 'tool_call',
+            id: call.toolCallId,
+            tool: call.toolName as ToolName,
+            input: call.input,
+            approvalState: 'pending'
+          })
+          sink.setState(conversationId, 'awaiting-approval')
+          approved = await new Promise<boolean>((resolveApprovalPromise) => {
+            approvals.set(call.toolCallId, resolveApprovalPromise)
+            controller.signal.addEventListener('abort', () => resolveApprovalPromise(false))
+          })
+          if (controller.signal.aborted) throw new Error('Cancelled')
+          sink.setState(conversationId, 'running')
+        }
         emitAndPersist({
           type: 'tool_call',
           id: call.toolCallId,
           tool: call.toolName as ToolName,
           input: call.input,
-          approvalState: 'auto'
+          approvalState: needsApproval ? (approved ? 'approved' : 'denied') : 'auto'
         })
         const toolStartedAt = Date.now()
         let output: string
-        try {
-          const def = TOOLS[call.toolName as ToolName]
-          if (!def || !projectPath) throw new Error(`Unknown tool: ${call.toolName}`)
-          output = await def.execute(call.input, { projectPath })
-        } catch (err) {
-          output = `Error: ${err instanceof Error ? err.message : String(err)}`
+        let exitCode: number | undefined
+        if (!approved) {
+          output = 'User denied this command.'
+        } else {
+          try {
+            if (!def || !projectPath) throw new Error(`Unknown tool: ${call.toolName}`)
+            const raw = await def.execute(call.input, {
+              projectPath,
+              stage: (absPath, beforeText, afterText) => {
+                stagedFiles.push(
+                  stageFile(diffGroupId, conversationId, absPath, beforeText, afterText)
+                )
+              }
+            })
+            if (typeof raw === 'string') {
+              output = raw
+            } else {
+              output = raw.output
+              exitCode = raw.exitCode
+            }
+          } catch (err) {
+            output = `Error: ${err instanceof Error ? err.message : String(err)}`
+          }
         }
         const truncated = output.length > 50000
         if (truncated) output = output.slice(0, 50000) + '\n… output truncated'
@@ -263,6 +314,7 @@ export async function startRun(
           id: randomUUID(),
           callId: call.toolCallId,
           output,
+          exitCode,
           durationMs: Date.now() - toolStartedAt,
           truncated
         })
@@ -274,6 +326,20 @@ export async function startRun(
         })
       }
       history.push(toolMsg)
+    }
+
+    if (stagedFiles.length > 0) {
+      emitAndPersist({
+        type: 'file_diff',
+        id: randomUUID(),
+        diffId: diffGroupId,
+        files: stagedFiles.map((f) => ({
+          path: projectPath ? relative(projectPath, f.path) : f.path,
+          additions: f.additions,
+          deletions: f.deletions,
+          status: f.status
+        }))
+      })
     }
 
     const turnMeta: Event = {

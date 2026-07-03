@@ -10,7 +10,8 @@
 //   BEARCODE_IMPORT_KEYS=<path to .env>
 //     Imports provider API keys from an env file into the vault, main-side,
 //     so key values never appear in logs. Runs even without BEARCODE_SMOKE.
-import { readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { join } from 'path'
 import type { BrowserWindow } from 'electron'
 import type { ProviderId } from '../shared/types'
 import { setKey } from './keys'
@@ -100,6 +101,9 @@ export function runDevSmoke(win: BrowserWindow): void {
 
   const js = (script: string): Promise<unknown> => win.webContents.executeJavaScript(script)
 
+  // BEARCODE_SMOKE_APPROVE=allow|deny answers command-approval pauses.
+  const approveMode = process.env['BEARCODE_SMOKE_APPROVE']
+
   const waitForIdle = async (timeoutMs: number): Promise<string> => {
     const deadline = Date.now() + timeoutMs
     for (;;) {
@@ -110,9 +114,71 @@ export function runDevSmoke(win: BrowserWindow): void {
           return convo ? convo.runState : 'missing';
         })()`
       )) as string
-      if (state !== 'running' && state !== 'missing') return state
+      if (state === 'awaiting-approval' && approveMode) {
+        await shot('approval-pending')
+        const answered = await js(
+          `(() => {
+            const s = window.__bearcodeStore.getState();
+            const convo = s.conversations[s.convoOrder[0]];
+            const pending = [...convo.events].reverse().find(
+              (e) => e.type === 'tool_call' && e.approvalState === 'pending'
+            );
+            if (pending) s.approveTool(pending.id, ${JSON.stringify(approveMode === 'allow')});
+            return Boolean(pending);
+          })()`
+        )
+        if (answered) {
+          console.log(`[ursa] smoke: ${approveMode === 'allow' ? 'approved' : 'denied'} a command`)
+        }
+      } else if (state !== 'running' && state !== 'missing') {
+        return state
+      }
       if (Date.now() > deadline) return `timeout (${state})`
       await new Promise((r) => setTimeout(r, 750))
+    }
+  }
+
+  // Phase 5 acceptance: open the review modal on the staged diff, accept all
+  // pending files, and verify they landed on disk.
+  const reviewAndAccept = async (): Promise<void> => {
+    const diffInfo = (await js(
+      `(() => {
+        const s = window.__bearcodeStore.getState();
+        const convo = s.conversations[s.convoOrder[0]];
+        const diff = [...convo.events].reverse().find((e) => e.type === 'file_diff');
+        return diff ? JSON.stringify({ diffId: diff.diffId, paths: diff.files.map((f) => f.path) }) : null;
+      })()`
+    )) as string | null
+    if (!diffInfo) {
+      console.log('[ursa] smoke: no staged diff found')
+      return
+    }
+    const { diffId, paths } = JSON.parse(diffInfo) as { diffId: string; paths: string[] }
+    console.log(`[ursa] smoke: staged diff ${diffId}: ${paths.join(', ')}`)
+    await js(`window.__bearcodeStore.getState().openReview(${JSON.stringify(diffId)})`)
+    await new Promise((r) => setTimeout(r, 3000))
+    await shot('review')
+    const accepted = await js(
+      `(async () => {
+        const d = await window.bearcode.diffs.get(${JSON.stringify(diffId)});
+        let n = 0;
+        for (const f of d.files) {
+          if (f.state === 'pending') { await window.bearcode.diffs.accept(f.fileId); n++; }
+        }
+        return n;
+      })()`
+    )
+    console.log(`[ursa] smoke: accepted ${String(accepted)} file(s)`)
+    await js(`window.__bearcodeStore.getState().closeReview()`)
+    const dir = process.env['BEARCODE_SMOKE_DIR']
+    if (dir) {
+      for (const p of paths) {
+        const abs = join(dir, p)
+        const ok = existsSync(abs)
+        console.log(
+          `[ursa] smoke: on-disk ${p}: ${ok ? `EXISTS (${statSync(abs).size} bytes)` : 'MISSING'}`
+        )
+      }
     }
   }
 
@@ -174,6 +240,7 @@ export function runDevSmoke(win: BrowserWindow): void {
           })()`
         )
         console.log(`[ursa] smoke result: ${result}`)
+        await reviewAndAccept()
         await shot('final')
       } catch (e) {
         console.error('[ursa] smoke failed:', e)

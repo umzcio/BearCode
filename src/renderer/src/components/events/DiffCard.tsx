@@ -1,13 +1,15 @@
 import { useState } from 'react'
-import { DEMO_DIFF } from '../../demo/data'
+import type { Event } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { IconChevronDown, IconFile } from '../icons'
 import './events.css'
 
-export function DiffCard({ diffId }: { diffId: string }): React.JSX.Element {
+type FileDiffEvent = Extract<Event, { type: 'file_diff' }>
+
+export function DiffCard({ event }: { event: FileDiffEvent }): React.JSX.Element {
   const [closed, setClosed] = useState(false)
   const openReview = useAppStore((s) => s.openReview)
-  const files = DEMO_DIFF[diffId] ?? []
+  const files = event.files
   const additions = files.reduce((n, f) => n + f.additions, 0)
   const deletions = files.reduce((n, f) => n + f.deletions, 0)
 
@@ -22,23 +24,27 @@ export function DiffCard({ diffId }: { diffId: string }): React.JSX.Element {
             <IconChevronDown />
           </span>
         </span>
-        <button className="review-btn" onClick={() => openReview(diffId)}>
+        <button className="review-btn" onClick={() => openReview(event.diffId)}>
           <IconFile />
           Review
         </button>
       </div>
       <div className="diff-files">
-        {files.map((file) => (
-          <div className="diff-file" key={file.path + file.name} onClick={() => openReview(diffId)}>
-            <span className="ftype">{file.status === 'created' ? 'M+' : 'M'}</span>
-            <span className="fname">{file.name}</span>
-            <span className="fpath">{file.path}</span>
-            <span className="stats">
-              <span className="plus">+{file.additions}</span>
-              <span className="minus">-{file.deletions}</span>
-            </span>
-          </div>
-        ))}
+        {files.map((file) => {
+          const name = file.path.split('/').pop() ?? file.path
+          const dir = file.path.slice(0, Math.max(0, file.path.length - name.length - 1))
+          return (
+            <div className="diff-file" key={file.path} onClick={() => openReview(event.diffId)}>
+              <span className="ftype">{file.status === 'created' ? 'M+' : 'M'}</span>
+              <span className="fname">{name}</span>
+              <span className="fpath">{dir}</span>
+              <span className="stats">
+                <span className="plus">+{file.additions}</span>
+                <span className="minus">-{file.deletions}</span>
+              </span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

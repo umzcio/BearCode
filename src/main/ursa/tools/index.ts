@@ -1,9 +1,9 @@
 // The v1 read-only tool set. Every path is resolved against the
 // conversation's projectPath and verified to stay inside it after symlink
 // resolution: no .. escapes, no absolute paths outside the workspace.
-import { execFile } from 'child_process'
+import { execFile, spawn } from 'child_process'
 import { promisify } from 'util'
-import { readFileSync, realpathSync } from 'fs'
+import { existsSync, readFileSync, realpathSync } from 'fs'
 import { basename, dirname, isAbsolute, resolve, sep } from 'path'
 import { z } from 'zod'
 import { rgPath } from '@vscode/ripgrep'
@@ -13,13 +13,17 @@ const execFileAsync = promisify(execFile)
 
 export interface ToolContext {
   projectPath: string
+  // Staging hook provided by the run loop: write tools never touch disk.
+  stage?(absPath: string, beforeText: string, afterText: string): void
 }
 
 export interface UrsaTool {
   description: string
   // z.ZodType with a broad input; each execute narrows via parse
   inputSchema: z.ZodType
-  execute(input: unknown, ctx: ToolContext): Promise<string>
+  // run_command needs approval before execution (spec 6.2)
+  requiresApproval?: boolean
+  execute(input: unknown, ctx: ToolContext): Promise<string | { output: string; exitCode: number }>
 }
 
 function jailPath(projectPath: string, p: string | undefined): string {
@@ -128,5 +132,96 @@ export const TOOLS: Partial<Record<ToolName, UrsaTool>> = {
       const notice = lines.length > 200 ? `\n… ${lines.length - 200} more matches not shown` : ''
       return capped.join('\n') + notice
     }
+  }
+}
+
+const writeSchema = z.object({
+  path: z.string().describe('File path relative to the workspace root.'),
+  content: z.string().describe('Full new file content.')
+})
+
+const editSchema = z.object({
+  path: z.string().describe('File path relative to the workspace root.'),
+  old_str: z.string().describe('Exact text to replace. Must appear exactly once in the file.'),
+  new_str: z.string().describe('Replacement text.')
+})
+
+const commandSchema = z.object({
+  command: z.string().describe('Shell command to run in the workspace folder.'),
+  timeoutMs: z.number().int().min(1000).max(600000).optional().describe('Timeout, default 60s.')
+})
+
+function runCommand(
+  command: string,
+  cwd: string,
+  timeoutMs: number
+): Promise<{ output: string; exitCode: number }> {
+  return new Promise((resolvePromise) => {
+    const child = spawn('/bin/zsh', ['-lc', command], { cwd, detached: true })
+    let out = ''
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      try {
+        process.kill(-child.pid!, 'SIGKILL') // kill the whole tree
+      } catch {
+        child.kill('SIGKILL')
+      }
+    }, timeoutMs)
+    child.stdout.on('data', (d: Buffer) => (out += d.toString()))
+    child.stderr.on('data', (d: Buffer) => (out += d.toString()))
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      if (out.length > 50000) out = out.slice(0, 50000) + '\n… output truncated'
+      if (timedOut) out += `\n(command timed out after ${timeoutMs}ms and was killed)`
+      resolvePromise({ output: out || '(no output)', exitCode: code ?? -1 })
+    })
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      resolvePromise({ output: `Failed to start command: ${err.message}`, exitCode: -1 })
+    })
+  })
+}
+
+TOOLS.write_file = {
+  description:
+    'Write a file in the workspace. The change is staged as a diff for human review; it is not applied until the user accepts it.',
+  inputSchema: writeSchema,
+  async execute(input, ctx) {
+    const { path, content } = writeSchema.parse(input)
+    const abs = jailPath(ctx.projectPath, path)
+    const before = existsSync(abs) ? readFileSync(abs, 'utf8') : ''
+    if (!ctx.stage) throw new Error('Staging unavailable')
+    ctx.stage(abs, before, content)
+    return `Change staged for review: ${path}. The user must accept it before it is written to disk.`
+  }
+}
+
+TOOLS.edit_file = {
+  description:
+    'Replace old_str (which must be unique in the file) with new_str. The change is staged as a diff for human review. Prefer this over rewriting whole files.',
+  inputSchema: editSchema,
+  async execute(input, ctx) {
+    const { path, old_str, new_str } = editSchema.parse(input)
+    const abs = jailPath(ctx.projectPath, path)
+    if (!existsSync(abs)) throw new Error(`File not found: ${path}`)
+    const before = readFileSync(abs, 'utf8')
+    const count = before.split(old_str).length - 1
+    if (count === 0) throw new Error(`old_str not found in ${path}`)
+    if (count > 1) throw new Error(`old_str appears ${count} times in ${path}; it must be unique`)
+    if (!ctx.stage) throw new Error('Staging unavailable')
+    ctx.stage(abs, before, before.replace(old_str, new_str))
+    return `Change staged for review: ${path}. The user must accept it before it is written to disk.`
+  }
+}
+
+TOOLS.run_command = {
+  description:
+    'Run a shell command in the workspace folder. Output is stdout+stderr combined. The user may need to approve the command first.',
+  inputSchema: commandSchema,
+  requiresApproval: true,
+  async execute(input, ctx) {
+    const { command, timeoutMs } = commandSchema.parse(input)
+    return runCommand(command, jailPath(ctx.projectPath, undefined), timeoutMs ?? 60000)
   }
 }

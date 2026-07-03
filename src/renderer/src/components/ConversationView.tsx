@@ -50,7 +50,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const showToast = useAppStore((s) => s.showToast)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const running = convo.runState === 'running'
+  const running = convo.runState === 'running' || convo.runState === 'awaiting-approval'
   const turns = groupTurns(convo.events)
 
   useEffect(() => {
@@ -87,7 +87,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                     ) : null
                   )}
                   {turn.diffs.map((d) => (
-                    <DiffCard key={d.id} diffId={d.diffId} />
+                    <DiffCard key={d.id} event={d} />
                   ))}
                   {turn.errors.map((e) => (
                     <ErrorCard
