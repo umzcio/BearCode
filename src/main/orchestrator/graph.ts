@@ -229,7 +229,12 @@ async function drive(
         // the raw-interrupt() pattern (planning/replatform-api-notes.md (d2)).
         const pendingValue = await findPendingInterrupt(agent, ctx.conversationId)
         if (pendingValue !== undefined) {
-          emitAndPersist(ctx.conversationId, ctx.sink, {
+          // Not persisted here (matching legacy run.ts): only the final
+          // approvalState ('approved'/'denied', emitted once resolved, see
+          // continueAfterApproval below) is written to the events table.
+          // Persisting this 'pending' row too would collide on the same
+          // event id once the final state is appended.
+          ctx.sink.emit(ctx.conversationId, {
             type: 'tool_call',
             id: tc.id,
             tool: (tc.name as ToolName) ?? 'run_command',
@@ -275,6 +280,7 @@ async function drive(
 interface PendingApproval extends DriveContext {
   agent: ReturnType<typeof createDeepAgent>
   pendingCallId: string
+  pendingInput: unknown
 }
 const pendingApprovals = new Map<string, PendingApproval>()
 
@@ -296,23 +302,26 @@ export function resolveInterrupt(
 }
 
 async function continueAfterApproval(pending: PendingApproval, approved: boolean): Promise<void> {
-  const { agent, pendingCallId, ...ctx } = pending
-  emitAndPersist(ctx.conversationId, ctx.sink, {
-    type: 'tool_call',
-    id: pendingCallId,
-    tool: 'run_command',
-    input: undefined,
-    approvalState: approved ? 'approved' : 'denied'
-  })
-  ctx.alreadyAnnounced.add(pendingCallId)
-  ctx.sink.setState(ctx.conversationId, 'running')
+  const { agent, pendingCallId, pendingInput, ...ctx } = pending
   try {
-    const result = await drive(agent, new Command({ resume: approved }), ctx)
+    emitAndPersist(ctx.conversationId, ctx.sink, {
+      type: 'tool_call',
+      id: pendingCallId,
+      tool: 'run_command',
+      input: pendingInput,
+      approvalState: approved ? 'approved' : 'denied'
+    })
+    ctx.alreadyAnnounced.add(pendingCallId)
+    ctx.sink.setState(ctx.conversationId, 'running')
+    // { approved } (not a bare boolean) -- see tools.ts's interrupt() call
+    // for why: LangGraph's Command(resume) rejects falsy resume values.
+    const result = await drive(agent, new Command({ resume: { approved } }), ctx)
     if (result.paused && result.pendingCallId) {
       pendingApprovals.set(ctx.conversationId, {
         ...ctx,
         agent,
-        pendingCallId: result.pendingCallId
+        pendingCallId: result.pendingCallId,
+        pendingInput: result.pendingInput
       })
       return
     }
@@ -391,7 +400,12 @@ export async function runGraph(opts: {
   try {
     const result = await drive(agent, { messages: [{ role: 'user', content: userText }] }, ctx)
     if (result.paused && result.pendingCallId) {
-      pendingApprovals.set(conversationId, { ...ctx, agent, pendingCallId: result.pendingCallId })
+      pendingApprovals.set(conversationId, {
+        ...ctx,
+        agent,
+        pendingCallId: result.pendingCallId,
+        pendingInput: result.pendingInput
+      })
       return { paused: true }
     }
     await closeOutTurn(ctx)

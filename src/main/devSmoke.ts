@@ -115,6 +115,11 @@ export function runDevSmoke(win: BrowserWindow): void {
         })()`
       )) as string
       if (state === 'awaiting-approval' && approveMode) {
+        // A brief settle: runState flips to 'awaiting-approval' over IPC a
+        // beat before the renderer has painted the PendingCommand card for
+        // the same tool_call event, so an immediate capturePage() can race
+        // ahead of the paint.
+        await new Promise((r) => setTimeout(r, 500))
         await shot('approval-pending')
         const answered = await js(
           `(() => {

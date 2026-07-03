@@ -65,8 +65,14 @@ export function buildTools(projectPath: string) {
     async ({ command, timeoutMs }: { command: string; timeoutMs?: number }): Promise<string> => {
       const needsApproval = !getSettings().autoApproveCommands
       if (needsApproval) {
-        const approved = interrupt({ kind: 'run_command', command }) as boolean
-        if (!approved) return 'User denied this command.'
+        // Resume value must be wrapped in a truthy object, not a bare
+        // boolean: LangGraph's mapCommand (pregel/io.js) guards resume
+        // handling with `if (cmd.resume)`, so `Command({ resume: false })`
+        // is indistinguishable from no resume at all and throws
+        // EmptyInputError("Received empty Command input") -- verified live
+        // (node_modules/@langchain/langgraph/dist/pregel/io.js).
+        const decision = interrupt({ kind: 'run_command', command }) as { approved: boolean }
+        if (!decision.approved) return 'User denied this command.'
       }
       const cwd = realpathSync(projectPath)
       const result = await runCommand(command, cwd, timeoutMs ?? 60000)
