@@ -35,8 +35,12 @@
 }
 
 .mic-btn {
-  margin-left: auto;
   background: rgba(255, 255, 255, 0.05);
+}
+
+/* Model picker sits on the right with the mic, Perplexity-style. */
+.composer-controls .model-picker {
+  margin-left: auto;
 }
 
 .send-btn {
