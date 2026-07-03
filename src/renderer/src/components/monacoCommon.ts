@@ -57,8 +57,13 @@ export const EDITOR_OPTIONS = {
 
 export { monaco }
 
-// Click a line number (or the glyph margin) to open an inline comment
-// composer, Antigravity style. Returns a disposable.
+const FAB_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+  '<path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/>' +
+  '<line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>'
+
+// Hover any line for the floating blue Comment button (or click a line
+// number) to open an inline comment composer, Antigravity style.
 export function attachCommenting(
   ed: monaco.editor.ICodeEditor,
   onAdd: (line: number, text: string) => void
@@ -116,10 +121,43 @@ export function attachCommenting(
     }
   })
 
+  // Floating Comment button pinned to the right edge of the hovered line.
+  const container = ed.getContainerDomNode()
+  const fab = document.createElement('button')
+  fab.className = 'comment-fab'
+  fab.innerHTML = FAB_SVG
+  fab.style.display = 'none'
+  container.appendChild(fab)
+  let fabLine = 0
+
+  const hideFab = (): void => {
+    fab.style.display = 'none'
+  }
+  const move = ed.onMouseMove((e) => {
+    const pos = e.target.position
+    if (!pos) return
+    fabLine = pos.lineNumber
+    fab.style.top = `${ed.getTopForLineNumber(fabLine) - ed.getScrollTop()}px`
+    fab.style.display = 'flex'
+  })
+  const leave = (ev: MouseEvent): void => {
+    if (!container.contains(ev.relatedTarget as Node)) hideFab()
+  }
+  container.addEventListener('mouseleave', leave)
+  const scroll = ed.onDidScrollChange(hideFab)
+  fab.onclick = (): void => {
+    hideFab()
+    openComposer(fabLine)
+  }
+
   return {
     dispose: () => {
       removeZone()
       mouse.dispose()
+      move.dispose()
+      scroll.dispose()
+      container.removeEventListener('mouseleave', leave)
+      fab.remove()
     }
   }
 }
