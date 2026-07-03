@@ -1,13 +1,52 @@
-// Dev-only end-to-end smoke test. Launch with BEARCODE_SMOKE=<provider/model>
-// (e.g. BEARCODE_SMOKE=ollama/qwen3.5:4b) and the app drives its own renderer
-// through a real chat run, then saves a window screenshot for inspection.
-// No-op in normal launches and never bundled into behavior users see.
-import { writeFileSync } from 'fs'
+// Dev-only end-to-end smoke test, never part of user-facing behavior.
+//
+//   BEARCODE_SMOKE=<provider/model>[,<provider/model>...]
+//     Drives the renderer through a real chat run. With multiple refs, asks
+//     the same question once per model in ONE conversation, switching models
+//     between turns (the Phase 2 acceptance drill). Saves screenshots and
+//     logs the event stream summary.
+//   BEARCODE_SMOKE_FAKEKEY=<provider>
+//     Stores a bogus key for that provider first (error-path test).
+//   BEARCODE_IMPORT_KEYS=<path to .env>
+//     Imports provider API keys from an env file into the vault, main-side,
+//     so key values never appear in logs. Runs even without BEARCODE_SMOKE.
+import { readFileSync, writeFileSync } from 'fs'
 import type { BrowserWindow } from 'electron'
+import type { ProviderId } from '../shared/types'
+import { setKey } from './keys'
+
+const ENV_TO_PROVIDER: Record<string, ProviderId> = {
+  ANTHROPIC_API_KEY: 'anthropic',
+  OPENAI_API_KEY: 'openai',
+  GOOGLE_API_KEY: 'google',
+  GEMINI_API_KEY: 'google',
+  OPENROUTER_API_KEY: 'openrouter'
+}
+
+function importKeys(): void {
+  const file = process.env['BEARCODE_IMPORT_KEYS']
+  if (!file) return
+  const imported: string[] = []
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    const m = line.match(/^([A-Z_]+)\s*=\s*"?([^"\s]+)"?\s*$/)
+    if (!m) continue
+    const provider = ENV_TO_PROVIDER[m[1]]
+    if (provider && m[2]) {
+      setKey(provider, m[2])
+      imported.push(provider)
+    }
+  }
+  console.log(`[ursa] smoke: imported keys for: ${imported.join(', ') || 'none'}`)
+}
+
+const QUESTION =
+  'What is the capital of Australia? Answer in one short sentence, and name which model you are.'
 
 export function runDevSmoke(win: BrowserWindow): void {
-  const modelRef = process.env['BEARCODE_SMOKE']
-  if (!modelRef) return
+  importKeys()
+  const smoke = process.env['BEARCODE_SMOKE']
+  if (!smoke) return
+  const refs = smoke.split(',').map((r) => r.trim())
 
   const shot = (name: string): Promise<void> =>
     win.webContents.capturePage().then((img) => {
@@ -15,47 +54,81 @@ export function runDevSmoke(win: BrowserWindow): void {
       console.log(`[ursa] smoke: saved /tmp/bearcode-smoke-${name}.png`)
     })
 
-  const fakeKeyProvider = process.env['BEARCODE_SMOKE_FAKEKEY']
-  setTimeout(() => {
-    console.log(`[ursa] smoke: starting run with ${modelRef}`)
-    void win.webContents
-      .executeJavaScript(
-        `(async () => {
-          const store = window.__bearcodeStore;
-          if (!store) return 'no store';
-          ${
-            fakeKeyProvider
-              ? `await store.getState().saveKey(${JSON.stringify(fakeKeyProvider)}, 'sk-bogus-smoke-key');`
-              : ''
-          }
-          store.getState().selectModel(${JSON.stringify(modelRef)});
-          store.getState().startFromHome('Reply with exactly: BEARCODE SMOKE OK');
-          return 'started';
-        })()`
-      )
-      .then((r) => console.log(`[ursa] smoke: ${r}`))
-      .catch((e) => console.error('[ursa] smoke failed:', e))
-  }, 3000)
+  const js = (script: string): Promise<unknown> => win.webContents.executeJavaScript(script)
 
-  setTimeout(() => void shot('mid'), 6500)
-  setTimeout(() => {
-    void win.webContents
-      .executeJavaScript(
+  const waitForIdle = async (timeoutMs: number): Promise<string> => {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const state = (await js(
         `(() => {
           const s = window.__bearcodeStore.getState();
           const convo = Object.values(s.conversations)[0];
-          if (!convo) return 'no conversation';
-          const texts = convo.events.filter((e) => e.type === 'assistant_text');
-          const errors = convo.events.filter((e) => e.type === 'error');
-          return JSON.stringify({
-            runState: convo.runState,
-            eventTypes: convo.events.map((e) => e.type),
-            answer: texts.map((t) => t.text).join(''),
-            errors: errors.map((e) => e.message)
-          });
+          return convo ? convo.runState : 'missing';
         })()`
-      )
-      .then((r) => console.log(`[ursa] smoke result: ${r}`))
-      .then(() => shot('final'))
-  }, 40000)
+      )) as string
+      if (state !== 'running' && state !== 'missing') return state
+      if (Date.now() > deadline) return `timeout (${state})`
+      await new Promise((r) => setTimeout(r, 750))
+    }
+  }
+
+  const fakeKeyProvider = process.env['BEARCODE_SMOKE_FAKEKEY']
+
+  setTimeout(() => {
+    void (async () => {
+      try {
+        // Let the renderer load settings and providers.
+        await new Promise((r) => setTimeout(r, 2500))
+        if (fakeKeyProvider) {
+          await js(
+            `window.__bearcodeStore.getState().saveKey(${JSON.stringify(fakeKeyProvider)}, 'sk-bogus-smoke-key')`
+          )
+        }
+        await js(`window.__bearcodeStore.getState().refreshProviders()`)
+        await new Promise((r) => setTimeout(r, 1000))
+
+        for (let i = 0; i < refs.length; i++) {
+          const ref = refs[i]
+          console.log(`[ursa] smoke: turn ${i + 1}/${refs.length} on ${ref}`)
+          await js(`window.__bearcodeStore.getState().selectModel(${JSON.stringify(ref)})`)
+          if (i === 0) {
+            await js(`window.__bearcodeStore.getState().startFromHome(${JSON.stringify(QUESTION)})`)
+          } else {
+            await js(
+              `(() => {
+                const s = window.__bearcodeStore.getState();
+                const id = Object.keys(s.conversations)[0];
+                s.send(id, ${JSON.stringify(QUESTION)});
+              })()`
+            )
+          }
+          await new Promise((r) => setTimeout(r, 1500))
+          const state = await waitForIdle(90000)
+          console.log(`[ursa] smoke: turn ${i + 1} finished with state: ${state}`)
+          await shot(`turn-${i + 1}`)
+        }
+
+        const result = await js(
+          `(() => {
+            const s = window.__bearcodeStore.getState();
+            const convo = Object.values(s.conversations)[0];
+            const turns = [];
+            let current = null;
+            for (const e of convo.events) {
+              if (e.type === 'user_message') { current = { answer: '', model: null, errors: [] }; turns.push(current); }
+              else if (!current) continue;
+              else if (e.type === 'assistant_text') current.answer = e.text;
+              else if (e.type === 'turn_meta') current.model = e.provider + '/' + e.model;
+              else if (e.type === 'error') current.errors.push(e.message);
+            }
+            return JSON.stringify({ runState: convo.runState, turns }, null, 1);
+          })()`
+        )
+        console.log(`[ursa] smoke result: ${result}`)
+        await shot('final')
+      } catch (e) {
+        console.error('[ursa] smoke failed:', e)
+      }
+    })()
+  }, 1500)
 }
