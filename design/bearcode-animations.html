@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BearCode — Animation Lab v2</title>
+<style>
+  :root {
+    --bg: #131313; --panel: #1b1b1b; --border: #2c2c2c;
+    --text: #e7e7e7; --mid: #a8a8a8; --dim: #6f6f6f;
+    --amber: #e0b568;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; padding: 48px 24px; gap: 28px;
+  }
+  h1 { font-size: 18px; font-weight: 700; letter-spacing: .01em; }
+  h1 span { color: var(--dim); font-weight: 400; }
+
+  .lab {
+    width: 100%; max-width: 860px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+  }
+  .cell {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 28px 24px;
+    display: flex; flex-direction: column; align-items: center; gap: 18px;
+  }
+  .cell.wide { grid-column: 1 / -1; }
+  .label { font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--dim); }
+  .stage { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 150px; gap: 44px; }
+  .caption { font-size: 12.5px; color: var(--mid); text-align: center; line-height: 1.5; }
+  .caption code { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--amber); }
+
+  /* ---------- Thinking paw ---------- */
+  .paw { display: inline-flex; }
+  .paw svg { display: block; shape-rendering: crispEdges; }
+  .paw .pad {
+    animation: pad-pulse 1.7s ease-in-out infinite;
+    opacity: .3;
+  }
+  @keyframes pad-pulse {
+    0%, 55%, 100% { opacity: .3; }
+    22%           { opacity: 1; }
+  }
+
+  /* ---------- Pixel grizzly ---------- */
+  .pixel-bear svg, .roar-bear svg { display: block; shape-rendering: crispEdges; }
+  .bear-strip {
+    width: 100%; height: 120px; position: relative; overflow: hidden;
+    border-radius: 10px; background: rgba(255,255,255,.02);
+    border: 1px solid var(--border);
+  }
+  .bear-walker {
+    position: absolute; bottom: 14px; left: -160px;
+    animation: amble 16s linear infinite;
+  }
+  @keyframes amble { to { transform: translateX(calc(100vw)); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .paw .pad { animation: none !important; opacity: 1; }
+    .bear-walker { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<h1>BearCode <span>/ animation lab v2</span></h1>
+
+<div class="lab">
+
+  <div class="cell">
+    <div class="label">Thinking paw</div>
+    <div class="stage">
+      <span class="paw" data-size="110"></span>
+      <span class="paw" data-size="40"></span>
+      <span class="paw" data-size="17"></span>
+    </div>
+    <div class="caption">Now 8-bit like the rest of the family: five blocky toe pads, single-pixel claws splaying outward, one chunky palm on a 26×24 grid. Each digit (claw + toe together) lights up in sequence, then the palm — opacity only, so the pixels never shimmer. The 17px one lives in the <code>Working…</code> header.</div>
+  </div>
+
+  <div class="cell">
+    <div class="label">8-bit grizzly · walk cycle</div>
+    <div class="stage">
+      <span class="pixel-bear" data-scale="8"></span>
+      <span class="pixel-bear" data-scale="4"></span>
+    </div>
+    <div class="caption">De-cameled on a 26×13 grid: the head is <code>big and nearly hump-height</code>, the neck is thick and short, the body is deep, the legs are stocky. The long low camel neck is gone. Still blinks.</div>
+  </div>
+
+  <div class="cell wide">
+    <div class="label">Thinking grizzly · front-facing roar cycle</div>
+    <div class="stage">
+      <span class="roar-bear" data-scale="9"></span>
+      <span class="roar-bear" data-scale="4"></span>
+      <span class="roar-bear" data-scale="1.3"></span>
+    </div>
+    <div class="caption">Head-on grizzly, deliberately not a teddy: small eyes under a heavy <code>dark brow</code>, wide flat nose, full-width furry cheeks. The thinking animation is the mouth: closed, cracked, full roar with <code>teeth</code> and a dropped jaw, on a slow chomp rhythm. Still blinks between roars. Shown at 9x, 4x, and header size, candidate replacement for the paw in the <code>Working…</code> header.</div>
+  </div>
+
+  <div class="cell wide">
+    <div class="label">Ambient · grizzly on the move</div>
+    <div class="bear-strip">
+      <span class="pixel-bear bear-walker" data-scale="6"></span>
+    </div>
+    <div class="caption">Same component set loose. In the app this ambles under the step list while a run is active.</div>
+  </div>
+
+</div>
+
+<script>
+/* ============================================================
+   Thinking paw
+   ============================================================ */
+/* 8-bit grizzly paw print — 26x24 grid.
+   Digits 1-5 are toe pad + claw grouped together so each
+   digit pulses as one unit; P is the palm. */
+const PAW_ROWS = [
+  "............3.............",
+  "......2.....3......4......",
+  "......2............4......",
+  ".......2....33....4.......",
+  "...........3333...........",
+  ".......22..3333..44.......",
+  ".1....2222.3333.4444....5.",
+  ".1....2222..33..4444....5.",
+  "..1...2222......4444...5..",
+  ".......22........44.......",
+  "..11..................55..",
+  ".1111................5555.",
+  ".1111................5555.",
+  ".1111................5555.",
+  "..11..................55..",
+  "..........................",
+  "......PPPPPPPPPPPPPP......",
+  ".....PPPPPPPPPPPPPPPP.....",
+  "....PPPPPPPPPPPPPPPPPP....",
+  "....PPPPPPPPPPPPPPPPPP....",
+  "....PPPPPPPPPPPPPPPPPP....",
+  ".....PPPPPPPPPPPPPPPP.....",
+  "......PPPPPPPPPPPPPP......",
+  "........PPPPPPPPPP........"
+];
+const PAW_DELAYS = { "1": 0, "2": .13, "3": .26, "4": .39, "5": .52, "P": .72 };
+
+function pawSvg(size) {
+  const w = 26, h = 24;
+  const groups = {};
+  PAW_ROWS.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      const ch = row[x];
+      if (ch === ".") continue;
+      (groups[ch] = groups[ch] || []).push(`<rect x="${x}" y="${y}" width="1" height="1"/>`);
+    }
+  });
+  const inner = Object.keys(PAW_DELAYS).map(ch =>
+    `<g class="pad" style="animation-delay:${PAW_DELAYS[ch]}s" fill="#e0b568">${(groups[ch] || []).join("")}</g>`
+  ).join("");
+  return `<svg width="${size}" height="${Math.round(size * h / w)}" viewBox="0 0 ${w} ${h}">${inner}</svg>`;
+}
+document.querySelectorAll(".paw").forEach(el => {
+  el.innerHTML = pawSvg(+el.dataset.size || 32);
+});
+
+/* ============================================================
+   8-bit grizzly — 24x12 grid
+   Legend: . empty · B body · D feet/shade · L muzzle · K black
+   Silhouette cues: shoulder hump above head height, small ear,
+   short downward muzzle, stocky legs.
+   ============================================================ */
+const BEAR_COLORS = { B: "#8b5e3c", D: "#6b4326", L: "#c9a179", K: "#241b14" };
+const BEAR_BODY = [
+  "......BBBBBB......BB......",
+  "....BBBBBBBBBB...BBBBBBB..",
+  "...BBBBBBBBBBBBBBBBBBBBBB.",
+  "..BBBBBBBBBBBBBBBBBBBBKBB.",
+  "..BBBBBBBBBBBBBBBBBBBBBLLK",
+  ".BBBBBBBBBBBBBBBBBBBBBLL..",
+  ".BBBBBBBBBBBBBBBBBBBBBB...",
+  ".BBBBBBBBBBBBBBBBBBBB.....",
+  ".BBBBBBBBBBBBBBBBBBB......",
+  "..BBBBBBBBBBBBBBBBB......."
+];
+const BEAR_FRAMES = [
+  BEAR_BODY.concat([
+    "...BBBB.......BBBB........",
+    "...BBBB.......BBBB........",
+    "...DDDDD......DDDDD......."
+  ]),
+  BEAR_BODY.concat([
+    "..BBBB.........BBBB.......",
+    "..BBBB.........BBBB.......",
+    "..DDDDD........DDDDD......"
+  ])
+];
+const BEAR_W = 26, BEAR_H = 13;
+const BEAR_EYE = { x: 22, y: 3 };
+
+function bearFrameRects(frame, blink) {
+  let out = "";
+  frame.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      let ch = row[x];
+      if (ch === ".") continue;
+      if (blink && x === BEAR_EYE.x && y === BEAR_EYE.y) ch = "B";
+      out += `<rect x="${x}" y="${y}" width="1" height="1" fill="${BEAR_COLORS[ch]}"/>`;
+    }
+  });
+  return out;
+}
+
+function mountPixelBear(el, scale) {
+  el.innerHTML = `<svg width="${BEAR_W * scale}" height="${BEAR_H * scale}" viewBox="0 0 ${BEAR_W} ${BEAR_H}"><g class="px"></g></svg>`;
+  const g = el.querySelector(".px");
+  let frame = 0, blink = false;
+  function render() {
+    g.innerHTML = bearFrameRects(BEAR_FRAMES[frame], blink);
+    g.setAttribute("transform", frame === 1 ? "translate(0 -0.5)" : "");
+  }
+  render();
+  const walk = setInterval(() => { frame = 1 - frame; render(); }, 220);
+  const blinker = setInterval(() => {
+    blink = true; render();
+    setTimeout(() => { blink = false; render(); }, 160);
+  }, 3200 + Math.random() * 1500);
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    clearInterval(walk); clearInterval(blinker); frame = 0; blink = false; render();
+  }
+  return () => { clearInterval(walk); clearInterval(blinker); };
+}
+document.querySelectorAll(".pixel-bear").forEach(el => mountPixelBear(el, +el.dataset.scale || 5));
+
+/* ============================================================
+   Front-facing grizzly — mouth roar cycle
+   22x16 grid. Anti-teddy rules: small eyes under a heavy dark
+   brow, wide flat nose, full-width cheeks, teeth on the roar.
+   Legend: . empty · B fur · D dark (brow/ear inner) · L muzzle
+           K black (eyes/nose/mouth) · W teeth
+   ============================================================ */
+const ROAR_COLORS = { B: "#8b5e3c", D: "#5d3a22", L: "#c9a179", K: "#241b14", W: "#e8dfd0" };
+
+const ROAR_TOP = [
+  "...BBBB.......BBBB....",
+  "..BBBBB........BBBBB..",
+  "..BBDDBBBBBBBBBBDDBB..",
+  ".BBBBBBBBBBBBBBBBBBBB.",
+  ".BBBDDDBBBBBBBDDDBBBB.",
+  ".BBBBKBBBBBBBBBBKBBBB.",
+  ".BBBBBBBBLLLLBBBBBBBB.",
+  "BBBBBBBLLLLLLLLBBBBBBB",
+  "BBBBBBLLLKKKKLLLBBBBBB",
+  "BBBBBBLLLLKKLLLLBBBBBB"
+];
+const ROAR_MOUTHS = {
+  closed: [
+    ".BBBBBLLLLKKLLLLBBBBB.",
+    ".BBBBBLLLLLLLLLLBBBBB.",
+    "..BBBBBLLLLLLLLBBBBB..",
+    "...BBBBBBBBBBBBBBBB...",
+    "....BBBBBBBBBBBBBB....",
+    ".....BBBBBBBBBBBB....."
+  ],
+  mid: [
+    ".BBBBBLLLKKKKLLLBBBBB.",
+    ".BBBBBLLKKKKKKLLBBBBB.",
+    "..BBBBBLLLLLLLLBBBBB..",
+    "...BBBBBBBBBBBBBBBB...",
+    "....BBBBBBBBBBBBBB....",
+    ".....BBBBBBBBBBBB....."
+  ],
+  wide: [
+    ".BBBBBLKWKKKKWKLBBBBB.",
+    ".BBBBLKKKKKKKKKKLBBBB.",
+    ".BBBBBLKWKKKKWKLBBBBB.",
+    "..BBBBBLLKKKKLLBBBBB..",
+    "...BBBBBBLLLLBBBBBB...",
+    "....BBBBBBBBBBBBBB...."
+  ]
+};
+const ROAR_W = 22, ROAR_H = 16;
+const ROAR_EYES = [{ x: 5, y: 5 }, { x: 16, y: 5 }];
+
+function roarFrame(mouth, blink) {
+  const rows = ROAR_TOP.concat(ROAR_MOUTHS[mouth]);
+  let out = "";
+  rows.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      let ch = row[x];
+      if (ch === ".") continue;
+      if (blink && ROAR_EYES.some(e => e.x === x && e.y === y)) ch = "B";
+      out += `<rect x="${x}" y="${y}" width="1" height="1" fill="${ROAR_COLORS[ch]}"/>`;
+    }
+  });
+  return out;
+}
+
+function mountRoarBear(el, scale) {
+  el.innerHTML = `<svg width="${ROAR_W * scale}" height="${ROAR_H * scale}" viewBox="0 0 ${ROAR_W} ${ROAR_H}"><g class="px"></g></svg>`;
+  const g = el.querySelector(".px");
+  let mouth = "closed", blink = false;
+  const render = () => g.innerHTML = roarFrame(mouth, blink);
+  render();
+
+  /* chomp rhythm: closed → mid → wide → mid → closed, with holds */
+  const SEQ = [["closed", 900], ["mid", 160], ["wide", 620], ["mid", 160]];
+  let i = 0, roarTimer;
+  function step() {
+    mouth = SEQ[i][0]; render();
+    roarTimer = setTimeout(() => { i = (i + 1) % SEQ.length; step(); }, SEQ[i][1]);
+  }
+  step();
+
+  const blinker = setInterval(() => {
+    if (mouth !== "closed") return;            // don't blink mid-roar
+    blink = true; render();
+    setTimeout(() => { blink = false; render(); }, 150);
+  }, 2800 + Math.random() * 1600);
+
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    clearTimeout(roarTimer); clearInterval(blinker);
+    mouth = "closed"; blink = false; render();
+  }
+  return () => { clearTimeout(roarTimer); clearInterval(blinker); };
+}
+document.querySelectorAll(".roar-bear").forEach(el => mountRoarBear(el, +el.dataset.scale || 4));
+</script>
+</body>
+</html>
