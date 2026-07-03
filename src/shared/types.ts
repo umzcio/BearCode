@@ -117,6 +117,7 @@ export interface AppSettings {
   ollamaBaseUrl: string
   autoApproveCommands: boolean
   defaultModelRef: ModelRef | null
+  experimentalEngine: boolean
 }
 
 export interface SettingsInfo extends AppSettings {
