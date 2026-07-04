@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Event } from '@shared/types'
+import { subagentLabel } from '@shared/agentId'
 import { ThinkingPaw } from '../brand/ThinkingPaw'
 import { PixelBear } from '../brand/PixelBear'
 import { IconChevronDown } from '../icons'
@@ -14,6 +15,26 @@ interface WorkedGroupProps {
   workedSeconds?: number
   showBear: boolean
   convoId: string
+}
+
+// Absent/'main' agentId means the primary agent; a subagent's steps get a
+// small pill so multi-agent output is visibly attributed without a full
+// multi-agent UI.
+function AgentAttributed({
+  event,
+  children
+}: {
+  event: Event
+  children: React.ReactNode
+}): React.JSX.Element {
+  const label = subagentLabel(event)
+  if (!label) return <>{children}</>
+  return (
+    <div className="agent-attributed">
+      <span className="agent-pill">{label}</span>
+      {children}
+    </div>
+  )
 }
 
 export function WorkedGroup({
@@ -44,16 +65,21 @@ export function WorkedGroup({
   for (let i = 0; i < steps.length; i++) {
     const ev = steps[i]
     if (ev.type === 'thinking') {
-      rows.push(<ThinkingStep key={ev.id} text={ev.text} durationMs={ev.durationMs} />)
+      rows.push(
+        <AgentAttributed key={ev.id} event={ev}>
+          <ThinkingStep text={ev.text} durationMs={ev.durationMs} />
+        </AgentAttributed>
+      )
     } else if (ev.type === 'tool_call') {
       const result = steps.find((r) => r.type === 'tool_result' && r.callId === ev.id)
       rows.push(
-        <ToolStep
-          key={ev.id}
-          call={ev}
-          result={result && result.type === 'tool_result' ? result : undefined}
-          convoId={convoId}
-        />
+        <AgentAttributed key={ev.id} event={ev}>
+          <ToolStep
+            call={ev}
+            result={result && result.type === 'tool_result' ? result : undefined}
+            convoId={convoId}
+          />
+        </AgentAttributed>
       )
     }
   }

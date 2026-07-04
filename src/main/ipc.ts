@@ -10,16 +10,17 @@ import type {
 import { keyStatus, setKey } from './keys'
 import { setSettings, settingsInfo } from './settings'
 import { listAllModels } from './ursa/providers/registry'
-import {
-  cancelRun,
-  clearConversations,
-  forgetConversation,
-  resolveApproval,
-  setWorkspace,
-  startRun
-} from './ursa/run'
 import { filePathFor, getDiff, revertFile } from './ursa/diffs'
 import * as db from './db'
+import {
+  cancelRunOrchestrator,
+  clearRunsOrchestrator,
+  forgetRunOrchestrator,
+  pruneCheckpoints,
+  resolveApprovalOrchestrator,
+  resumeInterruptedRuns,
+  startRunOrchestrator
+} from './orchestrator'
 
 function broadcast(channel: string, ...args: unknown[]): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -39,6 +40,15 @@ const sink = {
   }
 }
 
+// Called once from main/index.ts after the window is ready. Uses the same
+// `sink` the IPC handlers below stream through, so a conversation this finds
+// dangling gets the same live broadcasts a real run would produce. Attempts
+// full crash-resume of any approval-paused run (A2), falling back to a clean
+// 'cancelled' for mid-stream crashes.
+export async function bootResumeInterruptedRuns(): Promise<void> {
+  await resumeInterruptedRuns(sink)
+}
+
 export function registerIpc(): void {
   ipcMain.handle('bearcode:ping', (): PingResult => {
     return {
@@ -56,16 +66,18 @@ export function registerIpc(): void {
       conversationId: string,
       userText: string,
       modelRef: string,
-      projectPath: string | null
+      _projectPath: string | null
     ) => {
-      setWorkspace(conversationId, projectPath)
-      // Fire and forget: progress flows back over bearcode:event.
-      void startRun(conversationId, userText, modelRef, sink)
+      // projectPath is already persisted on the conversation row (set at
+      // creation); the orchestrator reads it back from getConversationMeta, so
+      // nothing to stash here. Fire and forget: progress flows back over
+      // bearcode:event.
+      void startRunOrchestrator(conversationId, userText, modelRef, sink)
     }
   )
 
   ipcMain.handle('bearcode:run:cancel', (_e, conversationId: string) => {
-    cancelRun(conversationId)
+    cancelRunOrchestrator(conversationId)
   })
 
   ipcMain.handle('bearcode:models:list', () => listAllModels())
@@ -76,9 +88,9 @@ export function registerIpc(): void {
     const path = filePathFor(fileId)
     if (path) void shell.openPath(path)
   })
-  ipcMain.handle('bearcode:tools:approve', (_e, callId: string, approved: boolean) =>
-    resolveApproval(callId, approved)
-  )
+  ipcMain.handle('bearcode:tools:approve', (_e, callId: string, approved: boolean) => {
+    resolveApprovalOrchestrator(callId, approved)
+  })
 
   ipcMain.handle('bearcode:keys:set', (_e, provider: ProviderId, key: string) => {
     setKey(provider, key)
@@ -97,11 +109,15 @@ export function registerIpc(): void {
     db.createConversation(projectPath)
   )
   ipcMain.handle('bearcode:conversations:delete', (_e, id: string) => {
-    forgetConversation(id)
+    forgetRunOrchestrator(id)
+    void pruneCheckpoints(id)
     db.deleteConversation(id)
   })
   ipcMain.handle('bearcode:conversations:clear', () => {
-    clearConversations()
+    clearRunsOrchestrator()
+    // Prune each conversation's checkpoints before the rows are gone, so
+    // checkpoints.db doesn't retain orphaned execution state after a wipe.
+    for (const c of db.listConversations()) void pruneCheckpoints(c.id)
     db.clearAll()
   })
 

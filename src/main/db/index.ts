@@ -9,6 +9,14 @@ import type { ConversationMeta, Event } from '../../shared/types'
 
 let db: Database.Database | null = null
 
+// The conversation IDs `cancelZombieRuns` patched during this process's boot
+// scan. Populated exactly once, the first time `getDb()` opens the database.
+// `resumeInterruptedRuns` (src/main/orchestrator/index.ts) reads this via
+// `getZombieRunIds()` to know which conversations were dangling -- that is
+// the authoritative signal, not the wording of the synthetic event this
+// function writes.
+let zombieRunIds: string[] = []
+
 function getDb(): Database.Database {
   if (db) return db
   db = new Database(join(app.getPath('userData'), 'bearcode.db'))
@@ -38,13 +46,16 @@ function getDb(): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_events_convo ON events(conversation_id, seq);
   `)
-  cancelZombieRuns(db)
+  zombieRunIds = cancelZombieRuns(db)
   return db
 }
 
 // A conversation whose last event is not turn_meta or error was mid-run when
 // the app quit. Mark it cancelled on boot so no zombie states survive.
-function cancelZombieRuns(database: Database.Database): void {
+// Returns the conversation IDs it patched, so callers that need to know
+// which conversations were dangling (e.g. the crash-resume scan) don't have
+// to re-derive that by matching the wording of the synthetic event below.
+function cancelZombieRuns(database: Database.Database): string[] {
   const rows = database
     .prepare(
       `SELECT e.conversation_id AS convoId, e.type AS type, e.seq AS seq
@@ -57,6 +68,7 @@ function cancelZombieRuns(database: Database.Database): void {
     `INSERT INTO events (id, conversation_id, seq, type, payload, created_at)
      VALUES (?, ?, ?, 'error', ?, ?)`
   )
+  const patched: string[] = []
   for (const row of rows) {
     if (row.type !== 'turn_meta' && row.type !== 'error') {
       const event: Event = {
@@ -67,8 +79,19 @@ function cancelZombieRuns(database: Database.Database): void {
       }
       insert.run(event.id, row.convoId, row.seq + 1, JSON.stringify(event), Date.now())
       console.log(`[ursa] db: cancelled zombie run in conversation ${row.convoId}`)
+      patched.push(row.convoId)
     }
   }
+  return patched
+}
+
+// The authoritative list of conversation IDs the boot-time zombie scan
+// patched (see `cancelZombieRuns` above). Ensures the scan has run (opening
+// the database if this is the first call) and returns its result -- callers
+// must not re-derive "was this dangling" by matching event contents.
+export function getZombieRunIds(): string[] {
+  getDb()
+  return zombieRunIds
 }
 
 interface ConversationRow {
@@ -159,6 +182,51 @@ export function appendEvent(conversationId: string, event: Event): void {
   database
     .prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`)
     .run(Date.now(), conversationId)
+}
+
+// Like appendEvent, but if an event with this id already exists it updates that
+// row's payload in place (keeping its seq) instead of inserting. Used for the
+// resolved (approved/denied) command tool_call, whose id equals the pending
+// tool_call's: in the live flow the pending row was never persisted so this
+// inserts (identical to appendEvent); in the crash-resume flow (A2) the pending
+// row WAS persisted by rehydratePausedRun, so this replaces it in place rather
+// than colliding on the events.id primary key.
+export function appendOrReplaceEvent(conversationId: string, event: Event): void {
+  const database = getDb()
+  const existing = database.prepare(`SELECT seq FROM events WHERE id = ?`).get(event.id) as
+    { seq: number } | undefined
+  if (existing) {
+    database
+      .prepare(`UPDATE events SET type = ?, payload = ? WHERE id = ?`)
+      .run(event.type, JSON.stringify(event), event.id)
+    database
+      .prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`)
+      .run(Date.now(), conversationId)
+    return
+  }
+  appendEvent(conversationId, event)
+}
+
+// Remove the provisional synthetic 'Cancelled' event that cancelZombieRuns
+// appends at boot, for a conversation the orchestrator is about to crash-resume
+// (A2). Deletes the conversation's last event iff it is an 'error' whose message
+// is 'Cancelled' -- the exact shape cancelZombieRuns writes -- so a real
+// user-facing error is never removed. Callers only invoke this for confirmed
+// resumable conversations from the authoritative getZombieRunIds() list.
+export function dropDanglingCancel(conversationId: string): void {
+  const database = getDb()
+  const row = database
+    .prepare(`SELECT id, payload FROM events WHERE conversation_id = ? ORDER BY seq DESC LIMIT 1`)
+    .get(conversationId) as { id: string; payload: string } | undefined
+  if (!row) return
+  try {
+    const ev = JSON.parse(row.payload) as Event
+    if (ev.type === 'error' && ev.message === 'Cancelled') {
+      database.prepare(`DELETE FROM events WHERE id = ?`).run(row.id)
+    }
+  } catch {
+    // malformed payload -- leave it alone
+  }
 }
 
 export function setTitle(conversationId: string, title: string): void {
