@@ -191,6 +191,7 @@ export interface BearcodeApi {
     create(projectPath: string | null): Promise<ConversationMeta>
     delete(id: string): Promise<void>
     clear(): Promise<void>
+    setMode(id: string, mode: PermissionMode): Promise<void>
   }
   workspace: {
     pick(): Promise<string | null>
