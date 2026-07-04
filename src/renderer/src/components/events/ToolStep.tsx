@@ -180,6 +180,21 @@ function PendingCommand({
   const approveTool = useAppStore((s) => s.approveTool)
   const addPermissionRule = useAppStore((s) => s.addPermissionRule)
   const projectPath = useAppStore((s) => s.conversations[convoId]?.projectPath ?? null)
+  // Parallel approvals can put several pending cards on screen at once; the
+  // number keys (and the jump-to-approval anchor id) belong only to the FIRST
+  // pending card in the conversation's event order, so one keypress never
+  // answers more than one card. Each answered card flips via its resolved
+  // event, making the next card the first pending one -- the keys move down
+  // the stack naturally. Note an "always allow" rule saved on one card only
+  // affects future evaluations; sibling cards still need their own answers.
+  const isFirstPending = useAppStore((s) => {
+    const events = s.conversations[convoId]?.events
+    if (!events) return false
+    for (const e of events) {
+      if (e.type === 'tool_call' && e.approvalState === 'pending') return e.id === callId
+    }
+    return false
+  })
   const [showAllow, setShowAllow] = useState(false)
   const prefix = command.trim().split(/\s+/)[0] + ' *'
 
@@ -188,6 +203,7 @@ function PendingCommand({
 
   // Number keys answer the prompt, matching the option badges.
   useEffect(() => {
+    if (!isFirstPending) return undefined
     const onKey = (e: KeyboardEvent): void => {
       const target = e.target as HTMLElement | null
       if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
@@ -199,10 +215,10 @@ function PendingCommand({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callId])
+  }, [callId, isFirstPending])
 
   return (
-    <div className="step" id="pending-approval-card">
+    <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
       <div className="step-row static">
         <span>
           Run <span className="mono">{command}</span>?
@@ -213,11 +229,11 @@ function PendingCommand({
         <div className="approval-title">Allow running this command?</div>
         <div className="approval-cmd">{command}</div>
         <button className="approval-opt" onClick={allowOnce}>
-          <span className="opt-num">1</span>
+          {isFirstPending ? <span className="opt-num">1</span> : null}
           Yes, allow this time
         </button>
         <button className="approval-opt" onClick={() => setShowAllow((s) => !s)}>
-          <span className="opt-num">2</span>
+          {isFirstPending ? <span className="opt-num">2</span> : null}
           Yes, always allow
           <span className="opt-hint">save a rule instead of asking again</span>
         </button>
@@ -286,7 +302,7 @@ function PendingCommand({
           </div>
         ) : null}
         <button className="approval-opt" onClick={deny}>
-          <span className="opt-num">3</span>
+          {isFirstPending ? <span className="opt-num">3</span> : null}
           No, deny it
           <span className="opt-hint">the agent is told you declined</span>
         </button>
