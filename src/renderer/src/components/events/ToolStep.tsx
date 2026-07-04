@@ -199,14 +199,14 @@ function PendingCommand({
   }, [callId])
 
   return (
-    <div className="step">
+    <div className="step" id="pending-approval-card">
       <div className="step-row static">
         <span>
           Run <span className="mono">{command}</span>?
         </span>
       </div>
       <div className="waiting-note">Waiting for your input…</div>
-      <div className="approval-card">
+      <div className="approval-card pulse-once">
         <div className="approval-title">Allow running this command?</div>
         <div className="approval-cmd">{command}</div>
         <button className="approval-opt" onClick={allowOnce}>

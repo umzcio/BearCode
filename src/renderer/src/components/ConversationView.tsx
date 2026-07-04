@@ -55,6 +55,12 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const running = convo.runState === 'running' || convo.runState === 'awaiting-approval'
   const turns = groupTurns(convo.events)
 
+  const jumpToApproval = (): void => {
+    document
+      .getElementById('pending-approval-card')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
@@ -158,7 +164,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
           })}
         </div>
       </div>
-      <RunStatusBar convoId={convoId} onJumpToApproval={() => {}} />
+      <RunStatusBar convoId={convoId} onJumpToApproval={jumpToApproval} />
       <div className="convo-composer">
         <div className="composer-wrap">
           <Composer
