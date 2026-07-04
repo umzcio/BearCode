@@ -6,6 +6,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('../db', () => ({
   appendEvent: vi.fn(),
   appendOrReplaceEvent: vi.fn(),
+  dropDanglingApprovalRows: vi.fn(),
   dropDanglingCancel: vi.fn(),
   getConversationMeta: vi.fn(() => null)
 }))
@@ -26,6 +27,8 @@ import {
   allDecided,
   buildResumeMap,
   deniedToolCallEvents,
+  resolvedToolCallEvents,
+  deniedReplayPinsOf,
   type ApprovalItem
 } from './graph'
 
@@ -353,6 +356,57 @@ describe('approval decision collection (collect-then-resume)', () => {
 
     it('returns nothing for an empty set', () => {
       expect(deniedToolCallEvents(items())).toEqual([])
+    })
+  })
+
+  describe('resolvedToolCallEvents (dispatch-time persistence batch)', () => {
+    it('maps every card to its terminal row under the pending card event id', () => {
+      const events = resolvedToolCallEvents(
+        items(['c1', item('i1', true)], ['c2', item('i2', false)])
+      )
+      expect(events.map((e) => [e.id, e.approvalState])).toEqual([
+        ['c1', 'approved'],
+        ['c2', 'denied']
+      ])
+      for (const e of events) {
+        expect(e.type).toBe('tool_call')
+        expect(e.tool).toBe('run_command')
+        expect(e.input).toEqual({ command: 'ls -l' })
+      }
+    })
+
+    it('fails safe to denied for an undecided item, matching buildResumeMap', () => {
+      expect(resolvedToolCallEvents(items(['c1', item('i1')]))[0].approvalState).toBe('denied')
+    })
+  })
+
+  describe('deniedReplayPinsOf (execution-layer deny pins for one dispatch)', () => {
+    const denied = (toolCallId?: string, command: unknown = 'git push --force'): ApprovalItem => ({
+      interruptId: 'i1',
+      tool: 'run_command',
+      input: { command },
+      toolCallId,
+      decision: false
+    })
+
+    it('pins denied cards by toolCallId with the command as metadata', () => {
+      const pins = deniedReplayPinsOf(
+        items(['c1', item('i1', true)], ['c2', denied('tc2')], ['c3', item('i3', true)])
+      )
+      expect(pins).toEqual([{ toolCallId: 'tc2', command: 'git push --force' }])
+    })
+
+    it('pins undecided cards too, matching the fail-safe-to-denied resume', () => {
+      expect(deniedReplayPinsOf(items(['c1', item('i1')]))).toHaveLength(1)
+    })
+
+    it('never pins an approved card', () => {
+      expect(deniedReplayPinsOf(items(['c1', item('i1', true)]))).toEqual([])
+    })
+
+    it('omits a non-string command instead of pinning a bogus value', () => {
+      const pins = deniedReplayPinsOf(items(['c1', denied(undefined, 42)]))
+      expect(pins).toEqual([{ toolCallId: undefined, command: undefined }])
     })
   })
 })

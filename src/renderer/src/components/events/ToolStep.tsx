@@ -185,8 +185,11 @@ function PendingCommand({
   // pending card in the conversation's event order, so one keypress never
   // answers more than one card. Each answered card flips via its resolved
   // event, making the next card the first pending one -- the keys move down
-  // the stack naturally. Note an "always allow" rule saved on one card only
-  // affects future evaluations; sibling cards still need their own answers.
+  // the stack naturally. An "always allow" rule saved on one card never
+  // answers a sibling card: each still needs its own click, and a sibling the
+  // user denies stays denied even though the new rule would now allow its
+  // command -- the main process pins denied decisions so the batch resume's
+  // rules re-evaluation cannot override them (tools.ts deniedReplayPins).
   const isFirstPending = useAppStore((s) => {
     const events = s.conversations[convoId]?.events
     if (!events) return false
