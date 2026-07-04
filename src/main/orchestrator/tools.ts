@@ -1,13 +1,15 @@
 // The orchestrator's one custom tool: run_command. Everything else (reading,
 // writing, editing, listing, searching) is a Deep Agents built-in tool routed
 // through the custom filesystem backend (fsBackend.ts). run_command has no
-// built-in equivalent, so it is added explicitly and gated behind an
-// approval interrupt (spec 6.2 parity, risk 4): when
-// commandNeedsApproval(resolveConversationMode(conversationId)) is true, `interrupt()` pauses the graph
-// (verified pattern: planning/replatform-api-notes.md section (d2),
+// built-in equivalent, so it is added explicitly and gated behind the rules
+// engine (Bb2): evaluateCommandForConversation(command, conversationId,
+// projectPath) checks deny/allow/ask rules first, falling back to the
+// conversation's permission mode. A 'block' decision returns a plain string
+// with no interrupt. A 'prompt' decision calls `interrupt()` to pause the
+// graph (verified pattern: planning/replatform-api-notes.md section (d2),
 // node_modules/@langchain/langgraph/dist/interrupt.d.ts) and the resolved
-// `resume` value (true/false) is what the promise returned by `interrupt()`
-// evaluates to once the graph is re-invoked with `new Command({ resume })`.
+// `resume` value is what the promise returned by `interrupt()` evaluates to
+// once the graph is re-invoked with `new Command({ resume })`.
 //
 // The shell-execution body below is the jailed run_command implementation:
 // same shell, timeout/kill, and output-truncation behavior the engine has
@@ -17,7 +19,7 @@ import { realpathSync } from 'fs'
 import { interrupt } from '@langchain/langgraph'
 import { tool } from 'langchain'
 import { z } from 'zod'
-import { commandNeedsApproval, resolveConversationMode } from '../permissions'
+import { evaluateCommandForConversation } from '../permissions'
 
 const commandSchema = z.object({
   command: z.string().describe('Shell command to run in the workspace folder.'),
@@ -62,17 +64,21 @@ function runCommand(
 export function buildTools(projectPath: string, conversationId: string) {
   const runCommandTool = tool(
     async ({ command, timeoutMs }: { command: string; timeoutMs?: number }): Promise<string> => {
-      const needsApproval = commandNeedsApproval(resolveConversationMode(conversationId))
-      if (needsApproval) {
+      const decision = evaluateCommandForConversation(command, conversationId, projectPath)
+      if (decision === 'block') {
+        return 'This command was blocked by a permission rule.'
+      }
+      if (decision === 'prompt') {
         // Resume value must be wrapped in a truthy object, not a bare
         // boolean: LangGraph's mapCommand (pregel/io.js) guards resume
         // handling with `if (cmd.resume)`, so `Command({ resume: false })`
         // is indistinguishable from no resume at all and throws
         // EmptyInputError("Received empty Command input") -- verified live
         // (node_modules/@langchain/langgraph/dist/pregel/io.js).
-        const decision = interrupt({ kind: 'run_command', command }) as { approved: boolean }
-        if (!decision.approved) return 'User denied this command.'
+        const approval = interrupt({ kind: 'run_command', command }) as { approved: boolean }
+        if (!approval.approved) return 'User denied this command.'
       }
+      // decision === 'run' (or approved): fall through and execute.
       const cwd = realpathSync(projectPath)
       const result = await runCommand(command, cwd, timeoutMs ?? 60000)
       const truncated = result.output.length > 50000

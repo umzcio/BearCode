@@ -1,5 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
+  AddRuleInput,
   AppSettings,
   ConversationMeta,
   Event,
@@ -9,6 +10,7 @@ import type {
   RunState
 } from '../shared/types'
 import { keyStatus, setKey } from './keys'
+import { addUserRule } from './permissions'
 import { setSettings, settingsInfo } from './settings'
 import { listAllModels } from './ursa/providers/registry'
 import { filePathFor, getDiff, revertFile } from './ursa/diffs'
@@ -123,6 +125,10 @@ export function registerIpc(): void {
     // checkpoints.db doesn't retain orphaned execution state after a wipe.
     for (const c of db.listConversations()) void pruneCheckpoints(c.id)
     db.clearAll()
+  })
+
+  ipcMain.handle('bearcode:permissions:add-rule', (_e, rule: AddRuleInput) => {
+    addUserRule(rule)
   })
 
   ipcMain.handle('bearcode:workspace:pick', async () => {

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type {
+  AddRuleInput,
   AppSettings,
   ConversationMeta,
   Event,
@@ -94,6 +95,7 @@ interface AppState {
   send(convoId: string, text: string): void
   cancelRun(convoId: string): void
   approveTool(callId: string, approved: boolean): void
+  addPermissionRule(input: AddRuleInput): void
   retryRun(convoId: string): void
   selectModel(ref: ModelRef): void
   setPermissionMode(mode: PermissionMode): void
@@ -379,6 +381,10 @@ export const useAppStore = create<AppState>((set, get) => {
 
     approveTool: (callId, approved) => {
       void window.bearcode.tools.approve(callId, approved)
+    },
+
+    addPermissionRule: (input) => {
+      void window.bearcode.permissions.addRule(input)
     },
 
     retryRun: (convoId) => {

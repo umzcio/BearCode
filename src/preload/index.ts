@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  AddRuleInput,
   AppSettings,
   BearcodeApi,
   ConversationMeta,
@@ -48,6 +49,10 @@ const bearcode: BearcodeApi = {
     clear: () => ipcRenderer.invoke('bearcode:conversations:clear'),
     setMode: (id: string, mode: PermissionMode): Promise<void> =>
       ipcRenderer.invoke('bearcode:conversations:set-mode', id, mode)
+  },
+  permissions: {
+    addRule: (rule: AddRuleInput): Promise<void> =>
+      ipcRenderer.invoke('bearcode:permissions:add-rule', rule)
   },
   workspace: {
     pick: () => ipcRenderer.invoke('bearcode:workspace:pick')
