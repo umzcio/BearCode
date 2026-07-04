@@ -181,6 +181,13 @@ interface DriveContext {
   // pendingApprovals/continueAfterApproval) so the tool_call emitted before
   // the pause and the tool_result emitted after resume pair on the same id.
   callIdMap: Map<string, string>
+  // The main agent's final answer text, accumulated across every drive()
+  // segment of the turn (a turn can span multiple segments when it pauses on
+  // approval and resumes). Boxed so it's shared by reference across the
+  // pause/resume split like callIdMap above; closeOutTurn reads it for title
+  // generation, which otherwise saw only the user's prompt (the running answer
+  // accumulator is local to each drive() call and didn't survive the pause).
+  answerAccum: { text: string }
 }
 
 interface DriveResult {
@@ -367,6 +374,11 @@ async function drive(
     }
     if (s.answer) {
       appendEvent(ctx.conversationId, textDeltaEvent(s.answerId, s.answer, agentId))
+      // Only the main agent's answer feeds title generation (subagent output
+      // is internal), matching legacy run.ts which titles from the primary
+      // answer. Accumulate across segments so a paused/resumed turn's title
+      // sees the whole answer, not just the pre-pause fragment.
+      if (key === 'main') ctx.answerAccum.text += s.answer
     }
   }
 
@@ -475,6 +487,19 @@ interface PendingApproval extends DriveContext {
 }
 const pendingApprovals = new Map<string, PendingApproval>()
 
+// A run that pauses on approval returns early from startRunOrchestrator
+// (src/main/orchestrator/index.ts) with its AbortController kept live in that
+// module's `aborts` map, because Stop and the approval lookup still need it.
+// When the *resumed* run later settles terminally (here in
+// continueAfterApproval, not back in startRunOrchestrator), index.ts has no
+// other signal to clear that entry -- so it registers this callback to prune
+// its map. Set via setOnResumeSettled; a plain module-level hook rather than a
+// direct import keeps index.ts -> graph.ts the only import direction.
+let onResumeSettled: ((conversationId: string) => void) | undefined
+export function setOnResumeSettled(fn: (conversationId: string) => void): void {
+  onResumeSettled = fn
+}
+
 // Called from src/main/orchestrator/index.ts's resolveApprovalOrchestrator
 // (IPC bridge for bearcode:tools:approve). Resumes the paused graph with
 // `Command({ resume: approved })` and drives it to completion or the next
@@ -563,6 +588,10 @@ async function continueAfterApproval(pending: PendingApproval, approved: boolean
   } catch (err) {
     await failTurn(ctx, err)
   }
+  // Reached only on a terminal settle (closeOutTurn or failTurn), never on the
+  // re-pause early return above -- so index.ts clears the AbortController it
+  // kept alive across the pause exactly once the resumed run is truly over.
+  onResumeSettled?.(ctx.conversationId)
 }
 
 async function failTurn(ctx: DriveContext, err: unknown): Promise<void> {
@@ -630,7 +659,8 @@ export async function runGraph(opts: {
     signal,
     writeCursor: { i: 0 },
     alreadyAnnounced: new Set(),
-    callIdMap: new Map()
+    callIdMap: new Map(),
+    answerAccum: { text: '' }
   }
 
   try {
@@ -686,7 +716,7 @@ async function closeOutTurn(ctx: DriveContext): Promise<void> {
       ctx.providerId,
       ctx.modelId,
       ctx.userText,
-      '',
+      ctx.answerAccum.text,
       (id) => {
         const meta = getConversationMeta(id)
         if (meta) ctx.sink.metaChanged(meta)

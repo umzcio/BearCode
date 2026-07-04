@@ -40,11 +40,38 @@ function summaryFor(call: ToolCallEvent, result?: ToolResultEvent): React.ReactN
         </span>
       )
     }
-    case 'search_files': {
+    // Deep Agents' built-in search tools (orchestrator engine) mirror the
+    // legacy list_dir/search_files intents; label them the same way instead
+    // of falling through to the generic "Ran 1 command".
+    case 'search_files':
+    case 'glob':
+    case 'grep': {
       const pattern = inputStr(call, 'pattern')
       return (
         <span>
           Searched for <b>{pattern ?? 'a pattern'}</b>
+        </span>
+      )
+    }
+    case 'ls': {
+      const path = inputStr(call, 'path')
+      return (
+        <span>
+          Explored <b>{path && path !== '.' ? path : 'the workspace'}</b>
+        </span>
+      )
+    }
+    case 'write_todos':
+      return (
+        <span>
+          Updated the <b>plan</b>
+        </span>
+      )
+    case 'task': {
+      const desc = inputStr(call, 'description')
+      return (
+        <span>
+          Delegated <b>{desc ?? 'a subtask'}</b>
         </span>
       )
     }

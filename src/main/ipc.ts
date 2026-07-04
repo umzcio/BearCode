@@ -22,6 +22,7 @@ import { filePathFor, getDiff, revertFile } from './ursa/diffs'
 import * as db from './db'
 import {
   cancelRunOrchestrator,
+  pruneCheckpoints,
   resolveApprovalOrchestrator,
   resumeInterruptedRuns,
   startRunOrchestrator,
@@ -137,10 +138,14 @@ export function registerIpc(): void {
   )
   ipcMain.handle('bearcode:conversations:delete', (_e, id: string) => {
     forgetConversation(id)
+    void pruneCheckpoints(id)
     db.deleteConversation(id)
   })
   ipcMain.handle('bearcode:conversations:clear', () => {
     clearConversations()
+    // Prune each conversation's checkpoints before the rows are gone, so
+    // checkpoints.db doesn't retain orphaned execution state after a wipe.
+    for (const c of db.listConversations()) void pruneCheckpoints(c.id)
     db.clearAll()
   })
 

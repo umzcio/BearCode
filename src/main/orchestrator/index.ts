@@ -3,14 +3,25 @@ import type { ConversationMeta, Event } from '../../shared/types'
 import type { RunSink } from '../ursa/run'
 import { getSettings } from '../settings'
 import { appendEvent, getConversationMeta, getZombieRunIds, listConversations } from '../db'
-import { cancelPendingApproval, resolveInterrupt, runGraph } from './graph'
+import { cancelPendingApproval, resolveInterrupt, runGraph, setOnResumeSettled } from './graph'
 import { getCheckpointer } from './checkpointer'
+
+export { pruneCheckpoints } from './checkpointer'
 
 export function useOrchestrator(): boolean {
   return process.env['BEARCODE_ENGINE'] === 'orchestrator' || getSettings().experimentalEngine
 }
 
 const aborts = new Map<string, AbortController>()
+
+// A run parked on approval keeps its AbortController in `aborts` across the
+// pause (see startRunOrchestrator's `paused` branch). graph.ts drives the
+// resumed run to its terminal state itself (closeOutTurn handles the final
+// state + title); this callback fires once that happens so the kept-alive
+// controller doesn't leak in the map for the life of the process.
+setOnResumeSettled((conversationId) => {
+  aborts.delete(conversationId)
+})
 
 export async function startRunOrchestrator(
   conversationId: string,
