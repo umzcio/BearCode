@@ -1,0 +1,14 @@
+.mode-picker {
+  position: relative;
+}
+
+.mode-menu {
+  bottom: 40px;
+  right: 0;
+  min-width: 180px;
+}
+.mode-menu .mode-key {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 12px;
+}
