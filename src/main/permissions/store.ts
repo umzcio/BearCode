@@ -6,7 +6,10 @@ import { BUILTIN_RULES } from './rules'
 // Pure: the rules that apply to a given project = all builtins + global user
 // rules + user rules scoped to THIS project. Kept pure (user rules passed in) so
 // it is unit-testable without the DB.
-export function mergeRules(userRules: PermissionRule[], projectPath: string | null): PermissionRule[] {
+export function mergeRules(
+  userRules: PermissionRule[],
+  projectPath: string | null
+): PermissionRule[] {
   const applicable = userRules.filter(
     (r) => r.scope === 'global' || (projectPath != null && r.scope.projectPath === projectPath)
   )
