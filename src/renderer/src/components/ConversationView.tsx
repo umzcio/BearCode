@@ -104,7 +104,6 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                       live={live}
                       startedAt={convo.startedAt}
                       workedSeconds={workedSecondsByTurn.get(turn.user.id)}
-                      showBear={live}
                       convoId={convoId}
                     />
                   ) : null}
@@ -164,7 +163,11 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
           })}
         </div>
       </div>
-      <RunStatusBar convoId={convoId} onJumpToApproval={jumpToApproval} />
+      <div className="convo-status">
+        <div className="convo-status-inner">
+          <RunStatusBar convoId={convoId} onJumpToApproval={jumpToApproval} />
+        </div>
+      </div>
       <div className="convo-composer">
         <div className="composer-wrap">
           <Composer

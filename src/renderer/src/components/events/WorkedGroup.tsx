@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import type { Event } from '@shared/types'
 import { subagentLabel } from '@shared/agentId'
 import { ThinkingPaw } from '../brand/ThinkingPaw'
-import { PixelBear } from '../brand/PixelBear'
 import { IconChevronDown } from '../icons'
 import { ThinkingStep } from './ThinkingStep'
 import { ToolStep } from './ToolStep'
@@ -13,7 +12,6 @@ interface WorkedGroupProps {
   live: boolean
   startedAt?: number
   workedSeconds?: number
-  showBear: boolean
   convoId: string
 }
 
@@ -42,7 +40,6 @@ export function WorkedGroup({
   live,
   startedAt,
   workedSeconds,
-  showBear,
   convoId
 }: WorkedGroupProps): React.JSX.Element {
   const [collapsed, setCollapsed] = useState(false)
@@ -96,14 +93,7 @@ export function WorkedGroup({
           <IconChevronDown />
         </span>
       </div>
-      <div className={'steps' + (collapsed ? ' collapsed' : '')}>
-        {rows}
-        {showBear ? (
-          <div className="bear-amble">
-            <PixelBear scale={3} />
-          </div>
-        ) : null}
-      </div>
+      <div className={'steps' + (collapsed ? ' collapsed' : '')}>{rows}</div>
     </>
   )
 }
