@@ -17,9 +17,9 @@ describe('deriveActivity', () => {
     })
   })
   it('labels an in-flight run_command with its command', () => {
-    expect(deriveActivity('running', [call('c1', 'run_command', { command: 'open index.html' })])).toEqual(
-      { label: 'Running: open index.html', tone: 'busy' }
-    )
+    expect(
+      deriveActivity('running', [call('c1', 'run_command', { command: 'open index.html' })])
+    ).toEqual({ label: 'Running: open index.html', tone: 'busy' })
   })
   it('truncates a long command to 40 chars', () => {
     const long = 'a'.repeat(60)
