@@ -181,10 +181,7 @@ export const useAppStore = create<AppState>((set, get) => {
   }
 
   function ensureDefaultModel(): void {
-    const { providers, settings, modelRef, permissionMode } = get()
-    if (settings?.defaultPermissionMode && permissionMode === 'accept-edits') {
-      set({ permissionMode: settings.defaultPermissionMode })
-    }
+    const { providers, settings, modelRef } = get()
     if (modelRef && refConfigured(providers, modelRef)) return
     const stored = settings?.defaultModelRef ?? null
     if (stored && refConfigured(providers, stored)) {
@@ -249,6 +246,14 @@ export const useAppStore = create<AppState>((set, get) => {
       void (async () => {
         const settings = await window.bearcode.settings.get()
         set({ settings })
+        // One-time seed: adopt the configured default only if the user hasn't
+        // picked a mode yet. This runs exactly once per app session (init is
+        // guarded by `initialized`), unlike ensureDefaultModel which fires on
+        // every refreshProviders() call and would otherwise clobber a later
+        // user selection of 'accept-edits'.
+        if (settings.defaultPermissionMode && get().permissionMode === 'accept-edits') {
+          set({ permissionMode: settings.defaultPermissionMode })
+        }
         const metas = await window.bearcode.conversations.list()
         const conversations: Record<string, Convo> = {}
         for (const meta of metas) conversations[meta.id] = fromMeta(meta)
