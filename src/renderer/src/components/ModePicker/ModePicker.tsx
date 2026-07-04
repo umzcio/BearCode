@@ -81,8 +81,10 @@ export function ModePicker(): React.JSX.Element {
                 setOpen(false)
               }}
             >
-              <span>{m.label}</span>
-              {m.disabled ? <span className="badge">soon</span> : null}
+              <span className="mode-label">
+                {m.label}
+                {m.disabled ? <span className="badge">soon</span> : null}
+              </span>
               <span className="mode-key">{m.key}</span>
               <span className="check">✓</span>
             </div>
