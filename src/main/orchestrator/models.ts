@@ -26,7 +26,14 @@ export function makeModel(modelRef: string): BaseChatModel {
         model: modelId,
         // Haiku models don't support extended thinking; everything else gets adaptive
         // thinking, mirroring the provider registry's providerOptions() for the legacy engine.
-        ...(modelId.startsWith('claude-haiku') ? {} : { thinking: { type: 'adaptive' } })
+        // display:'summarized' is required for reasoning to be visible: on Claude 4.6+
+        // models the raw chain of thought is never returned and the display defaults to
+        // 'omitted' (empty thinking text) -- without this the thinking blocks arrive with
+        // only a signature and no text, so the reasoning bridge (graph.ts) has nothing to
+        // show. 'summarized' returns a readable summary the bridge renders as "Thought for Ns".
+        ...(modelId.startsWith('claude-haiku')
+          ? {}
+          : { thinking: { type: 'adaptive', display: 'summarized' } })
       })
     case 'openai':
       return new ChatOpenAI({ apiKey: requireKey('openai'), model: modelId })
