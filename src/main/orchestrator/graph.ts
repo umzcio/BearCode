@@ -131,34 +131,36 @@ interface StateSnapshotLike {
 }
 type GetStateCapable = { getState(config: unknown): Promise<StateSnapshotLike> }
 
-// `count` lets the caller detect the parallel-interrupt case (more than one
-// approval-requiring tool call raised in the same superstep) and refuse to
-// guess which one a bare `Command({ resume })` should target. `messages` is
-// the same snapshot's checkpointed message history, carried along so the
-// crash-resume path can locate the paused tool call without a second
-// getState round-trip.
-interface PendingInterruptInfo {
+// Every pending interrupt in the thread's checkpointed state. Parallel tool
+// calls each run as their own Send/PUSH Pregel task (langchain ReactAgent v2
+// dispatch), so N approval-requiring run_commands raised in the same superstep
+// surface as N task interrupts, each with its own id -- the XXH3-128 hash of
+// the task's checkpoint namespace (langgraph dist/interrupt.js), which is what
+// a keyed `Command({ resume: { [id]: value } })` targets. Deterministic, so it
+// stays valid across a process restart. Interrupts without an id are skipped:
+// a keyed resume cannot address them (checkpointed task interrupts always
+// carry one in practice). `messages` is the same snapshot's checkpointed
+// message history, carried along so the crash-resume path can locate the
+// paused tool calls without a second getState round-trip.
+interface PendingInterrupt {
+  interruptId: string
   value: unknown
-  count: number
-  messages: ReadonlyArray<unknown>
 }
 
-async function findPendingInterrupt(
+async function findPendingInterrupts(
   agent: unknown,
   threadId: string
-): Promise<PendingInterruptInfo | undefined> {
+): Promise<{ interrupts: PendingInterrupt[]; messages: ReadonlyArray<unknown> }> {
   const snapshot = await (agent as GetStateCapable).getState({
     configurable: { thread_id: threadId }
   })
-  let count = 0
-  let value: unknown
+  const interrupts: PendingInterrupt[] = []
   for (const task of snapshot.tasks) {
     for (const it of task.interrupts) {
-      if (count === 0) value = it.value
-      count += 1
+      if (it.id) interrupts.push({ interruptId: it.id, value: it.value })
     }
   }
-  return count > 0 ? { value, count, messages: snapshot.values?.messages ?? [] } : undefined
+  return { interrupts, messages: snapshot.values?.messages ?? [] }
 }
 
 interface DriveContext {
@@ -229,10 +231,19 @@ interface DriveContext {
   emptyFinalRetried: { done: boolean }
 }
 
+// One approval card a paused segment surfaced: callId is the pending
+// tool_call event's id (the approval lifecycle's single event id),
+// interruptId is the checkpointed interrupt the eventual keyed resume targets.
+interface PendingItem {
+  callId: string
+  interruptId: string
+  tool: ToolName
+  input: unknown
+}
+
 interface DriveResult {
   paused: boolean
-  pendingCallId?: string
-  pendingInput?: unknown
+  pending?: PendingItem[]
 }
 
 const emitAndPersist = (conversationId: string, sink: RunSink, event: Event): void => {
@@ -297,39 +308,125 @@ export function interruptBelongsToToolCall(
   return (tc.args as { command?: unknown } | null | undefined)?.command === value.command
 }
 
-// Locate the checkpointed tool call a rehydrated approval belongs to (crash-
-// resume, Bug B residual): scanning from the end of the checkpointed message
-// history, find the last AI-message tool_call with no matching later
-// ToolMessage (by tool_call_id) -- that is the call the graph paused on --
-// sanity-checked as a run_command whose args.command matches the interrupt
-// payload's command. Pure and structural (the entries are LangChain
-// BaseMessages at runtime, but only `tool_calls` and `tool_call_id` are read)
-// so it is testable without LangGraph. Returns null when no such call exists;
-// the caller then parks without seeding, no worse than before. Exported for
-// tests.
-export function findDanglingRunCommandCall(
-  messages: ReadonlyArray<unknown>,
-  command: string
-): { id: string; name: string; args: Record<string, unknown> } | null {
+// Locate the checkpointed tool calls a rehydrated approval set belongs to
+// (crash-resume): every AI-message run_command tool_call with no matching
+// ToolMessage anywhere in the history (by tool_call_id) is a call the graph
+// paused on, returned in message order so pairing consumes them in issue
+// order. Pure and structural (the entries are LangChain BaseMessages at
+// runtime, but only `tool_calls` and `tool_call_id` are read) so it is
+// testable without LangGraph. Exported for tests.
+export function findDanglingRunCommandCalls(
+  messages: ReadonlyArray<unknown>
+): Array<{ id: string; name: string; args: Record<string, unknown> }> {
   const answered = new Set<string>()
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i] as { tool_call_id?: unknown; tool_calls?: unknown } | null | undefined
-    if (typeof msg?.tool_call_id === 'string') {
-      answered.add(msg.tool_call_id)
-      continue
-    }
-    const calls = msg?.tool_calls
+  for (const raw of messages) {
+    const msg = raw as { tool_call_id?: unknown } | null | undefined
+    if (typeof msg?.tool_call_id === 'string') answered.add(msg.tool_call_id)
+  }
+  const dangling: Array<{ id: string; name: string; args: Record<string, unknown> }> = []
+  for (const raw of messages) {
+    const calls = (raw as { tool_calls?: unknown } | null | undefined)?.tool_calls
     if (!Array.isArray(calls)) continue
-    for (const raw of calls) {
-      const tc = raw as { id?: unknown; name?: unknown; args?: unknown } | null | undefined
+    for (const rawTc of calls) {
+      const tc = rawTc as { id?: unknown; name?: unknown; args?: unknown } | null | undefined
       if (typeof tc?.id !== 'string' || answered.has(tc.id)) continue
       if (tc.name !== 'run_command') continue
-      const args = tc.args as { command?: unknown } | null | undefined
-      if (args?.command !== command) continue
-      return { id: tc.id, name: 'run_command', args: args as Record<string, unknown> }
+      dangling.push({
+        id: tc.id,
+        name: 'run_command',
+        args: (tc.args ?? {}) as Record<string, unknown>
+      })
     }
   }
-  return null
+  return dangling
+}
+
+// Pair each pending interrupt to the tool call that raised it. The interrupt
+// payload's `toolCallId` (tools.ts includes the provider tool-call id ToolNode
+// hands the tool) is authoritative when present: it disambiguates even two
+// identical parallel commands, and when it names a call that is not in the
+// candidate list the interrupt deliberately pairs to NOTHING rather than
+// falling back to a command match that could claim a stale sibling -- this is
+// the approval gate, so a card must never show one command while its decision
+// resumes another. The command match (interruptBelongsToToolCall) is only the
+// fallback for payloads without a toolCallId (pre-existing checkpoints,
+// stripped calls), consuming unclaimed candidates in order. An unpaired
+// interrupt gets `call: null`; the caller synthesizes its card from the
+// payload's command. Pure; exported for tests.
+export interface InterruptPairing {
+  interruptId: string
+  value: unknown
+  call: { id: string; name?: string; args?: unknown } | null
+}
+export function pairInterruptsToCalls(
+  interrupts: ReadonlyArray<{ interruptId: string; value: unknown }>,
+  calls: ReadonlyArray<{ id?: string; name?: string; args?: unknown }>
+): InterruptPairing[] {
+  const claimed = new Set<string>()
+  return interrupts.map((it) => {
+    const toolCallId = (it.value as { toolCallId?: unknown } | null | undefined)?.toolCallId
+    const match =
+      typeof toolCallId === 'string'
+        ? calls.find((c) => c.id === toolCallId && !claimed.has(c.id))
+        : calls.find(
+            (c) =>
+              c.id !== undefined && !claimed.has(c.id) && interruptBelongsToToolCall(it.value, c)
+          )
+    if (match?.id === undefined) return { interruptId: it.interruptId, value: it.value, call: null }
+    claimed.add(match.id)
+    return {
+      interruptId: it.interruptId,
+      value: it.value,
+      call: { id: match.id, name: match.name, args: match.args }
+    }
+  })
+}
+
+// One card of a parked approval set: the interrupt it resolves, the event
+// row's tool/input (so the resolved/denied tool_call re-emits the same card),
+// and the user's decision once recorded. Keyed by callId (the tool_call event
+// id) in PendingApprovalSet.items.
+export interface ApprovalItem {
+  interruptId: string
+  tool: ToolName
+  input: unknown
+  decision?: boolean
+}
+
+// All-answered detection for collect-then-resume: the batch keyed resume is
+// dispatched only once every card has a decision. Exported for tests.
+export function allDecided(items: ReadonlyMap<string, ApprovalItem>): boolean {
+  for (const item of items.values()) if (item.decision === undefined) return false
+  return true
+}
+
+// The keyed resume map for one dispatch: every interrupt id -> the truthy
+// `{ approved }` object its suspended interrupt() call returns on replay
+// (tools.ts documents why the value must never be falsy). `decision === true`
+// so an impossible undecided item fails safe to denied. Exported for tests.
+export function buildResumeMap(
+  items: ReadonlyMap<string, ApprovalItem>
+): Record<string, { approved: boolean }> {
+  const resume: Record<string, { approved: boolean }> = {}
+  for (const item of items.values()) resume[item.interruptId] = { approved: item.decision === true }
+  return resume
+}
+
+// Deny-all on cancel (Stop while parked): one terminal 'denied' tool_call row
+// per card, INCLUDING cards already answered 'approved' -- the batch resume
+// had not been dispatched, so nothing executed and denied is the truthful
+// terminal state; the row replaces any earlier approved row under the same
+// event id. Exported for tests.
+export function deniedToolCallEvents(
+  items: ReadonlyMap<string, ApprovalItem>
+): Extract<Event, { type: 'tool_call' }>[] {
+  return [...items].map(([callId, item]) => ({
+    type: 'tool_call',
+    id: callId,
+    tool: item.tool,
+    input: item.input,
+    approvalState: 'denied'
+  }))
 }
 
 // Order a drive() segment's tool-call candidates so every call that already
@@ -728,14 +825,15 @@ async function drive(
   }
 
   // Emit tool_call/tool_result Events for every tool call this invocation's AI
-  // message(s) issued, in order. processToolCall handles one call; it returns a
-  // DriveResult when the graph paused on it (run_command awaiting approval), so
-  // the caller propagates the pause, or null to continue to the next call.
+  // message(s) issued, in order. processToolCall handles one COMPLETED call
+  // (result present); it returns false for a no-result candidate so the caller
+  // collects it for the batch pending-interrupt pairing below, or true once
+  // the call needs no further handling.
   const processToolCall = async (
     tc: { id?: string; name?: string; args?: unknown },
     msgAgentId: string | undefined
-  ): Promise<DriveResult | null> => {
-    if (!tc.id) return null
+  ): Promise<boolean> => {
+    if (!tc.id) return true
     // Mint (or recall) the local id for this provider tool-call id up front,
     // before checking alreadyAnnounced -- see callIdMap's doc comment on
     // DriveContext. Recall matters across the pause/resume split: the same tc.id
@@ -747,55 +845,7 @@ async function drive(
       ctx.callIdMap.set(tc.id, localId)
     }
     const toolResult = toolMsgById.get(tc.id)
-    if (!toolResult) {
-      // No result yet: this is the tool the graph paused on (run_command
-      // awaiting approval). Check the checkpointed state to confirm, per the
-      // raw-interrupt() pattern (planning/replatform-api-notes.md (d2)).
-      const pending = await findPendingInterrupt(agent, ctx.conversationId)
-      if (pending !== undefined) {
-        if (pending.count > 1) {
-          // Parallel interrupts: the approval-resume path issues a bare, unkeyed
-          // `Command({ resume })` (continueAfterApproval below), which cannot
-          // safely target one interrupt out of several pending ones. Since this
-          // is the command-approval SECURITY gate, silently applying that resume
-          // to an ambiguous set could execute a command the user meant to deny,
-          // or leave a second approval prompt never surfaced. Fail the turn
-          // deterministically instead -- caught by the try/catch in
-          // runGraph/continueAfterApproval, which emits a clear `error` Event via
-          // failTurn(). Full multi-interrupt support (a per-task keyed resume) is
-          // a follow-up; not needed for the POC.
-          throw new Error(
-            `${pending.count} tool calls require approval in the same step; ` +
-              'parallel approvals are not yet supported.'
-          )
-        }
-        // The interrupt exists, but is it THIS call's? A no-result candidate
-        // can be a stale bridged entry from a prior segment (Bug A follow-up:
-        // the nudge re-drive iterates ctx.bridgedToolCalls again with a fresh
-        // per-drive toolMsgById, so every previously completed bridged call
-        // has "no result" here). Skip it and let the true owner -- also in
-        // the candidate list -- claim the interrupt.
-        if (!interruptBelongsToToolCall(pending.value, tc)) return null
-        // Not persisted here (matching legacy run.ts): only the final
-        // approvalState ('approved'/'denied', emitted once resolved, see
-        // continueAfterApproval below) is written to the events table.
-        // Persisting this 'pending' row too would collide on the same event id
-        // once the final state is appended.
-        ctx.sink.emit(ctx.conversationId, {
-          type: 'tool_call',
-          id: localId,
-          tool: (tc.name as ToolName) ?? 'run_command',
-          input: tc.args,
-          approvalState: 'pending',
-          agentId: msgAgentId
-        })
-        ctx.sink.setState(ctx.conversationId, 'awaiting-approval')
-        return { paused: true, pendingCallId: localId, pendingInput: tc.args }
-      }
-      // No result and no interrupt: the tool is still genuinely running
-      // (shouldn't happen once the stream is exhausted) -- skip silently.
-      return null
-    }
+    if (!toolResult) return false
     // This call has completed: drop it from the bridged fallback so a later
     // drive() segment (approval resume, empty-final nudge) never re-iterates
     // it as a stale no-result candidate that could misclaim a NEW pending
@@ -835,7 +885,7 @@ async function drive(
       stats,
       agentId: resultAgentId
     })
-    return null
+    return true
   }
 
   // Collect this segment's candidates in order: first the tool calls the
@@ -867,13 +917,82 @@ async function drive(
   // Completed calls first (see orderCompletedCallsFirst's doc comment): a
   // resumed command's result -- reachable only via the bridged fallback, since
   // its AI message is never re-streamed -- must be persisted before a newly
-  // streamed pause candidate returns out of this segment. Chronologically
-  // sound too: a call with a result finished before the pause was raised.
+  // paused segment returns. Chronologically sound too: a call with a result
+  // finished before any pause was raised. No-result candidates are collected
+  // (in order) for the pending-interrupt pairing below.
+  const unresolved: Array<{
+    tc: { id?: string; name?: string; args?: unknown }
+    msgAgentId: string | undefined
+  }> = []
   for (const { tc, msgAgentId } of orderCompletedCallsFirst(candidates, (id) =>
     toolMsgById.has(id)
   )) {
-    const result = await processToolCall(tc, msgAgentId)
-    if (result) return result
+    if (!(await processToolCall(tc, msgAgentId))) unresolved.push({ tc, msgAgentId })
+  }
+
+  // No-result candidates mean the graph may have paused on approval-gated
+  // run_commands. Fetch the checkpointed interrupts ONCE (all parallel tool
+  // calls of a superstep interrupt independently -- one Send/PUSH task each)
+  // and pair every interrupt to its candidate. A no-result candidate with no
+  // interrupt is skipped silently, exactly as before: it is either a stale
+  // bridged entry from a prior segment or a tool still genuinely running.
+  if (unresolved.length > 0) {
+    const { interrupts } = await findPendingInterrupts(agent, ctx.conversationId)
+    if (interrupts.length > 0) {
+      const agentIdByTcId = new Map<string, string | undefined>()
+      for (const u of unresolved) {
+        if (u.tc.id !== undefined) agentIdByTcId.set(u.tc.id, u.msgAgentId)
+      }
+      const pendingItems: PendingItem[] = []
+      for (const pairing of pairInterruptsToCalls(
+        interrupts,
+        unresolved.map((u) => u.tc)
+      )) {
+        let item: PendingItem
+        let agentId: string | undefined
+        if (pairing.call) {
+          // Mint-or-recall via callIdMap, same as processToolCall: the resumed
+          // segment's tool_result must pair with this pending card's event id.
+          let localId = ctx.callIdMap.get(pairing.call.id)
+          if (!localId) {
+            localId = randomUUID()
+            ctx.callIdMap.set(pairing.call.id, localId)
+          }
+          item = {
+            callId: localId,
+            interruptId: pairing.interruptId,
+            tool: (pairing.call.name as ToolName) ?? 'run_command',
+            input: pairing.call.args
+          }
+          agentId = agentIdByTcId.get(pairing.call.id)
+        } else {
+          // The interrupt paired to no candidate (e.g. a stripped call the
+          // bridge also missed): synthesize the card from the interrupt
+          // payload so the approval still surfaces instead of hanging.
+          item = {
+            callId: randomUUID(),
+            interruptId: pairing.interruptId,
+            tool: 'run_command',
+            input: { command: (pairing.value as { command?: string } | undefined)?.command ?? '' }
+          }
+        }
+        // Not persisted here (matching legacy run.ts): only the final
+        // approvalState ('approved'/'denied', written once resolved, see
+        // resolveInterrupt below) lands in the events table. Persisting this
+        // 'pending' row too would collide on the same event id.
+        ctx.sink.emit(ctx.conversationId, {
+          type: 'tool_call',
+          id: item.callId,
+          tool: item.tool,
+          input: item.input,
+          approvalState: 'pending',
+          agentId
+        })
+        pendingItems.push(item)
+      }
+      ctx.sink.setState(ctx.conversationId, 'awaiting-approval')
+      return { paused: true, pending: pendingItems }
+    }
   }
 
   // Bridge the final answer if the stream dropped it (Bug A cause 2): when
@@ -891,13 +1010,17 @@ async function drive(
   return { paused: false }
 }
 
-// One diff-backed backend + one interrupt-resume slot per in-flight turn.
-interface PendingApproval extends DriveContext {
+// One diff-backed backend + one parked approval SET per in-flight turn: all
+// the approval cards a paused segment surfaced, keyed by callId (the pending
+// tool_call event id each Approve/Deny click carries). Collect-then-resume:
+// decisions are recorded per card and the graph is re-driven with ONE keyed
+// resume only once every card is answered, so no command executes while the
+// user is still deciding about its siblings.
+interface PendingApprovalSet extends DriveContext {
   agent: ReturnType<typeof createDeepAgent>
-  pendingCallId: string
-  pendingInput: unknown
+  items: Map<string, ApprovalItem>
 }
-const pendingApprovals = new Map<string, PendingApproval>()
+const pendingApprovals = new Map<string, PendingApprovalSet>()
 
 // A run that pauses on approval returns early from startRunOrchestrator
 // (src/main/orchestrator/index.ts) with its AbortController kept live in that
@@ -913,31 +1036,60 @@ export function setOnResumeSettled(fn: (conversationId: string) => void): void {
 }
 
 // Called from src/main/orchestrator/index.ts's resolveApprovalOrchestrator
-// (IPC bridge for bearcode:tools:approve). Resumes the paused graph with
-// `Command({ resume: approved })` and drives it to completion or the next
-// interrupt. Returns false if there was nothing pending for this
-// conversation/callId (e.g. a stale button click).
+// (IPC bridge for bearcode:tools:approve). Records ONE card's decision:
+// flips that card's tool_call to approved/denied immediately (emit +
+// appendOrReplaceEvent under the same event id), and only when EVERY card in
+// the set has a decision dispatches the single keyed resume
+// (continueAfterApproval). Returns false if the callId matches nothing
+// pending here (a stale click, an already-answered card, or another
+// conversation's card -- the orchestrator scans conversations with this).
 export function resolveInterrupt(
   conversationId: string,
   callId: string,
   approved: boolean
 ): boolean {
   const pending = pendingApprovals.get(conversationId)
-  if (!pending || pending.pendingCallId !== callId) return false
+  if (!pending) return false
+  const item = pending.items.get(callId)
+  // Unknown callId, or a double-click on an already-answered card: no-op. A
+  // saved allow rule only affects FUTURE evaluations, so sibling cards are
+  // never auto-approved here -- each needs its own click.
+  if (!item || item.decision !== undefined) return false
   // Defense in depth: cancelRunOrchestrator (src/main/orchestrator/index.ts)
   // is the primary fix -- it deletes this conversation's pendingApprovals
   // entry (via cancelPendingApproval below) the instant Stop is clicked, so
   // a later Approve/Deny normally finds nothing here at all. But if a Stop
   // and an in-flight Approve/Deny IPC call ever race, ctx.signal.aborted is
   // the authoritative "this run is over" signal (same field failTurn below
-  // checks), so refuse to resume a cancelled run even if its pending-approval
-  // entry is somehow still present.
+  // checks), so refuse to record a decision on a cancelled run even if its
+  // pending-approval entry is somehow still present.
   if (pending.signal.aborted) {
     pendingApprovals.delete(conversationId)
     return false
   }
+  item.decision = approved
+  // appendOrReplaceEvent, not emitAndPersist: the resolved tool_call reuses
+  // the pending card's event id. In the live flow the pending row was never
+  // persisted so this inserts; in the crash-resume flow rehydratePausedRun
+  // persisted the pending row, so this replaces it in place rather than
+  // colliding on events.id.
+  const resolved: Event = {
+    type: 'tool_call',
+    id: callId,
+    tool: item.tool,
+    input: item.input,
+    approvalState: approved ? 'approved' : 'denied'
+  }
+  pending.sink.emit(pending.conversationId, resolved)
+  appendOrReplaceEvent(pending.conversationId, resolved)
+  // Before any re-drive, so the resumed segment doesn't double-emit this card.
+  pending.alreadyAnnounced.add(callId)
+  // Sibling cards still undecided: stay parked ('awaiting-approval' stands,
+  // the composer stays locked) until every card is answered.
+  if (!allDecided(pending.items)) return true
   pendingApprovals.delete(conversationId)
-  void continueAfterApproval(pending, approved)
+  pending.sink.setState(pending.conversationId, 'running')
+  void continueAfterApproval(pending)
   return true
 }
 
@@ -953,22 +1105,23 @@ export function resolveInterrupt(
 // resolveInterrupt above can then never find it again, so a stale Approve
 // click is a no-op and the run_command tool's interrupt() is never resumed
 // with an approval, which means the shell command can never execute.
-// Emits the same 'denied' tool_call shape a real Deny click would, so the
-// renderer's PendingCommand UI (which keys off approvalState) stops showing
-// live Approve/Deny buttons for it. Returns the sink so the caller (which
-// only tracks AbortControllers, not sinks, per conversation) can finish
-// tearing the run down to a terminal 'cancelled' state.
+// Emits the same 'denied' tool_call shape a real Deny click would for EVERY
+// card in the set -- including cards already answered 'approved': the batch
+// resume never dispatched, so nothing executed and denied is the truthful
+// terminal state (deniedToolCallEvents' doc comment). appendOrReplaceEvent
+// because an answered card already persisted its resolved row (and a
+// rehydrated card its pending row) under the same event id. Returns the sink
+// so the caller (which only tracks AbortControllers, not sinks, per
+// conversation) can finish tearing the run down to a terminal 'cancelled'
+// state.
 export function cancelPendingApproval(conversationId: string): RunSink | undefined {
   const pending = pendingApprovals.get(conversationId)
   if (!pending) return undefined
   pendingApprovals.delete(conversationId)
-  emitAndPersist(pending.conversationId, pending.sink, {
-    type: 'tool_call',
-    id: pending.pendingCallId,
-    tool: 'run_command',
-    input: pending.pendingInput,
-    approvalState: 'denied'
-  })
+  for (const event of deniedToolCallEvents(pending.items)) {
+    pending.sink.emit(pending.conversationId, event)
+    appendOrReplaceEvent(pending.conversationId, event)
+  }
   return pending.sink
 }
 
@@ -1015,12 +1168,16 @@ async function settleTurn(
     ctx.emptyFinalRetried.done = true
     final = await drive(agent, { messages: [{ role: 'user', content: EMPTY_FINAL_NUDGE }] }, ctx)
   }
-  if (final.paused && final.pendingCallId) {
+  if (final.paused && final.pending && final.pending.length > 0) {
     pendingApprovals.set(ctx.conversationId, {
       ...ctx,
       agent,
-      pendingCallId: final.pendingCallId,
-      pendingInput: final.pendingInput
+      items: new Map(
+        final.pending.map((p) => [
+          p.callId,
+          { interruptId: p.interruptId, tool: p.tool, input: p.input }
+        ])
+      )
     })
     return true
   }
@@ -1038,33 +1195,16 @@ async function settleTurn(
   return false
 }
 
-async function continueAfterApproval(pending: PendingApproval, approved: boolean): Promise<void> {
-  const { agent, pendingCallId, pendingInput, ...ctx } = pending
+// The single batch dispatch once resolveInterrupt has a decision for every
+// card (the per-card resolved emit/persist already happened there). The keyed
+// resume map ({ [interruptId]: { approved } }) resolves each parallel task's
+// interrupt independently -- LangGraph matches map keys against each task's
+// namespace hash -- and every value stays a truthy { approved } object (see
+// tools.ts's interrupt() call for why a falsy resume is rejected).
+async function continueAfterApproval(pending: PendingApprovalSet): Promise<void> {
+  const { agent, items, ...ctx } = pending
   try {
-    // appendOrReplaceEvent, not emitAndPersist: the resolved tool_call reuses
-    // pendingCallId. In the live flow the pending row was never persisted so
-    // this inserts (unchanged); in the crash-resume flow (A2) rehydratePausedRun
-    // persisted the pending row, so this replaces it in place rather than
-    // colliding on events.id.
-    ctx.sink.emit(ctx.conversationId, {
-      type: 'tool_call',
-      id: pendingCallId,
-      tool: 'run_command',
-      input: pendingInput,
-      approvalState: approved ? 'approved' : 'denied'
-    })
-    appendOrReplaceEvent(ctx.conversationId, {
-      type: 'tool_call',
-      id: pendingCallId,
-      tool: 'run_command',
-      input: pendingInput,
-      approvalState: approved ? 'approved' : 'denied'
-    })
-    ctx.alreadyAnnounced.add(pendingCallId)
-    ctx.sink.setState(ctx.conversationId, 'running')
-    // { approved } (not a bare boolean) -- see tools.ts's interrupt() call
-    // for why: LangGraph's Command(resume) rejects falsy resume values.
-    const result = await drive(agent, new Command({ resume: { approved } }), ctx)
+    const result = await drive(agent, new Command({ resume: buildResumeMap(items) }), ctx)
     if (await settleTurn(agent, result, ctx)) return
   } catch (err) {
     await failTurn(ctx, err)
@@ -1173,13 +1313,14 @@ export async function runGraph(opts: {
 
 // Full crash-resume (A2). Called at boot for a dangling conversation: rebuilds
 // the agent (same checkpointer + thread_id, so it reads the persisted execution
-// state) and checks whether the run died parked at a command-approval interrupt.
-// If so, re-surfaces the approval and re-parks it in pendingApprovals so the
-// existing resolveApprovalOrchestrator -> continueAfterApproval path resumes the
-// graph from the checkpoint. Returns true if it re-parked a pending approval,
-// false if there was nothing safely resumable (caller then degrades to
-// 'cancelled'). Security: this only re-shows the approval; the command never
-// auto-runs -- the user must Approve again.
+// state) and checks whether the run died parked at command-approval
+// interrupts. If so, re-surfaces every approval card and re-parks the whole
+// set in pendingApprovals so the existing resolveApprovalOrchestrator ->
+// resolveInterrupt -> continueAfterApproval path resumes the graph from the
+// checkpoint. Returns true if it re-parked pending approvals, false if there
+// was nothing safely resumable (caller then degrades to 'cancelled').
+// Security: this only re-shows the approvals; no command ever auto-runs --
+// the user must answer every card again.
 export async function rehydratePausedRun(
   conversationId: string,
   modelRef: string,
@@ -1188,48 +1329,66 @@ export async function rehydratePausedRun(
   signal: AbortSignal
 ): Promise<boolean> {
   const { agent, ctx } = buildAgentAndContext(conversationId, modelRef, userText, sink, signal)
-  const pending = await findPendingInterrupt(agent, conversationId)
-  // No interrupt -> a mid-stream crash with no safe resume point. count > 1 ->
-  // parallel interrupts, which the resume path can't disambiguate (same guard
-  // as the live drive() loop). Either way, not resumable.
-  if (!pending || pending.count > 1) return false
-  const value = pending.value as { kind?: string; command?: string } | undefined
-  if (value?.kind !== 'run_command') return false
+  const { interrupts, messages } = await findPendingInterrupts(agent, conversationId)
+  // No interrupt -> a mid-stream crash with no safe resume point. An interrupt
+  // of an unknown kind -> nothing this path knows how to re-surface; one bad
+  // apple makes the whole set unresumable, since the batch resume must answer
+  // every interrupt. Either way, not resumable.
+  if (interrupts.length === 0) return false
+  if (
+    interrupts.some((it) => (it.value as { kind?: string } | undefined)?.kind !== 'run_command')
+  ) {
+    return false
+  }
 
   // Drop the provisional 'Cancelled' cancelZombieRuns appended at boot before
   // re-surfacing, so history doesn't show "Cancelled" above a live approval.
   dropDanglingCancel(conversationId)
 
-  const pendingCallId = randomUUID()
-  const pendingInput = { command: value.command ?? '' }
-  // PERSIST (not emit-only) the pending tool_call: at boot the renderer may not
-  // have this conversation loaded yet and openConvo rebuilds an awaiting-approval
-  // conversation from the DB, so the pending approval must live in history. The
-  // resolved tool_call reuses pendingCallId and is written with
-  // appendOrReplaceEvent (continueAfterApproval), replacing this row in place.
-  emitAndPersist(conversationId, sink, {
-    type: 'tool_call',
-    id: pendingCallId,
-    tool: 'run_command',
-    input: pendingInput,
-    approvalState: 'pending'
-  })
-  // Bug B residual (crash-resume): buildAgentAndContext made a FRESH ctx, so
-  // without seeding, the resumed drive() neither recalls this event id
-  // (callIdMap mints a new one that can't pair with the approved tool_call
-  // row) nor re-iterates the checkpointed tool call at all (LangGraph doesn't
-  // re-stream the AI message that carried it, and handleLLMEnd doesn't re-fire
-  // for it) -- the command's tool_result was never persisted. Seed both maps
-  // from the checkpointed messages: callIdMap so the tool_result's callId is
-  // pendingCallId, bridgedToolCalls so drive()'s existing fallback loop
-  // processes the call (continueAfterApproval's alreadyAnnounced.add
-  // suppresses a duplicate tool_call emit, same as the live resume path).
-  const tc = findDanglingRunCommandCall(pending.messages, value.command ?? '')
-  if (tc) {
-    ctx.callIdMap.set(tc.id, pendingCallId)
-    ctx.bridgedToolCalls.set(tc.id, { id: tc.id, name: tc.name, args: tc.args })
+  // Re-park ALL pending cards. Interrupt ids are deterministic (XXH3 of the
+  // task's checkpoint namespace), so the ids read from the checkpoint here are
+  // exactly what the keyed resume targets after the restart. Security: this
+  // only re-shows the approvals; no command auto-runs -- the user must answer
+  // every card again, and only then does the batch resume dispatch.
+  const items = new Map<string, ApprovalItem>()
+  for (const pairing of pairInterruptsToCalls(interrupts, findDanglingRunCommandCalls(messages))) {
+    const pendingCallId = randomUUID()
+    const value = pairing.value as { command?: string } | undefined
+    const input = pairing.call ? pairing.call.args : { command: value?.command ?? '' }
+    // PERSIST (not emit-only) the pending tool_call: at boot the renderer may
+    // not have this conversation loaded yet and openConvo rebuilds an
+    // awaiting-approval conversation from the DB, so the pending approval must
+    // live in history. The resolved tool_call reuses pendingCallId and is
+    // written with appendOrReplaceEvent (resolveInterrupt), replacing this row
+    // in place.
+    emitAndPersist(conversationId, sink, {
+      type: 'tool_call',
+      id: pendingCallId,
+      tool: 'run_command',
+      input,
+      approvalState: 'pending'
+    })
+    // Bug B residual (crash-resume): buildAgentAndContext made a FRESH ctx, so
+    // without seeding, the resumed drive() neither recalls this event id
+    // (callIdMap mints a new one that can't pair with the approved tool_call
+    // row) nor re-iterates the checkpointed tool call at all (LangGraph doesn't
+    // re-stream the AI message that carried it, and handleLLMEnd doesn't
+    // re-fire for it) -- the command's tool_result was never persisted. Seed
+    // both maps from the checkpointed messages: callIdMap so the tool_result's
+    // callId is pendingCallId, bridgedToolCalls so drive()'s existing fallback
+    // loop processes the call (resolveInterrupt's alreadyAnnounced.add
+    // suppresses a duplicate tool_call emit, same as the live resume path).
+    if (pairing.call) {
+      ctx.callIdMap.set(pairing.call.id, pendingCallId)
+      ctx.bridgedToolCalls.set(pairing.call.id, {
+        id: pairing.call.id,
+        name: pairing.call.name ?? 'run_command',
+        args: pairing.call.args
+      })
+    }
+    items.set(pendingCallId, { interruptId: pairing.interruptId, tool: 'run_command', input })
   }
-  pendingApprovals.set(conversationId, { ...ctx, agent, pendingCallId, pendingInput })
+  pendingApprovals.set(conversationId, { ...ctx, agent, items })
   sink.setState(conversationId, 'awaiting-approval')
   return true
 }

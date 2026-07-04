@@ -20,8 +20,13 @@ import {
   shouldEmitBridgedText,
   shouldRetryEmptyFinal,
   interruptBelongsToToolCall,
-  findDanglingRunCommandCall,
-  orderCompletedCallsFirst
+  findDanglingRunCommandCalls,
+  orderCompletedCallsFirst,
+  pairInterruptsToCalls,
+  allDecided,
+  buildResumeMap,
+  deniedToolCallEvents,
+  type ApprovalItem
 } from './graph'
 
 describe('textOfMessage', () => {
@@ -142,7 +147,7 @@ describe('interruptBelongsToToolCall (pending-interrupt attribution)', () => {
   })
 })
 
-describe('findDanglingRunCommandCall (crash-resume checkpoint scan)', () => {
+describe('findDanglingRunCommandCalls (crash-resume checkpoint scan)', () => {
   // Structural stand-ins for checkpointed BaseMessages: only tool_calls (AI)
   // and tool_call_id (ToolMessage) are read by the scanner.
   const ai = (...calls: Array<{ id: string; name: string; args: unknown }>): unknown => ({
@@ -151,67 +156,204 @@ describe('findDanglingRunCommandCall (crash-resume checkpoint scan)', () => {
   const toolResult = (id: string): unknown => ({ tool_call_id: id })
   const human = (): unknown => ({ content: 'do the thing' })
 
-  it('finds the paused run_command with no later ToolMessage', () => {
+  it('finds the paused run_command with no ToolMessage', () => {
     const messages = [human(), ai({ id: 'tc1', name: 'run_command', args: { command: 'ls -l' } })]
-    expect(findDanglingRunCommandCall(messages, 'ls -l')).toEqual({
-      id: 'tc1',
-      name: 'run_command',
-      args: { command: 'ls -l' }
-    })
+    expect(findDanglingRunCommandCalls(messages)).toEqual([
+      { id: 'tc1', name: 'run_command', args: { command: 'ls -l' } }
+    ])
   })
 
-  it('returns null when a later ToolMessage already answered the call', () => {
+  it('returns all parallel dangling calls in message order', () => {
     const messages = [
       human(),
-      ai({ id: 'tc1', name: 'run_command', args: { command: 'ls -l' } }),
-      toolResult('tc1')
+      ai(
+        { id: 'tc1', name: 'run_command', args: { command: 'rm index.html' } },
+        { id: 'tc2', name: 'run_command', args: { command: 'rm style.css' } }
+      )
     ]
-    expect(findDanglingRunCommandCall(messages, 'ls -l')).toBeNull()
+    expect(findDanglingRunCommandCalls(messages).map((c) => c.id)).toEqual(['tc1', 'tc2'])
   })
 
-  it('skips answered earlier calls and returns the last dangling one', () => {
+  it('excludes calls a ToolMessage already answered', () => {
     const messages = [
       human(),
       ai({ id: 'tc1', name: 'run_command', args: { command: 'ls -l' } }),
       toolResult('tc1'),
       ai({ id: 'tc2', name: 'run_command', args: { command: 'ls -l' } })
     ]
-    expect(findDanglingRunCommandCall(messages, 'ls -l')?.id).toBe('tc2')
+    expect(findDanglingRunCommandCalls(messages).map((c) => c.id)).toEqual(['tc2'])
   })
 
   it('ignores dangling calls of other tools', () => {
-    const messages = [human(), ai({ id: 'tc1', name: 'write_file', args: { path: 'a.txt' } })]
-    expect(findDanglingRunCommandCall(messages, 'ls -l')).toBeNull()
-  })
-
-  it('rejects a dangling run_command whose command does not match the interrupt', () => {
-    const messages = [
-      human(),
-      ai({ id: 'tc1', name: 'run_command', args: { command: 'rm -rf build' } })
-    ]
-    expect(findDanglingRunCommandCall(messages, 'ls -l')).toBeNull()
-  })
-
-  it('picks the matching call out of a mixed tool_calls array', () => {
     const messages = [
       human(),
       ai(
-        { id: 'tc1', name: 'read_file', args: { path: 'a.txt' } },
+        { id: 'tc1', name: 'write_file', args: { path: 'a.txt' } },
         { id: 'tc2', name: 'run_command', args: { command: 'ls -l' } }
-      ),
-      toolResult('tc1')
+      )
     ]
-    expect(findDanglingRunCommandCall(messages, 'ls -l')?.id).toBe('tc2')
+    expect(findDanglingRunCommandCalls(messages).map((c) => c.id)).toEqual(['tc2'])
   })
 
   it('handles empty histories and malformed entries without throwing', () => {
-    expect(findDanglingRunCommandCall([], 'ls -l')).toBeNull()
+    expect(findDanglingRunCommandCalls([])).toEqual([])
     expect(
-      findDanglingRunCommandCall(
-        [null, undefined, 'text', { tool_calls: 'nope' }, { tool_calls: [null, { id: 42 }] }],
-        'ls -l'
+      findDanglingRunCommandCalls([
+        null,
+        undefined,
+        'text',
+        { tool_calls: 'nope' },
+        { tool_calls: [null, { id: 42 }] }
+      ])
+    ).toEqual([])
+  })
+})
+
+describe('pairInterruptsToCalls (interrupt-to-tool_call pairing)', () => {
+  const rm = { id: 'tc1', name: 'run_command', args: { command: 'rm index.html' } }
+  const ls = { id: 'tc2', name: 'run_command', args: { command: 'ls -l' } }
+
+  it('pairs exactly by toolCallId when the payload carries one', () => {
+    const out = pairInterruptsToCalls(
+      [{ interruptId: 'i2', value: { kind: 'run_command', command: 'ls -l', toolCallId: 'tc2' } }],
+      [rm, ls]
+    )
+    expect(out).toEqual([
+      {
+        interruptId: 'i2',
+        value: { kind: 'run_command', command: 'ls -l', toolCallId: 'tc2' },
+        call: ls
+      }
+    ])
+  })
+
+  it('disambiguates two identical parallel commands via toolCallId', () => {
+    const twin1 = { id: 'tc1', name: 'run_command', args: { command: 'make' } }
+    const twin2 = { id: 'tc2', name: 'run_command', args: { command: 'make' } }
+    const out = pairInterruptsToCalls(
+      [
+        { interruptId: 'i2', value: { kind: 'run_command', command: 'make', toolCallId: 'tc2' } },
+        { interruptId: 'i1', value: { kind: 'run_command', command: 'make', toolCallId: 'tc1' } }
+      ],
+      [twin1, twin2]
+    )
+    expect(out[0].call?.id).toBe('tc2')
+    expect(out[1].call?.id).toBe('tc1')
+  })
+
+  it('does NOT fall back to a command match when toolCallId names an absent call', () => {
+    // Security posture: a card must never show one command while its decision
+    // resumes another. The unmatched interrupt pairs to nothing and the caller
+    // synthesizes its card from the payload instead.
+    const out = pairInterruptsToCalls(
+      [
+        {
+          interruptId: 'i1',
+          value: { kind: 'run_command', command: 'ls -l', toolCallId: 'tc-gone' }
+        }
+      ],
+      [ls]
+    )
+    expect(out[0].call).toBeNull()
+  })
+
+  it('falls back to command matching when the payload has no toolCallId', () => {
+    const out = pairInterruptsToCalls(
+      [{ interruptId: 'i1', value: { kind: 'run_command', command: 'ls -l' } }],
+      [rm, ls]
+    )
+    expect(out[0].call?.id).toBe('tc2')
+  })
+
+  it('consumes command-matched candidates in order without double-claiming', () => {
+    const twin1 = { id: 'tc1', name: 'run_command', args: { command: 'make' } }
+    const twin2 = { id: 'tc2', name: 'run_command', args: { command: 'make' } }
+    const out = pairInterruptsToCalls(
+      [
+        { interruptId: 'i1', value: { kind: 'run_command', command: 'make' } },
+        { interruptId: 'i2', value: { kind: 'run_command', command: 'make' } }
+      ],
+      [twin1, twin2]
+    )
+    expect(out[0].call?.id).toBe('tc1')
+    expect(out[1].call?.id).toBe('tc2')
+  })
+
+  it('skips a stale candidate whose command does not match (nudge-segment repro)', () => {
+    const out = pairInterruptsToCalls(
+      [{ interruptId: 'i1', value: { kind: 'run_command', command: 'rm index.html' } }],
+      [ls, rm]
+    )
+    expect(out[0].call?.id).toBe('tc1')
+  })
+
+  it('pairs to nothing when no candidate matches at all', () => {
+    const out = pairInterruptsToCalls(
+      [{ interruptId: 'i1', value: { kind: 'run_command', command: 'rm index.html' } }],
+      [ls]
+    )
+    expect(out[0].call).toBeNull()
+  })
+})
+
+describe('approval decision collection (collect-then-resume)', () => {
+  const items = (...entries: Array<[string, ApprovalItem]>): Map<string, ApprovalItem> =>
+    new Map(entries)
+  const item = (interruptId: string, decision?: boolean): ApprovalItem => ({
+    interruptId,
+    tool: 'run_command',
+    input: { command: 'ls -l' },
+    decision
+  })
+
+  describe('allDecided (all-answered detection)', () => {
+    it('is false while any card is unanswered', () => {
+      expect(allDecided(items(['c1', item('i1', true)], ['c2', item('i2')]))).toBe(false)
+    })
+
+    it('is true once every card has a decision, approvals and denials alike', () => {
+      expect(allDecided(items(['c1', item('i1', true)], ['c2', item('i2', false)]))).toBe(true)
+    })
+
+    it('is vacuously true for an empty set', () => {
+      expect(allDecided(items())).toBe(true)
+    })
+  })
+
+  describe('buildResumeMap (keyed resume construction)', () => {
+    it('maps every interrupt id to a truthy { approved } object', () => {
+      const resume = buildResumeMap(items(['c1', item('i1', true)], ['c2', item('i2', false)]))
+      expect(resume).toEqual({ i1: { approved: true }, i2: { approved: false } })
+      // The resume-payload invariant: values must be truthy objects, never a
+      // bare boolean, or LangGraph treats the resume as absent.
+      for (const value of Object.values(resume)) {
+        expect(Boolean(value)).toBe(true)
+        expect(typeof value.approved).toBe('boolean')
+      }
+    })
+
+    it('fails safe to denied for an undecided item', () => {
+      expect(buildResumeMap(items(['c1', item('i1')]))).toEqual({ i1: { approved: false } })
+    })
+  })
+
+  describe('deniedToolCallEvents (deny-all on cancel)', () => {
+    it('emits a terminal denied row for every card, including answered-but-undispatched approvals', () => {
+      const events = deniedToolCallEvents(
+        items(['c1', item('i1', true)], ['c2', item('i2')], ['c3', item('i3', false)])
       )
-    ).toBeNull()
+      expect(events.map((e) => e.id)).toEqual(['c1', 'c2', 'c3'])
+      for (const e of events) {
+        expect(e.type).toBe('tool_call')
+        expect(e.approvalState).toBe('denied')
+        expect(e.tool).toBe('run_command')
+        expect(e.input).toEqual({ command: 'ls -l' })
+      }
+    })
+
+    it('returns nothing for an empty set', () => {
+      expect(deniedToolCallEvents(items())).toEqual([])
+    })
   })
 })
 
