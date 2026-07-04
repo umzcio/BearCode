@@ -63,7 +63,10 @@ function runCommand(
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- Zod-inferred `tool()` return type is not writable by hand without narrowing away the actual generic
 export function buildTools(projectPath: string, conversationId: string) {
   const runCommandTool = tool(
-    async ({ command, timeoutMs }: { command: string; timeoutMs?: number }): Promise<string> => {
+    async (
+      { command, timeoutMs }: { command: string; timeoutMs?: number },
+      config?: unknown
+    ): Promise<string> => {
       const decision = evaluateCommandForConversation(command, conversationId, projectPath)
       if (decision === 'block') {
         return 'This command was blocked by a permission rule.'
@@ -75,7 +78,19 @@ export function buildTools(projectPath: string, conversationId: string) {
         // is indistinguishable from no resume at all and throws
         // EmptyInputError("Received empty Command input") -- verified live
         // (node_modules/@langchain/langgraph/dist/pregel/io.js).
-        const approval = interrupt({ kind: 'run_command', command }) as { approved: boolean }
+        //
+        // toolCallId: langchain's ToolNode invokes each tool with a config
+        // carrying the provider tool-call id (ToolNode.js runTool:
+        // `toolCallId: toolCall.id`), and ensureConfig/patchConfig preserve
+        // the extra key down to this function's second argument. Carrying it
+        // in the interrupt payload lets graph.ts pair every pending interrupt
+        // to its exact tool_call event -- required for parallel approvals,
+        // where two identical commands would otherwise be ambiguous.
+        const approval = interrupt({
+          kind: 'run_command',
+          command,
+          toolCallId: (config as { toolCallId?: string } | null | undefined)?.toolCallId
+        }) as { approved: boolean }
         if (!approval.approved) return 'User denied this command.'
       }
       // decision === 'run' (or approved): fall through and execute.
