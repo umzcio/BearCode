@@ -5,7 +5,8 @@ import { app } from 'electron'
 import { join } from 'path'
 import Database from 'better-sqlite3'
 import { randomUUID } from 'crypto'
-import type { ConversationMeta, Event } from '../../shared/types'
+import type { ConversationMeta, Event, PermissionMode } from '../../shared/types'
+import { getSettings } from '../settings'
 
 let db: Database.Database | null = null
 
@@ -46,6 +47,14 @@ function getDb(): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_events_convo ON events(conversation_id, seq);
   `)
+  // Additive column for the per-conversation permission mode (Bb1). SQLite
+  // ALTER ADD COLUMN is idempotent-guarded by catching the "duplicate column"
+  // error so existing DBs upgrade in place.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN permission_mode TEXT`)
+  } catch {
+    // column already exists
+  }
   zombieRunIds = cancelZombieRuns(db)
   return db
 }
@@ -101,6 +110,7 @@ interface ConversationRow {
   model_ref: string | null
   created_at: number
   updated_at: number
+  permission_mode: string | null
 }
 
 function toMeta(row: ConversationRow, fallbackTitle?: string | null): ConversationMeta {
@@ -110,7 +120,8 @@ function toMeta(row: ConversationRow, fallbackTitle?: string | null): Conversati
     title: row.title ?? fallbackTitle ?? null,
     modelRef: row.model_ref,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    permissionMode: (row.permission_mode as PermissionMode) ?? getSettings().defaultPermissionMode
   }
 }
 
@@ -122,7 +133,8 @@ export function createConversation(projectPath: string | null): ConversationMeta
     title: null,
     model_ref: null,
     created_at: now,
-    updated_at: now
+    updated_at: now,
+    permission_mode: null
   }
   getDb()
     .prepare(
@@ -245,6 +257,12 @@ export function setModelRef(conversationId: string, modelRef: string): void {
   getDb()
     .prepare(`UPDATE conversations SET model_ref = ?, updated_at = ? WHERE id = ?`)
     .run(modelRef, Date.now(), conversationId)
+}
+
+export function setPermissionMode(conversationId: string, mode: PermissionMode): void {
+  getDb()
+    .prepare(`UPDATE conversations SET permission_mode = ?, updated_at = ? WHERE id = ?`)
+    .run(mode, Date.now(), conversationId)
 }
 
 export function deleteConversation(id: string): void {
