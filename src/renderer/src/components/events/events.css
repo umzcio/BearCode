@@ -142,10 +142,6 @@
   margin-bottom: 0;
 }
 
-.bear-amble {
-  padding: 10px 0 4px 26px;
-}
-
 .agent-text {
   font-size: 14.5px;
   line-height: 1.7;
@@ -527,4 +523,22 @@
   border-radius: 5px;
   background: rgba(76, 141, 255, 0.14);
   color: #7fadff;
+}
+
+/* One-shot highlight when a command approval card appears / is jumped to. */
+.approval-card.pulse-once {
+  animation: approval-pulse 1.1s ease-out 1;
+}
+@keyframes approval-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 6px rgba(76, 141, 255, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .approval-card.pulse-once {
+    animation: none;
+  }
 }

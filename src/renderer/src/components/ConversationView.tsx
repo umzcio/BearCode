@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { Event } from '@shared/types'
 import { useAppStore, workedSecondsByTurn } from '../state/store'
 import { Composer } from './Composer/Composer'
+import { RunStatusBar } from './RunStatusBar/RunStatusBar'
 import { WorkedGroup } from './events/WorkedGroup'
 import { AssistantText } from './events/AssistantText'
 import { DiffCard } from './events/DiffCard'
@@ -54,6 +55,12 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const running = convo.runState === 'running' || convo.runState === 'awaiting-approval'
   const turns = groupTurns(convo.events)
 
+  const jumpToApproval = (): void => {
+    document
+      .getElementById('pending-approval-card')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
@@ -65,9 +72,10 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
         <div className="convo-inner">
           {turns.map((turn, i) => {
             const isLast = i === turns.length - 1
-            // Working phase: run active, no prose yet. Streaming: prose flowing.
+            // Live for the whole active turn (not just until prose starts), so
+            // the working indicator + bear persist while the model keeps going.
             const hasText = turn.texts.some((t) => t.text.length > 0)
-            const live = isLast && running && !hasText
+            const live = isLast && running
             const streaming = isLast && running && hasText
             return (
               <div key={turn.user.id} className="turn-pair">
@@ -96,7 +104,6 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                       live={live}
                       startedAt={convo.startedAt}
                       workedSeconds={workedSecondsByTurn.get(turn.user.id)}
-                      showBear={live}
                       convoId={convoId}
                     />
                   ) : null}
@@ -154,6 +161,11 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
               </div>
             )
           })}
+        </div>
+      </div>
+      <div className="convo-status">
+        <div className="convo-status-inner">
+          <RunStatusBar convoId={convoId} onJumpToApproval={jumpToApproval} />
         </div>
       </div>
       <div className="convo-composer">
