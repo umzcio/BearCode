@@ -24,6 +24,8 @@ export type ToolName =
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
+export type PermissionMode = 'accept-edits' | 'auto' | 'plan'
+
 export type RunState = 'running' | 'awaiting-approval' | 'done' | 'error' | 'cancelled'
 
 export type Event =
@@ -111,6 +113,7 @@ export interface ConversationMeta {
   modelRef: ModelRef | null
   createdAt: number
   updatedAt: number
+  permissionMode: PermissionMode
 }
 
 // ---- Diffs ----
@@ -135,8 +138,8 @@ export interface FileDiff {
 
 export interface AppSettings {
   ollamaBaseUrl: string
-  autoApproveCommands: boolean
   defaultModelRef: ModelRef | null
+  defaultPermissionMode: PermissionMode
 }
 
 export interface SettingsInfo extends AppSettings {
