@@ -4,6 +4,7 @@ import type {
   ConversationMeta,
   Event,
   ModelRef,
+  PermissionMode,
   ProviderId,
   ProviderModels,
   RunState,
@@ -18,6 +19,7 @@ export interface Convo {
   projectLabel: string
   title: string
   modelRef: ModelRef | null
+  permissionMode: PermissionMode
   updatedAt: number
   loaded: boolean
   events: Event[]
@@ -44,6 +46,7 @@ function fromMeta(meta: ConversationMeta): Convo {
     projectLabel: meta.projectPath ? basename(meta.projectPath) : 'No folder',
     title: meta.title ?? 'New conversation',
     modelRef: meta.modelRef,
+    permissionMode: meta.permissionMode,
     updatedAt: meta.updatedAt,
     loaded: false,
     events: [],
@@ -63,11 +66,14 @@ interface AppState {
   modelMenuTick: number
   // Incremented by the Cmd+; shortcut; the Home project menu toggles on change.
   projectMenuTick: number
+  // Incremented to toggle the mounted ModePicker menu.
+  permMenuTick: number
   view: View
   conversations: Record<string, Convo>
   convoOrder: string[]
   providers: ProviderModels[]
   modelRef: ModelRef | null
+  permissionMode: PermissionMode
   settings: SettingsInfo | null
   workspacePath: string | null
   settingsOpen: boolean
@@ -90,6 +96,8 @@ interface AppState {
   approveTool(callId: string, approved: boolean): void
   retryRun(convoId: string): void
   selectModel(ref: ModelRef): void
+  setPermissionMode(mode: PermissionMode): void
+  togglePermMenu(): void
   pickWorkspace(): Promise<void>
   setWorkspace(path: string | null): void
   toggleProjectMenu(): void
@@ -173,7 +181,10 @@ export const useAppStore = create<AppState>((set, get) => {
   }
 
   function ensureDefaultModel(): void {
-    const { providers, settings, modelRef } = get()
+    const { providers, settings, modelRef, permissionMode } = get()
+    if (settings?.defaultPermissionMode && permissionMode === 'accept-edits') {
+      set({ permissionMode: settings.defaultPermissionMode })
+    }
     if (modelRef && refConfigured(providers, modelRef)) return
     const stored = settings?.defaultModelRef ?? null
     if (stored && refConfigured(providers, stored)) {
@@ -198,11 +209,13 @@ export const useAppStore = create<AppState>((set, get) => {
     sidebarCollapsed: false,
     modelMenuTick: 0,
     projectMenuTick: 0,
+    permMenuTick: 0,
     view: { kind: 'home' },
     conversations: {},
     convoOrder: [],
     providers: [],
     modelRef: null,
+    permissionMode: 'accept-edits',
     settings: null,
     workspacePath: null,
     settingsOpen: false,
@@ -262,6 +275,7 @@ export const useAppStore = create<AppState>((set, get) => {
       if (convo.modelRef && refConfigured(get().providers, convo.modelRef)) {
         set({ modelRef: convo.modelRef })
       }
+      set({ permissionMode: convo.permissionMode })
       // Load history from the DB the first time a conversation is opened. A
       // live running conversation is already `loaded` (it was open when it
       // started), so guarding on `!loaded` avoids clobbering in-flight streamed
@@ -292,7 +306,12 @@ export const useAppStore = create<AppState>((set, get) => {
       void (async () => {
         const meta = await window.bearcode.conversations.create(workspacePath)
         const provisional = text.length > 42 ? text.slice(0, 42) + '…' : text
-        const convo = { ...fromMeta(meta), title: provisional, loaded: true }
+        const convo = {
+          ...fromMeta(meta),
+          title: provisional,
+          loaded: true,
+          permissionMode: get().permissionMode
+        }
         set((s) => {
           const conversations = { ...s.conversations, [meta.id]: convo }
           return {
@@ -301,6 +320,7 @@ export const useAppStore = create<AppState>((set, get) => {
             view: { kind: 'conversation', id: meta.id }
           }
         })
+        void window.bearcode.conversations.setMode(meta.id, get().permissionMode)
         await window.bearcode.run.start(meta.id, text, modelRef, workspacePath)
       })()
     },
@@ -348,6 +368,17 @@ export const useAppStore = create<AppState>((set, get) => {
         set({ settings })
       })
     },
+
+    setPermissionMode: (mode) => {
+      set({ permissionMode: mode })
+      const view = get().view
+      const id = view.kind === 'conversation' ? view.id : null
+      if (id) {
+        patchConvo(id, { permissionMode: mode })
+        void window.bearcode.conversations.setMode(id, mode)
+      }
+    },
+    togglePermMenu: () => set((s) => ({ permMenuTick: s.permMenuTick + 1 })),
 
     pickWorkspace: async () => {
       const path = await window.bearcode.workspace.pick()
