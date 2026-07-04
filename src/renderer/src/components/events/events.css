@@ -391,6 +391,36 @@
   margin: 6px 0;
 }
 
+/* --- GFM tables in agent prose --- */
+.md-table-wrap {
+  margin: 4px 0 14px;
+  overflow-x: auto;
+}
+.md-table {
+  border-collapse: collapse;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.md-table th,
+.md-table td {
+  border: 1px solid var(--border-soft);
+  padding: 7px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+.md-table th {
+  background: rgba(255, 255, 255, 0.03);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.md-table td {
+  color: var(--text-mid);
+}
+.md-table tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.015);
+}
+
 /* --- Write/edit step stats --- */
 .step-stats {
   margin-left: 7px;

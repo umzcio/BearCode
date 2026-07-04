@@ -1,7 +1,7 @@
 // Minimal markdown renderer for agent prose and thinking bodies.
 // Supports: # to #### headings, paragraphs, ordered and unordered lists,
-// fenced code blocks, **bold**, *italic*, `inline code` (amber chips).
-// No raw HTML ever touches the DOM.
+// fenced code blocks, GFM pipe tables, **bold**, *italic*, `inline code`
+// (amber chips). No raw HTML ever touches the DOM.
 // `trailing` (the streaming cursor) is appended inside the last block.
 
 import type { ReactNode } from 'react'
@@ -50,6 +50,24 @@ type Block =
   | { kind: 'ol'; items: string[] }
   | { kind: 'ul'; items: string[] }
   | { kind: 'code'; lang: string; text: string }
+  | { kind: 'table'; headers: string[]; rows: string[][] }
+
+// Split a GFM table row into trimmed cells, tolerating optional leading/
+// trailing pipes: "| a | b |" and "a | b" both -> ["a", "b"].
+function splitTableRow(line: string): string[] {
+  let s = line.trim()
+  if (s.startsWith('|')) s = s.slice(1)
+  if (s.endsWith('|')) s = s.slice(0, -1)
+  return s.split('|').map((c) => c.trim())
+}
+
+// The `|---|:--:|` separator line under a table header (dashes, optional
+// alignment colons) -- its presence is what makes the row above a table.
+function isTableSeparator(line: string): boolean {
+  if (!line.includes('|')) return false
+  const cells = splitTableRow(line)
+  return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c))
+}
 
 function parseBlocks(text: string): Block[] {
   const blocks: Block[] = []
@@ -74,7 +92,9 @@ function parseBlocks(text: string): Block[] {
     }
   }
 
-  for (const line of text.split('\n')) {
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
     const t = line.trim()
     if (code !== null) {
       if (t.startsWith('```')) {
@@ -94,6 +114,20 @@ function parseBlocks(text: string): Block[] {
     } else if (/^#{1,4}\s/.test(t)) {
       flush()
       blocks.push({ kind: 'h5', text: t.replace(/^#{1,4}\s/, '') })
+    } else if (t.includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+      // A GFM table: header row followed by a `|---|` separator, then body
+      // rows until the first non-pipe line. Requiring the separator keeps a
+      // stray `|` in prose from being mistaken for a table.
+      flush()
+      const headers = splitTableRow(t)
+      const rows: string[][] = []
+      let j = i + 2
+      while (j < lines.length && lines[j].trim() !== '' && lines[j].includes('|')) {
+        rows.push(splitTableRow(lines[j]))
+        j++
+      }
+      blocks.push({ kind: 'table', headers, rows })
+      i = j - 1
     } else if (/^\d+\.\s/.test(t)) {
       para.length && flush()
       ul.length && flush()
@@ -168,6 +202,30 @@ export function Markdown({
               <code>{block.text}</code>
               {tail}
             </pre>
+          )
+        if (block.kind === 'table')
+          return (
+            <div key={i} className="md-table-wrap">
+              <table className="md-table">
+                <thead>
+                  <tr>
+                    {block.headers.map((h, k) => (
+                      <th key={k}>{renderInline(h, onFileClick)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, r) => (
+                    <tr key={r}>
+                      {block.headers.map((_, c) => (
+                        <td key={c}>{renderInline(row[c] ?? '', onFileClick)}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {tail}
+            </div>
           )
         return (
           <p key={i}>
