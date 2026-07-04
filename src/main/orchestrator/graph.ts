@@ -15,6 +15,8 @@ import { createDeepAgent } from 'deepagents'
 import { Command } from '@langchain/langgraph'
 import type { AIMessageChunk, BaseMessageChunk, ToolMessageChunk } from '@langchain/core/messages'
 import { isToolMessageChunk } from '@langchain/core/messages'
+import { BaseCallbackHandler } from '@langchain/core/callbacks/base'
+import type { LLMResult } from '@langchain/core/outputs'
 import type { Event, ProviderId, ToolName } from '../../shared/types'
 import type { RunSink } from '../ursa/run'
 import { appendEvent, getConversationMeta } from '../db'
@@ -201,6 +203,65 @@ const emitAndPersist = (conversationId: string, sink: RunSink, event: Event): vo
   appendEvent(conversationId, event)
 }
 
+// Pull thinking text out of a completed message's content array. Deep Agents
+// surfaces reasoning here (handleLLMEnd) as {type:"thinking"} (Gemini) or the
+// standardized {type:"reasoning"} block; guard both.
+function thinkingTextOfMessage(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+  let out = ''
+  for (const raw of content) {
+    const b = raw as { type?: string; thinking?: unknown; reasoning?: unknown }
+    if (b.type === 'thinking' && typeof b.thinking === 'string') out += b.thinking
+    else if (b.type === 'reasoning' && typeof b.reasoning === 'string') out += b.reasoning
+  }
+  return out
+}
+
+// Reasoning bridge (Phase A1c). Deep Agents' streaming pipeline strips
+// thought-bearing chunks from streamMode:"messages" (and on_chat_model_stream):
+// the model DOES stream thoughts -- google-genai emits them from
+// _streamResponseChunks -- but only the aggregated final message keeps them,
+// exposed through each LLM run's handleLLMEnd. (Diagnosed across 8+ isolation
+// probes; full writeup in planning/phaseA1-reasoning-diagnosis.md.) So reasoning
+// for the orchestrator engine is bridged from handleLLMEnd, not the token
+// stream: every completed model call whose message carries thinking emits one
+// thinking Event -- the existing "Thought for Ns" step -- timed from
+// handleLLMStart. The streamMode reasoning path in drive() stays: it's correct
+// for any provider that DOES stream plaintext thinking deltas and is simply
+// inert through Deep Agents, so the two never double-emit here.
+class ReasoningBridgeHandler extends BaseCallbackHandler {
+  name = 'bearcode-reasoning-bridge'
+  private readonly startedAt = new Map<string, number>()
+  constructor(
+    private readonly conversationId: string,
+    private readonly sink: RunSink
+  ) {
+    super()
+  }
+  handleLLMStart(_llm: unknown, _prompts: string[], runId: string): void {
+    this.startedAt.set(runId, Date.now())
+  }
+  handleLLMEnd(output: LLMResult, runId: string): void {
+    const started = this.startedAt.get(runId) ?? Date.now()
+    this.startedAt.delete(runId)
+    let thinking = ''
+    for (const gens of output.generations ?? []) {
+      for (const gen of gens) {
+        const message = (gen as { message?: { content?: unknown } }).message
+        thinking += thinkingTextOfMessage(message?.content)
+      }
+    }
+    if (!thinking) return
+    // agentId omitted (attributed to the main agent): handleLLMEnd doesn't carry
+    // the graph's lc_agent_name namespace the stream metadata does, so subagent
+    // reasoning attribution is a follow-up. Single-agent turns (the common case)
+    // are correct.
+    const ev = thinkingDeltaEvent(randomUUID(), thinking, Date.now() - started)
+    this.sink.emit(this.conversationId, ev)
+    appendEvent(this.conversationId, ev)
+  }
+}
+
 // See the doc comment at this constant's one use site (in the messages-
 // stream loop below) for why this must be a single stable value, not a
 // per-chunk fresh uuid.
@@ -296,7 +357,10 @@ async function drive(
     streamMode: 'messages',
     subgraphs: true,
     signal: ctx.signal,
-    configurable: { thread_id: ctx.conversationId }
+    configurable: { thread_id: ctx.conversationId },
+    // Reasoning arrives via this callback's handleLLMEnd, not the token stream
+    // (see ReasoningBridgeHandler's doc comment for why).
+    callbacks: [new ReasoningBridgeHandler(ctx.conversationId, ctx.sink)]
   })
 
   for await (const item of stream) {
