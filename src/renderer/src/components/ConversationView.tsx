@@ -65,9 +65,10 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
         <div className="convo-inner">
           {turns.map((turn, i) => {
             const isLast = i === turns.length - 1
-            // Working phase: run active, no prose yet. Streaming: prose flowing.
+            // Live for the whole active turn (not just until prose starts), so
+            // the working indicator + bear persist while the model keeps going.
             const hasText = turn.texts.some((t) => t.text.length > 0)
-            const live = isLast && running && !hasText
+            const live = isLast && running
             const streaming = isLast && running && hasText
             return (
               <div key={turn.user.id} className="turn-pair">

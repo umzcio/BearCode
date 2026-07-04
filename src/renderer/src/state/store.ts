@@ -162,20 +162,11 @@ export const useAppStore = create<AppState>((set, get) => {
   }
 
   function handleEvent(convoId: string, event: Event): void {
-    // Track per-turn worked time: a turn's working phase runs from its
-    // user_message until the first streamed prose or a terminal error.
+    // A turn's worked time runs from its user_message until the run reaches a
+    // terminal state (done/error/cancelled), captured in onRunStateChange below.
     if (event.type === 'user_message') {
       turnStartByConvo.set(convoId, { turnId: event.id, startedAt: Date.now(), frozen: false })
       patchConvo(convoId, { startedAt: Date.now() })
-    } else if (event.type === 'assistant_text' || event.type === 'error') {
-      const turn = turnStartByConvo.get(convoId)
-      if (turn && !turn.frozen) {
-        turn.frozen = true
-        workedSecondsByTurn.set(
-          turn.turnId,
-          Math.max(1, Math.round((Date.now() - turn.startedAt) / 1000))
-        )
-      }
     }
     upsertEvent(convoId, event)
   }
@@ -225,6 +216,16 @@ export const useAppStore = create<AppState>((set, get) => {
       initialized = true
       window.bearcode.onEvent(handleEvent)
       window.bearcode.onRunStateChange((convoId, state) => {
+        if (state === 'done' || state === 'error' || state === 'cancelled') {
+          const turn = turnStartByConvo.get(convoId)
+          if (turn && !turn.frozen) {
+            turn.frozen = true
+            workedSecondsByTurn.set(
+              turn.turnId,
+              Math.max(1, Math.round((Date.now() - turn.startedAt) / 1000))
+            )
+          }
+        }
         patchConvo(convoId, { runState: state })
       })
       window.bearcode.onConversationMeta((meta) => {
