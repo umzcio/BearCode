@@ -27,7 +27,7 @@ export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 export type RunState = 'running' | 'awaiting-approval' | 'done' | 'error' | 'cancelled'
 
 export type Event =
-  | { type: 'user_message'; id: string; text: string }
+  | { type: 'user_message'; id: string; text: string; createdAt?: number }
   | { type: 'thinking'; id: string; text: string; durationMs: number; agentId?: string }
   | {
       type: 'tool_call'

@@ -27,6 +27,11 @@
   gap: 16px;
 }
 
+.msg-user-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .msg-user {
   background: var(--bg-raised);
   border: 1px solid var(--border);
@@ -35,6 +40,28 @@
   font-size: 14.5px;
   line-height: 1.55;
   user-select: text;
+}
+
+/* Timestamp + copy revealed on hover, matching Claude Code: subtle, tucked at
+   the bubble's bottom-right, no layout shift (the row keeps its height). */
+.msg-user-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  height: 24px;
+  padding-right: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.msg-user-wrap:hover .msg-user-meta,
+.msg-user-meta:focus-within {
+  opacity: 1;
+}
+.msg-time {
+  font-size: 12px;
+  color: var(--text-dim);
+  user-select: none;
 }
 
 .convo-composer {

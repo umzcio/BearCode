@@ -7,6 +7,7 @@ import { AssistantText } from './events/AssistantText'
 import { DiffCard } from './events/DiffCard'
 import { ErrorCard } from './events/ErrorCard'
 import { IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
+import { messageTimestamp } from '../lib/time'
 import './ConversationView.css'
 
 interface Turn {
@@ -70,7 +71,24 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
             const streaming = isLast && running && hasText
             return (
               <div key={turn.user.id} className="turn-pair">
-                <div className="msg-user">{turn.user.text}</div>
+                <div className="msg-user-wrap">
+                  <div className="msg-user">{turn.user.text}</div>
+                  <div className="msg-user-meta">
+                    {turn.user.createdAt ? (
+                      <span className="msg-time">{messageTimestamp(turn.user.createdAt)}</span>
+                    ) : null}
+                    <button
+                      className="icon-btn"
+                      title="Copy"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(turn.user.text)
+                        showToast('Copied')
+                      }}
+                    >
+                      <IconCopy />
+                    </button>
+                  </div>
+                </div>
                 <div className="agent-turn">
                   {turn.steps.length > 0 || live ? (
                     <WorkedGroup

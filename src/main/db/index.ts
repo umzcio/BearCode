@@ -163,9 +163,17 @@ export function getConversationMeta(id: string): ConversationMeta | null {
 
 export function getEvents(conversationId: string): Event[] {
   const rows = getDb()
-    .prepare(`SELECT payload FROM events WHERE conversation_id = ? ORDER BY seq ASC`)
-    .all(conversationId) as { payload: string }[]
-  return rows.map((r) => JSON.parse(r.payload) as Event)
+    .prepare(`SELECT payload, created_at FROM events WHERE conversation_id = ? ORDER BY seq ASC`)
+    .all(conversationId) as { payload: string; created_at: number }[]
+  return rows.map((r) => {
+    const event = JSON.parse(r.payload) as Event
+    // Surface the row's created_at as the user message's timestamp (for the
+    // hover time on the bubble), backfilling history that predates the field.
+    if (event.type === 'user_message' && event.createdAt == null) {
+      event.createdAt = r.created_at
+    }
+    return event
+  })
 }
 
 export function appendEvent(conversationId: string, event: Event): void {
