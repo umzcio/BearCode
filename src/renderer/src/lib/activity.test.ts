@@ -31,6 +31,11 @@ describe('deriveActivity', () => {
       deriveActivity('running', [call('c1', 'write_file', { path: '/a/b/index.html' })]).label
     ).toBe('Writing index.html…')
   })
+  it('reads the write_file path from file_path too (the other real key)', () => {
+    expect(
+      deriveActivity('running', [call('c1', 'write_file', { file_path: '/a/b/styles.css' })]).label
+    ).toBe('Writing styles.css…')
+  })
   it('labels an in-flight read tool as Reading', () => {
     expect(deriveActivity('running', [call('c1', 'ls', { path: '.' })]).label).toBe('Reading…')
   })

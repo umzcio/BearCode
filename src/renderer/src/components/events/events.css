@@ -535,10 +535,10 @@
 }
 @keyframes approval-pulse {
   0% {
-    box-shadow: 0 0 0 0 var(--accent, #6ea8fe);
+    box-shadow: 0 0 0 0 var(--accent);
   }
   100% {
-    box-shadow: 0 0 0 6px rgba(110, 168, 254, 0);
+    box-shadow: 0 0 0 6px rgba(76, 141, 255, 0);
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -33,7 +33,7 @@ function summaryFor(call: ToolCallEvent, result?: ToolResultEvent): React.ReactN
       )
     }
     case 'read_file': {
-      const path = inputStr(call, 'path')
+      const path = inputStr(call, 'path') ?? inputStr(call, 'file_path')
       return (
         <span>
           Read <b>{path ? path.split('/').pop() : 'a file'}</b>
@@ -77,7 +77,9 @@ function summaryFor(call: ToolCallEvent, result?: ToolResultEvent): React.ReactN
     }
     case 'write_file':
     case 'edit_file': {
-      const path = inputStr(call, 'path')
+      // The path arrives under either 'path' or 'file_path' depending on the
+      // model/tool variant; check both so the row shows the real filename.
+      const path = inputStr(call, 'path') ?? inputStr(call, 'file_path')
       const name = path ? (path.split('/').pop() ?? path) : 'a file'
       const stats = result?.stats
       const verb =

@@ -36,7 +36,18 @@ export function RunStatusBar({
     <div
       className={'run-status-bar' + (attention ? ' attention' : '')}
       onClick={attention ? onJumpToApproval : undefined}
+      onKeyDown={
+        attention
+          ? (e): void => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onJumpToApproval()
+              }
+            }
+          : undefined
+      }
       role={attention ? 'button' : undefined}
+      tabIndex={attention ? 0 : undefined}
     >
       {attention ? <span className="rsb-dot" /> : <ThinkingPaw size={17} />}
       <span className="rsb-label">{activity.label}</span>

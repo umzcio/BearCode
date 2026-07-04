@@ -6,12 +6,12 @@
   margin: 0 0 6px;
   border: 1px solid var(--border-soft);
   border-radius: 8px;
-  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+  background: var(--bg-raised);
   font-size: 13px;
   color: var(--text-mid);
 }
 .run-status-bar.attention {
-  border-color: var(--accent, #6ea8fe);
+  border-color: var(--accent);
   color: var(--text);
   cursor: pointer;
 }
@@ -42,7 +42,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--accent, #6ea8fe);
+  background: var(--accent);
   animation: rsb-pulse 1.2s ease-in-out infinite;
 }
 @keyframes rsb-pulse {

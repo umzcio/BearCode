@@ -31,7 +31,9 @@ function inflightLabel(tool: string, input: unknown): string {
     return `Running: ${cmd.length > 40 ? cmd.slice(0, 40) + '…' : cmd}`
   }
   if (tool === 'write_file' || tool === 'edit_file') {
-    const path = strInput(input, 'path')
+    // Deep Agents built-ins emit the path under either 'path' or 'file_path'
+    // depending on the model, so check both (verified in persisted events).
+    const path = strInput(input, 'path') ?? strInput(input, 'file_path')
     const name = path ? (path.split('/').pop() ?? path) : null
     return name ? `Writing ${name}…` : 'Writing a file…'
   }
