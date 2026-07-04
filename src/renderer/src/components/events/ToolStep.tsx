@@ -130,7 +130,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
         ? String((call.input as { command: unknown }).command)
         : ''
     if (call.approvalState === 'pending') {
-      return <PendingCommand callId={call.id} command={command} />
+      return <PendingCommand callId={call.id} command={command} convoId={convoId} />
     }
     const verb = call.approvalState === 'denied' ? 'Denied' : 'Ran'
     return (
@@ -170,19 +170,20 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
 
 function PendingCommand({
   callId,
-  command
+  command,
+  convoId
 }: {
   callId: string
   command: string
+  convoId: string
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
-  const setPermissionMode = useAppStore((s) => s.setPermissionMode)
+  const addPermissionRule = useAppStore((s) => s.addPermissionRule)
+  const projectPath = useAppStore((s) => s.conversations[convoId]?.projectPath ?? null)
+  const [showAllow, setShowAllow] = useState(false)
+  const prefix = command.trim().split(/\s+/)[0] + ' *'
 
   const allowOnce = (): void => approveTool(callId, true)
-  const allowAlways = (): void => {
-    setPermissionMode('auto')
-    approveTool(callId, true)
-  }
   const deny = (): void => approveTool(callId, false)
 
   // Number keys answer the prompt, matching the option badges.
@@ -192,7 +193,7 @@ function PendingCommand({
       if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
       if (e.key === '1') allowOnce()
-      else if (e.key === '2') allowAlways()
+      else if (e.key === '2') setShowAllow((s) => !s)
       else if (e.key === '3') deny()
     }
     window.addEventListener('keydown', onKey)
@@ -215,11 +216,75 @@ function PendingCommand({
           <span className="opt-num">1</span>
           Yes, allow this time
         </button>
-        <button className="approval-opt" onClick={allowAlways}>
+        <button className="approval-opt" onClick={() => setShowAllow((s) => !s)}>
           <span className="opt-num">2</span>
-          Yes, always allow commands
-          <span className="opt-hint">switches this chat to Auto mode</span>
+          Yes, always allow
+          <span className="opt-hint">save a rule instead of asking again</span>
         </button>
+        {showAllow ? (
+          <div className="allow-grid">
+            <button
+              className="allow-cell"
+              onClick={() => {
+                addPermissionRule({
+                  scope: 'global',
+                  action: 'command',
+                  match: command,
+                  effect: 'allow'
+                })
+                approveTool(callId, true)
+              }}
+            >
+              This exact command, everywhere
+            </button>
+            <button
+              className="allow-cell"
+              onClick={() => {
+                addPermissionRule({
+                  scope: 'global',
+                  action: 'command',
+                  match: prefix,
+                  effect: 'allow'
+                })
+                approveTool(callId, true)
+              }}
+            >
+              Anything starting with <span className="mono">{prefix}</span>, everywhere
+            </button>
+            {projectPath ? (
+              <>
+                <button
+                  className="allow-cell"
+                  onClick={() => {
+                    addPermissionRule({
+                      scope: { projectPath },
+                      action: 'command',
+                      match: command,
+                      effect: 'allow'
+                    })
+                    approveTool(callId, true)
+                  }}
+                >
+                  This exact command, this project only
+                </button>
+                <button
+                  className="allow-cell"
+                  onClick={() => {
+                    addPermissionRule({
+                      scope: { projectPath },
+                      action: 'command',
+                      match: prefix,
+                      effect: 'allow'
+                    })
+                    approveTool(callId, true)
+                  }}
+                >
+                  Anything starting with <span className="mono">{prefix}</span>, this project only
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
         <button className="approval-opt" onClick={deny}>
           <span className="opt-num">3</span>
           No, deny it

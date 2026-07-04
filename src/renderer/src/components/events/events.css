@@ -542,3 +542,24 @@
     animation: none;
   }
 }
+
+.allow-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0 24px;
+}
+.allow-cell {
+  text-align: left;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-raised);
+  color: var(--text-mid);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.allow-cell:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
