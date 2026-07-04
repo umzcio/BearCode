@@ -826,7 +826,7 @@ function buildAgentAndContext(
     systemPrompt: orchestratorSystemPrompt(projectPath),
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
-    ...(backend ? { backend, tools: buildTools(projectPath as string) } : {})
+    ...(backend ? { backend, tools: buildTools(projectPath as string, conversationId) } : {})
   })
   const ctx: DriveContext = {
     conversationId,
