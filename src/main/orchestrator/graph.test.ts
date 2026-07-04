@@ -19,7 +19,8 @@ import {
   textOfMessage,
   shouldEmitBridgedText,
   shouldRetryEmptyFinal,
-  interruptBelongsToToolCall
+  interruptBelongsToToolCall,
+  findDanglingRunCommandCall
 } from './graph'
 
 describe('textOfMessage', () => {
@@ -137,5 +138,78 @@ describe('interruptBelongsToToolCall (pending-interrupt attribution)', () => {
       interruptBelongsToToolCall({ kind: 'future_kind' }, { name: 'run_command', args: {} })
     ).toBe(true)
     expect(interruptBelongsToToolCall(undefined, { name: 'run_command', args: {} })).toBe(true)
+  })
+})
+
+describe('findDanglingRunCommandCall (crash-resume checkpoint scan)', () => {
+  // Structural stand-ins for checkpointed BaseMessages: only tool_calls (AI)
+  // and tool_call_id (ToolMessage) are read by the scanner.
+  const ai = (...calls: Array<{ id: string; name: string; args: unknown }>): unknown => ({
+    tool_calls: calls
+  })
+  const toolResult = (id: string): unknown => ({ tool_call_id: id })
+  const human = (): unknown => ({ content: 'do the thing' })
+
+  it('finds the paused run_command with no later ToolMessage', () => {
+    const messages = [human(), ai({ id: 'tc1', name: 'run_command', args: { command: 'ls -l' } })]
+    expect(findDanglingRunCommandCall(messages, 'ls -l')).toEqual({
+      id: 'tc1',
+      name: 'run_command',
+      args: { command: 'ls -l' }
+    })
+  })
+
+  it('returns null when a later ToolMessage already answered the call', () => {
+    const messages = [
+      human(),
+      ai({ id: 'tc1', name: 'run_command', args: { command: 'ls -l' } }),
+      toolResult('tc1')
+    ]
+    expect(findDanglingRunCommandCall(messages, 'ls -l')).toBeNull()
+  })
+
+  it('skips answered earlier calls and returns the last dangling one', () => {
+    const messages = [
+      human(),
+      ai({ id: 'tc1', name: 'run_command', args: { command: 'ls -l' } }),
+      toolResult('tc1'),
+      ai({ id: 'tc2', name: 'run_command', args: { command: 'ls -l' } })
+    ]
+    expect(findDanglingRunCommandCall(messages, 'ls -l')?.id).toBe('tc2')
+  })
+
+  it('ignores dangling calls of other tools', () => {
+    const messages = [human(), ai({ id: 'tc1', name: 'write_file', args: { path: 'a.txt' } })]
+    expect(findDanglingRunCommandCall(messages, 'ls -l')).toBeNull()
+  })
+
+  it('rejects a dangling run_command whose command does not match the interrupt', () => {
+    const messages = [
+      human(),
+      ai({ id: 'tc1', name: 'run_command', args: { command: 'rm -rf build' } })
+    ]
+    expect(findDanglingRunCommandCall(messages, 'ls -l')).toBeNull()
+  })
+
+  it('picks the matching call out of a mixed tool_calls array', () => {
+    const messages = [
+      human(),
+      ai(
+        { id: 'tc1', name: 'read_file', args: { path: 'a.txt' } },
+        { id: 'tc2', name: 'run_command', args: { command: 'ls -l' } }
+      ),
+      toolResult('tc1')
+    ]
+    expect(findDanglingRunCommandCall(messages, 'ls -l')?.id).toBe('tc2')
+  })
+
+  it('handles empty histories and malformed entries without throwing', () => {
+    expect(findDanglingRunCommandCall([], 'ls -l')).toBeNull()
+    expect(
+      findDanglingRunCommandCall(
+        [null, undefined, 'text', { tool_calls: 'nope' }, { tool_calls: [null, { id: 42 }] }],
+        'ls -l'
+      )
+    ).toBeNull()
   })
 })

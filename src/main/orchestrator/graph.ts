@@ -127,15 +127,20 @@ function reasoningTextOf(block: { type: string; reasoning?: string; value?: unkn
 // This cast is the documented workaround for calling it anyway.
 interface StateSnapshotLike {
   tasks: ReadonlyArray<{ interrupts: ReadonlyArray<{ id?: string; value?: unknown }> }>
+  values?: { messages?: ReadonlyArray<unknown> }
 }
 type GetStateCapable = { getState(config: unknown): Promise<StateSnapshotLike> }
 
 // `count` lets the caller detect the parallel-interrupt case (more than one
 // approval-requiring tool call raised in the same superstep) and refuse to
-// guess which one a bare `Command({ resume })` should target.
+// guess which one a bare `Command({ resume })` should target. `messages` is
+// the same snapshot's checkpointed message history, carried along so the
+// crash-resume path can locate the paused tool call without a second
+// getState round-trip.
 interface PendingInterruptInfo {
   value: unknown
   count: number
+  messages: ReadonlyArray<unknown>
 }
 
 async function findPendingInterrupt(
@@ -153,7 +158,7 @@ async function findPendingInterrupt(
       count += 1
     }
   }
-  return count > 0 ? { value, count } : undefined
+  return count > 0 ? { value, count, messages: snapshot.values?.messages ?? [] } : undefined
 }
 
 interface DriveContext {
@@ -290,6 +295,41 @@ export function interruptBelongsToToolCall(
   if (value?.kind !== 'run_command') return true
   if (tc.name !== 'run_command') return false
   return (tc.args as { command?: unknown } | null | undefined)?.command === value.command
+}
+
+// Locate the checkpointed tool call a rehydrated approval belongs to (crash-
+// resume, Bug B residual): scanning from the end of the checkpointed message
+// history, find the last AI-message tool_call with no matching later
+// ToolMessage (by tool_call_id) -- that is the call the graph paused on --
+// sanity-checked as a run_command whose args.command matches the interrupt
+// payload's command. Pure and structural (the entries are LangChain
+// BaseMessages at runtime, but only `tool_calls` and `tool_call_id` are read)
+// so it is testable without LangGraph. Returns null when no such call exists;
+// the caller then parks without seeding, no worse than before. Exported for
+// tests.
+export function findDanglingRunCommandCall(
+  messages: ReadonlyArray<unknown>,
+  command: string
+): { id: string; name: string; args: Record<string, unknown> } | null {
+  const answered = new Set<string>()
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i] as { tool_call_id?: unknown; tool_calls?: unknown } | null | undefined
+    if (typeof msg?.tool_call_id === 'string') {
+      answered.add(msg.tool_call_id)
+      continue
+    }
+    const calls = msg?.tool_calls
+    if (!Array.isArray(calls)) continue
+    for (const raw of calls) {
+      const tc = raw as { id?: unknown; name?: unknown; args?: unknown } | null | undefined
+      if (typeof tc?.id !== 'string' || answered.has(tc.id)) continue
+      if (tc.name !== 'run_command') continue
+      const args = tc.args as { command?: unknown } | null | undefined
+      if (args?.command !== command) continue
+      return { id: tc.id, name: 'run_command', args: args as Record<string, unknown> }
+    }
+  }
+  return null
 }
 
 // Pure decision for the empty-final recovery (Bug A cause 1): retry once when
@@ -1139,6 +1179,21 @@ export async function rehydratePausedRun(
     input: pendingInput,
     approvalState: 'pending'
   })
+  // Bug B residual (crash-resume): buildAgentAndContext made a FRESH ctx, so
+  // without seeding, the resumed drive() neither recalls this event id
+  // (callIdMap mints a new one that can't pair with the approved tool_call
+  // row) nor re-iterates the checkpointed tool call at all (LangGraph doesn't
+  // re-stream the AI message that carried it, and handleLLMEnd doesn't re-fire
+  // for it) -- the command's tool_result was never persisted. Seed both maps
+  // from the checkpointed messages: callIdMap so the tool_result's callId is
+  // pendingCallId, bridgedToolCalls so drive()'s existing fallback loop
+  // processes the call (continueAfterApproval's alreadyAnnounced.add
+  // suppresses a duplicate tool_call emit, same as the live resume path).
+  const tc = findDanglingRunCommandCall(pending.messages, value.command ?? '')
+  if (tc) {
+    ctx.callIdMap.set(tc.id, pendingCallId)
+    ctx.bridgedToolCalls.set(tc.id, { id: tc.id, name: tc.name, args: tc.args })
+  }
   pendingApprovals.set(conversationId, { ...ctx, agent, pendingCallId, pendingInput })
   sink.setState(conversationId, 'awaiting-approval')
   return true
