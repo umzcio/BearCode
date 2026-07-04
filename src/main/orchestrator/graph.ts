@@ -18,7 +18,7 @@ import { isToolMessageChunk } from '@langchain/core/messages'
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base'
 import type { LLMResult } from '@langchain/core/outputs'
 import type { Event, ProviderId, ToolName } from '../../shared/types'
-import type { RunSink } from '../ursa/run'
+import type { RunSink } from '../sink'
 import { appendEvent, appendOrReplaceEvent, dropDanglingCancel, getConversationMeta } from '../db'
 import { parseModelRef } from '../ursa/providers/registry'
 import { maybeGenerateTitle } from '../ursa/title'
@@ -622,6 +622,19 @@ export function cancelPendingApproval(conversationId: string): RunSink | undefin
     approvalState: 'denied'
   })
   return pending.sink
+}
+
+// Silent teardown for conversation delete/clear: drop any parked approval
+// without emitting a denied tool_call or touching the DB, since the
+// conversation itself is being removed. (cancelPendingApproval, by contrast,
+// is the Stop path and drives the conversation to a terminal 'cancelled'
+// state the renderer still shows.)
+export function forgetPendingApproval(conversationId: string): void {
+  pendingApprovals.delete(conversationId)
+}
+
+export function clearAllPendingApprovals(): void {
+  pendingApprovals.clear()
 }
 
 async function continueAfterApproval(pending: PendingApproval, approved: boolean): Promise<void> {

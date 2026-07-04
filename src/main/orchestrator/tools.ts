@@ -9,10 +9,9 @@
 // `resume` value (true/false) is what the promise returned by `interrupt()`
 // evaluates to once the graph is re-invoked with `new Command({ resume })`.
 //
-// The shell-execution body below mirrors (but cannot import, since
-// src/main/ursa/ must not be modified and its runCommand is unexported) the
-// jailed implementation in src/main/ursa/tools/index.ts: same shell, same
-// timeout/kill/truncate behavior.
+// The shell-execution body below is the jailed run_command implementation:
+// same shell, timeout/kill, and output-truncation behavior the engine has
+// always used.
 import { spawn } from 'child_process'
 import { realpathSync } from 'fs'
 import { interrupt } from '@langchain/langgraph'

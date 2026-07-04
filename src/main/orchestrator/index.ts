@@ -1,7 +1,6 @@
 import { randomUUID } from 'crypto'
 import type { ConversationMeta, Event } from '../../shared/types'
-import type { RunSink } from '../ursa/run'
-import { getSettings } from '../settings'
+import type { RunSink } from '../sink'
 import {
   appendEvent,
   getConversationMeta,
@@ -12,6 +11,8 @@ import {
 } from '../db'
 import {
   cancelPendingApproval,
+  clearAllPendingApprovals,
+  forgetPendingApproval,
   rehydratePausedRun,
   resolveInterrupt,
   runGraph,
@@ -20,11 +21,23 @@ import {
 
 export { pruneCheckpoints } from './checkpointer'
 
-export function useOrchestrator(): boolean {
-  return process.env['BEARCODE_ENGINE'] === 'orchestrator' || getSettings().experimentalEngine
+const aborts = new Map<string, AbortController>()
+
+// Teardown when a conversation is deleted: abort any live run and drop its
+// in-memory state (AbortController + any parked approval) without emitting
+// events, since the conversation is going away.
+export function forgetRunOrchestrator(conversationId: string): void {
+  aborts.get(conversationId)?.abort()
+  aborts.delete(conversationId)
+  forgetPendingApproval(conversationId)
 }
 
-const aborts = new Map<string, AbortController>()
+// Teardown for a full wipe (clear all conversations).
+export function clearRunsOrchestrator(): void {
+  for (const [, controller] of aborts) controller.abort()
+  aborts.clear()
+  clearAllPendingApprovals()
+}
 
 // A run parked on approval keeps its AbortController in `aborts` across the
 // pause (see startRunOrchestrator's `paused` branch). graph.ts drives the
@@ -102,15 +115,12 @@ export function cancelRunOrchestrator(conversationId: string): void {
   if (meta) sink.metaChanged(meta)
 }
 
-// Resolves a command-approval interrupt raised by the orchestrator's
-// run_command tool (risk 4, src/main/orchestrator/tools.ts +
-// src/main/orchestrator/graph.ts's `resolveInterrupt`/`pendingApprovals`).
-// Wired from bearcode:tools:approve in src/main/ipc.ts when useOrchestrator()
-// is true, mirroring the legacy engine's resolveApproval (src/main/ursa/run.ts).
+// Resolves a command-approval interrupt raised by the run_command tool
+// (src/main/orchestrator/tools.ts + graph.ts's `resolveInterrupt`/
+// `pendingApprovals`). Wired from bearcode:tools:approve in src/main/ipc.ts.
 export function resolveApprovalOrchestrator(callId: string, approved: boolean): void {
   // bearcode:tools:approve (src/main/ipc.ts) only carries a callId, not a
-  // conversationId (matching the legacy engine's resolveApproval, which is
-  // also keyed globally by callId). `aborts` holds every conversation with a
+  // conversationId, so `aborts` holds every conversation with a
   // live run, including ones parked awaiting approval (startRunOrchestrator
   // above keeps the AbortController alive across a pause -- it only clears
   // it once the run truly finishes), so trying each is a correct, cheap scan.

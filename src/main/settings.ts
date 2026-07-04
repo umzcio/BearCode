@@ -6,8 +6,7 @@ import type { AppSettings, SettingsInfo } from '../shared/types'
 const DEFAULTS: AppSettings = {
   ollamaBaseUrl: 'http://localhost:11434',
   autoApproveCommands: false,
-  defaultModelRef: null,
-  experimentalEngine: false
+  defaultModelRef: null
 }
 
 function settingsPath(): string {

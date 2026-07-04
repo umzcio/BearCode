@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ConversationMeta } from '../../shared/types'
-import type { RunSink } from '../ursa/run'
+import type { RunSink } from '../sink'
 
 // resumeInterruptedRuns' detection must not depend on any event's message
 // string (see the fix for the reviewer finding on Task 7): it consumes the
