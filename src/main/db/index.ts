@@ -257,6 +257,50 @@ export function dropDanglingCancel(conversationId: string): void {
   }
 }
 
+// Remove stale approval-lifecycle rows before crash-resume re-surfaces fresh
+// cards (rehydratePausedRun). The interrupts are still checkpointed -- nothing
+// was dispatched, so nothing executed -- but the events table can hold rows
+// from the interrupted approval window: 'pending' tool_calls persisted by an
+// earlier rehydrate, and 'approved'/'denied' tool_calls persisted at dispatch
+// time whose command never produced a tool_result before the crash. Rehydrate
+// mints fresh event ids for the re-surfaced cards, so leaving these rows in
+// place would show the same logical approval twice (a stale "Ran cmd" or
+// "Denied cmd" above a live pending card). Walks the conversation's trailing
+// events and deletes exactly those rows, stopping at the first event that is
+// settled history: any non-tool_call event, an 'auto' tool_call, or a resolved
+// approval whose tool_result exists (that command really ran).
+export function dropDanglingApprovalRows(conversationId: string): void {
+  const database = getDb()
+  const rows = database
+    .prepare(`SELECT id, payload FROM events WHERE conversation_id = ? ORDER BY seq DESC`)
+    .all(conversationId) as { id: string; payload: string }[]
+  const resultCallIds = new Set<string>()
+  for (const row of rows) {
+    try {
+      const ev = JSON.parse(row.payload) as Event
+      if (ev.type === 'tool_result') resultCallIds.add(ev.callId)
+    } catch {
+      // malformed payload -- it can't be an approval row; the scan below stops on it
+    }
+  }
+  const del = database.prepare(`DELETE FROM events WHERE id = ?`)
+  for (const row of rows) {
+    let ev: Event
+    try {
+      ev = JSON.parse(row.payload) as Event
+    } catch {
+      break
+    }
+    if (ev.type !== 'tool_call') break
+    const stale =
+      ev.approvalState === 'pending' ||
+      ((ev.approvalState === 'approved' || ev.approvalState === 'denied') &&
+        !resultCallIds.has(ev.id))
+    if (!stale) break
+    del.run(row.id)
+  }
+}
+
 export function setTitle(conversationId: string, title: string): void {
   getDb().prepare(`UPDATE conversations SET title = ? WHERE id = ?`).run(title, conversationId)
 }

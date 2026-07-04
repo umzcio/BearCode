@@ -115,15 +115,20 @@ export function cancelRunOrchestrator(conversationId: string): void {
   if (meta) sink.metaChanged(meta)
 }
 
-// Resolves a command-approval interrupt raised by the run_command tool
+// Resolves ONE command-approval card raised by the run_command tool
 // (src/main/orchestrator/tools.ts + graph.ts's `resolveInterrupt`/
 // `pendingApprovals`). Wired from bearcode:tools:approve in src/main/ipc.ts.
+// A conversation can park several cards at once (parallel tool calls);
+// resolveInterrupt records this card's decision and only dispatches the
+// batch keyed resume once every card in that conversation is answered -- the
+// run stays parked (and its AbortController stays in `aborts`) in between.
 export function resolveApprovalOrchestrator(callId: string, approved: boolean): void {
   // bearcode:tools:approve (src/main/ipc.ts) only carries a callId, not a
   // conversationId, so `aborts` holds every conversation with a
   // live run, including ones parked awaiting approval (startRunOrchestrator
   // above keeps the AbortController alive across a pause -- it only clears
   // it once the run truly finishes), so trying each is a correct, cheap scan.
+  // Card event ids are uuids, so a callId matches at most one conversation.
   for (const conversationId of aborts.keys()) {
     if (resolveInterrupt(conversationId, callId, approved)) return
   }

@@ -26,6 +26,72 @@ const commandSchema = z.object({
   timeoutMs: z.number().int().min(1000).max(600000).optional().describe('Timeout, default 60s.')
 })
 
+// Denied-replay pins: execution-layer enforcement of a Denied approval card.
+// On a keyed resume, LangGraph replays each interrupted task from the top, so
+// this tool re-runs evaluateCommandForConversation BEFORE the interrupt() call
+// that would return the { approved: false } resume value. Anything that flips
+// the decision to 'run' between pause and dispatch -- an "always allow" rule
+// saved from a sibling card, or a permission-mode change to 'auto' -- would
+// skip interrupt() entirely and execute a command the user explicitly denied.
+// graph.ts's continueAfterApproval therefore pins every denied card here right
+// before dispatching the batch resume (and clears the pins once the resumed
+// segment settles); the tool consults the pins first, so a recorded denial
+// always wins over a re-evaluation.
+//
+// Pins are keyed by the provider tool-call id when the approval card knew it
+// (the normal case: the interrupt payload carries it), falling back to a
+// command-string multiset for cards without one (pre-toolCallId checkpoints,
+// where the replayed call's config carries no id either). Take-once semantics:
+// a consumed pin is deleted so a later, genuinely new call that happens to
+// reuse a provider tool-call id (non-Anthropic providers can) or repeat the
+// command string is never silently denied.
+interface DeniedPinSet {
+  byToolCallId: Set<string>
+  byCommand: Map<string, number>
+}
+const deniedReplayPins = new Map<string, DeniedPinSet>()
+
+export function pinDeniedReplays(
+  conversationId: string,
+  pins: ReadonlyArray<{ toolCallId?: string; command?: string }>
+): void {
+  if (pins.length === 0) return
+  const set: DeniedPinSet = { byToolCallId: new Set(), byCommand: new Map() }
+  for (const pin of pins) {
+    if (pin.toolCallId !== undefined) {
+      set.byToolCallId.add(pin.toolCallId)
+    } else if (pin.command !== undefined) {
+      set.byCommand.set(pin.command, (set.byCommand.get(pin.command) ?? 0) + 1)
+    }
+  }
+  deniedReplayPins.set(conversationId, set)
+}
+
+export function clearDeniedReplayPins(conversationId: string): void {
+  deniedReplayPins.delete(conversationId)
+}
+
+// True (and consumes the pin) when this call was denied by the user. The
+// command-string fallback is consulted ONLY when the call carries no
+// toolCallId: a pin stored under a toolCallId must never be claimable by an
+// identical sibling command, and vice versa -- an id-less pin belongs to an
+// id-less replay (the interrupt payload and the replayed config get the id
+// from the same ToolNode mechanism, so presence always matches).
+export function takeDeniedReplayPin(
+  conversationId: string,
+  toolCallId: string | undefined,
+  command: string
+): boolean {
+  const set = deniedReplayPins.get(conversationId)
+  if (!set) return false
+  if (toolCallId !== undefined) return set.byToolCallId.delete(toolCallId)
+  const n = set.byCommand.get(command)
+  if (n === undefined) return false
+  if (n <= 1) set.byCommand.delete(command)
+  else set.byCommand.set(command, n - 1)
+  return true
+}
+
 function runCommand(
   command: string,
   cwd: string,
@@ -63,7 +129,18 @@ function runCommand(
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- Zod-inferred `tool()` return type is not writable by hand without narrowing away the actual generic
 export function buildTools(projectPath: string, conversationId: string) {
   const runCommandTool = tool(
-    async ({ command, timeoutMs }: { command: string; timeoutMs?: number }): Promise<string> => {
+    async (
+      { command, timeoutMs }: { command: string; timeoutMs?: number },
+      config?: unknown
+    ): Promise<string> => {
+      const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
+      // BEFORE re-evaluating the rules: on a keyed-resume replay a recorded
+      // Denied decision must win even when a rule saved from a sibling card
+      // (or a mode flip) would now evaluate this command to 'run' and skip
+      // the interrupt() below -- see deniedReplayPins' doc comment.
+      if (takeDeniedReplayPin(conversationId, toolCallId, command)) {
+        return 'User denied this command.'
+      }
       const decision = evaluateCommandForConversation(command, conversationId, projectPath)
       if (decision === 'block') {
         return 'This command was blocked by a permission rule.'
@@ -75,7 +152,19 @@ export function buildTools(projectPath: string, conversationId: string) {
         // is indistinguishable from no resume at all and throws
         // EmptyInputError("Received empty Command input") -- verified live
         // (node_modules/@langchain/langgraph/dist/pregel/io.js).
-        const approval = interrupt({ kind: 'run_command', command }) as { approved: boolean }
+        //
+        // toolCallId: langchain's ToolNode invokes each tool with a config
+        // carrying the provider tool-call id (ToolNode.js runTool:
+        // `toolCallId: toolCall.id`), and ensureConfig/patchConfig preserve
+        // the extra key down to this function's second argument. Carrying it
+        // in the interrupt payload lets graph.ts pair every pending interrupt
+        // to its exact tool_call event -- required for parallel approvals,
+        // where two identical commands would otherwise be ambiguous.
+        const approval = interrupt({
+          kind: 'run_command',
+          command,
+          toolCallId
+        }) as { approved: boolean }
         if (!approval.approved) return 'User denied this command.'
       }
       // decision === 'run' (or approved): fall through and execute.

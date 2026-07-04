@@ -21,3 +21,6 @@ release/
 
 # Test artifacts
 .playwright-mcp/
+
+# TypeScript incremental build state
+*.tsbuildinfo
