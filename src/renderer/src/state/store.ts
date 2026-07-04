@@ -262,9 +262,26 @@ export const useAppStore = create<AppState>((set, get) => {
       if (convo.modelRef && refConfigured(get().providers, convo.modelRef)) {
         set({ modelRef: convo.modelRef })
       }
-      if (!convo.loaded && convo.runState === 'idle') {
+      // Load history from the DB the first time a conversation is opened. A
+      // live running conversation is already `loaded` (it was open when it
+      // started), so guarding on `!loaded` avoids clobbering in-flight streamed
+      // events with a stale read. 'awaiting-approval' is included for crash-
+      // resume (A2): a conversation the app re-surfaced at boot is `!loaded`
+      // with a persisted pending approval in its history that must be read in.
+      if (!convo.loaded && (convo.runState === 'idle' || convo.runState === 'awaiting-approval')) {
         void window.bearcode.conversations.get(id).then((events) => {
-          patchConvo(id, { events, loaded: true })
+          // Derive awaiting-approval from a trailing pending tool_call: a crash-
+          // resumed conversation (A2) persists its re-surfaced pending approval
+          // to history, but the boot-time run-state broadcast can be lost to a
+          // startup race, so reading it back from the loaded events is the
+          // robust source of truth for the composer state.
+          const last = events[events.length - 1]
+          const pending = last && last.type === 'tool_call' && last.approvalState === 'pending'
+          patchConvo(id, {
+            events,
+            loaded: true,
+            ...(pending ? { runState: 'awaiting-approval' as const } : {})
+          })
         })
       }
     },

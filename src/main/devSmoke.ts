@@ -45,8 +45,13 @@ const QUESTION =
   'What is the capital of Australia? Answer in one short sentence, and name which model you are.'
 
 // BEARCODE_SMOKE=inspect: dump restored state after a relaunch (Phase 3
-// acceptance), open the most recent conversation, and screenshot.
+// acceptance), open the most recent conversation, and screenshot. Also the
+// phase-2 verifier for crash-resume (A2): dumps runState + whether the most
+// recent conversation re-surfaced a pending run_command approval after a
+// kill-mid-approval, and if BEARCODE_SMOKE_APPROVE=allow, approves it and
+// reports the resumed run's terminal state.
 function inspect(win: BrowserWindow): void {
+  const approve = process.env['BEARCODE_SMOKE_APPROVE'] === 'allow'
   setTimeout(() => {
     void (async () => {
       try {
@@ -59,17 +64,52 @@ function inspect(win: BrowserWindow): void {
             });
             if (s.convoOrder.length > 0) {
               s.openConvo(s.convoOrder[0]);
-              await new Promise((r) => setTimeout(r, 1200));
+              await new Promise((r) => setTimeout(r, 1500));
               const c = window.__bearcodeStore.getState().conversations[s.convoOrder[0]];
-              return JSON.stringify({ list, firstConvoEvents: c.events.map((e) => e.type) }, null, 1);
+              const pending = c.events.find((e) => e.type === 'tool_call' && e.approvalState === 'pending');
+              return JSON.stringify({
+                list,
+                firstConvoRunState: c.runState,
+                firstConvoEvents: c.events.map((e) => e.type),
+                pendingApproval: pending ? { tool: pending.tool, command: pending.input && pending.input.command } : null
+              }, null, 1);
             }
             return JSON.stringify({ list }, null, 1);
           })()`
         )
         console.log(`[ursa] inspect: ${dump}`)
-        const img = await win.webContents.capturePage()
-        writeFileSync('/tmp/bearcode-smoke-inspect.png', img.toPNG())
+        await win.webContents.capturePage().then((img) => {
+          writeFileSync('/tmp/bearcode-smoke-inspect.png', img.toPNG())
+        })
         console.log('[ursa] inspect: saved /tmp/bearcode-smoke-inspect.png')
+
+        if (approve) {
+          // Approve the re-surfaced command and confirm the resumed run reaches
+          // a terminal state -- the end-to-end crash-resume proof.
+          const resumed = await win.webContents.executeJavaScript(
+            `(async () => {
+              const s = window.__bearcodeStore.getState();
+              const id = s.convoOrder[0];
+              const c = s.conversations[id];
+              const pending = c.events.find((e) => e.type === 'tool_call' && e.approvalState === 'pending');
+              if (!pending) return JSON.stringify({ approved: false, reason: 'no pending approval' });
+              s.approveTool(pending.id, true);
+              for (let i = 0; i < 60; i++) {
+                await new Promise((r) => setTimeout(r, 1000));
+                const cc = window.__bearcodeStore.getState().conversations[id];
+                if (cc.runState === 'done' || cc.runState === 'error' || cc.runState === 'cancelled') {
+                  const answer = [...cc.events].reverse().find((e) => e.type === 'assistant_text');
+                  return JSON.stringify({ approved: true, runState: cc.runState, answer: answer ? answer.text.slice(0, 200) : null });
+                }
+              }
+              return JSON.stringify({ approved: true, runState: 'timeout' });
+            })()`
+          )
+          console.log(`[ursa] inspect resume-approve: ${resumed}`)
+          await win.webContents.capturePage().then((img) => {
+            writeFileSync('/tmp/bearcode-smoke-inspect-resumed.png', img.toPNG())
+          })
+        }
       } catch (e) {
         console.error('[ursa] inspect failed:', e)
       }

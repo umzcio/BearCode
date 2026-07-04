@@ -2,9 +2,21 @@ import { randomUUID } from 'crypto'
 import type { ConversationMeta, Event } from '../../shared/types'
 import type { RunSink } from '../ursa/run'
 import { getSettings } from '../settings'
-import { appendEvent, getConversationMeta, getZombieRunIds, listConversations } from '../db'
-import { cancelPendingApproval, resolveInterrupt, runGraph, setOnResumeSettled } from './graph'
-import { getCheckpointer } from './checkpointer'
+import {
+  appendEvent,
+  getConversationMeta,
+  getEvents,
+  getZombieRunIds,
+  listConversations,
+  setModelRef
+} from '../db'
+import {
+  cancelPendingApproval,
+  rehydratePausedRun,
+  resolveInterrupt,
+  runGraph,
+  setOnResumeSettled
+} from './graph'
 
 export { pruneCheckpoints } from './checkpointer'
 
@@ -29,6 +41,11 @@ export async function startRunOrchestrator(
   modelRef: string,
   sink: RunSink
 ): Promise<void> {
+  // Persist the model on the conversation row (mirrors the legacy engine's
+  // run.ts). Beyond restoring the picker on reopen, crash-resume (A2) needs it:
+  // rehydratePausedRun rebuilds the agent from meta.modelRef, so without this a
+  // paused orchestrator run could never be recovered after a restart.
+  setModelRef(conversationId, modelRef)
   const controller = new AbortController()
   aborts.set(conversationId, controller)
   try {
@@ -119,19 +136,14 @@ export function resolveApprovalOrchestrator(callId: string, approved: boolean): 
 // cancellation happens to write the same shape, so string-matching it here
 // would be one rename away from silently breaking this safety net.
 //
-// For each dangling conversation this cross-checks the SQLite checkpointer
-// (a SEPARATE store from `events`, see checkpointer.ts) via `getTuple`: if
-// LangGraph persisted execution state for that conversation's thread_id,
-// that proves the checkpointer round-trips (written during the run, read
-// back on the next boot) -- the exact mechanism a real resume would read
-// from. Actually replaying execution from that checkpoint is deferred to
-// Task 6, which adds a well-defined pause point (the command-approval
-// interrupt) to resume from; a bare token-streaming run (this task's graph
-// has no tools/interrupt yet) has no safe mid-stream resumption point.
-// So today this scan's job is only the safety guarantee: make sure nothing
-// is ever left reporting `running`/`awaiting-approval` by (re)broadcasting
-// `cancelled` for every affected conversation, so a live renderer's state
-// can never disagree with what's durably on disk.
+// For each dangling conversation this attempts a full crash-resume (A2) via
+// rehydratePausedRun (graph.ts): rebuild the agent on the persisted checkpoint
+// and, if the run died parked at a command-approval interrupt, re-surface the
+// approval so the user can Approve/Deny and continue from where it stopped.
+// Conversations with no resumable interrupt (a mid-stream crash, which has no
+// safe token-stream resume point) fall back to the original degrade-clean
+// behavior: broadcast `cancelled` so nothing is ever left reporting
+// `running`/`awaiting-approval` against what is durably on disk.
 
 // Pure selection: which conversations need the resume scan's cross-check.
 // A conversation is dangling if the boot scan patched it (`zombieIds`) and
@@ -148,28 +160,48 @@ export function selectDanglingConversations(
   return metas.filter((m) => zombieSet.has(m.id) && !activeIds.has(m.id))
 }
 
+// The most recent user_message text for a conversation, used to seed the
+// rehydrated DriveContext (title generation on eventual completion). Empty
+// string if none -- an established conversation is usually already titled.
+function lastUserText(conversationId: string): string {
+  const events = getEvents(conversationId)
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]
+    if (e.type === 'user_message') return e.text
+  }
+  return ''
+}
+
 export async function resumeInterruptedRuns(sink: RunSink): Promise<void> {
-  const checkpointer = getCheckpointer()
   const candidates = selectDanglingConversations(
     listConversations(),
     getZombieRunIds(),
     new Set(aborts.keys())
   )
   for (const meta of candidates) {
-    try {
-      const tuple = await checkpointer.getTuple({ configurable: { thread_id: meta.id } })
-      if (tuple) {
-        console.log(
-          `[ursa] orchestrator: resumeInterruptedRuns found a checkpoint for conversation ` +
-            `${meta.id} (checkpoint_id=${String(tuple.config.configurable?.['checkpoint_id'])}); ` +
-            'resume-from-checkpoint execution lands in Task 6 (interrupt-based pause point). ' +
-            'Marking cancelled so it is never left running.'
+    let resumed = false
+    if (meta.modelRef) {
+      // Register the AbortController BEFORE rehydrating: a re-parked approval
+      // needs it live so Stop (cancelRunOrchestrator) and the approval lookup
+      // (resolveApprovalOrchestrator's aborts scan) both find this conversation,
+      // exactly as a live paused run does.
+      const controller = new AbortController()
+      aborts.set(meta.id, controller)
+      try {
+        resumed = await rehydratePausedRun(
+          meta.id,
+          meta.modelRef,
+          lastUserText(meta.id),
+          sink,
+          controller.signal
         )
+      } catch (err) {
+        console.error(`[ursa] orchestrator: crash-resume rehydrate failed for ${meta.id}:`, err)
       }
-    } catch (err) {
-      console.error(`[ursa] orchestrator: checkpointer.getTuple failed for ${meta.id}:`, err)
+      if (!resumed) aborts.delete(meta.id)
     }
-
-    sink.setState(meta.id, 'cancelled')
+    // Not resumable (no modelRef, no interrupt, or rehydrate failed): degrade
+    // clean, exactly as before.
+    if (!resumed) sink.setState(meta.id, 'cancelled')
   }
 }

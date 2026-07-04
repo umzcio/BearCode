@@ -5,32 +5,46 @@ import type { RunSink } from '../ursa/run'
 // resumeInterruptedRuns' detection must not depend on any event's message
 // string (see the fix for the reviewer finding on Task 7): it consumes the
 // authoritative "which conversations did the boot scan patch" list from
-// `getZombieRunIds()`, then cross-checks the (separate) LangGraph
-// checkpointer. These mocks let the branches that can't be triggered by a
-// live run -- checkpoint present vs. absent, dangling vs. not -- be exercised
-// directly.
+// `getZombieRunIds()`. For each dangling conversation it now attempts a full
+// crash-resume via graph.rehydratePausedRun (A2), falling back to the
+// degrade-clean `cancelled` broadcast when nothing is resumable. These mocks
+// exercise the resume-vs-degrade branches directly.
 const listConversations = vi.fn<() => ConversationMeta[]>()
 const getZombieRunIds = vi.fn<() => string[]>()
 const getConversationMeta = vi.fn<(id: string) => ConversationMeta | null>()
+const getEvents = vi.fn(() => [] as unknown[])
 const appendEvent = vi.fn()
 
 vi.mock('../db', () => ({
   listConversations: (...args: unknown[]) => listConversations(...(args as [])),
   getZombieRunIds: (...args: unknown[]) => getZombieRunIds(...(args as [])),
   getConversationMeta: (...args: [string]) => getConversationMeta(...args),
-  appendEvent: (...args: unknown[]) => appendEvent(...args)
+  getEvents: (...args: unknown[]) => getEvents(...(args as [])),
+  appendEvent: (...args: unknown[]) => appendEvent(...args),
+  setModelRef: vi.fn()
 }))
 
-const getTuple = vi.fn()
+// index.ts imports these from ./graph (and calls setOnResumeSettled at module
+// load); mock the module so the heavy deepagents/langchain graph never loads.
+const rehydratePausedRun = vi.fn<(...args: unknown[]) => Promise<boolean>>()
+
+vi.mock('./graph', () => ({
+  rehydratePausedRun: (...args: unknown[]) => rehydratePausedRun(...(args as [])),
+  cancelPendingApproval: vi.fn(),
+  resolveInterrupt: vi.fn(),
+  runGraph: vi.fn(),
+  setOnResumeSettled: vi.fn()
+}))
 
 vi.mock('./checkpointer', () => ({
-  getCheckpointer: () => ({ getTuple })
+  getCheckpointer: () => ({ getTuple: vi.fn() }),
+  pruneCheckpoints: vi.fn()
 }))
 
 import { resumeInterruptedRuns, selectDanglingConversations } from './index'
 
-function meta(id: string): ConversationMeta {
-  return { id, projectPath: null, title: null, modelRef: null, createdAt: 0, updatedAt: 0 }
+function meta(id: string, modelRef: string | null = 'anthropic/claude-sonnet-5'): ConversationMeta {
+  return { id, projectPath: null, title: null, modelRef, createdAt: 0, updatedAt: 0 }
 }
 
 function makeSink(): RunSink & {
@@ -68,73 +82,82 @@ describe('resumeInterruptedRuns', () => {
     listConversations.mockReset()
     getZombieRunIds.mockReset()
     getConversationMeta.mockReset()
+    getEvents.mockReset()
+    getEvents.mockReturnValue([])
     appendEvent.mockReset()
-    getTuple.mockReset()
+    rehydratePausedRun.mockReset()
   })
 
-  it('dangling conversation WITH a checkpoint present: still rebroadcasts cancelled', async () => {
-    listConversations.mockReturnValue([meta('convo-with-checkpoint')])
-    getZombieRunIds.mockReturnValue(['convo-with-checkpoint'])
-    getTuple.mockResolvedValue({
-      config: { configurable: { checkpoint_id: 'chk-1' } },
-      checkpoint: {},
-      metadata: {}
-    })
+  it('resumable approval-paused conversation: rehydrated, NOT marked cancelled', async () => {
+    listConversations.mockReturnValue([meta('convo-resumable')])
+    getZombieRunIds.mockReturnValue(['convo-resumable'])
+    rehydratePausedRun.mockResolvedValue(true)
     const sink = makeSink()
 
     await resumeInterruptedRuns(sink)
 
-    expect(getTuple).toHaveBeenCalledWith({ configurable: { thread_id: 'convo-with-checkpoint' } })
-    expect(sink.setState).toHaveBeenCalledTimes(1)
-    expect(sink.setState).toHaveBeenCalledWith('convo-with-checkpoint', 'cancelled')
+    expect(rehydratePausedRun).toHaveBeenCalledTimes(1)
+    // rehydratePausedRun drives the awaiting-approval state itself; the scan
+    // must NOT then broadcast cancelled over it.
+    expect(sink.setState).not.toHaveBeenCalledWith('convo-resumable', 'cancelled')
   })
 
-  it('dangling conversation with NO checkpoint: still rebroadcasts cancelled', async () => {
-    listConversations.mockReturnValue([meta('convo-no-checkpoint')])
-    getZombieRunIds.mockReturnValue(['convo-no-checkpoint'])
-    getTuple.mockResolvedValue(undefined)
+  it('dangling but not resumable (no interrupt): degrades to cancelled', async () => {
+    listConversations.mockReturnValue([meta('convo-midstream')])
+    getZombieRunIds.mockReturnValue(['convo-midstream'])
+    rehydratePausedRun.mockResolvedValue(false)
     const sink = makeSink()
 
     await resumeInterruptedRuns(sink)
 
-    expect(getTuple).toHaveBeenCalledWith({ configurable: { thread_id: 'convo-no-checkpoint' } })
+    expect(rehydratePausedRun).toHaveBeenCalledTimes(1)
     expect(sink.setState).toHaveBeenCalledTimes(1)
-    expect(sink.setState).toHaveBeenCalledWith('convo-no-checkpoint', 'cancelled')
+    expect(sink.setState).toHaveBeenCalledWith('convo-midstream', 'cancelled')
   })
 
-  it('non-dangling conversation: no cross-check, no rebroadcast', async () => {
+  it('dangling with no modelRef: cancelled without attempting rehydrate', async () => {
+    listConversations.mockReturnValue([meta('convo-no-model', null)])
+    getZombieRunIds.mockReturnValue(['convo-no-model'])
+    const sink = makeSink()
+
+    await resumeInterruptedRuns(sink)
+
+    expect(rehydratePausedRun).not.toHaveBeenCalled()
+    expect(sink.setState).toHaveBeenCalledWith('convo-no-model', 'cancelled')
+  })
+
+  it('non-dangling conversation: no rehydrate, no rebroadcast', async () => {
     listConversations.mockReturnValue([meta('convo-clean')])
     getZombieRunIds.mockReturnValue([]) // boot scan found nothing to patch
     const sink = makeSink()
 
     await resumeInterruptedRuns(sink)
 
-    expect(getTuple).not.toHaveBeenCalled()
+    expect(rehydratePausedRun).not.toHaveBeenCalled()
     expect(sink.setState).not.toHaveBeenCalled()
   })
 
-  it('cross-checks and rebroadcasts independently per conversation', async () => {
-    listConversations.mockReturnValue([meta('dangling'), meta('clean')])
-    getZombieRunIds.mockReturnValue(['dangling'])
-    getTuple.mockResolvedValue(undefined)
+  it('resumes and degrades independently per conversation', async () => {
+    listConversations.mockReturnValue([meta('resumable'), meta('midstream'), meta('clean')])
+    getZombieRunIds.mockReturnValue(['resumable', 'midstream'])
+    rehydratePausedRun.mockImplementation(async (id: unknown) => id === 'resumable')
     const sink = makeSink()
 
     await resumeInterruptedRuns(sink)
 
-    expect(getTuple).toHaveBeenCalledTimes(1)
-    expect(getTuple).toHaveBeenCalledWith({ configurable: { thread_id: 'dangling' } })
+    expect(rehydratePausedRun).toHaveBeenCalledTimes(2)
     expect(sink.setState).toHaveBeenCalledTimes(1)
-    expect(sink.setState).toHaveBeenCalledWith('dangling', 'cancelled')
+    expect(sink.setState).toHaveBeenCalledWith('midstream', 'cancelled')
   })
 
-  it('does not throw when the checkpointer lookup fails, and still rebroadcasts cancelled', async () => {
-    listConversations.mockReturnValue([meta('convo-checkpoint-error')])
-    getZombieRunIds.mockReturnValue(['convo-checkpoint-error'])
-    getTuple.mockRejectedValue(new Error('disk read failed'))
+  it('does not throw when rehydrate fails, and still degrades to cancelled', async () => {
+    listConversations.mockReturnValue([meta('convo-rehydrate-error')])
+    getZombieRunIds.mockReturnValue(['convo-rehydrate-error'])
+    rehydratePausedRun.mockRejectedValue(new Error('checkpoint read failed'))
     const sink = makeSink()
 
     await expect(resumeInterruptedRuns(sink)).resolves.toBeUndefined()
 
-    expect(sink.setState).toHaveBeenCalledWith('convo-checkpoint-error', 'cancelled')
+    expect(sink.setState).toHaveBeenCalledWith('convo-rehydrate-error', 'cancelled')
   })
 })

@@ -184,6 +184,51 @@ export function appendEvent(conversationId: string, event: Event): void {
     .run(Date.now(), conversationId)
 }
 
+// Like appendEvent, but if an event with this id already exists it updates that
+// row's payload in place (keeping its seq) instead of inserting. Used for the
+// resolved (approved/denied) command tool_call, whose id equals the pending
+// tool_call's: in the live flow the pending row was never persisted so this
+// inserts (identical to appendEvent); in the crash-resume flow (A2) the pending
+// row WAS persisted by rehydratePausedRun, so this replaces it in place rather
+// than colliding on the events.id primary key.
+export function appendOrReplaceEvent(conversationId: string, event: Event): void {
+  const database = getDb()
+  const existing = database.prepare(`SELECT seq FROM events WHERE id = ?`).get(event.id) as
+    { seq: number } | undefined
+  if (existing) {
+    database
+      .prepare(`UPDATE events SET type = ?, payload = ? WHERE id = ?`)
+      .run(event.type, JSON.stringify(event), event.id)
+    database
+      .prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`)
+      .run(Date.now(), conversationId)
+    return
+  }
+  appendEvent(conversationId, event)
+}
+
+// Remove the provisional synthetic 'Cancelled' event that cancelZombieRuns
+// appends at boot, for a conversation the orchestrator is about to crash-resume
+// (A2). Deletes the conversation's last event iff it is an 'error' whose message
+// is 'Cancelled' -- the exact shape cancelZombieRuns writes -- so a real
+// user-facing error is never removed. Callers only invoke this for confirmed
+// resumable conversations from the authoritative getZombieRunIds() list.
+export function dropDanglingCancel(conversationId: string): void {
+  const database = getDb()
+  const row = database
+    .prepare(`SELECT id, payload FROM events WHERE conversation_id = ? ORDER BY seq DESC LIMIT 1`)
+    .get(conversationId) as { id: string; payload: string } | undefined
+  if (!row) return
+  try {
+    const ev = JSON.parse(row.payload) as Event
+    if (ev.type === 'error' && ev.message === 'Cancelled') {
+      database.prepare(`DELETE FROM events WHERE id = ?`).run(row.id)
+    }
+  } catch {
+    // malformed payload -- leave it alone
+  }
+}
+
 export function setTitle(conversationId: string, title: string): void {
   getDb().prepare(`UPDATE conversations SET title = ? WHERE id = ?`).run(title, conversationId)
 }

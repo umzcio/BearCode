@@ -19,7 +19,7 @@ import { BaseCallbackHandler } from '@langchain/core/callbacks/base'
 import type { LLMResult } from '@langchain/core/outputs'
 import type { Event, ProviderId, ToolName } from '../../shared/types'
 import type { RunSink } from '../ursa/run'
-import { appendEvent, getConversationMeta } from '../db'
+import { appendEvent, appendOrReplaceEvent, dropDanglingCancel, getConversationMeta } from '../db'
 import { parseModelRef } from '../ursa/providers/registry'
 import { maybeGenerateTitle } from '../ursa/title'
 import { makeModel } from './models'
@@ -627,7 +627,19 @@ export function cancelPendingApproval(conversationId: string): RunSink | undefin
 async function continueAfterApproval(pending: PendingApproval, approved: boolean): Promise<void> {
   const { agent, pendingCallId, pendingInput, ...ctx } = pending
   try {
-    emitAndPersist(ctx.conversationId, ctx.sink, {
+    // appendOrReplaceEvent, not emitAndPersist: the resolved tool_call reuses
+    // pendingCallId. In the live flow the pending row was never persisted so
+    // this inserts (unchanged); in the crash-resume flow (A2) rehydratePausedRun
+    // persisted the pending row, so this replaces it in place rather than
+    // colliding on events.id.
+    ctx.sink.emit(ctx.conversationId, {
+      type: 'tool_call',
+      id: pendingCallId,
+      tool: 'run_command',
+      input: pendingInput,
+      approvalState: approved ? 'approved' : 'denied'
+    })
+    appendOrReplaceEvent(ctx.conversationId, {
       type: 'tool_call',
       id: pendingCallId,
       tool: 'run_command',
@@ -672,50 +684,40 @@ async function failTurn(ctx: DriveContext, err: unknown): Promise<void> {
   ctx.sink.setState(ctx.conversationId, cancelled ? 'cancelled' : 'error')
 }
 
-export async function runGraph(opts: {
-  conversationId: string
-  userText: string
-  modelRef: string
-  sink: RunSink
+// Build the deep agent + its DriveContext for a conversation. Shared by
+// runGraph (a fresh turn) and rehydratePausedRun (crash-resume, A2) so the two
+// can never drift in how the agent, checkpointer, backend, and tools are wired.
+// A real SQLite-backed checkpointer (src/main/orchestrator/checkpointer.ts, its
+// own `checkpoints.db`, separate from the `events` table) makes the graph's
+// execution state survive a crash, not just the token stream (verified option
+// name: planning/replatform-api-notes.md section (e)), AND lets raw `interrupt()`
+// calls (risk 4, tools.ts) pause/resume this thread (section (d2)).
+function buildAgentAndContext(
+  conversationId: string,
+  modelRef: string,
+  userText: string,
+  sink: RunSink,
   signal: AbortSignal
-}): Promise<{ paused: boolean }> {
-  const { conversationId, userText, modelRef, sink, signal } = opts
+): { agent: ReturnType<typeof createDeepAgent>; ctx: DriveContext } {
   const { provider: providerId, modelId } = parseModelRef(modelRef)
-  const startedAt = Date.now()
-
-  sink.setState(conversationId, 'running')
-  const userEvent: Event = { type: 'user_message', id: randomUUID(), text: userText }
-  sink.emit(conversationId, userEvent)
-  appendEvent(conversationId, userEvent)
-
   const projectPath = getConversationMeta(conversationId)?.projectPath ?? null
   const model = makeModel(modelRef)
   const diffGroupId = randomUUID()
   const backend = projectPath
     ? new DiffFsBackend(conversationId, projectPath, diffGroupId)
     : undefined
-  // A real SQLite-backed checkpointer (src/main/orchestrator/checkpointer.ts,
-  // its own `checkpoints.db`, separate from the `events` table above) so the
-  // graph's execution state survives a crash, not just the token stream
-  // (verified construction/option name: planning/replatform-api-notes.md
-  // section (e), `CreateDeepAgentParams.checkpointer?: BaseCheckpointSaver |
-  // boolean`, deepagents/dist/agent-DURA4_mf.d.ts line ~2568), AND so raw
-  // `interrupt()` calls (risk 4, tools.ts) can pause/resume this thread
-  // (section (d2): "checkpointer is required for interrupts to survive
-  // across the pause").
   const agent = createDeepAgent({
     model,
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
     ...(backend ? { backend, tools: buildTools(projectPath as string) } : {})
   })
-
   const ctx: DriveContext = {
     conversationId,
     sink,
     providerId,
     modelId,
-    startedAt,
+    startedAt: Date.now(),
     userText,
     projectPath: projectPath ?? '',
     backend: backend ?? new DiffFsBackend(conversationId, '', diffGroupId),
@@ -726,6 +728,24 @@ export async function runGraph(opts: {
     callIdMap: new Map(),
     answerAccum: { text: '' }
   }
+  return { agent, ctx }
+}
+
+export async function runGraph(opts: {
+  conversationId: string
+  userText: string
+  modelRef: string
+  sink: RunSink
+  signal: AbortSignal
+}): Promise<{ paused: boolean }> {
+  const { conversationId, userText, modelRef, sink, signal } = opts
+
+  sink.setState(conversationId, 'running')
+  const userEvent: Event = { type: 'user_message', id: randomUUID(), text: userText }
+  sink.emit(conversationId, userEvent)
+  appendEvent(conversationId, userEvent)
+
+  const { agent, ctx } = buildAgentAndContext(conversationId, modelRef, userText, sink, signal)
 
   try {
     const result = await drive(agent, { messages: [{ role: 'user', content: userText }] }, ctx)
@@ -743,6 +763,54 @@ export async function runGraph(opts: {
     await failTurn(ctx, err)
   }
   return { paused: false }
+}
+
+// Full crash-resume (A2). Called at boot for a dangling conversation: rebuilds
+// the agent (same checkpointer + thread_id, so it reads the persisted execution
+// state) and checks whether the run died parked at a command-approval interrupt.
+// If so, re-surfaces the approval and re-parks it in pendingApprovals so the
+// existing resolveApprovalOrchestrator -> continueAfterApproval path resumes the
+// graph from the checkpoint. Returns true if it re-parked a pending approval,
+// false if there was nothing safely resumable (caller then degrades to
+// 'cancelled'). Security: this only re-shows the approval; the command never
+// auto-runs -- the user must Approve again.
+export async function rehydratePausedRun(
+  conversationId: string,
+  modelRef: string,
+  userText: string,
+  sink: RunSink,
+  signal: AbortSignal
+): Promise<boolean> {
+  const { agent, ctx } = buildAgentAndContext(conversationId, modelRef, userText, sink, signal)
+  const pending = await findPendingInterrupt(agent, conversationId)
+  // No interrupt -> a mid-stream crash with no safe resume point. count > 1 ->
+  // parallel interrupts, which the resume path can't disambiguate (same guard
+  // as the live drive() loop). Either way, not resumable.
+  if (!pending || pending.count > 1) return false
+  const value = pending.value as { kind?: string; command?: string } | undefined
+  if (value?.kind !== 'run_command') return false
+
+  // Drop the provisional 'Cancelled' cancelZombieRuns appended at boot before
+  // re-surfacing, so history doesn't show "Cancelled" above a live approval.
+  dropDanglingCancel(conversationId)
+
+  const pendingCallId = randomUUID()
+  const pendingInput = { command: value.command ?? '' }
+  // PERSIST (not emit-only) the pending tool_call: at boot the renderer may not
+  // have this conversation loaded yet and openConvo rebuilds an awaiting-approval
+  // conversation from the DB, so the pending approval must live in history. The
+  // resolved tool_call reuses pendingCallId and is written with
+  // appendOrReplaceEvent (continueAfterApproval), replacing this row in place.
+  emitAndPersist(conversationId, sink, {
+    type: 'tool_call',
+    id: pendingCallId,
+    tool: 'run_command',
+    input: pendingInput,
+    approvalState: 'pending'
+  })
+  pendingApprovals.set(conversationId, { ...ctx, agent, pendingCallId, pendingInput })
+  sink.setState(conversationId, 'awaiting-approval')
+  return true
 }
 
 async function closeOutTurn(ctx: DriveContext): Promise<void> {
