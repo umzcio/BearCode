@@ -196,6 +196,18 @@ interface DriveContext {
   // "Thought for Ns" step as call-start -> answer-start. Reset per call by the
   // handler's handleLLMStart.
   answerStartedAt: { t: number | null }
+  // Tool calls captured from handleLLMEnd, a fallback for providers whose stream
+  // strips them. Gemini bundles its tool call into a thought-bearing chunk, and
+  // Deep Agents drops those from streamMode:messages (the same reason reasoning is
+  // bridged, above) -- so aiMsg.tool_calls is empty and the post-loop would
+  // surface nothing (no tool_call event, and the run_command interrupt is never
+  // detected, so approval never prompts). handleLLMEnd keeps the full message, so
+  // the ReasoningBridgeHandler records tool calls here for the post-loop to use as
+  // a fallback. Keyed by tool-call id (dedup across the parent+child
+  // handleLLMEnd double-fire); insertion order preserved. Shared by reference
+  // across the pause/resume split like callIdMap, so a resumed segment still sees
+  // the paused tool call.
+  bridgedToolCalls: Map<string, { id: string; name: string; args: unknown }>
 }
 
 interface DriveResult {
@@ -252,7 +264,8 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
   constructor(
     private readonly conversationId: string,
     private readonly sink: RunSink,
-    private readonly answerStartedAt: { t: number | null }
+    private readonly answerStartedAt: { t: number | null },
+    private readonly bridgedToolCalls: Map<string, { id: string; name: string; args: unknown }>
   ) {
     super()
   }
@@ -268,8 +281,24 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
     let thinking = ''
     for (const gens of output.generations ?? []) {
       for (const gen of gens) {
-        const message = (gen as { message?: { content?: unknown } }).message
+        const message = (
+          gen as {
+            message?: {
+              content?: unknown
+              tool_calls?: { id?: string; name?: string; args?: unknown }[]
+            }
+          }
+        ).message
         thinking += thinkingTextOfMessage(message?.content)
+        // Record tool calls the same way, and BEFORE the thinking early-return
+        // below: Deep Agents strips them from the stream when they ride in a
+        // thought-bearing chunk (Gemini), so the drive() post-loop uses these as a
+        // fallback. Dedup by id (handleLLMEnd fires for the parent and child run).
+        for (const tc of message?.tool_calls ?? []) {
+          if (tc?.id && tc.name && !this.bridgedToolCalls.has(tc.id)) {
+            this.bridgedToolCalls.set(tc.id, { id: tc.id, name: tc.name, args: tc.args })
+          }
+        }
       }
     }
     if (!thinking || this.seen.has(thinking)) return
@@ -407,7 +436,14 @@ async function drive(
     configurable: { thread_id: ctx.conversationId },
     // Reasoning arrives via this callback's handleLLMEnd, not the token stream
     // (see ReasoningBridgeHandler's doc comment for why).
-    callbacks: [new ReasoningBridgeHandler(ctx.conversationId, ctx.sink, ctx.answerStartedAt)]
+    callbacks: [
+      new ReasoningBridgeHandler(
+        ctx.conversationId,
+        ctx.sink,
+        ctx.answerStartedAt,
+        ctx.bridgedToolCalls
+      )
+    ]
   })
 
   for await (const item of stream) {
@@ -545,101 +581,125 @@ async function drive(
     }
   }
 
-  // Emit tool_call/tool_result Events for every tool call surfaced by this
-  // invocation's AI message(s), in the order the model issued them (fix
-  // carried from Task 5 review: these were previously dropped silently).
-  for (const msgId of aiOrder) {
-    const aiMsg = aiById.get(msgId)
-    const msgAgentId = aiAgentById.get(msgId)
-    for (const tc of aiMsg?.tool_calls ?? []) {
-      if (!tc.id) continue
-      // Mint (or recall) the local id for this provider tool-call id up
-      // front, before checking alreadyAnnounced -- see callIdMap's doc
-      // comment on DriveContext. Recall matters across the pause/resume
-      // split: the same tc.id is seen again after resume, and must map to
-      // the SAME local id that was used for the pre-pause tool_call emit.
-      let localId = ctx.callIdMap.get(tc.id)
-      if (!localId) {
-        localId = randomUUID()
-        ctx.callIdMap.set(tc.id, localId)
-      }
-      const toolResult = toolMsgById.get(tc.id)
-      if (!toolResult) {
-        // No result yet: this is the tool the graph paused on (run_command
-        // awaiting approval). Check the checkpointed state to confirm, per
-        // the raw-interrupt() pattern (planning/replatform-api-notes.md (d2)).
-        const pending = await findPendingInterrupt(agent, ctx.conversationId)
-        if (pending !== undefined) {
-          if (pending.count > 1) {
-            // Parallel interrupts: the approval-resume path issues a bare,
-            // unkeyed `Command({ resume })` (continueAfterApproval below),
-            // which cannot safely target one interrupt out of several
-            // pending ones. Since this is the command-approval SECURITY
-            // gate, silently applying that resume to an ambiguous set
-            // could execute a command the user meant to deny, or leave a
-            // second approval prompt never surfaced. Fail the turn
-            // deterministically instead -- caught by the try/catch in
-            // runGraph/continueAfterApproval, which emits a clear `error`
-            // Event via failTurn(). Full multi-interrupt support (a
-            // per-task keyed resume) is a follow-up; not needed for the POC.
-            throw new Error(
-              `${pending.count} tool calls require approval in the same step; ` +
-                'parallel approvals are not yet supported.'
-            )
-          }
-          // Not persisted here (matching legacy run.ts): only the final
-          // approvalState ('approved'/'denied', emitted once resolved, see
-          // continueAfterApproval below) is written to the events table.
-          // Persisting this 'pending' row too would collide on the same
-          // event id once the final state is appended.
-          ctx.sink.emit(ctx.conversationId, {
-            type: 'tool_call',
-            id: localId,
-            tool: (tc.name as ToolName) ?? 'run_command',
-            input: tc.args,
-            approvalState: 'pending',
-            agentId: msgAgentId
-          })
-          ctx.sink.setState(ctx.conversationId, 'awaiting-approval')
-          return { paused: true, pendingCallId: localId, pendingInput: tc.args }
+  // Emit tool_call/tool_result Events for every tool call this invocation's AI
+  // message(s) issued, in order. processToolCall handles one call; it returns a
+  // DriveResult when the graph paused on it (run_command awaiting approval), so
+  // the caller propagates the pause, or null to continue to the next call.
+  const processToolCall = async (
+    tc: { id?: string; name?: string; args?: unknown },
+    msgAgentId: string | undefined
+  ): Promise<DriveResult | null> => {
+    if (!tc.id) return null
+    // Mint (or recall) the local id for this provider tool-call id up front,
+    // before checking alreadyAnnounced -- see callIdMap's doc comment on
+    // DriveContext. Recall matters across the pause/resume split: the same tc.id
+    // is seen again after resume, and must map to the SAME local id that was
+    // used for the pre-pause tool_call emit.
+    let localId = ctx.callIdMap.get(tc.id)
+    if (!localId) {
+      localId = randomUUID()
+      ctx.callIdMap.set(tc.id, localId)
+    }
+    const toolResult = toolMsgById.get(tc.id)
+    if (!toolResult) {
+      // No result yet: this is the tool the graph paused on (run_command
+      // awaiting approval). Check the checkpointed state to confirm, per the
+      // raw-interrupt() pattern (planning/replatform-api-notes.md (d2)).
+      const pending = await findPendingInterrupt(agent, ctx.conversationId)
+      if (pending !== undefined) {
+        if (pending.count > 1) {
+          // Parallel interrupts: the approval-resume path issues a bare, unkeyed
+          // `Command({ resume })` (continueAfterApproval below), which cannot
+          // safely target one interrupt out of several pending ones. Since this
+          // is the command-approval SECURITY gate, silently applying that resume
+          // to an ambiguous set could execute a command the user meant to deny,
+          // or leave a second approval prompt never surfaced. Fail the turn
+          // deterministically instead -- caught by the try/catch in
+          // runGraph/continueAfterApproval, which emits a clear `error` Event via
+          // failTurn(). Full multi-interrupt support (a per-task keyed resume) is
+          // a follow-up; not needed for the POC.
+          throw new Error(
+            `${pending.count} tool calls require approval in the same step; ` +
+              'parallel approvals are not yet supported.'
+          )
         }
-        // No result and no interrupt: the tool is still genuinely running
-        // (shouldn't happen once the stream is exhausted) -- skip silently.
-        continue
-      }
-      // Prefer the agentId the tool_result chunk itself was namespaced
-      // under (toolAgentById); fall back to the AI message's agentId if the
-      // result somehow wasn't observed with a namespace (shouldn't happen,
-      // but keeps attribution best-effort rather than silently dropping it).
-      const resultAgentId = toolAgentById.get(tc.id) ?? msgAgentId
-      if (!ctx.alreadyAnnounced.has(localId)) {
-        emitAndPersist(ctx.conversationId, ctx.sink, {
+        // Not persisted here (matching legacy run.ts): only the final
+        // approvalState ('approved'/'denied', emitted once resolved, see
+        // continueAfterApproval below) is written to the events table.
+        // Persisting this 'pending' row too would collide on the same event id
+        // once the final state is appended.
+        ctx.sink.emit(ctx.conversationId, {
           type: 'tool_call',
           id: localId,
           tool: (tc.name as ToolName) ?? 'run_command',
           input: tc.args,
-          approvalState: 'auto',
+          approvalState: 'pending',
           agentId: msgAgentId
         })
+        ctx.sink.setState(ctx.conversationId, 'awaiting-approval')
+        return { paused: true, pendingCallId: localId, pendingInput: tc.args }
       }
-      const output = textOf(toolResult.content)
-      const stats =
-        tc.name === 'write_file' || tc.name === 'edit_file' ? nextStagedStats(ctx) : undefined
-      const truncated = output.length > 50000
-      // Reuse the id the live emit used (if any) so this authoritative row --
-      // now carrying stats -- UPSERTS over the live one in the renderer instead
-      // of appearing as a second result.
+      // No result and no interrupt: the tool is still genuinely running
+      // (shouldn't happen once the stream is exhausted) -- skip silently.
+      return null
+    }
+    // Prefer the agentId the tool_result chunk itself was namespaced under
+    // (toolAgentById); fall back to the AI message's agentId if the result
+    // somehow wasn't observed with a namespace (shouldn't happen, but keeps
+    // attribution best-effort rather than silently dropping it).
+    const resultAgentId = toolAgentById.get(tc.id) ?? msgAgentId
+    if (!ctx.alreadyAnnounced.has(localId)) {
       emitAndPersist(ctx.conversationId, ctx.sink, {
-        type: 'tool_result',
-        id: resultIdByTc.get(tc.id) ?? randomUUID(),
-        callId: localId,
-        output: truncated ? output.slice(0, 50000) + '\n… output truncated' : output,
-        durationMs: 0,
-        truncated,
-        stats,
-        agentId: resultAgentId
+        type: 'tool_call',
+        id: localId,
+        tool: (tc.name as ToolName) ?? 'run_command',
+        input: tc.args,
+        approvalState: 'auto',
+        agentId: msgAgentId
       })
     }
+    const output = textOf(toolResult.content)
+    const stats =
+      tc.name === 'write_file' || tc.name === 'edit_file' ? nextStagedStats(ctx) : undefined
+    const truncated = output.length > 50000
+    // Reuse the id the live emit used (if any) so this authoritative row -- now
+    // carrying stats -- UPSERTS over the live one in the renderer instead of
+    // appearing as a second result.
+    emitAndPersist(ctx.conversationId, ctx.sink, {
+      type: 'tool_result',
+      id: resultIdByTc.get(tc.id) ?? randomUUID(),
+      callId: localId,
+      output: truncated ? output.slice(0, 50000) + '\n… output truncated' : output,
+      durationMs: 0,
+      truncated,
+      stats,
+      agentId: resultAgentId
+    })
+    return null
+  }
+
+  // First, the tool calls the stream surfaced (most providers), recording their
+  // ids so the fallback below doesn't process the same call twice.
+  const processedTcIds = new Set<string>()
+  for (const msgId of aiOrder) {
+    const aiMsg = aiById.get(msgId)
+    const msgAgentId = aiAgentById.get(msgId)
+    for (const tc of aiMsg?.tool_calls ?? []) {
+      if (tc.id) processedTcIds.add(tc.id)
+      const result = await processToolCall(tc, msgAgentId)
+      if (result) return result
+    }
+  }
+  // Then the fallback: tool calls Deep Agents stripped from the stream (Gemini
+  // bundles them into dropped thought-bearing chunks) but that handleLLMEnd
+  // recorded on ctx.bridgedToolCalls. Attributed to the main agent -- handleLLMEnd
+  // carries no lc_agent_name namespace, the same caveat as the reasoning bridge.
+  // Pause/resume dedup is handled inside processToolCall (callIdMap recall + the
+  // alreadyAnnounced guard), exactly as for streamed calls.
+  for (const tc of ctx.bridgedToolCalls.values()) {
+    if (processedTcIds.has(tc.id)) continue
+    const result = await processToolCall(tc, undefined)
+    if (result) return result
   }
 
   return { paused: false }
@@ -843,7 +903,8 @@ function buildAgentAndContext(
     alreadyAnnounced: new Set(),
     callIdMap: new Map(),
     answerAccum: { text: '' },
-    answerStartedAt: { t: null }
+    answerStartedAt: { t: null },
+    bridgedToolCalls: new Map()
   }
   return { agent, ctx }
 }
