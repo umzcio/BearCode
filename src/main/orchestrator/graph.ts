@@ -208,6 +208,18 @@ interface DriveContext {
   // across the pause/resume split like callIdMap, so a resumed segment still sees
   // the paused tool call.
   bridgedToolCalls: Map<string, { id: string; name: string; args: unknown }>
+  // Final answer text captured from handleLLMEnd, a fallback for providers
+  // whose stream strips it: Gemini can bundle the final text into
+  // thought-bearing chunks that Deep Agents drops from streamMode:messages,
+  // the same mechanism as bridgedToolCalls above (Bug A cause 2). Boxed and
+  // shared by reference across the pause/resume split like answerAccum.
+  // drive() emits it at un-paused segment end only when the streamed answer
+  // does not already contain it (shouldEmitBridgedText).
+  bridgedAnswerText: { text: string }
+  // One-shot guard for the empty-final recovery nudge (Bug A cause 1). Boxed
+  // and shared across the pause/resume split so a turn never nudges twice,
+  // even if the nudge segment itself pauses on an approval and resumes.
+  emptyFinalRetried: { done: boolean }
 }
 
 interface DriveResult {
@@ -233,6 +245,41 @@ function thinkingTextOfMessage(content: unknown): string {
     else if (b.type === 'reasoning' && typeof b.reasoning === 'string') out += b.reasoning
   }
   return out
+}
+
+// Pull plain answer text out of a completed message's content (handleLLMEnd):
+// either a bare string, or the concatenation of {type:"text"} blocks in a
+// content array. Counterpart of thinkingTextOfMessage above, for the answer-
+// text bridge (Bug A cause 2). Exported for tests.
+export function textOfMessage(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  let out = ''
+  for (const raw of content) {
+    const b = raw as { type?: string; text?: unknown }
+    if (b.type === 'text' && typeof b.text === 'string') out += b.text
+  }
+  return out
+}
+
+// Pure decision for the answer-text bridge: emit only when handleLLMEnd
+// captured text AND the streamed answer does not already contain it. Providers
+// whose stream carries the text (kimi/openai/anthropic) accumulate the exact
+// same tokens handleLLMEnd sees, so containment is exact and the bridge stays
+// silent -- this guard is what prevents a double-emit. Exported for tests.
+export function shouldEmitBridgedText(bridged: string, streamedAnswer: string): boolean {
+  return bridged !== '' && !streamedAnswer.includes(bridged)
+}
+
+// Pure decision for the empty-final recovery (Bug A cause 1): retry once when
+// the turn actually ran at least one tool but accumulated no answer text.
+// Exported for tests.
+export function shouldRetryEmptyFinal(
+  toolCallCount: number,
+  answerText: string,
+  alreadyRetried: boolean
+): boolean {
+  return toolCallCount > 0 && answerText === '' && !alreadyRetried
 }
 
 // Reasoning bridge (Phase A1c). Deep Agents' streaming pipeline strips
@@ -265,7 +312,8 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
     private readonly conversationId: string,
     private readonly sink: RunSink,
     private readonly answerStartedAt: { t: number | null },
-    private readonly bridgedToolCalls: Map<string, { id: string; name: string; args: unknown }>
+    private readonly bridgedToolCalls: Map<string, { id: string; name: string; args: unknown }>,
+    private readonly bridgedAnswerText: { text: string }
   ) {
     super()
   }
@@ -298,6 +346,19 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
           if (tc?.id && tc.name && !this.bridgedToolCalls.has(tc.id)) {
             this.bridgedToolCalls.set(tc.id, { id: tc.id, name: tc.name, args: tc.args })
           }
+        }
+        // Bridge final answer text the same way (Bug A cause 2): a completed
+        // model call with NO tool_calls is a final-answer call, and Gemini can
+        // bundle its text into thought-bearing chunks that the stream drops.
+        // Overwrite (latest wins) -- the parent/child handleLLMEnd double-fire
+        // carries the same text, and in a multi-step turn only the last final
+        // call's text is the answer. Same attribution caveat as thinking
+        // (below): no lc_agent_name here, so a subagent's final text could be
+        // captured in delegation turns; drive()'s containment guard plus this
+        // no-tool-calls filter narrows that window.
+        if ((message?.tool_calls ?? []).length === 0) {
+          const answerText = textOfMessage(message?.content)
+          if (answerText) this.bridgedAnswerText.text = answerText
         }
       }
     }
@@ -441,7 +502,8 @@ async function drive(
         ctx.conversationId,
         ctx.sink,
         ctx.answerStartedAt,
-        ctx.bridgedToolCalls
+        ctx.bridgedToolCalls,
+        ctx.bridgedAnswerText
       )
     ]
   })
@@ -702,6 +764,18 @@ async function drive(
     if (result) return result
   }
 
+  // Bridge the final answer if the stream dropped it (Bug A cause 2): when
+  // handleLLMEnd captured answer text that never made it into the streamed
+  // accumulator, emit + persist it now, after the tool rows (so the recovered
+  // assistant_text lands below the tool_results it describes). For providers
+  // whose stream carries text normally, the streamed answer already contains
+  // the bridged text verbatim and shouldEmitBridgedText makes this a no-op.
+  const bridged = ctx.bridgedAnswerText.text
+  if (shouldEmitBridgedText(bridged, ctx.answerAccum.text)) {
+    emitAndPersist(ctx.conversationId, ctx.sink, textDeltaEvent(randomUUID(), bridged))
+    ctx.answerAccum.text += bridged
+  }
+
   return { paused: false }
 }
 
@@ -799,6 +873,59 @@ export function clearAllPendingApprovals(): void {
   pendingApprovals.clear()
 }
 
+// Model-facing only: lives in the thread's checkpointed graph state, never in
+// the events table (see settleTurn below).
+const EMPTY_FINAL_NUDGE =
+  "You returned an empty response. Answer the user's last request now, " +
+  'using the tool results above.'
+
+// Shared un-paused completion for runGraph and continueAfterApproval, factored
+// so the two sites can't drift. Parks a paused result in pendingApprovals and
+// returns true (caller must NOT settle the turn); otherwise runs the
+// empty-final recovery (Bug A cause 1), closes out the turn, and returns
+// false. The recovery: when the turn ran at least one tool but accumulated no
+// answer text, re-drive ONCE on the same thread/checkpointer with a brief
+// nudge. The nudge is graph-state only -- deliberately NOT persisted as a
+// user_message event, so it is invisible in the UI but part of the thread's
+// checkpointed history (visible to the model in later turns). If the turn is
+// still empty after the nudge, a persisted error event tells the user instead
+// of silently stamping done.
+async function settleTurn(
+  agent: ReturnType<typeof createDeepAgent>,
+  result: DriveResult,
+  ctx: DriveContext
+): Promise<boolean> {
+  let final = result
+  if (
+    !final.paused &&
+    shouldRetryEmptyFinal(ctx.callIdMap.size, ctx.answerAccum.text, ctx.emptyFinalRetried.done)
+  ) {
+    ctx.emptyFinalRetried.done = true
+    final = await drive(agent, { messages: [{ role: 'user', content: EMPTY_FINAL_NUDGE }] }, ctx)
+  }
+  if (final.paused && final.pendingCallId) {
+    pendingApprovals.set(ctx.conversationId, {
+      ...ctx,
+      agent,
+      pendingCallId: final.pendingCallId,
+      pendingInput: final.pendingInput
+    })
+    return true
+  }
+  if (ctx.callIdMap.size > 0 && ctx.answerAccum.text === '') {
+    // Tools ran but even the nudge retry produced no answer: surface why the
+    // turn has no text (same recoverable error shape failTurn emits).
+    emitAndPersist(ctx.conversationId, ctx.sink, {
+      type: 'error',
+      id: randomUUID(),
+      message: 'The model returned an empty response after running commands. Try asking again.',
+      recoverable: true
+    })
+  }
+  await closeOutTurn(ctx)
+  return false
+}
+
 async function continueAfterApproval(pending: PendingApproval, approved: boolean): Promise<void> {
   const { agent, pendingCallId, pendingInput, ...ctx } = pending
   try {
@@ -826,16 +953,7 @@ async function continueAfterApproval(pending: PendingApproval, approved: boolean
     // { approved } (not a bare boolean) -- see tools.ts's interrupt() call
     // for why: LangGraph's Command(resume) rejects falsy resume values.
     const result = await drive(agent, new Command({ resume: { approved } }), ctx)
-    if (result.paused && result.pendingCallId) {
-      pendingApprovals.set(ctx.conversationId, {
-        ...ctx,
-        agent,
-        pendingCallId: result.pendingCallId,
-        pendingInput: result.pendingInput
-      })
-      return
-    }
-    await closeOutTurn(ctx)
+    if (await settleTurn(agent, result, ctx)) return
   } catch (err) {
     await failTurn(ctx, err)
   }
@@ -904,7 +1022,9 @@ function buildAgentAndContext(
     callIdMap: new Map(),
     answerAccum: { text: '' },
     answerStartedAt: { t: null },
-    bridgedToolCalls: new Map()
+    bridgedToolCalls: new Map(),
+    bridgedAnswerText: { text: '' },
+    emptyFinalRetried: { done: false }
   }
   return { agent, ctx }
 }
@@ -932,16 +1052,7 @@ export async function runGraph(opts: {
 
   try {
     const result = await drive(agent, { messages: [{ role: 'user', content: userText }] }, ctx)
-    if (result.paused && result.pendingCallId) {
-      pendingApprovals.set(conversationId, {
-        ...ctx,
-        agent,
-        pendingCallId: result.pendingCallId,
-        pendingInput: result.pendingInput
-      })
-      return { paused: true }
-    }
-    await closeOutTurn(ctx)
+    if (await settleTurn(agent, result, ctx)) return { paused: true }
   } catch (err) {
     await failTurn(ctx, err)
   }
