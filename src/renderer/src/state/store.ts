@@ -270,7 +270,15 @@ export const useAppStore = create<AppState>((set, get) => {
 
     toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
     toggleModelMenu: () => set((s) => ({ modelMenuTick: s.modelMenuTick + 1 })),
-    goHome: () => set({ view: { kind: 'home' } }),
+    goHome: () =>
+      // New conversations start in the configured default (design section 3).
+      // Reset the composer mode on the home transition so a mode carried over
+      // from a just-viewed conversation cannot leak into the next new
+      // conversation. An explicit pick on the home composer afterward still wins.
+      set((s) => ({
+        view: { kind: 'home' },
+        permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits'
+      })),
     openScheduled: () => set({ view: { kind: 'scheduled' } }),
     openConvo: (id) => {
       set({ view: { kind: 'conversation', id } })
@@ -325,7 +333,10 @@ export const useAppStore = create<AppState>((set, get) => {
             view: { kind: 'conversation', id: meta.id }
           }
         })
-        void window.bearcode.conversations.setMode(meta.id, get().permissionMode)
+        // Persist the mode before the run starts so the very first run_command
+        // resolves the right mode. Await rather than fire-and-forget: do not rely
+        // on IPC ordering for a security-sensitive default.
+        await window.bearcode.conversations.setMode(meta.id, get().permissionMode)
         await window.bearcode.run.start(meta.id, text, modelRef, workspacePath)
       })()
     },
@@ -337,7 +348,18 @@ export const useAppStore = create<AppState>((set, get) => {
           delete conversations[id]
           const view =
             s.view.kind === 'conversation' && s.view.id === id ? { kind: 'home' as const } : s.view
-          return { conversations, convoOrder: orderByRecency(conversations), view }
+          return {
+            conversations,
+            convoOrder: orderByRecency(conversations),
+            view,
+            // Landing back on home (deleted the active conversation): reset the
+            // composer to the configured default so the next new conversation
+            // starts there, not in the deleted conversation's mode.
+            permissionMode:
+              view.kind === 'home'
+                ? (s.settings?.defaultPermissionMode ?? 'accept-edits')
+                : s.permissionMode
+          }
         })
         get().showToast('Conversation deleted')
       })
@@ -411,7 +433,12 @@ export const useAppStore = create<AppState>((set, get) => {
       await window.bearcode.conversations.clear()
       turnStartByConvo.clear()
       workedSecondsByTurn.clear()
-      set({ conversations: {}, convoOrder: [], view: { kind: 'home' } })
+      set((s) => ({
+        conversations: {},
+        convoOrder: [],
+        view: { kind: 'home' },
+        permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits'
+      }))
       get().showToast('All conversations deleted')
     },
 
