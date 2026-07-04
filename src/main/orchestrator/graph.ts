@@ -206,7 +206,9 @@ interface DriveContext {
   // a fallback. Keyed by tool-call id (dedup across the parent+child
   // handleLLMEnd double-fire); insertion order preserved. Shared by reference
   // across the pause/resume split like callIdMap, so a resumed segment still sees
-  // the paused tool call.
+  // the paused tool call. Entries are pruned once their result is processed
+  // (processToolCall), so a later segment never re-iterates a completed call
+  // as a stale no-result candidate for a new pending interrupt.
   bridgedToolCalls: Map<string, { id: string; name: string; args: unknown }>
   // Final answer text captured from handleLLMEnd, a fallback for providers
   // whose stream strips it: Gemini can bundle the final text into
@@ -269,6 +271,25 @@ export function textOfMessage(content: unknown): string {
 // silent -- this guard is what prevents a double-emit. Exported for tests.
 export function shouldEmitBridgedText(bridged: string, streamedAnswer: string): boolean {
   return bridged !== '' && !streamedAnswer.includes(bridged)
+}
+
+// Attribution guard for a pending interrupt: a run_command interrupt carries
+// the exact command string the tool received (tools.ts passes the zod-parsed
+// `command` verbatim), so a candidate tool call only owns the interrupt when
+// it is a run_command with that same command. Without this check, a stale
+// bridged entry left over from an earlier drive() segment (or a parallel
+// sibling that never ran) would claim a NEW interrupt: the approval card
+// shows the stale command while approving resumes -- and executes -- the new,
+// unseen one. Unknown interrupt kinds pass (nothing to verify against).
+// Exported for tests.
+export function interruptBelongsToToolCall(
+  interruptValue: unknown,
+  tc: { name?: string; args?: unknown }
+): boolean {
+  const value = interruptValue as { kind?: string; command?: string } | null | undefined
+  if (value?.kind !== 'run_command') return true
+  if (tc.name !== 'run_command') return false
+  return (tc.args as { command?: unknown } | null | undefined)?.command === value.command
 }
 
 // Pure decision for the empty-final recovery (Bug A cause 1): retry once when
@@ -348,17 +369,19 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
           }
         }
         // Bridge final answer text the same way (Bug A cause 2): a completed
-        // model call with NO tool_calls is a final-answer call, and Gemini can
-        // bundle its text into thought-bearing chunks that the stream drops.
-        // Overwrite (latest wins) -- the parent/child handleLLMEnd double-fire
-        // carries the same text, and in a multi-step turn only the last final
-        // call's text is the answer. Same attribution caveat as thinking
-        // (below): no lc_agent_name here, so a subagent's final text could be
-        // captured in delegation turns; drive()'s containment guard plus this
-        // no-tool-calls filter narrows that window.
+        // model call with NO tool_calls is a final-answer call (an agent loop
+        // only continues while tool calls are issued), and Gemini can bundle
+        // its text into thought-bearing chunks that the stream drops.
+        // Overwrite UNCONDITIONALLY, even with empty text: handleLLMEnd
+        // carries no lc_agent_name, so a subagent's final report is captured
+        // here too in delegation turns -- but the MAIN agent's final always
+        // fires last, so letting an empty main final clear a captured
+        // subagent report is what keeps that report from surfacing as the
+        // main answer (and from suppressing settleTurn's empty-final nudge).
+        // The parent/child handleLLMEnd double-fire carries the same text, so
+        // latest-wins is stable.
         if ((message?.tool_calls ?? []).length === 0) {
-          const answerText = textOfMessage(message?.content)
-          if (answerText) this.bridgedAnswerText.text = answerText
+          this.bridgedAnswerText.text = textOfMessage(message?.content)
         }
       }
     }
@@ -685,6 +708,13 @@ async function drive(
               'parallel approvals are not yet supported.'
           )
         }
+        // The interrupt exists, but is it THIS call's? A no-result candidate
+        // can be a stale bridged entry from a prior segment (Bug A follow-up:
+        // the nudge re-drive iterates ctx.bridgedToolCalls again with a fresh
+        // per-drive toolMsgById, so every previously completed bridged call
+        // has "no result" here). Skip it and let the true owner -- also in
+        // the candidate list -- claim the interrupt.
+        if (!interruptBelongsToToolCall(pending.value, tc)) return null
         // Not persisted here (matching legacy run.ts): only the final
         // approvalState ('approved'/'denied', emitted once resolved, see
         // continueAfterApproval below) is written to the events table.
@@ -705,6 +735,13 @@ async function drive(
       // (shouldn't happen once the stream is exhausted) -- skip silently.
       return null
     }
+    // This call has completed: drop it from the bridged fallback so a later
+    // drive() segment (approval resume, empty-final nudge) never re-iterates
+    // it as a stale no-result candidate that could misclaim a NEW pending
+    // interrupt. The still-pending call is deliberately NOT pruned -- it must
+    // survive the pause/resume split (see bridgedToolCalls' doc comment).
+    // Safe mid-iteration: Map deletion during values() iteration is defined.
+    ctx.bridgedToolCalls.delete(tc.id)
     // Prefer the agentId the tool_result chunk itself was namespaced under
     // (toolAgentById); fall back to the AI message's agentId if the result
     // somehow wasn't observed with a namespace (shouldn't happen, but keeps

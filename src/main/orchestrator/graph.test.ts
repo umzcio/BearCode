@@ -15,7 +15,12 @@ vi.mock('./checkpointer', () => ({
   pruneCheckpoints: vi.fn()
 }))
 
-import { textOfMessage, shouldEmitBridgedText, shouldRetryEmptyFinal } from './graph'
+import {
+  textOfMessage,
+  shouldEmitBridgedText,
+  shouldRetryEmptyFinal,
+  interruptBelongsToToolCall
+} from './graph'
 
 describe('textOfMessage', () => {
   it('returns a plain-string content as-is', () => {
@@ -94,5 +99,43 @@ describe('shouldRetryEmptyFinal (empty-final decision)', () => {
 
   it('retries at most once', () => {
     expect(shouldRetryEmptyFinal(1, '', true)).toBe(false)
+  })
+})
+
+describe('interruptBelongsToToolCall (pending-interrupt attribution)', () => {
+  const interrupt = { kind: 'run_command', command: 'rm -rf build' }
+
+  it('matches the run_command call carrying the same command', () => {
+    expect(
+      interruptBelongsToToolCall(interrupt, {
+        name: 'run_command',
+        args: { command: 'rm -rf build' }
+      })
+    ).toBe(true)
+  })
+
+  it('rejects a stale run_command call with a different command', () => {
+    // The nudge-segment repro: already-executed bridged call `ls` iterated
+    // again with no result while the NEW interrupt belongs to `rm -rf build`.
+    expect(
+      interruptBelongsToToolCall(interrupt, { name: 'run_command', args: { command: 'ls' } })
+    ).toBe(false)
+  })
+
+  it('rejects a non-run_command call claiming a run_command interrupt', () => {
+    expect(
+      interruptBelongsToToolCall(interrupt, { name: 'write_file', args: { path: 'a.txt' } })
+    ).toBe(false)
+  })
+
+  it('rejects when the candidate has no args at all', () => {
+    expect(interruptBelongsToToolCall(interrupt, { name: 'run_command' })).toBe(false)
+  })
+
+  it('passes unknown interrupt kinds through (nothing to verify against)', () => {
+    expect(
+      interruptBelongsToToolCall({ kind: 'future_kind' }, { name: 'run_command', args: {} })
+    ).toBe(true)
+    expect(interruptBelongsToToolCall(undefined, { name: 'run_command', args: {} })).toBe(true)
   })
 })
