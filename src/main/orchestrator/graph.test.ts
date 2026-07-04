@@ -20,7 +20,8 @@ import {
   shouldEmitBridgedText,
   shouldRetryEmptyFinal,
   interruptBelongsToToolCall,
-  findDanglingRunCommandCall
+  findDanglingRunCommandCall,
+  orderCompletedCallsFirst
 } from './graph'
 
 describe('textOfMessage', () => {
@@ -211,5 +212,43 @@ describe('findDanglingRunCommandCall (crash-resume checkpoint scan)', () => {
         'ls -l'
       )
     ).toBeNull()
+  })
+})
+
+describe('orderCompletedCallsFirst (segment post-loop ordering)', () => {
+  const cand = (id?: string): { tc: { id?: string } } => ({ tc: { id } })
+  const ids = (list: Array<{ tc: { id?: string } }>): Array<string | undefined> =>
+    list.map((c) => c.tc.id)
+
+  it('moves a bridged completed call ahead of a streamed pause candidate', () => {
+    // The two-guarded-commands turn: cmd2 (streamed, pending) is listed before
+    // cmd1 (bridged fallback, result already in toolMsgById). cmd1 must be
+    // processed first or its tool_result is lost when cmd2 returns paused.
+    const results = new Set(['tc1'])
+    const out = orderCompletedCallsFirst([cand('tc2'), cand('tc1')], (id) => results.has(id))
+    expect(ids(out)).toEqual(['tc1', 'tc2'])
+  })
+
+  it('preserves relative order within each group', () => {
+    const results = new Set(['a', 'c'])
+    const out = orderCompletedCallsFirst([cand('a'), cand('b'), cand('c'), cand('d')], (id) =>
+      results.has(id)
+    )
+    expect(ids(out)).toEqual(['a', 'c', 'b', 'd'])
+  })
+
+  it('leaves an all-completed or all-pending list unchanged', () => {
+    const all = [cand('a'), cand('b')]
+    expect(ids(orderCompletedCallsFirst(all, () => true))).toEqual(['a', 'b'])
+    expect(ids(orderCompletedCallsFirst(all, () => false))).toEqual(['a', 'b'])
+  })
+
+  it('treats id-less calls as non-completed without calling hasResult', () => {
+    const hasResult = (id: string): boolean => {
+      expect(id).toBeDefined()
+      return true
+    }
+    const out = orderCompletedCallsFirst([cand(undefined), cand('a')], hasResult)
+    expect(ids(out)).toEqual(['a', undefined])
   })
 })

@@ -332,6 +332,27 @@ export function findDanglingRunCommandCall(
   return null
 }
 
+// Order a drive() segment's tool-call candidates so every call that already
+// has a result is processed (and its tool_result persisted) BEFORE any
+// no-result pause candidate. Without this, a segment that both completes a
+// resumed command and pauses on a new one (approve cmd1 -> resume -> cmd1's
+// result arrives -> the model asks for cmd2) returns paused off the streamed
+// cmd2 before the bridged-fallback iteration ever reaches cmd1, and cmd1's
+// result is lost forever: the next segment's fresh toolMsgById has no entry
+// for it, so it degrades to the silent no-result/no-interrupt skip. Relative
+// order within each group is preserved. Exported for tests.
+export function orderCompletedCallsFirst<T extends { tc: { id?: string } }>(
+  candidates: ReadonlyArray<T>,
+  hasResult: (id: string) => boolean
+): T[] {
+  const completed: T[] = []
+  const rest: T[] = []
+  for (const c of candidates) {
+    ;(c.tc.id !== undefined && hasResult(c.tc.id) ? completed : rest).push(c)
+  }
+  return [...completed, ...rest]
+}
+
 // Pure decision for the empty-final recovery (Bug A cause 1): retry once when
 // the turn actually ran at least one tool but accumulated no answer text.
 // Exported for tests.
@@ -780,7 +801,7 @@ async function drive(
     // it as a stale no-result candidate that could misclaim a NEW pending
     // interrupt. The still-pending call is deliberately NOT pruned -- it must
     // survive the pause/resume split (see bridgedToolCalls' doc comment).
-    // Safe mid-iteration: Map deletion during values() iteration is defined.
+    // Safe here: the caller iterates a snapshot of the Map, not the Map itself.
     ctx.bridgedToolCalls.delete(tc.id)
     // Prefer the agentId the tool_result chunk itself was namespaced under
     // (toolAgentById); fall back to the AI message's agentId if the result
@@ -817,27 +838,41 @@ async function drive(
     return null
   }
 
-  // First, the tool calls the stream surfaced (most providers), recording their
-  // ids so the fallback below doesn't process the same call twice.
+  // Collect this segment's candidates in order: first the tool calls the
+  // stream surfaced (most providers), recording their ids so the fallback
+  // doesn't list the same call twice; then the fallback -- tool calls Deep
+  // Agents stripped from the stream (Gemini bundles them into dropped
+  // thought-bearing chunks) but that handleLLMEnd recorded on
+  // ctx.bridgedToolCalls. Fallback calls are attributed to the main agent --
+  // handleLLMEnd carries no lc_agent_name namespace, the same caveat as the
+  // reasoning bridge. Pause/resume dedup is handled inside processToolCall
+  // (callIdMap recall + the alreadyAnnounced guard) for both kinds.
   const processedTcIds = new Set<string>()
+  const candidates: Array<{
+    tc: { id?: string; name?: string; args?: unknown }
+    msgAgentId: string | undefined
+  }> = []
   for (const msgId of aiOrder) {
     const aiMsg = aiById.get(msgId)
     const msgAgentId = aiAgentById.get(msgId)
     for (const tc of aiMsg?.tool_calls ?? []) {
       if (tc.id) processedTcIds.add(tc.id)
-      const result = await processToolCall(tc, msgAgentId)
-      if (result) return result
+      candidates.push({ tc, msgAgentId })
     }
   }
-  // Then the fallback: tool calls Deep Agents stripped from the stream (Gemini
-  // bundles them into dropped thought-bearing chunks) but that handleLLMEnd
-  // recorded on ctx.bridgedToolCalls. Attributed to the main agent -- handleLLMEnd
-  // carries no lc_agent_name namespace, the same caveat as the reasoning bridge.
-  // Pause/resume dedup is handled inside processToolCall (callIdMap recall + the
-  // alreadyAnnounced guard), exactly as for streamed calls.
   for (const tc of ctx.bridgedToolCalls.values()) {
     if (processedTcIds.has(tc.id)) continue
-    const result = await processToolCall(tc, undefined)
+    candidates.push({ tc, msgAgentId: undefined })
+  }
+  // Completed calls first (see orderCompletedCallsFirst's doc comment): a
+  // resumed command's result -- reachable only via the bridged fallback, since
+  // its AI message is never re-streamed -- must be persisted before a newly
+  // streamed pause candidate returns out of this segment. Chronologically
+  // sound too: a call with a result finished before the pause was raised.
+  for (const { tc, msgAgentId } of orderCompletedCallsFirst(candidates, (id) =>
+    toolMsgById.has(id)
+  )) {
+    const result = await processToolCall(tc, msgAgentId)
     if (result) return result
   }
 
