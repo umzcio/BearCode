@@ -33,7 +33,7 @@ function App(): React.JSX.Element {
   }, [init])
 
   // Global shortcuts: Cmd+N new conversation, Cmd+B sidebar, Cmd+, settings,
-  // Cmd+/ model menu, Cmd+L focus the composer.
+  // Cmd+/ model menu, Cmd+. mode menu, Cmd+L focus the composer.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
@@ -54,6 +54,10 @@ function App(): React.JSX.Element {
         case '/':
           e.preventDefault()
           s.toggleModelMenu()
+          break
+        case '.':
+          e.preventDefault()
+          s.togglePermMenu()
           break
         case ';':
           e.preventDefault()
