@@ -4,10 +4,20 @@ import { mergeRules } from './store'
 import { BUILTIN_RULES } from './rules'
 
 const g = (match: string): PermissionRule => ({
-  id: 'g:' + match, scope: 'global', action: 'command', match, effect: 'allow', source: 'user'
+  id: 'g:' + match,
+  scope: 'global',
+  action: 'command',
+  match,
+  effect: 'allow',
+  source: 'user'
 })
 const p = (match: string, projectPath: string): PermissionRule => ({
-  id: 'p:' + match, scope: { projectPath }, action: 'command', match, effect: 'allow', source: 'user'
+  id: 'p:' + match,
+  scope: { projectPath },
+  action: 'command',
+  match,
+  effect: 'allow',
+  source: 'user'
 })
 
 describe('mergeRules', () => {
