@@ -1,0 +1,26 @@
+diff --git a/node_modules/@langchain/google-genai/dist/utils/common.cjs b/node_modules/@langchain/google-genai/dist/utils/common.cjs
+index 402d80c..d003369 100644
+--- a/node_modules/@langchain/google-genai/dist/utils/common.cjs
++++ b/node_modules/@langchain/google-genai/dist/utils/common.cjs
+@@ -363,7 +363,7 @@ function convertResponseContentToChatGenerationChunk(response, extra) {
+ 	if (!response.candidates || response.candidates.length === 0) return null;
+ 	const [candidate] = response.candidates;
+ 	const { content: candidateContent, ...generationInfo } = candidate;
+-	const functionCalls = candidateContent.parts?.reduce((acc, p) => {
++	const functionCalls = candidateContent?.parts?.reduce((acc, p) => {
+ 		if ("functionCall" in p && p.functionCall) acc.push({
+ 			...p,
+ 			id: "id" in p.functionCall && typeof p.functionCall.id === "string" ? p.functionCall.id : (0, _langchain_core_utils_uuid.v4)()
+diff --git a/node_modules/@langchain/google-genai/dist/utils/common.js b/node_modules/@langchain/google-genai/dist/utils/common.js
+index 29e6c4b..7d40070 100644
+--- a/node_modules/@langchain/google-genai/dist/utils/common.js
++++ b/node_modules/@langchain/google-genai/dist/utils/common.js
+@@ -363,7 +363,7 @@ function convertResponseContentToChatGenerationChunk(response, extra) {
+ 	if (!response.candidates || response.candidates.length === 0) return null;
+ 	const [candidate] = response.candidates;
+ 	const { content: candidateContent, ...generationInfo } = candidate;
+-	const functionCalls = candidateContent.parts?.reduce((acc, p) => {
++	const functionCalls = candidateContent?.parts?.reduce((acc, p) => {
+ 		if ("functionCall" in p && p.functionCall) acc.push({
+ 			...p,
+ 			id: "id" in p.functionCall && typeof p.functionCall.id === "string" ? p.functionCall.id : v4()

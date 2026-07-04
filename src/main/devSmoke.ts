@@ -277,6 +277,7 @@ export function runDevSmoke(win: BrowserWindow): void {
               if (e.type === 'user_message') { current = { answer: '', model: null, errors: [] }; turns.push(current); }
               else if (!current) continue;
               else if (e.type === 'assistant_text') current.answer = e.text;
+              else if (e.type === 'thinking' && e.text) { current.thinkingLen = (current.thinkingLen||0) + e.text.length; current.thinkingSnippet = current.thinkingSnippet || e.text.slice(0, 80); }
               else if (e.type === 'tool_call') current.tools = (current.tools||[]).concat(e.tool);
               else if (e.type === 'turn_meta') current.model = e.provider + '/' + e.model;
               else if (e.type === 'error') current.errors.push(e.message);

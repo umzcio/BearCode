@@ -314,6 +314,15 @@ async function drive(
     }
     const aiChunk = chunk as AIMessageChunk
     const s = stateFor(key)
+    if (process.env['BEARCODE_DEBUG_BLOCKS']) {
+      const blocks = aiChunk.contentBlocks ?? []
+      for (const b of blocks) {
+        if (b.type === 'text') continue
+        console.log(
+          `[blocks] key=${key} type=${b.type} reasoningLen=${reasoningTextOf(b).length} raw=${JSON.stringify(b).slice(0, 160)}`
+        )
+      }
+    }
     for (const block of aiChunk.contentBlocks ?? []) {
       const reasoning = reasoningTextOf(block)
       if (reasoning) {
