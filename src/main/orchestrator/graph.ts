@@ -23,6 +23,7 @@ import { appendEvent, appendOrReplaceEvent, dropDanglingCancel, getConversationM
 import { parseModelRef } from '../ursa/providers/registry'
 import { maybeGenerateTitle } from '../ursa/title'
 import { makeModel } from './models'
+import { orchestratorSystemPrompt } from './systemPrompt'
 import { textDeltaEvent, thinkingDeltaEvent } from './bridge'
 import { getCheckpointer } from './checkpointer'
 import { DiffFsBackend } from './fsBackend'
@@ -190,6 +191,11 @@ interface DriveContext {
   // generation, which otherwise saw only the user's prompt (the running answer
   // accumulator is local to each drive() call and didn't survive the pause).
   answerAccum: { text: string }
+  // Timestamp of the first answer-text token of the current model call, boxed so
+  // the ReasoningBridgeHandler (constructed alongside) can read it to time the
+  // "Thought for Ns" step as call-start -> answer-start. Reset per call by the
+  // handler's handleLLMStart.
+  answerStartedAt: { t: number | null }
 }
 
 interface DriveResult {
@@ -225,21 +231,36 @@ function thinkingTextOfMessage(content: unknown): string {
 // probes; full writeup in planning/phaseA1-reasoning-diagnosis.md.) So reasoning
 // for the orchestrator engine is bridged from handleLLMEnd, not the token
 // stream: every completed model call whose message carries thinking emits one
-// thinking Event -- the existing "Thought for Ns" step -- timed from
-// handleLLMStart. The streamMode reasoning path in drive() stays: it's correct
-// for any provider that DOES stream plaintext thinking deltas and is simply
-// inert through Deep Agents, so the two never double-emit here.
+// thinking Event -- the existing "Thought for Ns" step. The streamMode reasoning
+// path in drive() stays: it's correct for any provider that DOES stream
+// plaintext thinking deltas and is simply inert through Deep Agents.
+//
+// Two subtleties this handles:
+//   - DEDUP: handleLLMEnd fires for BOTH a nested parent run and the child model
+//     run, so the same thinking arrives twice with different durations. `seen`
+//     keeps only the first emission of each distinct thinking text per turn.
+//   - DURATION: the "Thought for Ns" time is the wall-clock the model spent
+//     BEFORE it started answering (call start -> first answer token), not the
+//     whole call. The whole call includes streaming the answer, which overstates
+//     thinking and made "Thought for 6s" appear nested under "Worked for 1s".
+//     The drive() loop stamps `answerStartedAt` when the first answer text
+//     arrives; handleLLMStart resets it so each call measures its own gap.
 class ReasoningBridgeHandler extends BaseCallbackHandler {
   name = 'bearcode-reasoning-bridge'
   private readonly startedAt = new Map<string, number>()
+  private readonly seen = new Set<string>()
   constructor(
     private readonly conversationId: string,
-    private readonly sink: RunSink
+    private readonly sink: RunSink,
+    private readonly answerStartedAt: { t: number | null }
   ) {
     super()
   }
   handleLLMStart(_llm: unknown, _prompts: string[], runId: string): void {
     this.startedAt.set(runId, Date.now())
+    // A new model call: forget the previous call's answer-start so this call's
+    // thinking time is measured against its own first answer token.
+    this.answerStartedAt.t = null
   }
   handleLLMEnd(output: LLMResult, runId: string): void {
     const started = this.startedAt.get(runId) ?? Date.now()
@@ -251,12 +272,18 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
         thinking += thinkingTextOfMessage(message?.content)
       }
     }
-    if (!thinking) return
+    if (!thinking || this.seen.has(thinking)) return
+    this.seen.add(thinking)
+    // Thinking wall-clock = call start until the answer began (falls back to the
+    // whole call if this call never produced answer text, e.g. a pure tool step).
+    const answerAt = this.answerStartedAt.t
+    const durationMs =
+      answerAt != null && answerAt > started ? answerAt - started : Date.now() - started
     // agentId omitted (attributed to the main agent): handleLLMEnd doesn't carry
     // the graph's lc_agent_name namespace the stream metadata does, so subagent
     // reasoning attribution is a follow-up. Single-agent turns (the common case)
     // are correct.
-    const ev = thinkingDeltaEvent(randomUUID(), thinking, Date.now() - started)
+    const ev = thinkingDeltaEvent(randomUUID(), thinking, durationMs)
     this.sink.emit(this.conversationId, ev)
     appendEvent(this.conversationId, ev)
   }
@@ -346,6 +373,26 @@ async function drive(
   const aiAgentById = new Map<string, string | undefined>()
   const toolMsgById = new Map<string, ToolMessageChunk>()
   const toolAgentById = new Map<string, string | undefined>()
+  // Live tool surfacing: the post-loop below is authoritative for persistence,
+  // but a build task is almost all tool calls and little prose, so waiting for
+  // it means the user stares at "Working…" with nothing happening. These let the
+  // stream loop emit each tool_call/tool_result the moment its result starts
+  // arriving (emit-only), while the post-loop re-emits + persists the same rows
+  // by the SAME ids (renderer upserts -> no duplication). `liveAnnounced` guards
+  // the one-time tool_call emit; `resultIdByTc` is the stable tool_result event
+  // id shared between the live emit and the post-loop.
+  const liveAnnounced = new Set<string>()
+  const resultIdByTc = new Map<string, string>()
+  const findToolCallInfo = (
+    tcId: string
+  ): { name?: string; args?: unknown; agentId?: string } | undefined => {
+    for (const [mId, msg] of aiById) {
+      for (const tc of msg.tool_calls ?? []) {
+        if (tc.id === tcId) return { name: tc.name, args: tc.args, agentId: aiAgentById.get(mId) }
+      }
+    }
+    return undefined
+  }
 
   // subgraphs:true (per the verified API notes) exposes the subagent's
   // nested stream. Each yielded item is [namespace, [chunk, metadata]];
@@ -360,7 +407,7 @@ async function drive(
     configurable: { thread_id: ctx.conversationId },
     // Reasoning arrives via this callback's handleLLMEnd, not the token stream
     // (see ReasoningBridgeHandler's doc comment for why).
-    callbacks: [new ReasoningBridgeHandler(ctx.conversationId, ctx.sink)]
+    callbacks: [new ReasoningBridgeHandler(ctx.conversationId, ctx.sink, ctx.answerStartedAt)]
   })
 
   for await (const item of stream) {
@@ -379,8 +426,56 @@ async function drive(
       // back to one shared, stable id so same-turn fragments still concat.
       const id = chunk.tool_call_id || chunk.id || FALLBACK_TOOL_MESSAGE_ID
       const prev = toolMsgById.get(id)
-      toolMsgById.set(id, prev ? (prev.concat(chunk) as ToolMessageChunk) : chunk)
+      const merged = prev ? (prev.concat(chunk) as ToolMessageChunk) : chunk
+      toolMsgById.set(id, merged)
       if (!toolAgentById.has(id)) toolAgentById.set(id, agentId)
+
+      // Surface this step LIVE. A result arriving means its tool_call is complete
+      // in aiById (the AI message streamed before the tool ran), so we can emit
+      // the tool_call once, then the tool_result on every chunk (streaming its
+      // output). Emit-only: the post-loop persists the authoritative rows by the
+      // same ids. Stats (write/edit line counts) are left to the post-loop so the
+      // writeCursor advances exactly once. A pending run_command (awaiting
+      // approval) never produces a result chunk, so it never enters here -- the
+      // post-loop still owns the interrupt path.
+      if (chunk.tool_call_id) {
+        const tcId = chunk.tool_call_id
+        const info = findToolCallInfo(tcId)
+        if (info) {
+          let localId = ctx.callIdMap.get(tcId)
+          if (!localId) {
+            localId = randomUUID()
+            ctx.callIdMap.set(tcId, localId)
+          }
+          if (!liveAnnounced.has(tcId) && !ctx.alreadyAnnounced.has(localId)) {
+            liveAnnounced.add(tcId)
+            ctx.sink.emit(ctx.conversationId, {
+              type: 'tool_call',
+              id: localId,
+              tool: (info.name as ToolName) ?? 'run_command',
+              input: info.args,
+              approvalState: 'auto',
+              agentId: info.agentId
+            })
+          }
+          let resultId = resultIdByTc.get(tcId)
+          if (!resultId) {
+            resultId = randomUUID()
+            resultIdByTc.set(tcId, resultId)
+          }
+          const out = textOf(merged.content)
+          const truncated = out.length > 50000
+          ctx.sink.emit(ctx.conversationId, {
+            type: 'tool_result',
+            id: resultId,
+            callId: localId,
+            output: truncated ? out.slice(0, 50000) + '\n… output truncated' : out,
+            durationMs: 0,
+            truncated,
+            agentId: agentId ?? info.agentId
+          })
+        }
+      }
       continue
     }
     const aiChunk = chunk as AIMessageChunk
@@ -408,6 +503,10 @@ async function drive(
         )
       } else if (block.type === 'text' && block.text) {
         if (s.thinkId && !s.thinkEndedAt) s.thinkEndedAt = Date.now()
+        // Mark when the main agent's answer began, so the reasoning handler can
+        // time "Thought for Ns" as the pre-answer gap. Main agent only (key ===
+        // 'main'), so a subagent's text can't skew the main thinking timer.
+        if (key === 'main' && ctx.answerStartedAt.t === null) ctx.answerStartedAt.t = Date.now()
         s.answer += block.text
         ctx.sink.emit(ctx.conversationId, textDeltaEvent(s.answerId, s.answer, agentId))
       }
@@ -527,9 +626,12 @@ async function drive(
       const stats =
         tc.name === 'write_file' || tc.name === 'edit_file' ? nextStagedStats(ctx) : undefined
       const truncated = output.length > 50000
+      // Reuse the id the live emit used (if any) so this authoritative row --
+      // now carrying stats -- UPSERTS over the live one in the renderer instead
+      // of appearing as a second result.
       emitAndPersist(ctx.conversationId, ctx.sink, {
         type: 'tool_result',
-        id: randomUUID(),
+        id: resultIdByTc.get(tc.id) ?? randomUUID(),
         callId: localId,
         output: truncated ? output.slice(0, 50000) + '\n… output truncated' : output,
         durationMs: 0,
@@ -721,6 +823,7 @@ function buildAgentAndContext(
     : undefined
   const agent = createDeepAgent({
     model,
+    systemPrompt: orchestratorSystemPrompt(projectPath),
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
     ...(backend ? { backend, tools: buildTools(projectPath as string) } : {})
@@ -739,7 +842,8 @@ function buildAgentAndContext(
     writeCursor: { i: 0 },
     alreadyAnnounced: new Set(),
     callIdMap: new Map(),
-    answerAccum: { text: '' }
+    answerAccum: { text: '' },
+    answerStartedAt: { t: null }
   }
   return { agent, ctx }
 }
@@ -754,7 +858,12 @@ export async function runGraph(opts: {
   const { conversationId, userText, modelRef, sink, signal } = opts
 
   sink.setState(conversationId, 'running')
-  const userEvent: Event = { type: 'user_message', id: randomUUID(), text: userText }
+  const userEvent: Event = {
+    type: 'user_message',
+    id: randomUUID(),
+    text: userText,
+    createdAt: Date.now()
+  }
   sink.emit(conversationId, userEvent)
   appendEvent(conversationId, userEvent)
 
