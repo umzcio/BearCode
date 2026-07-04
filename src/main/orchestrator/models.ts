@@ -31,7 +31,16 @@ export function makeModel(modelRef: string): BaseChatModel {
     case 'openai':
       return new ChatOpenAI({ apiKey: requireKey('openai'), model: modelId })
     case 'google':
-      return new ChatGoogleGenerativeAI({ apiKey: requireKey('google'), model: modelId })
+      return new ChatGoogleGenerativeAI({
+        apiKey: requireKey('google'),
+        model: modelId,
+        // Gemini 2.5+ / 3.x models support thought summaries via thinkingConfig
+        // (`GoogleGenerativeAIThinkingConfig` in @langchain/google-genai's types.d.ts).
+        // Older 1.x models don't support thinking and error if this is set, so guard
+        // on model id, mirroring the Haiku exclusion above and the legacy engine's
+        // providerOptions() in src/main/ursa/providers/registry.ts.
+        ...(/^gemini-1[.-]/.test(modelId) ? {} : { thinkingConfig: { includeThoughts: true } })
+      })
     case 'openrouter':
       return new ChatOpenAI({
         apiKey: requireKey('openrouter'),
