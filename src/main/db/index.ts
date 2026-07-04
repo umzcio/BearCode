@@ -5,7 +5,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import Database from 'better-sqlite3'
 import { randomUUID } from 'crypto'
-import type { ConversationMeta, Event, PermissionMode } from '../../shared/types'
+import type { ConversationMeta, Event, PermissionMode, PermissionRule } from '../../shared/types'
 import { getSettings } from '../settings'
 
 let db: Database.Database | null = null
@@ -44,6 +44,14 @@ function getDb(): Database.Database {
       conversation_id TEXT,
       path TEXT, before_text TEXT, after_text TEXT,
       state TEXT DEFAULT 'pending'
+    );
+    CREATE TABLE IF NOT EXISTS permission_rules (
+      id TEXT PRIMARY KEY,
+      project_path TEXT,          -- NULL = global scope
+      action TEXT NOT NULL,       -- 'command'
+      match TEXT NOT NULL,
+      effect TEXT NOT NULL,       -- 'allow' | 'deny' | 'ask'
+      created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_events_convo ON events(conversation_id, seq);
   `)
@@ -263,6 +271,46 @@ export function setPermissionMode(conversationId: string, mode: PermissionMode):
   getDb()
     .prepare(`UPDATE conversations SET permission_mode = ?, updated_at = ? WHERE id = ?`)
     .run(mode, Date.now(), conversationId)
+}
+
+interface RuleRow {
+  id: string
+  project_path: string | null
+  action: string
+  match: string
+  effect: string
+}
+
+function toRule(row: RuleRow): PermissionRule {
+  return {
+    id: row.id,
+    scope: row.project_path == null ? 'global' : { projectPath: row.project_path },
+    action: 'command',
+    match: row.match,
+    effect: row.effect as PermissionRule['effect'],
+    source: 'user'
+  }
+}
+
+export function insertRule(rule: PermissionRule): void {
+  const projectPath = rule.scope === 'global' ? null : rule.scope.projectPath
+  getDb()
+    .prepare(
+      `INSERT INTO permission_rules (id, project_path, action, match, effect, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(rule.id, projectPath, rule.action, rule.match, rule.effect, Date.now())
+}
+
+export function listRules(): PermissionRule[] {
+  const rows = getDb()
+    .prepare(`SELECT id, project_path, action, match, effect FROM permission_rules`)
+    .all() as RuleRow[]
+  return rows.map(toRule)
+}
+
+export function deleteRule(id: string): void {
+  getDb().prepare(`DELETE FROM permission_rules WHERE id = ?`).run(id)
 }
 
 export function deleteConversation(id: string): void {
