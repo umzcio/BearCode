@@ -174,11 +174,11 @@ function PendingCommand({
   command: string
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
-  const saveSettings = useAppStore((s) => s.saveSettings)
+  const setPermissionMode = useAppStore((s) => s.setPermissionMode)
 
   const allowOnce = (): void => approveTool(callId, true)
   const allowAlways = (): void => {
-    void saveSettings({ autoApproveCommands: true })
+    setPermissionMode('auto')
     approveTool(callId, true)
   }
   const deny = (): void => approveTool(callId, false)
@@ -216,7 +216,7 @@ function PendingCommand({
         <button className="approval-opt" onClick={allowAlways}>
           <span className="opt-num">2</span>
           Yes, always allow commands
-          <span className="opt-hint">turns on auto-approve in Settings</span>
+          <span className="opt-hint">switches this chat to Auto mode</span>
         </button>
         <button className="approval-opt" onClick={deny}>
           <span className="opt-num">3</span>

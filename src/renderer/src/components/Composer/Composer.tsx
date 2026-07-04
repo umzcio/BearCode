@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
+import { ModePicker } from '../ModePicker/ModePicker'
 import { refConfigured, useAppStore } from '../../state/store'
 import { IconArrowUp, IconChevronDown, IconMic, IconMonitor, IconPlus, IconStop } from '../icons'
 import './Composer.css'
@@ -82,6 +83,7 @@ export function Composer({
           <IconPlus />
         </button>
         <ModelPicker />
+        <ModePicker />
         <button className="icon-btn mic-btn" disabled title="Voice input: coming soon">
           <IconMic />
         </button>

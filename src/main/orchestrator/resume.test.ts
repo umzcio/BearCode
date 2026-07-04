@@ -44,7 +44,15 @@ vi.mock('./checkpointer', () => ({
 import { resumeInterruptedRuns, selectDanglingConversations } from './index'
 
 function meta(id: string, modelRef: string | null = 'anthropic/claude-sonnet-5'): ConversationMeta {
-  return { id, projectPath: null, title: null, modelRef, createdAt: 0, updatedAt: 0 }
+  return {
+    id,
+    projectPath: null,
+    title: null,
+    modelRef,
+    createdAt: 0,
+    updatedAt: 0,
+    permissionMode: 'accept-edits'
+  }
 }
 
 function makeSink(): RunSink & {

@@ -3,6 +3,7 @@ import type {
   AppSettings,
   ConversationMeta,
   Event,
+  PermissionMode,
   PingResult,
   ProviderId,
   RunState
@@ -112,6 +113,9 @@ export function registerIpc(): void {
     forgetRunOrchestrator(id)
     void pruneCheckpoints(id)
     db.deleteConversation(id)
+  })
+  ipcMain.handle('bearcode:conversations:set-mode', (_e, id: string, mode: PermissionMode) => {
+    db.setPermissionMode(id, mode)
   })
   ipcMain.handle('bearcode:conversations:clear', () => {
     clearRunsOrchestrator()

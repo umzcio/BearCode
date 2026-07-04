@@ -10,6 +10,7 @@ const SHORTCUTS: { label: string; keys: string[] }[] = [
   { label: 'New Conversation', keys: ['⌘', 'N'] },
   { label: 'Focus Input', keys: ['⌘', 'L'] },
   { label: 'Toggle Model Selector', keys: ['⌘', '/'] },
+  { label: 'Toggle Mode Selector', keys: ['⌘', '.'] },
   { label: 'Toggle Sidebar', keys: ['⌘', 'B'] },
   { label: 'Open Settings', keys: ['⌘', ','] },
   { label: 'Send Message', keys: ['⏎'] },
@@ -175,20 +176,6 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                   title="Outside of Folders File Access Policy"
                   desc="Configures how the agent tries to access files outside of its working folders."
                 />
-                <Row
-                  title="Terminal Command Auto Execution"
-                  desc="Controls whether terminal commands require your approval before running."
-                >
-                  <select
-                    value={settings.autoApproveCommands ? 'auto' : 'review'}
-                    onChange={(e) =>
-                      void saveSettings({ autoApproveCommands: e.target.value === 'auto' })
-                    }
-                  >
-                    <option value="review">Require Review</option>
-                    <option value="auto">Auto Execute</option>
-                  </select>
-                </Row>
                 <Row
                   title="Enable Sandbox Mode"
                   desc="Restricts agent tools to a secure, isolated local sandbox."

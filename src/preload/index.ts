@@ -5,6 +5,7 @@ import type {
   ConversationMeta,
   Event,
   ModelRef,
+  PermissionMode,
   ProviderId,
   RunState
 } from '../shared/types'
@@ -44,7 +45,9 @@ const bearcode: BearcodeApi = {
     create: (projectPath: string | null) =>
       ipcRenderer.invoke('bearcode:conversations:create', projectPath),
     delete: (id: string) => ipcRenderer.invoke('bearcode:conversations:delete', id),
-    clear: () => ipcRenderer.invoke('bearcode:conversations:clear')
+    clear: () => ipcRenderer.invoke('bearcode:conversations:clear'),
+    setMode: (id: string, mode: PermissionMode): Promise<void> =>
+      ipcRenderer.invoke('bearcode:conversations:set-mode', id, mode)
   },
   workspace: {
     pick: () => ipcRenderer.invoke('bearcode:workspace:pick')

@@ -4,6 +4,7 @@ import type {
   ConversationMeta,
   Event,
   ModelRef,
+  PermissionMode,
   ProviderId,
   ProviderModels,
   RunState,
@@ -18,6 +19,7 @@ export interface Convo {
   projectLabel: string
   title: string
   modelRef: ModelRef | null
+  permissionMode: PermissionMode
   updatedAt: number
   loaded: boolean
   events: Event[]
@@ -44,6 +46,7 @@ function fromMeta(meta: ConversationMeta): Convo {
     projectLabel: meta.projectPath ? basename(meta.projectPath) : 'No folder',
     title: meta.title ?? 'New conversation',
     modelRef: meta.modelRef,
+    permissionMode: meta.permissionMode,
     updatedAt: meta.updatedAt,
     loaded: false,
     events: [],
@@ -63,11 +66,14 @@ interface AppState {
   modelMenuTick: number
   // Incremented by the Cmd+; shortcut; the Home project menu toggles on change.
   projectMenuTick: number
+  // Incremented to toggle the mounted ModePicker menu.
+  permMenuTick: number
   view: View
   conversations: Record<string, Convo>
   convoOrder: string[]
   providers: ProviderModels[]
   modelRef: ModelRef | null
+  permissionMode: PermissionMode
   settings: SettingsInfo | null
   workspacePath: string | null
   settingsOpen: boolean
@@ -90,6 +96,8 @@ interface AppState {
   approveTool(callId: string, approved: boolean): void
   retryRun(convoId: string): void
   selectModel(ref: ModelRef): void
+  setPermissionMode(mode: PermissionMode): void
+  togglePermMenu(): void
   pickWorkspace(): Promise<void>
   setWorkspace(path: string | null): void
   toggleProjectMenu(): void
@@ -198,11 +206,13 @@ export const useAppStore = create<AppState>((set, get) => {
     sidebarCollapsed: false,
     modelMenuTick: 0,
     projectMenuTick: 0,
+    permMenuTick: 0,
     view: { kind: 'home' },
     conversations: {},
     convoOrder: [],
     providers: [],
     modelRef: null,
+    permissionMode: 'accept-edits',
     settings: null,
     workspacePath: null,
     settingsOpen: false,
@@ -236,6 +246,14 @@ export const useAppStore = create<AppState>((set, get) => {
       void (async () => {
         const settings = await window.bearcode.settings.get()
         set({ settings })
+        // One-time seed: adopt the configured default only if the user hasn't
+        // picked a mode yet. This runs exactly once per app session (init is
+        // guarded by `initialized`), unlike ensureDefaultModel which fires on
+        // every refreshProviders() call and would otherwise clobber a later
+        // user selection of 'accept-edits'.
+        if (settings.defaultPermissionMode && get().permissionMode === 'accept-edits') {
+          set({ permissionMode: settings.defaultPermissionMode })
+        }
         const metas = await window.bearcode.conversations.list()
         const conversations: Record<string, Convo> = {}
         for (const meta of metas) conversations[meta.id] = fromMeta(meta)
@@ -252,7 +270,15 @@ export const useAppStore = create<AppState>((set, get) => {
 
     toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
     toggleModelMenu: () => set((s) => ({ modelMenuTick: s.modelMenuTick + 1 })),
-    goHome: () => set({ view: { kind: 'home' } }),
+    goHome: () =>
+      // New conversations start in the configured default (design section 3).
+      // Reset the composer mode on the home transition so a mode carried over
+      // from a just-viewed conversation cannot leak into the next new
+      // conversation. An explicit pick on the home composer afterward still wins.
+      set((s) => ({
+        view: { kind: 'home' },
+        permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits'
+      })),
     openScheduled: () => set({ view: { kind: 'scheduled' } }),
     openConvo: (id) => {
       set({ view: { kind: 'conversation', id } })
@@ -262,6 +288,7 @@ export const useAppStore = create<AppState>((set, get) => {
       if (convo.modelRef && refConfigured(get().providers, convo.modelRef)) {
         set({ modelRef: convo.modelRef })
       }
+      set({ permissionMode: convo.permissionMode })
       // Load history from the DB the first time a conversation is opened. A
       // live running conversation is already `loaded` (it was open when it
       // started), so guarding on `!loaded` avoids clobbering in-flight streamed
@@ -292,7 +319,12 @@ export const useAppStore = create<AppState>((set, get) => {
       void (async () => {
         const meta = await window.bearcode.conversations.create(workspacePath)
         const provisional = text.length > 42 ? text.slice(0, 42) + '…' : text
-        const convo = { ...fromMeta(meta), title: provisional, loaded: true }
+        const convo = {
+          ...fromMeta(meta),
+          title: provisional,
+          loaded: true,
+          permissionMode: get().permissionMode
+        }
         set((s) => {
           const conversations = { ...s.conversations, [meta.id]: convo }
           return {
@@ -301,6 +333,10 @@ export const useAppStore = create<AppState>((set, get) => {
             view: { kind: 'conversation', id: meta.id }
           }
         })
+        // Persist the mode before the run starts so the very first run_command
+        // resolves the right mode. Await rather than fire-and-forget: do not rely
+        // on IPC ordering for a security-sensitive default.
+        await window.bearcode.conversations.setMode(meta.id, get().permissionMode)
         await window.bearcode.run.start(meta.id, text, modelRef, workspacePath)
       })()
     },
@@ -312,7 +348,18 @@ export const useAppStore = create<AppState>((set, get) => {
           delete conversations[id]
           const view =
             s.view.kind === 'conversation' && s.view.id === id ? { kind: 'home' as const } : s.view
-          return { conversations, convoOrder: orderByRecency(conversations), view }
+          return {
+            conversations,
+            convoOrder: orderByRecency(conversations),
+            view,
+            // Landing back on home (deleted the active conversation): reset the
+            // composer to the configured default so the next new conversation
+            // starts there, not in the deleted conversation's mode.
+            permissionMode:
+              view.kind === 'home'
+                ? (s.settings?.defaultPermissionMode ?? 'accept-edits')
+                : s.permissionMode
+          }
         })
         get().showToast('Conversation deleted')
       })
@@ -349,6 +396,17 @@ export const useAppStore = create<AppState>((set, get) => {
       })
     },
 
+    setPermissionMode: (mode) => {
+      set({ permissionMode: mode })
+      const view = get().view
+      const id = view.kind === 'conversation' ? view.id : null
+      if (id) {
+        patchConvo(id, { permissionMode: mode })
+        void window.bearcode.conversations.setMode(id, mode)
+      }
+    },
+    togglePermMenu: () => set((s) => ({ permMenuTick: s.permMenuTick + 1 })),
+
     pickWorkspace: async () => {
       const path = await window.bearcode.workspace.pick()
       if (path) set({ workspacePath: path })
@@ -375,7 +433,12 @@ export const useAppStore = create<AppState>((set, get) => {
       await window.bearcode.conversations.clear()
       turnStartByConvo.clear()
       workedSecondsByTurn.clear()
-      set({ conversations: {}, convoOrder: [], view: { kind: 'home' } })
+      set((s) => ({
+        conversations: {},
+        convoOrder: [],
+        view: { kind: 'home' },
+        permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits'
+      }))
       get().showToast('All conversations deleted')
     },
 
