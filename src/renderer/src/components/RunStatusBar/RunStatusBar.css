@@ -1,0 +1,62 @@
+.run-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin: 0 0 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+  font-size: 13px;
+  color: var(--text-mid);
+}
+.run-status-bar.attention {
+  border-color: var(--accent, #6ea8fe);
+  color: var(--text);
+  cursor: pointer;
+}
+.rsb-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rsb-elapsed {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.rsb-stop {
+  border: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--text-mid);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.rsb-stop:hover {
+  color: var(--text);
+}
+.rsb-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent, #6ea8fe);
+  animation: rsb-pulse 1.2s ease-in-out infinite;
+}
+@keyframes rsb-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rsb-dot {
+    animation: none;
+    opacity: 1;
+  }
+}

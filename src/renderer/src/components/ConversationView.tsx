@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { Event } from '@shared/types'
 import { useAppStore, workedSecondsByTurn } from '../state/store'
 import { Composer } from './Composer/Composer'
+import { RunStatusBar } from './RunStatusBar/RunStatusBar'
 import { WorkedGroup } from './events/WorkedGroup'
 import { AssistantText } from './events/AssistantText'
 import { DiffCard } from './events/DiffCard'
@@ -157,6 +158,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
           })}
         </div>
       </div>
+      <RunStatusBar convoId={convoId} onJumpToApproval={() => {}} />
       <div className="convo-composer">
         <div className="composer-wrap">
           <Composer
