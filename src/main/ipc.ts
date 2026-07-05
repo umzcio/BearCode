@@ -22,6 +22,7 @@ import * as db from './db'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
 import { suggestFiles, manualRuleInfos } from './orchestrator/mentionSuggest'
+import { ingestPickedFiles } from './attachments/ingest'
 import {
   assertValidCommand,
   assertValidMentions,
@@ -119,6 +120,29 @@ export function registerIpc(): void {
   )
   ipcMain.handle('bearcode:mentions:rules', (_e, projectPath: string | null): ManualRuleInfo[] =>
     manualRuleInfos(loadAgentsContent(projectPath))
+  )
+
+  // D4 Media (design 8): native image picker + main-side ingest. Returns the
+  // accepted attachments (ref + a preview data URL for the composer thumbnail)
+  // and a human-readable error per rejected file. Bytes are copied under
+  // userData; only the ref later crosses run:start. `existingCount` lets the
+  // 5-per-message cap consider images already on the composer.
+  // SECURITY: conversationId is renderer-supplied and used main-side to build
+  // an on-disk path; ingestPickedFiles validates it (path-safe grammar)
+  // BEFORE any mkdir/write/read, so a malformed id rejects this promise
+  // instead of ever touching the filesystem.
+  ipcMain.handle(
+    'bearcode:attachments:pick',
+    async (_e, conversationId: string, existingCount: number) => {
+      const result = await dialog.showOpenDialog({
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }]
+      })
+      if (result.canceled || result.filePaths.length === 0) {
+        return { picked: [], errors: [] }
+      }
+      return ingestPickedFiles(conversationId, result.filePaths, existingCount)
+    }
   )
 
   ipcMain.handle('bearcode:diffs:get', (_e, diffId: string) => getDiff(diffId))
