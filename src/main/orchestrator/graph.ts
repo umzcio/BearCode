@@ -484,6 +484,12 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
     // so the renderer can pair the card with the pane's plan viewer (and the
     // Open-in-pane deep link). The body is NOT duplicated here -- the artifact
     // event already carries it.
+    // Note the discriminant asymmetry: this branches on `kind` alone, so a
+    // malformed payload with a missing/non-string artifactId still produces a
+    // 'submit_plan' card (artifactId silently falls back to ''), while
+    // planReviewArtifactIdOf above additionally requires a genuine string
+    // artifactId and returns undefined for that same payload -- the two
+    // readers of this discriminant can disagree on a bad payload.
     return {
       tool: 'submit_plan',
       input: {

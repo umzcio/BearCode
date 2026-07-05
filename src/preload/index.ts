@@ -2,12 +2,14 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AddRuleInput,
   AppSettings,
+  ArtifactComment,
   BearcodeApi,
   ConversationMeta,
   Event,
   ModelRef,
   PermissionMode,
   PermissionRulesInfo,
+  PlanReviewResolveResult,
   ProviderId,
   RunState
 } from '../shared/types'
@@ -59,6 +61,22 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:permissions:delete-rule', id),
     setBuiltinDisabled: (id: string, disabled: boolean): Promise<void> =>
       ipcRenderer.invoke('bearcode:permissions:set-builtin-disabled', id, disabled)
+  },
+  artifacts: {
+    resolvePlanReview: (
+      callId: string,
+      proceed: boolean,
+      message?: string
+    ): Promise<PlanReviewResolveResult> =>
+      ipcRenderer.invoke('bearcode:artifacts:resolve-plan-review', callId, proceed, message),
+    addComment: (
+      artifactId: string,
+      quote: string | null,
+      body: string
+    ): Promise<ArtifactComment> =>
+      ipcRenderer.invoke('bearcode:artifacts:add-comment', artifactId, quote, body),
+    listComments: (artifactId: string): Promise<ArtifactComment[]> =>
+      ipcRenderer.invoke('bearcode:artifacts:list-comments', artifactId)
   },
   workspace: {
     pick: () => ipcRenderer.invoke('bearcode:workspace:pick')

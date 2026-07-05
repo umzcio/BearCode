@@ -314,6 +314,18 @@ export interface BearcodeApi {
     deleteRule(id: string): Promise<void>
     setBuiltinDisabled(id: string, disabled: boolean): Promise<void>
   }
+  // Plan-review resolutions ride their OWN channel, never tools.approve: the
+  // boolean command/edit approval wire and the plan wire reject each other's
+  // cards by kind (graph.ts cross-guards).
+  artifacts: {
+    resolvePlanReview(
+      callId: string,
+      proceed: boolean,
+      message?: string
+    ): Promise<PlanReviewResolveResult>
+    addComment(artifactId: string, quote: string | null, body: string): Promise<ArtifactComment>
+    listComments(artifactId: string): Promise<ArtifactComment[]>
+  }
   workspace: {
     pick(): Promise<string | null>
   }
