@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import type { Event } from '@shared/types'
+import { useEffect, useRef, useState } from 'react'
+import type { AttachmentRef, Event } from '@shared/types'
 import { useAppStore, workedSecondsByTurn } from '../state/store'
 import { Composer } from './Composer/Composer'
 import { RunStatusBar } from './RunStatusBar/RunStatusBar'
@@ -56,6 +56,38 @@ function groupTurns(events: Event[]): Turn[] {
   return turns
 }
 
+// A transcript attachment pill (Task 7). A reloaded transcript only carries
+// the persisted AttachmentRef (id/name/mime) -- never bytes -- so the real
+// thumbnail is fetched lazily over `bearcode:attachments:read`, which reads
+// the bytes back from userData main-side (convId comes from this open
+// conversation's context, never from the ref itself; see ipc.ts). Renders
+// the name-only pill immediately and fills in the thumbnail once the read
+// resolves (or stays name-only if the file is gone).
+function AttachmentPill({
+  convoId,
+  attachment
+}: {
+  convoId: string
+  attachment: AttachmentRef
+}): React.JSX.Element {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void window.bearcode.attachments.read(convoId, attachment.id).then((dataUrl) => {
+      if (!cancelled) setSrc(dataUrl)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [convoId, attachment.id])
+  return (
+    <span className="msg-command-pill msg-attachment-pill">
+      {src ? <img className="msg-attachment-thumb" src={src} alt={attachment.name} /> : null}
+      {attachment.name}
+    </span>
+  )
+}
+
 export function ConversationView({ convoId }: { convoId: string }): React.JSX.Element {
   const convo = useAppStore((s) => s.conversations[convoId])
   const send = useAppStore((s) => s.send)
@@ -100,6 +132,9 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                       <span className="msg-command-pill" key={`${m.kind}:${m.name}:${i}`}>
                         @{m.name}
                       </span>
+                    ))}
+                    {turn.user.attachments?.map((a, i) => (
+                      <AttachmentPill key={`att:${a.id}:${i}`} convoId={convoId} attachment={a} />
                     ))}
                     {turn.user.text}
                   </div>

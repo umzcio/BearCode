@@ -430,6 +430,11 @@ export interface BearcodeApi {
       conversationId: string,
       existingCount: number
     ): Promise<{ picked: PickedAttachmentWire[]; errors: string[] }>
+    // D4 Media (Task 7): fetch a copied attachment's real bytes as a data:
+    // URL, for a transcript pill's thumbnail. A reloaded transcript only has
+    // the persisted AttachmentRef (id/name/mime), not bytes. Returns null if
+    // the file is gone or not a recognized image.
+    read(conversationId: string, id: string): Promise<string | null>
   }
   diffs: {
     get(diffId: string): Promise<FileDiff>

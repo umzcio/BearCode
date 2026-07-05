@@ -22,7 +22,7 @@ import * as db from './db'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
 import { suggestFiles, manualRuleInfos } from './orchestrator/mentionSuggest'
-import { ingestPickedFiles } from './attachments/ingest'
+import { ingestPickedFiles, readAttachmentDataUrl } from './attachments/ingest'
 import {
   assertValidAttachments,
   assertValidCommand,
@@ -146,6 +146,16 @@ export function registerIpc(): void {
       }
       return ingestPickedFiles(conversationId, result.filePaths, existingCount)
     }
+  )
+
+  // D4 Media (Task 7): transcript attachment thumbnail. A reloaded transcript
+  // only has the persisted AttachmentRef (id/name/mime), never bytes, so the
+  // pill's real image comes from here. SECURITY: conversationId/id are both
+  // renderer-supplied path segments; readAttachmentDataUrl validates both
+  // against their path-safe grammars BEFORE any read and throws (rejecting
+  // this promise) on a mismatch instead of ever touching the filesystem.
+  ipcMain.handle('bearcode:attachments:read', (_e, conversationId: string, id: string) =>
+    readAttachmentDataUrl(conversationId, id)
   )
 
   ipcMain.handle('bearcode:diffs:get', (_e, diffId: string) => getDiff(diffId))

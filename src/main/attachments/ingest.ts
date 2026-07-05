@@ -27,6 +27,18 @@ function assertValidConversationId(conversationId: string): void {
   }
 }
 
+// Same grammar assertValidAttachments enforces at the run:start wire boundary
+// (src/main/orchestrator/index.ts). Re-checked here for the transcript read
+// IPC because that id, unlike readAttachmentBase64's (which only ever carries
+// already-wire-validated AttachmentRef.id values from a live turn), is read
+// straight off a persisted event on every transcript render/reload.
+const ATTACHMENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+function assertValidAttachmentId(id: string): void {
+  if (typeof id !== 'string' || !ATTACHMENT_ID_PATTERN.test(id)) {
+    throw new Error('attachments: id must match /^[A-Za-z0-9_-]{1,64}$/')
+  }
+}
+
 export interface PickedAttachment {
   ref: AttachmentRef
   // A data: URL of the copied image, for the composer thumbnail pill only.
@@ -133,4 +145,30 @@ export function readAttachmentBase64(convId: string, id: string): string | null 
   } catch {
     return null
   }
+}
+
+// Read a copied attachment back as a full data: URL, for a REAL transcript
+// thumbnail (Task 7): a reloaded transcript only carries the persisted
+// AttachmentRef (id/name/mime), not bytes, so the pill's <img> needs this IPC
+// to fetch actual pixels from disk. SECURITY: both convId and id are renderer-
+// supplied path segments here (convId from the open-conversation context, id
+// from a persisted event) -- validate BOTH against their path-safe grammars
+// BEFORE any read, throwing (which rejects the IPC promise) on a mismatch
+// rather than ever touching the filesystem with an unvalidated segment. The
+// mime is re-sniffed from bytes (never trusted from the caller) for the same
+// reason ingest never trusts a file extension. Returns null only for the
+// legitimate "file is gone" / "not a recognized image" cases.
+export function readAttachmentDataUrl(convId: string, id: string): string | null {
+  assertValidConversationId(convId)
+  assertValidAttachmentId(id)
+  const p = attachmentPath(app.getPath('userData'), convId, id)
+  let bytes: Buffer
+  try {
+    bytes = readFileSync(p)
+  } catch {
+    return null
+  }
+  const mime = sniffImageMime(bytes)
+  if (!mime) return null
+  return `data:${mime};base64,${bytes.toString('base64')}`
 }

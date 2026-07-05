@@ -55,7 +55,9 @@ const bearcode: BearcodeApi = {
   },
   attachments: {
     pick: (conversationId: string, existingCount: number) =>
-      ipcRenderer.invoke('bearcode:attachments:pick', conversationId, existingCount)
+      ipcRenderer.invoke('bearcode:attachments:pick', conversationId, existingCount),
+    read: (conversationId: string, id: string) =>
+      ipcRenderer.invoke('bearcode:attachments:read', conversationId, id)
   },
   diffs: {
     get: (diffId: string) => ipcRenderer.invoke('bearcode:diffs:get', diffId),

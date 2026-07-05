@@ -52,6 +52,18 @@
   margin-right: 8px;
   vertical-align: middle;
 }
+.msg-attachment-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.msg-attachment-thumb {
+  width: 18px;
+  height: 18px;
+  object-fit: cover;
+  border-radius: 3px;
+  vertical-align: middle;
+}
 
 /* Timestamp + copy revealed on hover, matching Claude Code: subtle, tucked at
    the bubble's bottom-right, no layout shift (the row keeps its height). */
