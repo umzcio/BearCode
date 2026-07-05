@@ -16,4 +16,22 @@ describe('migrateSettings', () => {
   it('drops the legacy key from the result', () => {
     expect('autoApproveCommands' in migrateSettings({ autoApproveCommands: true })).toBe(false)
   })
+  it('defaults disabledBuiltins to an empty array', () => {
+    expect(migrateSettings({}).disabledBuiltins).toEqual([])
+  })
+  it('preserves a stored disabledBuiltins list across load (survives restart)', () => {
+    expect(
+      migrateSettings({ disabledBuiltins: ['builtin:curl-pipe-sh'] }).disabledBuiltins
+    ).toEqual(['builtin:curl-pipe-sh'])
+  })
+  it('drops non-string entries from disabledBuiltins', () => {
+    expect(
+      migrateSettings({ disabledBuiltins: ['builtin:curl-pipe-sh', 7, null] }).disabledBuiltins
+    ).toEqual(['builtin:curl-pipe-sh'])
+  })
+  it('coerces a non-array disabledBuiltins to empty', () => {
+    expect(migrateSettings({ disabledBuiltins: 'builtin:curl-pipe-sh' }).disabledBuiltins).toEqual(
+      []
+    )
+  })
 })

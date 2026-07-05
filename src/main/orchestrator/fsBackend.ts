@@ -40,17 +40,12 @@ const execFileAsync = promisify(execFile)
 // some system prompts use to describe the workspace root as "/" -- if an
 // absolute path doesn't already fall under the real root, it is treated as
 // root-relative rather than a literal OS path.
-function jailPath(projectPath: string, p: string | undefined): string {
-  const root = realpathSync(projectPath)
-  let raw: string
-  if (!p || p === '.' || p === '/') {
-    raw = root
-  } else if (isAbsolute(p)) {
-    raw = p === root || p.startsWith(root + sep) ? p : resolve(root, p.slice(1))
-  } else {
-    raw = resolve(root, p)
-  }
-  let probe = raw
+// Resolve the longest EXISTING prefix of a path through realpath, re-
+// appending the not-yet-existing suffix untouched -- so a path to a file
+// that is about to be created still normalizes its existing ancestors
+// (and any symlinks among them) to their canonical location.
+function realpathExistingPrefix(p: string): string {
+  let probe = p
   let suffix = ''
   for (;;) {
     try {
@@ -63,7 +58,51 @@ function jailPath(projectPath: string, p: string | undefined): string {
       probe = parent
     }
   }
-  const real = probe + suffix
+  return probe + suffix
+}
+
+function jailPath(projectPath: string, p: string | undefined): string {
+  const root = realpathSync(projectPath)
+  let raw: string
+  if (!p || p === '.' || p === '/') {
+    raw = root
+  } else if (isAbsolute(p)) {
+    if (p === root || p.startsWith(root + sep)) {
+      // Literal OS path already textually under the (realpath'd) root. Keep
+      // the RAW string so the containment check at the bottom still resolves
+      // any symlinks the path crosses INSIDE the workspace and throws on a
+      // real escape (e.g. <root>/link-to-outside/secret) exactly as before.
+      raw = p
+    } else {
+      // SECURITY (jail) -- smoke finding F1 (.superpowers/sdd/task-5-report.md):
+      // `root` above is realpath'd, so a purely TEXTUAL prefix test here
+      // misclassifies an absolute path that reaches the workspace THROUGH a
+      // symlink. macOS classic: workspace opened as /tmp/proj while /tmp ->
+      // /private/tmp -- the agent's '/tmp/proj/guarded/x' does not start
+      // with '/private/tmp/proj', so it used to fall into the virtual-root
+      // branch and resolve to the nested phantom '<root>/tmp/proj/guarded/x'.
+      // Two observed consequences: the write landed at that wrong nested
+      // path, and relForGate yielded 'tmp/proj/guarded/x', silently dodging
+      // edit rules like 'guarded/**'. Normalizing the INCOMING path first
+      // (longest existing prefix through realpath, not-yet-created suffix
+      // re-appended -- the same idiom the final containment check uses) maps
+      // it to '/private/tmp/proj/guarded/x', which the prefix test then
+      // accepts as a genuine workspace path. Anything that normalizes to a
+      // location still outside the root keeps the legacy virtual-root
+      // fallback (treated as root-relative, never an escape). This branch
+      // can only PROMOTE a path into the inside-the-jail interpretation; the
+      // authoritative containment check at the bottom still runs on the
+      // result, so no escape path is widened.
+      const normalized = realpathExistingPrefix(p)
+      raw =
+        normalized === root || normalized.startsWith(root + sep)
+          ? normalized
+          : resolve(root, p.slice(1))
+    }
+  } else {
+    raw = resolve(root, p)
+  }
+  const real = realpathExistingPrefix(raw)
   if (real !== root && !real.startsWith(root + sep)) {
     throw new Error(`Path is outside the workspace: ${p}`)
   }

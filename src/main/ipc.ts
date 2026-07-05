@@ -10,7 +10,7 @@ import type {
   RunState
 } from '../shared/types'
 import { keyStatus, setKey } from './keys'
-import { addUserRule } from './permissions'
+import { addUserRule, deleteUserRule, listRulesInfo, setBuiltinDisabled } from './permissions'
 import { setSettings, settingsInfo } from './settings'
 import { listAllModels } from './providers/registry'
 import { filePathFor, getDiff, revertFile } from './diffs'
@@ -130,6 +130,19 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:permissions:add-rule', (_e, rule: AddRuleInput) => {
     addUserRule(rule)
   })
+  ipcMain.handle('bearcode:permissions:list', () => listRulesInfo())
+  ipcMain.handle('bearcode:permissions:delete-rule', (_e, id: string) => {
+    deleteUserRule(id)
+  })
+  ipcMain.handle(
+    'bearcode:permissions:set-builtin-disabled',
+    (_e, id: string, disabled: boolean) => {
+      // setBuiltinDisabled throws on an unknown builtin id (store.ts), which
+      // ipcMain.handle turns into a rejected promise for the renderer -- the
+      // renderer cannot silently "succeed" at disabling an id that doesn't exist.
+      setBuiltinDisabled(id, disabled)
+    }
+  )
 
   ipcMain.handle('bearcode:workspace:pick', async () => {
     const result = await dialog.showOpenDialog({

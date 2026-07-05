@@ -6,7 +6,8 @@ import type { AppSettings, SettingsInfo } from '../shared/types'
 const DEFAULTS: AppSettings = {
   ollamaBaseUrl: 'http://localhost:11434',
   defaultModelRef: null,
-  defaultPermissionMode: 'accept-edits'
+  defaultPermissionMode: 'accept-edits',
+  disabledBuiltins: []
 }
 
 function settingsPath(): string {
@@ -23,7 +24,16 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
     rest['defaultPermissionMode'] == null && autoApproveCommands !== undefined
       ? { ...rest, defaultPermissionMode: autoApproveCommands ? 'auto' : 'accept-edits' }
       : rest
-  return { ...DEFAULTS, ...seeded } as AppSettings
+  const merged = { ...DEFAULTS, ...seeded } as AppSettings
+  // A malformed settings.json must never make the disabled set un-inspectable:
+  // anything that is not a string[] collapses to []. Stale ids (a builtin removed
+  // in an upgrade) are kept -- they are inert at merge time (exact-id filter) and
+  // may correspond to a builtin the user disabled under another app version.
+  const rawDisabled = (seeded as Record<string, unknown>)['disabledBuiltins']
+  merged.disabledBuiltins = Array.isArray(rawDisabled)
+    ? rawDisabled.filter((x): x is string => typeof x === 'string')
+    : []
+  return merged
 }
 
 let cache: AppSettings | null = null

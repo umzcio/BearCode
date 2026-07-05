@@ -4,6 +4,7 @@ import { useAppStore } from '../../state/store'
 import { ProviderIcon } from '../ProviderIcon'
 import { RoarBear } from '../brand/RoarBear'
 import { IconClose } from '../icons'
+import { PermissionRulesSection } from './PermissionRules'
 import './Settings.css'
 
 const SHORTCUTS: { label: string; keys: string[] }[] = [
@@ -166,6 +167,7 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                 title="Permissions"
                 sub="Global agent permissions. These apply everywhere unless a project overrides them."
               />
+              <PermissionRulesSection />
               <div className="set-group-title">Agent Settings</div>
               <div className="set-card">
                 <Row

@@ -13,7 +13,15 @@ export {
   matchesEditPath,
   BUILTIN_RULES
 } from './rules'
-export { getEffectiveRules, addUserRule, mergeRules } from './store'
+export {
+  getEffectiveRules,
+  addUserRule,
+  mergeRules,
+  deleteUserRule,
+  listRulesInfo,
+  setBuiltinDisabled,
+  toggleDisabledBuiltin
+} from './store'
 
 // Reads live so a mode change (e.g. an approval-card action) takes effect for the
 // rest of the running turn (Bb1).

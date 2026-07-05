@@ -6,6 +6,7 @@ import type {
   Event,
   ModelRef,
   PermissionMode,
+  PermissionRulesInfo,
   ProviderId,
   ProviderModels,
   RunState,
@@ -76,6 +77,8 @@ interface AppState {
   modelRef: ModelRef | null
   permissionMode: PermissionMode
   settings: SettingsInfo | null
+  // Permissions manager read model; null until the Settings section first loads it.
+  permissionRules: PermissionRulesInfo | null
   workspacePath: string | null
   settingsOpen: boolean
   reviewDiffId: string | null
@@ -96,6 +99,9 @@ interface AppState {
   cancelRun(convoId: string): void
   approveTool(callId: string, approved: boolean): void
   addPermissionRule(input: AddRuleInput): void
+  refreshPermissionRules(): Promise<void>
+  deletePermissionRule(id: string): Promise<void>
+  setBuiltinDisabled(id: string, disabled: boolean): Promise<void>
   retryRun(convoId: string): void
   selectModel(ref: ModelRef): void
   setPermissionMode(mode: PermissionMode): void
@@ -207,6 +213,7 @@ export const useAppStore = create<AppState>((set, get) => {
     modelRef: null,
     permissionMode: 'accept-edits',
     settings: null,
+    permissionRules: null,
     workspacePath: null,
     settingsOpen: false,
     reviewDiffId: null,
@@ -384,7 +391,35 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     addPermissionRule: (input) => {
-      void window.bearcode.permissions.addRule(input)
+      // Fire-and-forget for the approval-card call sites; the chained refresh
+      // keeps an already-open manager list current.
+      void window.bearcode.permissions.addRule(input).then(() => get().refreshPermissionRules())
+    },
+
+    refreshPermissionRules: async () => {
+      set({ permissionRules: await window.bearcode.permissions.list() })
+    },
+
+    deletePermissionRule: async (id) => {
+      try {
+        await window.bearcode.permissions.deleteRule(id)
+      } catch (err) {
+        // A rejected mutation must not leave the store stale: re-fetch so the
+        // UI reflects reality even though the delete itself failed.
+        await get().refreshPermissionRules()
+        throw err
+      }
+      await get().refreshPermissionRules()
+    },
+
+    setBuiltinDisabled: async (id, disabled) => {
+      try {
+        await window.bearcode.permissions.setBuiltinDisabled(id, disabled)
+      } catch (err) {
+        await get().refreshPermissionRules()
+        throw err
+      }
+      await get().refreshPermissionRules()
     },
 
     retryRun: (convoId) => {

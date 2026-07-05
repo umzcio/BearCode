@@ -7,6 +7,7 @@ import type {
   Event,
   ModelRef,
   PermissionMode,
+  PermissionRulesInfo,
   ProviderId,
   RunState
 } from '../shared/types'
@@ -52,7 +53,12 @@ const bearcode: BearcodeApi = {
   },
   permissions: {
     addRule: (rule: AddRuleInput): Promise<void> =>
-      ipcRenderer.invoke('bearcode:permissions:add-rule', rule)
+      ipcRenderer.invoke('bearcode:permissions:add-rule', rule),
+    list: (): Promise<PermissionRulesInfo> => ipcRenderer.invoke('bearcode:permissions:list'),
+    deleteRule: (id: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:permissions:delete-rule', id),
+    setBuiltinDisabled: (id: string, disabled: boolean): Promise<void> =>
+      ipcRenderer.invoke('bearcode:permissions:set-builtin-disabled', id, disabled)
   },
   workspace: {
     pick: () => ipcRenderer.invoke('bearcode:workspace:pick')
