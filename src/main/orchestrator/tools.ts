@@ -28,6 +28,7 @@ import {
   createWalkthroughArtifact
 } from '../artifacts/store'
 import { evaluateCommandForConversation } from '../permissions'
+import { loadAgentsContent } from '../agentsDir'
 import type { RunSink } from '../sink'
 
 const commandSchema = z.object({
@@ -38,6 +39,10 @@ const commandSchema = z.object({
 const artifactSchema = z.object({
   title: z.string().describe('A short, human-readable title for the artifact.'),
   body: z.string().describe('The full artifact content, as markdown.')
+})
+
+const activateRuleSchema = z.object({
+  name: z.string().describe('The rule name from the Available rules index.')
 })
 
 // Denied-replay pins: execution-layer enforcement of a Denied approval card.
@@ -478,5 +483,29 @@ export function buildTools(projectPath: string, conversationId: string, sink: Ru
     }
   )
 
-  return [runCommandTool, submitPlanTool, submitWalkthroughTool]
+  // Design 4.3: activate_rule is read-only by construction. It only ever
+  // reads the (cached) .agents rule set and returns a string -- it must never
+  // touch the approval machinery (no interrupt, no evaluateCommandForConversation)
+  // and it never throws, even on a missing/errored/wrong-mode rule name.
+  const activateRuleTool = tool(
+    async ({ name }: { name: string }): Promise<string> => {
+      const content = loadAgentsContent(projectPath)
+      const modelRules = content.rules.filter((r) => r.activation === 'model' && !r.error)
+      const exact = modelRules.find((r) => r.name === name)
+      const found = exact ?? modelRules.find((r) => r.name.toLowerCase() === name.toLowerCase())
+      if (found) {
+        return `Rule ${found.name}:\n${found.body}`
+      }
+      const candidates = modelRules.map((r) => r.name).join(', ')
+      return `Unknown rule: ${name}. Available rules: ${candidates}`
+    },
+    {
+      name: 'activate_rule',
+      description:
+        'Load the full text of an available project rule by name. Use when a rule from the Available rules index is relevant to the current task.',
+      schema: activateRuleSchema
+    }
+  )
+
+  return [runCommandTool, submitPlanTool, submitWalkthroughTool, activateRuleTool]
 }

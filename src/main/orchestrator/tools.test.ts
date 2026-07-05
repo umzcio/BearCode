@@ -16,6 +16,9 @@ vi.mock('../artifacts/store', () => ({
   createWalkthroughArtifact: vi.fn(),
   approvePlanArtifact: vi.fn()
 }))
+vi.mock('../agentsDir', () => ({
+  loadAgentsContent: vi.fn(() => ({ rules: [] }))
+}))
 // Spread-importOriginal: only `interrupt` is stubbed, everything else
 // @langchain/langgraph exports (Command, etc.) stays live for this file.
 vi.mock('@langchain/langgraph', async (importOriginal) => ({
@@ -32,6 +35,8 @@ import {
   createWalkthroughArtifact,
   approvePlanArtifact
 } from '../artifacts/store'
+import { loadAgentsContent } from '../agentsDir'
+import type { Rule } from '../agentsDir/types'
 import { interrupt } from '@langchain/langgraph'
 import {
   buildTools,
@@ -78,6 +83,7 @@ beforeEach(() => {
   vi.mocked(approvePlanArtifact).mockReset()
   vi.mocked(appendOrReplaceEvent).mockClear()
   vi.mocked(interrupt).mockReset()
+  vi.mocked(loadAgentsContent).mockReturnValue({ rules: [] })
 })
 
 describe('denied-replay pins (execution-layer deny enforcement)', () => {
@@ -191,7 +197,7 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
 
   it('registers both tools alongside run_command', () => {
     const names = allTools(makeSink()).map((t) => t.name)
-    expect(names).toEqual(['run_command', 'submit_plan', 'submit_walkthrough'])
+    expect(names).toEqual(['run_command', 'submit_plan', 'submit_walkthrough', 'activate_rule'])
   })
 
   it('always-proceed: returns the approval copy and emits+persists one approved artifact event', async () => {
@@ -579,4 +585,64 @@ describe('plan_review interrupt (Ba2 proceed loop)', () => {
       expect(artifactEvents[0].status).toBe('pending-review')
     }
   )
+})
+
+describe('activate_rule (D1 model-decision rules, read-only by construction)', () => {
+  const rule = (over: Partial<Rule> = {}): Rule => ({
+    name: 'deploy',
+    body: 'Deploy via carrier pigeon.',
+    activation: 'model',
+    globs: [],
+    description: 'Deployment steps',
+    source: 'project',
+    ...over
+  })
+  const activateRuleOf = (sink: RunSink): InvokableTool =>
+    allTools(sink).find((t) => t.name === 'activate_rule')!
+
+  it('returns the body for a model rule, prefixed with the rule name', async () => {
+    vi.mocked(loadAgentsContent).mockReturnValue({ rules: [rule()] })
+    const out = await activateRuleOf(makeSink()).invoke({ name: 'deploy' })
+    expect(out).toBe('Rule deploy:\nDeploy via carrier pigeon.')
+  })
+
+  it('an unknown name lists the available model-rule candidates', async () => {
+    vi.mocked(loadAgentsContent).mockReturnValue({
+      rules: [rule({ name: 'deploy' }), rule({ name: 'style' })]
+    })
+    const out = await activateRuleOf(makeSink()).invoke({ name: 'nope' })
+    expect(out).toBe('Unknown rule: nope. Available rules: deploy, style')
+  })
+
+  it('manual and always rules are not activatable', async () => {
+    vi.mocked(loadAgentsContent).mockReturnValue({
+      rules: [
+        rule({ name: 'manual-one', activation: 'manual' }),
+        rule({ name: 'always-one', activation: 'always' })
+      ]
+    })
+    const out = await activateRuleOf(makeSink()).invoke({ name: 'manual-one' })
+    expect(out).toBe('Unknown rule: manual-one. Available rules: ')
+  })
+
+  it('an errored rule is not activatable', async () => {
+    vi.mocked(loadAgentsContent).mockReturnValue({
+      rules: [rule({ error: 'missing description' })]
+    })
+    const out = await activateRuleOf(makeSink()).invoke({ name: 'deploy' })
+    expect(out).toBe('Unknown rule: deploy. Available rules: ')
+  })
+
+  it('matches case-foldedly when no exact match exists', async () => {
+    vi.mocked(loadAgentsContent).mockReturnValue({ rules: [rule({ name: 'Deploy' })] })
+    const out = await activateRuleOf(makeSink()).invoke({ name: 'deploy' })
+    expect(out).toBe('Rule Deploy:\nDeploy via carrier pigeon.')
+  })
+
+  it('SECURITY: never consults the permission engine and never interrupts', async () => {
+    vi.mocked(loadAgentsContent).mockReturnValue({ rules: [rule()] })
+    await activateRuleOf(makeSink()).invoke({ name: 'deploy' })
+    expect(evaluateCommandForConversation).not.toHaveBeenCalled()
+    expect(interrupt).not.toHaveBeenCalled()
+  })
 })
