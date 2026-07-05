@@ -29,6 +29,9 @@ import {
   deniedToolCallEvents,
   resolvedToolCallEvents,
   deniedReplayPinsOf,
+  synthesizedApprovalCard,
+  pairedApprovalInput,
+  isRehydratableInterrupt,
   type ApprovalItem
 } from './graph'
 
@@ -147,6 +150,219 @@ describe('interruptBelongsToToolCall (pending-interrupt attribution)', () => {
       interruptBelongsToToolCall({ kind: 'future_kind' }, { name: 'run_command', args: {} })
     ).toBe(true)
     expect(interruptBelongsToToolCall(undefined, { name: 'run_command', args: {} })).toBe(true)
+  })
+})
+
+describe('edit interrupt pairing', () => {
+  const editInt = {
+    interruptId: 'i1',
+    value: { kind: 'edit_file', tool: 'write_file', path: 'src/a.ts', toolCallId: 'tc1' }
+  }
+
+  it('pairs an edit interrupt to its tool call by toolCallId', () => {
+    const tc = { id: 'tc1', name: 'write_file', args: { file_path: 'src/a.ts', content: 'x' } }
+    expect(interruptBelongsToToolCall(editInt.value, tc)).toBe(true)
+  })
+
+  it('falls back to path matching when toolCallId is absent', () => {
+    const v = { kind: 'edit_file', tool: 'write_file', path: 'src/a.ts' }
+    expect(
+      interruptBelongsToToolCall(v, {
+        id: 'x',
+        name: 'write_file',
+        args: { file_path: 'src/a.ts' }
+      })
+    ).toBe(true)
+    expect(
+      interruptBelongsToToolCall(v, {
+        id: 'x',
+        name: 'write_file',
+        args: { file_path: 'src/b.ts' }
+      })
+    ).toBe(false)
+  })
+
+  it('does not pair an edit interrupt to a run_command call', () => {
+    expect(
+      interruptBelongsToToolCall(editInt.value, {
+        id: 'tc1',
+        name: 'run_command',
+        args: { command: 'ls' }
+      })
+    ).toBe(false)
+  })
+
+  it('matches the RAW agent path, never the resolved display path', () => {
+    // Task 3 review carry-forward: value.path is what the model sent (so it
+    // is what the streamed tool_call args contain); value.resolvedPath is for
+    // DISPLAY only and must never participate in pairing.
+    const v = { kind: 'edit_file', tool: 'write_file', path: 'safe/../.env', resolvedPath: '.env' }
+    expect(
+      interruptBelongsToToolCall(v, {
+        id: 'x',
+        name: 'write_file',
+        args: { file_path: 'safe/../.env' }
+      })
+    ).toBe(true)
+    expect(
+      interruptBelongsToToolCall(v, { id: 'x', name: 'write_file', args: { file_path: '.env' } })
+    ).toBe(false)
+  })
+
+  it('requires the exact write tool (an edit_file interrupt never claims a write_file call)', () => {
+    const v = { kind: 'edit_file', tool: 'edit_file', path: 'src/a.ts' }
+    expect(
+      interruptBelongsToToolCall(v, {
+        id: 'x',
+        name: 'write_file',
+        args: { file_path: 'src/a.ts' }
+      })
+    ).toBe(false)
+  })
+
+  it('accepts args.path as the fallback key when args.file_path is absent', () => {
+    const v = { kind: 'edit_file', tool: 'write_file', path: 'src/a.ts' }
+    expect(
+      interruptBelongsToToolCall(v, { id: 'x', name: 'write_file', args: { path: 'src/a.ts' } })
+    ).toBe(true)
+  })
+
+  it('a present-but-mismatched toolCallId never falls back to the path match', () => {
+    // Same posture as pairInterruptsToCalls: a card must never show one edit
+    // while its decision resumes another.
+    expect(
+      interruptBelongsToToolCall(editInt.value, {
+        id: 'tc2',
+        name: 'write_file',
+        args: { file_path: 'src/a.ts' }
+      })
+    ).toBe(false)
+  })
+
+  it('mixed superstep: an id-less edit interrupt never claims a run_command sibling', () => {
+    const cmd = { id: 'tc1', name: 'run_command', args: { command: 'ls' } }
+    const write = { id: 'tc2', name: 'write_file', args: { file_path: 'src/a.ts', content: 'x' } }
+    const out = pairInterruptsToCalls(
+      [{ interruptId: 'i1', value: { kind: 'edit_file', tool: 'write_file', path: 'src/a.ts' } }],
+      [cmd, write]
+    )
+    expect(out[0].call?.id).toBe('tc2')
+  })
+})
+
+describe('synthesizedApprovalCard (call:null synthesis and edit rehydration)', () => {
+  it('synthesizes a run_command card from the payload command', () => {
+    expect(
+      synthesizedApprovalCard({ kind: 'run_command', command: 'ls -l', toolCallId: 'tc1' })
+    ).toEqual({ tool: 'run_command', input: { command: 'ls -l' }, toolCallId: 'tc1' })
+  })
+
+  it('falls back to an empty command and drops a non-string toolCallId', () => {
+    expect(synthesizedApprovalCard({ kind: 'run_command', toolCallId: 42 })).toEqual({
+      tool: 'run_command',
+      input: { command: '' },
+      toolCallId: undefined
+    })
+  })
+
+  it('shows the RESOLVED path on an edit card and carries the raw string as requested_path', () => {
+    // Carry-forward: the UI must render the TRUE target ('safe/../.env'
+    // resolving to '.env' must show '.env'); the raw agent string rides along
+    // because it is what the replayed gate call receives, so it is what the
+    // denied-replay pin has to match.
+    expect(
+      synthesizedApprovalCard({
+        kind: 'edit_file',
+        tool: 'write_file',
+        path: 'safe/../.env',
+        resolvedPath: '.env',
+        toolCallId: 'tc1'
+      })
+    ).toEqual({
+      tool: 'write_file',
+      input: { file_path: '.env', requested_path: 'safe/../.env' },
+      toolCallId: 'tc1'
+    })
+  })
+
+  it('omits requested_path when the raw and resolved paths agree', () => {
+    expect(
+      synthesizedApprovalCard({
+        kind: 'edit_file',
+        tool: 'edit_file',
+        path: 'src/a.ts',
+        resolvedPath: 'src/a.ts',
+        toolCallId: 'tc1'
+      })
+    ).toEqual({ tool: 'edit_file', input: { file_path: 'src/a.ts' }, toolCallId: 'tc1' })
+  })
+
+  it('degrades to the raw path when the payload carries no resolvedPath', () => {
+    expect(
+      synthesizedApprovalCard({ kind: 'edit_file', tool: 'write_file', path: 'a.txt' })
+    ).toEqual({ tool: 'write_file', input: { file_path: 'a.txt' }, toolCallId: undefined })
+  })
+
+  it('never lets a malformed edit payload synthesize a non-edit tool', () => {
+    expect(
+      synthesizedApprovalCard({ kind: 'edit_file', tool: 'run_command', path: 'a' }).tool
+    ).toBe('write_file')
+  })
+})
+
+describe('pairedApprovalInput (live paired-card input enrichment)', () => {
+  it('shows the RESOLVED path on a paired edit card, carrying the raw string as requested_path', () => {
+    // Reviewer finding 2: the common live case is a PAIRED interrupt, and its
+    // card must display the TRUE target too, not just synthesized/rehydrated
+    // cards. The streamed args' extra fields survive for the card's preview.
+    const value = {
+      kind: 'edit_file',
+      tool: 'write_file',
+      path: 'safe/../.env',
+      resolvedPath: '.env'
+    }
+    expect(pairedApprovalInput(value, { file_path: 'safe/../.env', content: 'SECRET=1' })).toEqual({
+      file_path: '.env',
+      requested_path: 'safe/../.env',
+      content: 'SECRET=1'
+    })
+  })
+
+  it('omits requested_path when the raw and resolved paths agree', () => {
+    const value = {
+      kind: 'edit_file',
+      tool: 'edit_file',
+      path: 'src/a.ts',
+      resolvedPath: 'src/a.ts'
+    }
+    expect(
+      pairedApprovalInput(value, { file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    ).toEqual({ file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+  })
+
+  it('passes run_command args through untouched (byte-identical events)', () => {
+    const args = { command: 'ls -l' }
+    expect(pairedApprovalInput({ kind: 'run_command', command: 'ls -l' }, args)).toBe(args)
+  })
+
+  it('leaves the args untouched when the edit payload carries no resolvedPath', () => {
+    const args = { file_path: 'a.txt', content: 'x' }
+    expect(
+      pairedApprovalInput({ kind: 'edit_file', tool: 'write_file', path: 'a.txt' }, args)
+    ).toBe(args)
+  })
+})
+
+describe('isRehydratableInterrupt (crash-resume kind filter)', () => {
+  it('accepts both approval-bearing kinds', () => {
+    expect(isRehydratableInterrupt({ kind: 'run_command', command: 'ls' })).toBe(true)
+    expect(isRehydratableInterrupt({ kind: 'edit_file', tool: 'write_file', path: 'a' })).toBe(true)
+  })
+
+  it('rejects unknown kinds and malformed values', () => {
+    expect(isRehydratableInterrupt({ kind: 'future_kind' })).toBe(false)
+    expect(isRehydratableInterrupt(undefined)).toBe(false)
+    expect(isRehydratableInterrupt('edit_file')).toBe(false)
   })
 })
 
@@ -357,6 +573,29 @@ describe('approval decision collection (collect-then-resume)', () => {
     it('returns nothing for an empty set', () => {
       expect(deniedToolCallEvents(items())).toEqual([])
     })
+
+    it('produces a correct denied row for edit items (cancel-deny-all)', () => {
+      const events = deniedToolCallEvents(
+        items([
+          'c1',
+          {
+            interruptId: 'i1',
+            tool: 'edit_file',
+            input: { file_path: 'src/a.ts' },
+            decision: true
+          }
+        ])
+      )
+      expect(events).toEqual([
+        {
+          type: 'tool_call',
+          id: 'c1',
+          tool: 'edit_file',
+          input: { file_path: 'src/a.ts' },
+          approvalState: 'denied'
+        }
+      ])
+    })
   })
 
   describe('resolvedToolCallEvents (dispatch-time persistence batch)', () => {
@@ -407,6 +646,46 @@ describe('approval decision collection (collect-then-resume)', () => {
     it('omits a non-string command instead of pinning a bogus value', () => {
       const pins = deniedReplayPinsOf(items(['c1', denied(undefined, 42)]))
       expect(pins).toEqual([{ toolCallId: undefined, command: undefined }])
+    })
+
+    const deniedEdit = (input: unknown, toolCallId?: string): ApprovalItem => ({
+      interruptId: 'i9',
+      tool: 'write_file',
+      input,
+      toolCallId,
+      decision: false
+    })
+
+    it('pins a denied edit by toolCallId with the raw path as the fallback key', () => {
+      const pins = deniedReplayPinsOf(
+        items(['c1', deniedEdit({ file_path: 'src/a.ts', content: 'x' }, 'tc2')])
+      )
+      expect(pins).toEqual([{ toolCallId: 'tc2', editPath: 'src/a.ts' }])
+    })
+
+    it('prefers requested_path (the raw agent string) over the resolved display path', () => {
+      // A synthesized edit card displays the resolved path but the replayed
+      // gate call receives the raw string, so the pin must carry the raw one.
+      const pins = deniedReplayPinsOf(
+        items(['c1', deniedEdit({ file_path: '.env', requested_path: 'safe/../.env' })])
+      )
+      expect(pins).toEqual([{ toolCallId: undefined, editPath: 'safe/../.env' }])
+    })
+
+    it('never pins an approved edit', () => {
+      expect(
+        deniedReplayPinsOf(
+          items([
+            'c1',
+            {
+              interruptId: 'i1',
+              tool: 'edit_file',
+              input: { file_path: 'src/a.ts' },
+              decision: true
+            }
+          ])
+        )
+      ).toEqual([])
     })
   })
 })

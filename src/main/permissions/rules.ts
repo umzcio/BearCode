@@ -1,4 +1,9 @@
-import type { CommandDecision, PermissionMode, PermissionRule } from '../../shared/types'
+import type {
+  CommandDecision,
+  EditDecision,
+  PermissionMode,
+  PermissionRule
+} from '../../shared/types'
 import { BUILTIN_RULES } from './builtins'
 
 export { BUILTIN_RULES }
@@ -35,6 +40,68 @@ export function matchesCommand(pattern: string, command: string): boolean {
   return (
     cmd.startsWith(prefix) && cmd.endsWith(suffix) && cmd.length >= prefix.length + suffix.length
   )
+}
+
+// Edit patterns are workspace-relative path globs: '*' matches within one
+// path segment, '**' matches one or more whole segments. No regex, no
+// brace/negation syntax -- the grammar stays as small as the builtins need
+// (see matchesCommand's precedent). Matching is on the normalized relative
+// path (forward slashes, no leading './'); outside-workspace paths never
+// reach this function because jailPath blocks them structurally.
+//
+// Both sides are folded to lowercase: on case-insensitive filesystems (macOS
+// APFS, Windows NTFS) a FIRST write to '.ENV' creates the same file a deny on
+// '.env' meant to protect, and realpath cannot canonicalize the casing of a
+// file that does not exist yet. Deny rules prefer over-matching, so we accept
+// the (rare) over-block on case-sensitive filesystems.
+function normalizeRelPath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase()
+}
+
+// A single path segment (no '/') matches literally except for '*', which
+// stands in for zero or more non-'/' characters.
+function matchesSegment(patSeg: string, pathSeg: string): boolean {
+  const star = patSeg.indexOf('*')
+  if (star === -1) return pathSeg === patSeg
+  const prefix = patSeg.slice(0, star)
+  const suffix = patSeg.slice(star + 1)
+  return (
+    pathSeg.startsWith(prefix) &&
+    pathSeg.endsWith(suffix) &&
+    pathSeg.length >= prefix.length + suffix.length
+  )
+}
+
+// Recursive segment matcher: '**' consumes one or more whole path segments
+// (never zero, so '.git/**' does not match '.git' itself), everything else
+// matches exactly one segment via matchesSegment.
+function matchesSegments(patSegs: string[], pathSegs: string[]): boolean {
+  if (patSegs.length === 0) return pathSegs.length === 0
+  const [head, ...restPat] = patSegs
+  if (head === '**') {
+    for (let consumed = 1; consumed <= pathSegs.length; consumed++) {
+      if (matchesSegments(restPat, pathSegs.slice(consumed))) return true
+    }
+    return false
+  }
+  if (pathSegs.length === 0) return false
+  return matchesSegment(head, pathSegs[0]) && matchesSegments(restPat, pathSegs.slice(1))
+}
+
+export function matchesEditPath(pattern: string, relPath: string): boolean {
+  const patSegs = normalizeRelPath(pattern).split('/')
+  const pathSegs = normalizeRelPath(relPath).split('/')
+  return matchesSegments(patSegs, pathSegs)
+}
+
+// Design 4.2 (edits): deny -> block, ask -> prompt, else apply. There is no
+// allow tier -- the default is already apply, so an 'allow' edit rule is
+// inert and ignored. Mode never participates (unlike commands).
+export function evaluateEdit(relPath: string, rules: PermissionRule[]): EditDecision {
+  const matching = rules.filter((r) => r.action === 'edit' && matchesEditPath(r.match, relPath))
+  if (matching.some((r) => r.effect === 'deny')) return 'block'
+  if (matching.some((r) => r.effect === 'ask')) return 'prompt'
+  return 'apply'
 }
 
 // Security-critical evaluation order (design §4.2), effect-priority:

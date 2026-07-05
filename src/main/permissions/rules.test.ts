@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import type { PermissionRule } from '../../shared/types'
-import { matchesCommand, evaluateCommand, BUILTIN_RULES } from './rules'
+import {
+  matchesCommand,
+  evaluateCommand,
+  evaluateEdit,
+  matchesEditPath,
+  BUILTIN_RULES
+} from './rules'
 
 const rule = (
   match: string,
@@ -83,5 +89,78 @@ describe('BUILTIN_RULES', () => {
   })
   it('do not block an ordinary command', () => {
     expect(evaluateCommand('npm test', 'auto', BUILTIN_RULES)).toBe('run')
+  })
+})
+
+describe('matchesEditPath', () => {
+  it('matches exact relative paths', () => {
+    expect(matchesEditPath('.env', '.env')).toBe(true)
+    expect(matchesEditPath('.env', 'src/.env')).toBe(false)
+    expect(matchesEditPath('src/index.ts', 'src/index.ts')).toBe(true)
+  })
+  it('* matches within a single segment only', () => {
+    expect(matchesEditPath('.env.*', '.env.local')).toBe(true)
+    expect(matchesEditPath('.env.*', '.env')).toBe(false)
+    expect(matchesEditPath('.env.*', 'sub/.env.local')).toBe(false)
+    expect(matchesEditPath('src/*.ts', 'src/a.ts')).toBe(true)
+    expect(matchesEditPath('src/*.ts', 'src/deep/a.ts')).toBe(false)
+  })
+  it('** matches any number of segments (at least one)', () => {
+    expect(matchesEditPath('.git/**', '.git/config')).toBe(true)
+    expect(matchesEditPath('.git/**', '.git/hooks/pre-commit')).toBe(true)
+    expect(matchesEditPath('.git/**', '.git')).toBe(false)
+    expect(matchesEditPath('**/.env', 'sub/dir/.env')).toBe(true)
+    expect(matchesEditPath('**/.env', '.env')).toBe(false)
+  })
+  it('normalizes leading ./ and backslashes on the path side', () => {
+    expect(matchesEditPath('.env', './.env')).toBe(true)
+    expect(matchesEditPath('.git/**', '.git\\config')).toBe(true)
+  })
+  it('matches case-insensitively so casing cannot dodge a rule on case-insensitive filesystems', () => {
+    expect(matchesEditPath('.env', '.ENV')).toBe(true)
+    expect(matchesEditPath('.env', '.Env')).toBe(true)
+  })
+})
+
+describe('evaluateEdit', () => {
+  const rule = (effect: 'allow' | 'deny' | 'ask', match: string): PermissionRule => ({
+    id: `t-${effect}-${match}`,
+    scope: 'global',
+    action: 'edit',
+    match,
+    effect,
+    source: 'user'
+  })
+  it('deny beats ask beats apply', () => {
+    expect(evaluateEdit('.env', [rule('ask', '.env'), rule('deny', '.env')])).toBe('block')
+    expect(evaluateEdit('.env', [rule('ask', '.env')])).toBe('prompt')
+    expect(evaluateEdit('src/a.ts', [rule('ask', '.env')])).toBe('apply')
+  })
+  it('ignores allow edit rules and command rules', () => {
+    expect(evaluateEdit('.env', [rule('allow', '.env'), rule('deny', '.env')])).toBe('block')
+    const cmd: PermissionRule = {
+      id: 'c',
+      scope: 'global',
+      action: 'command',
+      match: '*',
+      effect: 'deny',
+      source: 'user'
+    }
+    expect(evaluateEdit('src/a.ts', [cmd])).toBe('apply')
+  })
+  it('a deny on .env blocks a differently-cased first write like .ENV', () => {
+    expect(evaluateEdit('.ENV', [rule('deny', '.env')])).toBe('block')
+  })
+})
+
+describe('edit builtins', () => {
+  it('deny .git and .env writes at any depth, via evaluateEdit over BUILTIN_RULES', () => {
+    expect(evaluateEdit('.git/config', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('.env', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('.env.local', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('packages/api/.env', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('packages/api/.env.production', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('src/env.ts', BUILTIN_RULES)).toBe('apply')
+    expect(evaluateEdit('.envrc', BUILTIN_RULES)).toBe('apply')
   })
 })
