@@ -105,6 +105,15 @@ function getDb(): Database.Database {
   } catch {
     // column already exists
   }
+  // Additive column for the conversation's pinned Manual rules (D1 Task 5,
+  // design 3.2): a JSON string[] of .agents rule names. Same
+  // idempotent-guarded ALTER idiom as execution_mode above. NULL/malformed
+  // reads resolve to [] in toMeta.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN active_rules TEXT`)
+  } catch {
+    // column already exists
+  }
   zombieRunIds = cancelZombieRuns(db)
   return db
 }
@@ -162,6 +171,18 @@ interface ConversationRow {
   updated_at: number
   permission_mode: string | null
   execution_mode: string | null
+  active_rules: string | null
+}
+
+// A malformed active_rules value (hand-edited DB, partial write) must never
+// break conversation reads: parse failures resolve to [].
+function parseActiveRules(raw: string | null): string[] {
+  try {
+    const parsed = JSON.parse(raw ?? '[]') as unknown
+    return Array.isArray(parsed) ? parsed.filter((n): n is string => typeof n === 'string') : []
+  } catch {
+    return []
+  }
 }
 
 function toMeta(row: ConversationRow, fallbackTitle?: string | null): ConversationMeta {
@@ -173,7 +194,8 @@ function toMeta(row: ConversationRow, fallbackTitle?: string | null): Conversati
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     permissionMode: (row.permission_mode as PermissionMode) ?? getSettings().defaultPermissionMode,
-    executionMode: (row.execution_mode as ExecutionMode) ?? getSettings().defaultExecutionMode
+    executionMode: (row.execution_mode as ExecutionMode) ?? getSettings().defaultExecutionMode,
+    activeRules: parseActiveRules(row.active_rules)
   }
 }
 
@@ -187,7 +209,8 @@ export function createConversation(projectPath: string | null): ConversationMeta
     created_at: now,
     updated_at: now,
     permission_mode: null,
-    execution_mode: null
+    execution_mode: null,
+    active_rules: null
   }
   getDb()
     .prepare(
@@ -372,6 +395,15 @@ export function setExecutionMode(conversationId: string, mode: ExecutionMode): v
     .run(mode, Date.now(), conversationId)
 }
 
+// Persist the conversation's pinned Manual rules (D1 Task 5). Same dumb
+// column-update shape as setExecutionMode above; the value is a JSON string[]
+// of rule names, read back through toMeta's guarded parse.
+export function setActiveRules(conversationId: string, names: string[]): void {
+  getDb()
+    .prepare(`UPDATE conversations SET active_rules = ?, updated_at = ? WHERE id = ?`)
+    .run(JSON.stringify(names), Date.now(), conversationId)
+}
+
 // The lock signal (design 3.2 DOCUMENTED CHOICE): a conversation's first turn
 // "has run" exactly when any event is persisted -- runGraph appends the
 // user_message as its first act, so the events table is the honest,
@@ -447,6 +479,70 @@ export function listRules(): PermissionRule[] {
 
 export function deleteRule(id: string): void {
   getDb().prepare(`DELETE FROM permission_rules WHERE id = ?`).run(id)
+}
+
+// One row of the touched-files query below: the two shapes a tool_call's
+// input carries a path under (write_file/edit_file use file_path, read_file
+// uses path). Exported pure so contextAssembly.test.ts can pin the
+// dedupe/null-filter logic on hand-built rows without opening a database --
+// same rationale as toRule above.
+export interface TouchedFileRow {
+  file_path: string | null
+  path: string | null
+}
+
+// Deep Agents' built-in file tools (write_file/edit_file/read_file) supply
+// input.file_path/input.path in three conventions: workspace-relative
+// ('src/a.ts'), root-relative ('/src/a.ts'), and -- rarely -- a literal
+// absolute OS path. matchesEditPath (permissions/rules.ts) only strips a
+// leading './', so a stored root-relative path never matched a glob like
+// 'src/**' before this normalization.
+//
+// Simplest honest rule: strip exactly ONE leading '/', turning the common
+// root-relative convention into the workspace-relative form matchesEditPath
+// expects. A genuine absolute OS path (e.g. '/Users/z/project/src/a.ts')
+// also starts with '/' and gets the same treatment, which does NOT produce a
+// workspace-relative path -- that case is deliberately left out of scope
+// here. The write-time gate already resolves absolute paths against the
+// project root via relForGate; storing a literal absolute path in a touched
+// row is rare, and can be special-cased in a follow-up if it's seen in
+// practice.
+export function normalizeTouchedPath(value: string): string {
+  return value.startsWith('/') ? value.slice(1) : value
+}
+
+export function touchedFilesFromRows(rows: TouchedFileRow[]): string[] {
+  const seen = new Set<string>()
+  const files: string[] = []
+  for (const row of rows) {
+    for (const value of [row.file_path, row.path]) {
+      if (value == null) continue
+      const normalized = normalizeTouchedPath(value)
+      if (!seen.has(normalized)) {
+        seen.add(normalized)
+        files.push(normalized)
+      }
+    }
+  }
+  return files
+}
+
+// Distinct file paths a conversation's persisted write_file/edit_file/
+// read_file tool calls have touched (design 3.2's glob-activation input).
+// json_extract reaches into the tool_call event's JSON payload directly so
+// this stays a single query with no per-row JSON.parse.
+export function touchedFilesFor(conversationId: string): string[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT json_extract(payload, '$.input.file_path') as file_path,
+              json_extract(payload, '$.input.path') as path
+       FROM events
+       WHERE conversation_id = ?
+         AND type = 'tool_call'
+         AND json_extract(payload, '$.tool') IN ('write_file', 'edit_file', 'read_file')`
+    )
+    .all(conversationId) as TouchedFileRow[]
+  return touchedFilesFromRows(rows)
 }
 
 export interface ArtifactRow {

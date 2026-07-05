@@ -28,8 +28,11 @@ import {
   getConversationMeta,
   listArtifactComments,
   markArtifactCommentsSent,
-  pinExecutionMode
+  pinExecutionMode,
+  touchedFilesFor
 } from '../db'
+import { loadAgentsContent } from '../agentsDir'
+import { assembleRuleAdditions, withoutModelRules } from './contextAssembly'
 import { parseModelRef } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
@@ -1691,12 +1694,37 @@ function buildAgentAndContext(
           projectPath as string
         )
     : undefined
+  // .agents rules load once per turn, right here at agent build (design 3.2):
+  // Always On rules, the conversation's pinned Manual rules, and glob rules
+  // matched against files this conversation already touched. A broken .agents
+  // dir (or any failure in the load/assemble path) never blocks a turn
+  // (design 11): the catch drops the additions and the turn runs on the base
+  // prompt alone.
+  let ruleAdditions = ''
+  try {
+    const content = loadAgentsContent(projectPath)
+    const touched = projectPath ? touchedFilesFor(conversationId) : []
+    // buildTools only registers the activate_rule tool below when a project
+    // is open (backendFactory is set); global rules still load with no
+    // project open, so a 'model' activation rule must be filtered out here
+    // or the prompt advertises a tool the model can't call this turn.
+    const asm = assembleRuleAdditions({
+      content: projectPath ? content : withoutModelRules(content),
+      pinnedManualRules: meta?.activeRules ?? [],
+      mentionPaths: [], // [] until D3's @ menu ships
+      touchedFiles: touched
+    })
+    if (asm.systemAdditions.length > 0) ruleAdditions = '\n\n' + asm.systemAdditions.join('\n\n')
+  } catch (err) {
+    console.warn('[bearcode] .agents rules skipped:', err)
+  }
   const agent = createDeepAgent({
     model,
     // meta is null only for a conversation deleted mid-flight (the run is
     // doomed either way), so the fallback mode is arbitrary; toMeta already
     // resolved a NULL execution_mode column to the live defaultExecutionMode.
-    systemPrompt: orchestratorSystemPrompt(projectPath, meta?.executionMode ?? 'planning'),
+    systemPrompt:
+      orchestratorSystemPrompt(projectPath, meta?.executionMode ?? 'planning') + ruleAdditions,
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
     ...(backendFactory
