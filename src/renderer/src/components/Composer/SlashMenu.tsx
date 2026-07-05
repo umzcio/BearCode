@@ -31,8 +31,12 @@ export function SlashMenu({
   return (
     <div className="menu slash-menu">
       {entries.map((entry, i) => (
+        // Keyed by kind AND name: a workflow colliding with a built-in keeps
+        // the built-in's name (design 5.1, both rows render together), so
+        // name alone would duplicate React keys. Highlighting is index-based
+        // throughout, so no other row-identity logic needs the same fix.
         <div
-          key={entry.name}
+          key={`${entry.kind}:${entry.name}`}
           className={
             'menu-item' +
             (i === highlightedIndex ? ' highlighted' : '') +

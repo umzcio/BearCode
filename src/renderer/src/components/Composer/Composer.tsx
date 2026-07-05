@@ -60,8 +60,12 @@ export function Composer({
   // The menu opens only when the composer is otherwise empty and the very
   // first character typed is '/', and stays open while the text still starts
   // with '/' (design 6.1). A command pill already present suppresses it
-  // entirely -- there is only ever one command per turn.
-  const menuOpen = command === null && !menuDismissed && value.length > 0 && value[0] === '/'
+  // entirely -- there is only ever one command per turn. An open resume
+  // picker also suppresses it: the two popovers share the spot above the
+  // composer and both react to arrows/enter/escape, so they must never
+  // render stacked.
+  const menuOpen =
+    command === null && !menuDismissed && !resumePickerOpen && value.length > 0 && value[0] === '/'
   const filtered = menuOpen ? filterSlashCommands(value.slice(1), commands) : []
   const safeIndex = Math.min(highlightedIndex, Math.max(0, filtered.length - 1))
 
