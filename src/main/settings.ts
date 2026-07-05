@@ -1,7 +1,16 @@
 import { app } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import type { AppSettings, SettingsInfo } from '../shared/types'
+import type { AppSettings, PermissionMode, SettingsInfo } from '../shared/types'
+
+// The four selectable default modes (design §5). 'bypass' is per-conversation
+// only and is NEVER a valid default -- coerced away on read, rejected on write.
+export const SELECTABLE_PERMISSION_MODES: readonly PermissionMode[] = [
+  'ask',
+  'accept-edits',
+  'plan',
+  'auto'
+]
 
 const DEFAULTS: AppSettings = {
   ollamaBaseUrl: 'http://localhost:11434',
@@ -45,6 +54,12 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   // collapses to 'planning', the design-3.2 default.
   const rawExecutionMode = (seeded as Record<string, unknown>)['defaultExecutionMode']
   merged.defaultExecutionMode = rawExecutionMode === 'fast' ? 'fast' : 'planning'
+  // defaultPermissionMode is the single default (design §5). Coerce anything
+  // outside the four selectable modes -- including a stray 'bypass' or a typo
+  // from a future/downgraded version -- to the safe default.
+  if (!SELECTABLE_PERMISSION_MODES.includes(merged.defaultPermissionMode)) {
+    merged.defaultPermissionMode = 'accept-edits'
+  }
   return merged
 }
 
@@ -62,6 +77,17 @@ export function getSettings(): AppSettings {
 }
 
 export function setSettings(patch: Partial<AppSettings>): AppSettings {
+  // Validate BEFORE persisting: 'bypass' is per-conversation only and must never
+  // become a global default (design §6), and an unknown value must never be
+  // written. Throw at the boundary (ipc.ts turns it into a rejected promise).
+  if (
+    patch.defaultPermissionMode !== undefined &&
+    !SELECTABLE_PERMISSION_MODES.includes(patch.defaultPermissionMode)
+  ) {
+    throw new Error(
+      `Invalid defaultPermissionMode: ${String(patch.defaultPermissionMode)} (not selectable)`
+    )
+  }
   const next = { ...getSettings(), ...patch }
   cache = next
   writeFileSync(settingsPath(), JSON.stringify(next, null, 2))
