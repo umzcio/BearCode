@@ -25,13 +25,13 @@ const input = (
 
 describe('assembleRuleAdditions', () => {
   it('returns an empty systemAdditions for empty content', () => {
-    const result = assembleRuleAdditions(input({ rules: [] }))
+    const result = assembleRuleAdditions(input({ rules: [], workflows: [] }))
     expect(result).toEqual({ systemAdditions: [], activatedGlobRules: [] })
   })
 
   it('lists always-on rules under "## Project rules" with a name/source header', () => {
     const always = rule({ name: 'style', body: 'Use tabs.', source: 'global' })
-    const result = assembleRuleAdditions(input({ rules: [always] }))
+    const result = assembleRuleAdditions(input({ rules: [always], workflows: [] }))
     expect(result.systemAdditions).toEqual([
       '',
       '## Project rules',
@@ -44,7 +44,7 @@ describe('assembleRuleAdditions', () => {
   it('lists pinned manual rules under "## Activated rules"', () => {
     const manual = rule({ name: 'checklist', activation: 'manual', body: 'Do the checklist.' })
     const result = assembleRuleAdditions(
-      input({ rules: [manual] }, { pinnedManualRules: ['checklist'] })
+      input({ rules: [manual], workflows: [] }, { pinnedManualRules: ['checklist'] })
     )
     expect(result.systemAdditions).toEqual([
       '',
@@ -57,14 +57,14 @@ describe('assembleRuleAdditions', () => {
 
   it('does not activate a manual rule that is not pinned', () => {
     const manual = rule({ name: 'checklist', activation: 'manual' })
-    const result = assembleRuleAdditions(input({ rules: [manual] }))
+    const result = assembleRuleAdditions(input({ rules: [manual], workflows: [] }))
     expect(result.systemAdditions).toEqual([])
   })
 
   it('activates a glob rule whose pattern matches a touched file', () => {
     const glob = rule({ name: 'ts-rules', activation: 'glob', globs: ['src/**/*.ts'] })
     const result = assembleRuleAdditions(
-      input({ rules: [glob] }, { touchedFiles: ['src/main/index.ts'] })
+      input({ rules: [glob], workflows: [] }, { touchedFiles: ['src/main/index.ts'] })
     )
     expect(result.systemAdditions).toEqual([
       '',
@@ -78,13 +78,17 @@ describe('assembleRuleAdditions', () => {
 
   it('activates a glob rule whose pattern matches a mention path', () => {
     const glob = rule({ name: 'ts-rules', activation: 'glob', globs: ['*.ts'] })
-    const result = assembleRuleAdditions(input({ rules: [glob] }, { mentionPaths: ['index.ts'] }))
+    const result = assembleRuleAdditions(
+      input({ rules: [glob], workflows: [] }, { mentionPaths: ['index.ts'] })
+    )
     expect(result.activatedGlobRules).toEqual(['ts-rules'])
   })
 
   it('does not activate a glob rule with no matching path', () => {
     const glob = rule({ name: 'ts-rules', activation: 'glob', globs: ['*.ts'] })
-    const result = assembleRuleAdditions(input({ rules: [glob] }, { touchedFiles: ['README.md'] }))
+    const result = assembleRuleAdditions(
+      input({ rules: [glob], workflows: [] }, { touchedFiles: ['README.md'] })
+    )
     expect(result.systemAdditions).toEqual([])
     expect(result.activatedGlobRules).toEqual([])
   })
@@ -101,7 +105,7 @@ describe('assembleRuleAdditions', () => {
     })
     const result = assembleRuleAdditions(
       input(
-        { rules: [always, manual, glob, model] },
+        { rules: [always, manual, glob, model], workflows: [] },
         { pinnedManualRules: ['broken-manual'], touchedFiles: ['anything'] }
       )
     )
@@ -114,7 +118,7 @@ describe('assembleRuleAdditions', () => {
       activation: 'model',
       description: 'How to refactor safely'
     })
-    const result = assembleRuleAdditions(input({ rules: [model] }))
+    const result = assembleRuleAdditions(input({ rules: [model], workflows: [] }))
     expect(result.systemAdditions).toEqual([
       '',
       '## Available rules',
@@ -130,7 +134,7 @@ describe('assembleRuleAdditions', () => {
     const model = rule({ name: 'mod1', activation: 'model', description: 'desc' })
     const result = assembleRuleAdditions(
       input(
-        { rules: [always, manual, glob, model] },
+        { rules: [always, manual, glob, model], workflows: [] },
         { pinnedManualRules: ['m1'], touchedFiles: ['x.ts'] }
       )
     )
@@ -146,20 +150,29 @@ describe('withoutModelRules', () => {
     const manual = rule({ name: 'm1', activation: 'manual' })
     const glob = rule({ name: 'g1', activation: 'glob', globs: ['*.ts'] })
     const model = rule({ name: 'mod1', activation: 'model', description: 'desc' })
-    const result = withoutModelRules({ rules: [always, manual, glob, model] })
+    const result = withoutModelRules({ rules: [always, manual, glob, model], workflows: [] })
     expect(result.rules.map((r) => r.name)).toEqual(['a1', 'm1', 'g1'])
+  })
+
+  it('preserves the workflows field untouched (the spread carries it through)', () => {
+    const always = rule({ name: 'a1' })
+    const workflows: AgentsContent['workflows'] = [
+      { name: 'wf', description: '', body: 'step', steps: ['step'], source: 'project' }
+    ]
+    const result = withoutModelRules({ rules: [always], workflows })
+    expect(result.workflows).toBe(workflows)
   })
 
   it('never renders the "## Available rules" index once filtered', () => {
     const model = rule({ name: 'mod1', activation: 'model', description: 'desc' })
-    const filtered = withoutModelRules({ rules: [model] })
+    const filtered = withoutModelRules({ rules: [model], workflows: [] })
     const result = assembleRuleAdditions(input(filtered))
     expect(result.systemAdditions).toEqual([])
   })
 
   it('is a no-op when there are no model rules', () => {
     const always = rule({ name: 'a1' })
-    const result = withoutModelRules({ rules: [always] })
+    const result = withoutModelRules({ rules: [always], workflows: [] })
     expect(result.rules.map((r) => r.name)).toEqual(['a1'])
   })
 })

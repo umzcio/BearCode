@@ -1,6 +1,13 @@
 // The contract shared by main, preload, and renderer.
 // Change deliberately and update all three layers together.
 
+// Command-name grammar (D2 design 5.1/6.2), shared so the parse-time check
+// (a workflow's filename, src/main/agentsDir/parseWorkflow.ts) and the
+// wire-time check (the run:start IPC boundary, src/main/ipc.ts) can never
+// drift into two different regexes: kebab-case, lowercase letters/digits/
+// dashes only, 1-64 characters, must not start with a dash.
+export const COMMAND_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
+
 // The legacy engine's tool set is 'list_dir' | 'read_file' | 'search_files' |
 // 'write_file' | 'edit_file' | 'run_command'. The orchestrator engine's tools
 // are Deep Agents' always-on built-ins (createDeepAgent() injects these

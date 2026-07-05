@@ -32,6 +32,21 @@ function globalRulesDir(): string {
   return join(homeDir, '.bearcode', 'agents', 'rules')
 }
 
+function writeWorkflow(dir: string, name: string, contents: string): string {
+  mkdirSync(dir, { recursive: true })
+  const p = join(dir, `${name}.md`)
+  writeFileSync(p, contents)
+  return p
+}
+
+function projectWorkflowsDir(): string {
+  return join(projectDir, '.agents', 'workflows')
+}
+
+function globalWorkflowsDir(): string {
+  return join(homeDir, '.bearcode', 'agents', 'workflows')
+}
+
 beforeEach(() => {
   projectDir = mkdtempSync(join(tmpdir(), 'bearcode-agentsdir-project-'))
   homeDir = mkdtempSync(join(tmpdir(), 'bearcode-agentsdir-home-'))
@@ -64,9 +79,9 @@ describe('loadAgentsContent', () => {
     expect(globalOnly?.source).toBe('global')
   })
 
-  it('returns an empty rule list when both directories are missing', () => {
+  it('returns an empty rule and workflow list when all directories are missing', () => {
     const content = loadAgentsContent(projectDir)
-    expect(content).toEqual({ rules: [] })
+    expect(content).toEqual({ rules: [], workflows: [] })
   })
 
   it('returns the same Rule object across two loads when nothing changed', () => {
@@ -364,6 +379,100 @@ describe('loadAgentsContent', () => {
 
     expect(rule).toBeDefined()
     expect(rule?.warnings?.some((w) => /max reference depth/i.test(w))).toBe(true)
+  })
+})
+
+describe('loadAgentsContent workflows', () => {
+  it('reads both project and global workflow directories', () => {
+    writeWorkflow(projectWorkflowsDir(), 'release-check', '1. Build\n2. Test')
+    writeWorkflow(globalWorkflowsDir(), 'global-only', '1. Do the global thing')
+
+    const content = loadAgentsContent(projectDir)
+
+    expect(content.workflows).toHaveLength(2)
+    const releaseCheck = content.workflows.find((w) => w.name === 'release-check')
+    expect(releaseCheck?.source).toBe('project')
+    expect(releaseCheck?.steps).toEqual(['Build', 'Test'])
+    const globalOnly = content.workflows.find((w) => w.name === 'global-only')
+    expect(globalOnly?.source).toBe('global')
+  })
+
+  it('project wins on a workflow filename collision', () => {
+    writeWorkflow(projectWorkflowsDir(), 'shared', '1. project version')
+    writeWorkflow(globalWorkflowsDir(), 'shared', '1. global version')
+
+    const content = loadAgentsContent(projectDir)
+
+    expect(content.workflows).toHaveLength(1)
+    const shared = content.workflows.find((w) => w.name === 'shared')
+    expect(shared?.source).toBe('project')
+    expect(shared?.steps).toEqual(['project version'])
+  })
+
+  it('returns the same Workflow object across two loads when nothing changed', () => {
+    writeWorkflow(projectWorkflowsDir(), 'stable', '1. stable step')
+
+    const first = loadAgentsContent(projectDir)
+    const second = loadAgentsContent(projectDir)
+
+    const firstWorkflow = first.workflows.find((w) => w.name === 'stable')
+    const secondWorkflow = second.workflows.find((w) => w.name === 'stable')
+    expect(firstWorkflow).toBeDefined()
+    expect(firstWorkflow).toBe(secondWorkflow)
+  })
+
+  it('re-parses a workflow file whose mtime and content changed', () => {
+    const path = writeWorkflow(projectWorkflowsDir(), 'changing', '1. original step')
+    const first = loadAgentsContent(projectDir)
+    const firstWorkflow = first.workflows.find((w) => w.name === 'changing')
+
+    writeFileSync(path, '1. updated step')
+    const future = new Date(Date.now() + 5000)
+    utimesSync(path, future, future)
+
+    const second = loadAgentsContent(projectDir)
+    const secondWorkflow = second.workflows.find((w) => w.name === 'changing')
+
+    expect(secondWorkflow).not.toBe(firstWorkflow)
+    expect(secondWorkflow?.steps).toEqual(['updated step'])
+  })
+
+  it('returns an empty workflow list when both workflow directories are missing', () => {
+    const content = loadAgentsContent(projectDir)
+    expect(content.workflows).toEqual([])
+  })
+
+  it('never resolves @-cross-references in a workflow body', () => {
+    mkdirSync(join(projectDir, 'shared'), { recursive: true })
+    writeFileSync(join(projectDir, 'shared', 'snippet.md'), 'THE SNIPPET CONTENT')
+    writeWorkflow(projectWorkflowsDir(), 'main', 'See @shared/snippet.md for details.')
+
+    const content = loadAgentsContent(projectDir)
+    const workflow = content.workflows.find((w) => w.name === 'main')
+
+    expect(workflow?.body).toContain('@shared/snippet.md')
+    expect(workflow?.body).not.toContain('THE SNIPPET CONTENT')
+  })
+
+  it('truncates an oversized workflow file and records a warning', () => {
+    writeWorkflow(projectWorkflowsDir(), 'huge-workflow', 'y'.repeat(100 * 1024))
+
+    const content = loadAgentsContent(projectDir)
+    const workflow = content.workflows.find((w) => w.name === 'huge-workflow')
+
+    expect(workflow).toBeDefined()
+    expect(workflow?.body.length).toBeLessThanOrEqual(64 * 1024)
+    expect(workflow?.warnings?.some((w) => /truncated/i.test(w))).toBe(true)
+  })
+
+  it('keeps a malformed workflow file listed with its error, never throwing', () => {
+    writeWorkflow(projectWorkflowsDir(), 'broken', '---\ndescription: broken\nno closer here')
+
+    const content = loadAgentsContent(projectDir)
+    const workflow = content.workflows.find((w) => w.name === 'broken')
+
+    expect(workflow).toBeDefined()
+    expect(workflow?.error).toBeTruthy()
   })
 })
 
