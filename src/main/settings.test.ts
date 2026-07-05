@@ -34,4 +34,18 @@ describe('migrateSettings', () => {
       []
     )
   })
+  it("defaults artifactReviewPolicy to 'request-review'", () => {
+    expect(migrateSettings({}).artifactReviewPolicy).toBe('request-review')
+  })
+  it("preserves a stored 'always-proceed' policy across load (survives restart)", () => {
+    expect(migrateSettings({ artifactReviewPolicy: 'always-proceed' }).artifactReviewPolicy).toBe(
+      'always-proceed'
+    )
+  })
+  it('coerces an unknown policy value to the request-review default', () => {
+    expect(migrateSettings({ artifactReviewPolicy: 'yolo' }).artifactReviewPolicy).toBe(
+      'request-review'
+    )
+    expect(migrateSettings({ artifactReviewPolicy: 7 }).artifactReviewPolicy).toBe('request-review')
+  })
 })

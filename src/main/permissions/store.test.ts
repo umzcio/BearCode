@@ -11,7 +11,8 @@ vi.mock('../settings', () => ({
     ollamaBaseUrl: '',
     defaultModelRef: null,
     defaultPermissionMode: 'accept-edits',
-    disabledBuiltins: [] as string[]
+    disabledBuiltins: [] as string[],
+    artifactReviewPolicy: 'request-review' as const
   })),
   setSettings: vi.fn()
 }))
@@ -133,7 +134,8 @@ describe('settings-backed manager surface', () => {
       ollamaBaseUrl: '',
       defaultModelRef: null,
       defaultPermissionMode: 'accept-edits',
-      disabledBuiltins: ['builtin:curl-pipe-sh']
+      disabledBuiltins: ['builtin:curl-pipe-sh'],
+      artifactReviewPolicy: 'request-review'
     })
     const out = getEffectiveRules(null)
     expect(out.some((r) => r.id === 'builtin:curl-pipe-sh')).toBe(false)
@@ -144,7 +146,8 @@ describe('settings-backed manager surface', () => {
       ollamaBaseUrl: '',
       defaultModelRef: null,
       defaultPermissionMode: 'accept-edits',
-      disabledBuiltins: ['builtin:fork-bomb']
+      disabledBuiltins: ['builtin:fork-bomb'],
+      artifactReviewPolicy: 'request-review'
     })
     vi.mocked(listRules).mockReturnValue([g('git *')])
     const info = listRulesInfo()
@@ -164,7 +167,8 @@ describe('settings-backed manager surface', () => {
       ollamaBaseUrl: '',
       defaultModelRef: null,
       defaultPermissionMode: 'accept-edits',
-      disabledBuiltins: []
+      disabledBuiltins: [],
+      artifactReviewPolicy: 'request-review'
     })
     setBuiltinDisabled('builtin:curl-pipe-sh', true)
     expect(setSettings).toHaveBeenCalledWith({ disabledBuiltins: ['builtin:curl-pipe-sh'] })
@@ -181,7 +185,8 @@ describe('settings-backed manager surface', () => {
       ollamaBaseUrl: '',
       defaultModelRef: null,
       defaultPermissionMode: 'accept-edits',
-      disabledBuiltins: []
+      disabledBuiltins: [],
+      artifactReviewPolicy: 'request-review'
     })
     setBuiltinDisabled('builtin:edit-env-root', true)
     const [afterEditDisabled] = vi.mocked(setSettings).mock.calls[0]
@@ -199,7 +204,8 @@ describe('settings-backed manager surface', () => {
       ollamaBaseUrl: '',
       defaultModelRef: null,
       defaultPermissionMode: 'accept-edits',
-      disabledBuiltins: []
+      disabledBuiltins: [],
+      artifactReviewPolicy: 'request-review'
     })
     setBuiltinDisabled('builtin:curl-pipe-sh', true)
     const [afterCommandDisabled] = vi.mocked(setSettings).mock.calls[0]

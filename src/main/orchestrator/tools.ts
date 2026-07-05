@@ -15,15 +15,25 @@
 // same shell, timeout/kill, and output-truncation behavior the engine has
 // always used.
 import { spawn } from 'child_process'
+import { createHash, randomUUID } from 'crypto'
 import { realpathSync } from 'fs'
 import { interrupt } from '@langchain/langgraph'
 import { tool } from 'langchain'
 import { z } from 'zod'
+import type { Artifact, Event } from '../../shared/types'
+import { appendOrReplaceEvent } from '../db'
+import { createPlanArtifact, createWalkthroughArtifact } from '../artifacts/store'
 import { evaluateCommandForConversation } from '../permissions'
+import type { RunSink } from '../sink'
 
 const commandSchema = z.object({
   command: z.string().describe('Shell command to run in the workspace folder.'),
   timeoutMs: z.number().int().min(1000).max(600000).optional().describe('Timeout, default 60s.')
+})
+
+const artifactSchema = z.object({
+  title: z.string().describe('A short, human-readable title for the artifact.'),
+  body: z.string().describe('The full artifact content, as markdown.')
 })
 
 // Denied-replay pins: execution-layer enforcement of a Denied approval card.
@@ -159,10 +169,10 @@ function runCommand(
   })
 }
 
-// buildTools(projectPath, conversationId) returns the LangChain tool array passed to
+// buildTools(projectPath, conversationId, sink) returns the LangChain tool array passed to
 // createDeepAgent's `tools` option (in addition to its always-on built-ins).
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- Zod-inferred `tool()` return type is not writable by hand without narrowing away the actual generic
-export function buildTools(projectPath: string, conversationId: string) {
+export function buildTools(projectPath: string, conversationId: string, sink: RunSink) {
   const runCommandTool = tool(
     async (
       { command, timeoutMs }: { command: string; timeoutMs?: number },
@@ -217,5 +227,137 @@ export function buildTools(projectPath: string, conversationId: string) {
       schema: commandSchema
     }
   )
-  return [runCommandTool]
+
+  // Deterministic ids keyed on the provider tool-call id (the same config
+  // field run_command reads, above) PLUS a content hash. Two properties, both
+  // load-bearing:
+  //
+  // (1) REPLAY IDEMPOTENCY -- idempotent-by-key, NOT "no replay path exists":
+  // live keyed resume and the nudge re-drive never re-execute a completed
+  // task (putWrites + skipDoneTasks), but crash-rehydration can. Checkpoint
+  // durability defaults to 'async' (the checkpointer promise is tracked, not
+  // awaited) and this tool's writes land in bearcode.db while the graph's
+  // task writes land in checkpoints.db with no shared transaction -- so a
+  // crash after the tool completed but before putWrites committed makes the
+  // rehydrated+resumed graph RE-EXECUTE this task silently. A true replay
+  // carries the identical title+body, so it derives the SAME artifact id
+  // (the store returns the existing row: no second insert, no re-supersede,
+  // no version bump) and the SAME event id (appendOrReplaceEvent replaces in
+  // place; the renderer upserts by id).
+  //
+  // (2) COLLISION SAFETY across reused tool-call ids: provider tool-call ids
+  // CAN REPEAT across iterations for non-Anthropic providers (graph.ts
+  // callIdMap documents exactly this). Keyed on the id alone, a NEW plan
+  // submitted under a reused tc.id would hit the store's existence check and
+  // return the OLD row -- its policy reconstructed from the recorded status,
+  // possibly "Plan approved. Begin implementation." for a plan the user never
+  // saw -- and the new plan's body would never be recorded (in Ba2, a
+  // plan_review-bypass trajectory). Folding sha256(title + '\n' + body) into
+  // the key means different content diverges to a fresh row + fresh event.
+  //
+  // Namespaced by conversationId because provider tool-call ids are only
+  // unique per conversation at best (graph.ts callIdMap again). An id-less
+  // provider falls back to random ids and accepts the residual
+  // duplicate-on-crash window.
+  const artifactIdsFor = (
+    toolCallId: string | undefined,
+    title: string,
+    body: string
+  ): { artifactId: string; eventId: string } => {
+    if (toolCallId === undefined) return { artifactId: randomUUID(), eventId: randomUUID() }
+    const contentHash = createHash('sha256')
+      .update(title + '\n' + body)
+      .digest('hex')
+      .slice(0, 16)
+    const stem = `${conversationId}:${toolCallId}:${contentHash}`
+    return { artifactId: `${stem}:artifact`, eventId: `${stem}:artifact-event` }
+  }
+
+  // The artifact event is the one event these tools emit themselves (their
+  // tool_call/tool_result rows ride graph.ts's generic drive-loop emission
+  // like every other tool). appendOrReplaceEvent, never appendEvent: a
+  // crash-rehydration replay re-emits this event under the SAME deterministic
+  // id, and replacing in place keeps history at exactly one row
+  // (db/index.ts appendOrReplaceEvent).
+  const emitArtifactEvent = (artifact: Artifact, eventId: string): void => {
+    const event: Event = {
+      type: 'artifact',
+      id: eventId,
+      artifactId: artifact.id,
+      artifactType: artifact.type,
+      version: artifact.version,
+      title: artifact.title,
+      status: artifact.status,
+      body: artifact.body
+    }
+    sink.emit(conversationId, event)
+    appendOrReplaceEvent(conversationId, event)
+  }
+
+  // SECURITY (design 2026-07-04-ba-artifacts-design.md section 4): submit_plan
+  // and submit_walkthrough write ONLY artifact DB rows. They have no workspace
+  // or command capability and must never gain any; they are never gated by
+  // permission rules/modes (there is nothing to gate); and the 'approved'
+  // status submit_plan can mint under always-proceed is a workflow record
+  // only -- plan approval NEVER pre-approves commands or edits (every Bb
+  // permission gate still runs per call during implementation).
+  const submitPlanTool = tool(
+    async ({ title, body }: { title: string; body: string }, config?: unknown): Promise<string> => {
+      if (!title.trim() || !body.trim()) {
+        return 'submit_plan needs a non-empty title and a non-empty markdown body. Nothing was recorded; call it again with both.'
+      }
+      const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
+      // Hash the same values handed to the store, so a replayed call (which
+      // re-derives them from the same tool args) folds to the same key.
+      const { artifactId, eventId } = artifactIdsFor(toolCallId, title.trim(), body)
+      const { artifact, policy } = createPlanArtifact(
+        conversationId,
+        title.trim(),
+        body,
+        artifactId
+      )
+      emitArtifactEvent(artifact, eventId)
+      if (policy === 'always-proceed') {
+        // Docs: "immediately bypass the pause".
+        return 'Plan approved. Begin implementation.'
+      }
+      // Ba1: the request-review pause (design 3.5, kind 'plan_review') arrives
+      // with Ba2. Until then the tool still returns immediately, but the
+      // artifact is recorded pending-review and the model is told to hold --
+      // the agent pauses its own narrative; no interrupt machinery here.
+      return (
+        `Plan v${artifact.version} recorded. It is awaiting the user's review in the artifacts pane. ` +
+        "Do not begin implementation; wait for the user's decision or feedback before making any changes."
+      )
+    },
+    {
+      name: 'submit_plan',
+      description:
+        'Submit an implementation plan artifact (markdown body) for the user to review before you change any files. ' +
+        'The result tells you whether you may proceed.',
+      schema: artifactSchema
+    }
+  )
+
+  const submitWalkthroughTool = tool(
+    async ({ title, body }: { title: string; body: string }, config?: unknown): Promise<string> => {
+      if (!title.trim() || !body.trim()) {
+        return 'submit_walkthrough needs a non-empty title and a non-empty markdown body. Nothing was recorded; call it again with both.'
+      }
+      const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
+      const { artifactId, eventId } = artifactIdsFor(toolCallId, title.trim(), body)
+      const artifact = createWalkthroughArtifact(conversationId, title.trim(), body, artifactId)
+      emitArtifactEvent(artifact, eventId)
+      return `Walkthrough v${artifact.version} recorded.`
+    },
+    {
+      name: 'submit_walkthrough',
+      description:
+        'Submit a walkthrough artifact (markdown body): a concise summary of the changes you made, ' +
+        'after completing implementation work.',
+      schema: artifactSchema
+    }
+  )
+
+  return [runCommandTool, submitPlanTool, submitWalkthroughTool]
 }

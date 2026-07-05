@@ -96,6 +96,16 @@ function summaryFor(call: ToolCallEvent, result?: ToolResultEvent): React.ReactN
         </span>
       )
     }
+    case 'submit_plan':
+    case 'submit_walkthrough': {
+      const title = inputStr(call, 'title')
+      return (
+        <span>
+          Submitted {call.tool === 'submit_plan' ? 'plan' : 'walkthrough'}{' '}
+          <b>{title ?? 'an artifact'}</b>
+        </span>
+      )
+    }
     default:
       return (
         <span>

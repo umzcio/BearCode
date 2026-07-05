@@ -84,6 +84,9 @@ interface AppState {
   reviewDiffId: string | null
   // File path the review pane should focus when it opens (chip/step clicks).
   reviewFocusPath: string | null
+  // Artifact the artifacts pane is showing; mutually exclusive with
+  // reviewDiffId (one side panel mount, Ba4 unifies them).
+  reviewArtifactId: string | null
   toast: string | null
 
   init(): void
@@ -116,6 +119,7 @@ interface AppState {
   deleteAllConversations(): Promise<void>
   openReview(diffId: string): void
   openReviewForFile(convoId: string, path: string): void
+  openArtifactPane(artifactId: string): void
   closeReview(): void
   showToast(message: string): void
 }
@@ -218,6 +222,7 @@ export const useAppStore = create<AppState>((set, get) => {
     settingsOpen: false,
     reviewDiffId: null,
     reviewFocusPath: null,
+    reviewArtifactId: null,
     toast: null,
 
     init: () => {
@@ -484,7 +489,8 @@ export const useAppStore = create<AppState>((set, get) => {
       get().showToast('All conversations deleted')
     },
 
-    openReview: (diffId) => set({ reviewDiffId: diffId, reviewFocusPath: null }),
+    openReview: (diffId) =>
+      set({ reviewDiffId: diffId, reviewFocusPath: null, reviewArtifactId: null }),
     openReviewForFile: (convoId, path) => {
       const convo = get().conversations[convoId]
       if (!convo) return
@@ -496,12 +502,14 @@ export const useAppStore = create<AppState>((set, get) => {
           (f) => f.path === path || f.path.endsWith('/' + name) || f.path === name
         )
         if (match) {
-          set({ reviewDiffId: ev.diffId, reviewFocusPath: match.path })
+          set({ reviewDiffId: ev.diffId, reviewFocusPath: match.path, reviewArtifactId: null })
           return
         }
       }
     },
-    closeReview: () => set({ reviewDiffId: null, reviewFocusPath: null }),
+    openArtifactPane: (artifactId) =>
+      set({ reviewArtifactId: artifactId, reviewDiffId: null, reviewFocusPath: null }),
+    closeReview: () => set({ reviewDiffId: null, reviewFocusPath: null, reviewArtifactId: null }),
 
     showToast: (message) => {
       if (toastTimer) clearTimeout(toastTimer)

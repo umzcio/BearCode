@@ -7,7 +7,8 @@ const DEFAULTS: AppSettings = {
   ollamaBaseUrl: 'http://localhost:11434',
   defaultModelRef: null,
   defaultPermissionMode: 'accept-edits',
-  disabledBuiltins: []
+  disabledBuiltins: [],
+  artifactReviewPolicy: 'request-review'
 }
 
 function settingsPath(): string {
@@ -33,6 +34,11 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   merged.disabledBuiltins = Array.isArray(rawDisabled)
     ? rawDisabled.filter((x): x is string => typeof x === 'string')
     : []
+  // The review policy is a two-value enum; anything else in settings.json
+  // (typo, downgrade from a future version) collapses to the safe default,
+  // 'request-review' (design 3.3: Request Review is the recommended default).
+  const rawPolicy = (seeded as Record<string, unknown>)['artifactReviewPolicy']
+  merged.artifactReviewPolicy = rawPolicy === 'always-proceed' ? 'always-proceed' : 'request-review'
   return merged
 }
 
