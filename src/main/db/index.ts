@@ -5,7 +5,13 @@ import { app } from 'electron'
 import { join } from 'path'
 import Database from 'better-sqlite3'
 import { randomUUID } from 'crypto'
-import type { ConversationMeta, Event, PermissionMode, PermissionRule } from '../../shared/types'
+import type {
+  ConversationMeta,
+  Event,
+  PermissionAction,
+  PermissionMode,
+  PermissionRule
+} from '../../shared/types'
 import { getSettings } from '../settings'
 
 let db: Database.Database | null = null
@@ -48,7 +54,7 @@ function getDb(): Database.Database {
     CREATE TABLE IF NOT EXISTS permission_rules (
       id TEXT PRIMARY KEY,
       project_path TEXT,          -- NULL = global scope
-      action TEXT NOT NULL,       -- 'command'
+      action TEXT NOT NULL,       -- 'command' | 'edit'
       match TEXT NOT NULL,
       effect TEXT NOT NULL,       -- 'allow' | 'deny' | 'ask'
       created_at INTEGER NOT NULL
@@ -325,11 +331,24 @@ interface RuleRow {
   effect: string
 }
 
-function toRule(row: RuleRow): PermissionRule {
+// Maps a stored action string to the known PermissionAction union, or null if
+// the row holds a value neither insertRule nor addUserRule would ever write.
+// Falling back to 'command' here would silently turn a stray 'edit' deny into
+// a command rule that matches nothing -- inert, and indistinguishable from
+// R1 (the bug this guards against). Filtering the row out and warning is
+// louder and safer: a future unknown action type never masquerades as a rule
+// it is not.
+function toRule(row: RuleRow): PermissionRule | null {
+  if (row.action !== 'command' && row.action !== 'edit') {
+    console.warn(
+      `[bearcode] db: permission_rules row ${row.id} has unknown action "${row.action}"; skipping`
+    )
+    return null
+  }
   return {
     id: row.id,
     scope: row.project_path == null ? 'global' : { projectPath: row.project_path },
-    action: 'command',
+    action: row.action as PermissionAction,
     match: row.match,
     effect: row.effect as PermissionRule['effect'],
     source: 'user'
@@ -350,7 +369,7 @@ export function listRules(): PermissionRule[] {
   const rows = getDb()
     .prepare(`SELECT id, project_path, action, match, effect FROM permission_rules`)
     .all() as RuleRow[]
-  return rows.map(toRule)
+  return rows.map(toRule).filter((r): r is PermissionRule => r !== null)
 }
 
 export function deleteRule(id: string): void {
