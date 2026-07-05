@@ -96,6 +96,11 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                     {turn.user.command ? (
                       <span className="msg-command-pill">/{turn.user.command.name}</span>
                     ) : null}
+                    {turn.user.mentions?.map((m, i) => (
+                      <span className="msg-command-pill" key={`${m.kind}:${m.name}:${i}`}>
+                        @{m.name}
+                      </span>
+                    ))}
                     {turn.user.text}
                   </div>
                   <div className="msg-user-meta">
