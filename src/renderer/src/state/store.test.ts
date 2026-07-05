@@ -266,6 +266,7 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
       'anthropic/claude-sonnet-5',
       null,
       workflowRef,
+      null,
       null
     )
   })
@@ -284,6 +285,7 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
       'anthropic/claude-sonnet-5',
       null,
       null,
+      null,
       null
     )
   })
@@ -300,6 +302,7 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
       'anthropic/claude-sonnet-5',
       '/tmp/p',
       workflowRef,
+      null,
       null
     )
   })
@@ -315,6 +318,7 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
       'hello',
       'anthropic/claude-sonnet-5',
       '/tmp/p',
+      null,
       null,
       null
     )
@@ -454,6 +458,31 @@ describe('D3 mention read-models + send-path threading', () => {
     useAppStore.setState({ conversations: { c1: convoRef }, modelRef: 'anthropic/claude-sonnet-5' })
     const refs: MentionRef[] = [{ kind: 'file', name: 'src/a.ts', path: 'src/a.ts' }]
     useAppStore.getState().send('c1', 'hi', null, refs)
-    expect(run.start).toHaveBeenCalledWith('c1', 'hi', 'anthropic/claude-sonnet-5', '/proj', null, refs)
+    expect(run.start).toHaveBeenCalledWith(
+      'c1',
+      'hi',
+      'anthropic/claude-sonnet-5',
+      '/proj',
+      null,
+      refs,
+      null
+    )
+  })
+
+  it('send forwards attachments as the 7th run.start arg', () => {
+    const convoRef = convo({ id: 'c1', projectPath: '/proj' })
+    useAppStore.setState({ conversations: { c1: convoRef }, modelRef: 'anthropic/claude-sonnet-5' })
+    useAppStore
+      .getState()
+      .send('c1', 'describe', null, null, [{ id: 'a1', name: 'x.png', mime: 'image/png' }])
+    expect(run.start).toHaveBeenCalledWith(
+      'c1',
+      'describe',
+      'anthropic/claude-sonnet-5',
+      '/proj',
+      null,
+      null,
+      [{ id: 'a1', name: 'x.png', mime: 'image/png' }]
+    )
   })
 })

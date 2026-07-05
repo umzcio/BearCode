@@ -3,6 +3,7 @@ import type {
   AddRuleInput,
   AppSettings,
   ArtifactComment,
+  AttachmentRef,
   CommandEntry,
   CommandRef,
   ConversationMeta,
@@ -12,6 +13,7 @@ import type {
   ModelRef,
   PermissionMode,
   PermissionRulesInfo,
+  PickedAttachmentWire,
   ProviderId,
   ProviderModels,
   RunState,
@@ -125,9 +127,20 @@ interface AppState {
   goHome(): void
   openScheduled(): void
   openConvo(id: string): void
-  startFromHome(text: string, command?: CommandRef | null, mentions?: MentionRef[] | null): void
+  startFromHome(
+    text: string,
+    command?: CommandRef | null,
+    mentions?: MentionRef[] | null,
+    attachments?: AttachmentRef[] | null
+  ): void
   deleteConvo(id: string): void
-  send(convoId: string, text: string, command?: CommandRef | null, mentions?: MentionRef[] | null): void
+  send(
+    convoId: string,
+    text: string,
+    command?: CommandRef | null,
+    mentions?: MentionRef[] | null,
+    attachments?: AttachmentRef[] | null
+  ): void
   cancelRun(convoId: string): void
   approveTool(callId: string, approved: boolean): void
   addPermissionRule(input: AddRuleInput): void
@@ -158,6 +171,7 @@ interface AppState {
   setResumePickerOpen(open: boolean): void
   suggestFiles(query: string): void
   refreshManualRules(): void
+  pickAttachments(existingCount: number): Promise<{ picked: PickedAttachmentWire[]; errors: string[] }>
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -385,7 +399,7 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
-    startFromHome: (text, command, mentions) => {
+    startFromHome: (text, command, mentions, attachments) => {
       const { modelRef, workspacePath } = get()
       if (!modelRef) return
       void (async () => {
@@ -415,7 +429,8 @@ export const useAppStore = create<AppState>((set, get) => {
           modelRef,
           workspacePath,
           command ?? null,
-          mentions ?? null
+          mentions ?? null,
+          attachments ?? null
         )
       })()
     },
@@ -446,7 +461,7 @@ export const useAppStore = create<AppState>((set, get) => {
       })
     },
 
-    send: (convoId, text, command, mentions) => {
+    send: (convoId, text, command, mentions, attachments) => {
       const { modelRef, conversations } = get()
       if (!modelRef) return
       patchConvo(convoId, { modelRef })
@@ -456,7 +471,8 @@ export const useAppStore = create<AppState>((set, get) => {
         modelRef,
         conversations[convoId].projectPath,
         command ?? null,
-        mentions ?? null
+        mentions ?? null,
+        attachments ?? null
       )
     },
 
@@ -689,6 +705,15 @@ export const useAppStore = create<AppState>((set, get) => {
       void window.bearcode.mentions.rules(projectPath).then((manualRules) => set({ manualRules }))
     },
 
-    setResumePickerOpen: (open) => set({ resumePickerOpen: open })
+    setResumePickerOpen: (open) => set({ resumePickerOpen: open }),
+
+    // D4 Media: opens the native image picker for the active conversation and
+    // returns the ingested results. The active conversation id comes from the
+    // current view; Home has none, so its composer disables Media (Task 5).
+    pickAttachments: async (existingCount) => {
+      const { view } = get()
+      if (view.kind !== 'conversation') return { picked: [], errors: [] }
+      return window.bearcode.attachments.pick(view.id, existingCount)
+    }
   }
 })

@@ -64,7 +64,8 @@ export async function startRunOrchestrator(
   modelRef: string,
   sink: RunSink,
   command: CommandRef | null = null,
-  mentions: MentionRef[] = []
+  mentions: MentionRef[] = [],
+  attachments: AttachmentRef[] = []
 ): Promise<void> {
   // Persist the model on the conversation row (mirrors the legacy engine's
   // run.ts). Beyond restoring the picker on reopen, crash-resume (A2) needs it:
@@ -81,7 +82,8 @@ export async function startRunOrchestrator(
       sink,
       signal: controller.signal,
       command,
-      mentions
+      mentions,
+      attachments
     })
     // Paused at a command-approval interrupt (risk 4): the run isn't done,
     // it's parked in graph.ts's pendingApprovals until

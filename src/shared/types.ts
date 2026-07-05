@@ -56,6 +56,13 @@ export const ATTACHMENT_MIME_TYPES = [
   'image/gif'
 ] as const
 
+// The pick IPC's per-image result: the ref that will be sent + a data URL the
+// composer renders as a thumbnail (never persisted, never sent to the model).
+export interface PickedAttachmentWire {
+  ref: AttachmentRef
+  previewDataUrl: string
+}
+
 // The @ menu's Rules read model (D3 design 7): Manual-mode rule name + the
 // first non-empty line of its body, for the menu row. Produced main-side from
 // the live AgentsContent (mentionSuggest.ts manualRuleInfos).
@@ -413,6 +420,16 @@ export interface BearcodeApi {
   mentions: {
     files(projectPath: string | null, query: string): Promise<string[]>
     rules(projectPath: string | null): Promise<ManualRuleInfo[]>
+  }
+  // D4 Media (design 8): native image picker + main-side ingest, returning the
+  // accepted attachments (ref + a preview data URL for the composer thumbnail)
+  // and a human-readable error per rejected file. `existingCount` is how many
+  // images are already on the composer, so the 5-per-message cap is respected.
+  attachments: {
+    pick(
+      conversationId: string,
+      existingCount: number
+    ): Promise<{ picked: PickedAttachmentWire[]; errors: string[] }>
   }
   diffs: {
     get(diffId: string): Promise<FileDiff>

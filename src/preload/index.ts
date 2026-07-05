@@ -3,6 +3,7 @@ import type {
   AddRuleInput,
   AppSettings,
   ArtifactComment,
+  AttachmentRef,
   BearcodeApi,
   CommandRef,
   ConversationMeta,
@@ -26,7 +27,8 @@ const bearcode: BearcodeApi = {
       modelRef: ModelRef,
       projectPath,
       command?: CommandRef | null,
-      mentions?: MentionRef[] | null
+      mentions?: MentionRef[] | null,
+      attachments?: AttachmentRef[] | null
     ) =>
       ipcRenderer.invoke(
         'bearcode:run:start',
@@ -35,7 +37,8 @@ const bearcode: BearcodeApi = {
         modelRef,
         projectPath,
         command ?? null,
-        mentions ?? null
+        mentions ?? null,
+        attachments ?? null
       ),
     cancel: (conversationId: string) => ipcRenderer.invoke('bearcode:run:cancel', conversationId)
   },
@@ -49,6 +52,10 @@ const bearcode: BearcodeApi = {
     files: (projectPath: string | null, query: string) =>
       ipcRenderer.invoke('bearcode:mentions:files', projectPath, query),
     rules: (projectPath: string | null) => ipcRenderer.invoke('bearcode:mentions:rules', projectPath)
+  },
+  attachments: {
+    pick: (conversationId: string, existingCount: number) =>
+      ipcRenderer.invoke('bearcode:attachments:pick', conversationId, existingCount)
   },
   diffs: {
     get: (diffId: string) => ipcRenderer.invoke('bearcode:diffs:get', diffId),
