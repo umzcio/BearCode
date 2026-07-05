@@ -9,8 +9,10 @@ vi.mock('../db', () => ({
   dropDanglingApprovalRows: vi.fn(),
   dropDanglingCancel: vi.fn(),
   getConversationMeta: vi.fn(() => null),
+  getEvents: vi.fn(() => []),
   listArtifactComments: vi.fn(() => []),
   markArtifactCommentsSent: vi.fn(),
+  setActiveRules: vi.fn(),
   setPermissionMode: vi.fn()
 }))
 
@@ -40,6 +42,7 @@ import {
   resolvePlanInterrupt,
   resolveInterrupt,
   forgetPendingApproval,
+  persistRuleMentions,
   __parkForTest,
   type ApprovalItem
 } from './graph'
@@ -958,5 +961,34 @@ describe('resolution-channel cross-guards (SECURITY, via the __parkForTest seam)
     )
     expect(items.get('c1')?.planReview?.resolution).toBeUndefined()
     expect(sink.emit).not.toHaveBeenCalled()
+  })
+})
+
+import { getConversationMeta, setActiveRules } from '../db'
+
+describe('persistRuleMentions', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  it('does nothing when there are no rule mentions', () => {
+    persistRuleMentions('c1', [{ kind: 'file', name: 'a.ts', path: 'a.ts' }])
+    expect(setActiveRules).not.toHaveBeenCalled()
+  })
+
+  it('unions mentioned rule names with existing activeRules and persists', () => {
+    vi.mocked(getConversationMeta).mockReturnValue({
+      id: 'c1',
+      projectPath: '/p',
+      title: null,
+      modelRef: null,
+      createdAt: 0,
+      updatedAt: 0,
+      permissionMode: 'accept-edits',
+      activeRules: ['style']
+    })
+    persistRuleMentions('c1', [
+      { kind: 'rule', name: 'style' },
+      { kind: 'rule', name: 'security' }
+    ])
+    expect(setActiveRules).toHaveBeenCalledWith('c1', ['style', 'security'])
   })
 })

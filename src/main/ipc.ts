@@ -24,6 +24,7 @@ import { listCommands } from './orchestrator/commands'
 import { suggestFiles, manualRuleInfos } from './orchestrator/mentionSuggest'
 import {
   assertValidCommand,
+  assertValidMentions,
   assertValidPlanReviewResolution,
   cancelRunOrchestrator,
   clearRunsOrchestrator,
@@ -80,17 +81,20 @@ export function registerIpc(): void {
       userText: string,
       modelRef: string,
       _projectPath: string | null,
-      rawCommand?: unknown
+      rawCommand?: unknown,
+      rawMentions?: unknown
     ) => {
       // projectPath is already persisted on the conversation row (set at
       // creation); the orchestrator reads it back from getConversationMeta, so
-      // nothing to stash here. assertValidCommand throws on anything looser
-      // than a well-formed CommandRef (or null/undefined), which ipcMain
-      // .handle turns into a rejected promise for the renderer -- BEFORE any
-      // DB or model work happens (the assertValidPlanReviewResolution
-      // posture). Fire and forget: progress flows back over bearcode:event.
+      // nothing to stash here. assertValidCommand/assertValidMentions throw on
+      // anything looser than a well-formed CommandRef/MentionRef[] (or
+      // null/undefined), which ipcMain.handle turns into a rejected promise for
+      // the renderer -- BEFORE any DB or model work happens (the
+      // assertValidPlanReviewResolution posture). Fire and forget: progress
+      // flows back over bearcode:event.
       const command = assertValidCommand(rawCommand)
-      void startRunOrchestrator(conversationId, userText, modelRef, sink, command)
+      const mentions = assertValidMentions(rawMentions)
+      void startRunOrchestrator(conversationId, userText, modelRef, sink, command, mentions)
     }
   )
 
