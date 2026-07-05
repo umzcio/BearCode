@@ -56,6 +56,18 @@ export interface AddRuleInput {
   effect: PermissionRuleEffect
 }
 
+// The permissions manager's read model: user rules verbatim, builtins paired
+// with their disabled state (the ids live in AppSettings.disabledBuiltins).
+export interface BuiltinRuleInfo {
+  rule: PermissionRule
+  disabled: boolean
+}
+
+export interface PermissionRulesInfo {
+  userRules: PermissionRule[]
+  builtins: BuiltinRuleInfo[]
+}
+
 export type RunState = 'running' | 'awaiting-approval' | 'done' | 'error' | 'cancelled'
 
 export type Event =
@@ -170,6 +182,11 @@ export interface AppSettings {
   ollamaBaseUrl: string
   defaultModelRef: ModelRef | null
   defaultPermissionMode: PermissionMode
+  // Ids of builtin deny rules the user explicitly disabled (design 4.3: deny-only
+  // builtins are toggleable, with a warning). Filtered out of evaluation at merge
+  // time; the rules themselves stay visible in the manager so a disabled builtin
+  // is never silent.
+  disabledBuiltins: string[]
 }
 
 export interface SettingsInfo extends AppSettings {
