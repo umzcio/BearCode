@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Event } from '@shared/types'
 import { useAppStore } from '../state/store'
 import { Markdown } from '../lib/markdown'
-import { ARTIFACT_STATUS_LABELS, ARTIFACT_TYPE_LABELS } from './events/ArtifactCard'
-import { IconClose } from './icons'
+import { ARTIFACT_STATUS_LABELS } from './events/ArtifactCard'
 import './ReviewPanel.css'
 import './events/events.css'
 
@@ -27,110 +26,84 @@ function pendingPlanCallFor(events: Event[], artifactId: string): ToolCallEvent 
 }
 
 // The feedback-focus tick consumed so far. Module scope (not a ref) so it
-// survives the pane's unmount/remount cycle: a "Send feedback" press that
+// survives the viewer's unmount/remount cycle: a "Send feedback" press that
 // MOUNTS the pane must still focus the box (a ref initialized at mount would
 // swallow its own tick), while a stale tick from an earlier pane session must
-// not refocus on every remount. Exactly one pane mounts at a time
-// (ReviewPanel's single side-panel slot), so a module singleton is safe.
-// Starts at the store's initial tick value.
+// not refocus on every remount. Exactly one viewer mounts at a time (the
+// AuxiliaryPane's single viewer slot), so a module singleton is safe.
 let consumedFocusTick = 0
 
-// The artifacts pane (Ba1 read-only rail/viewer; Ba2 adds comments and the
-// Proceed/Review loop). Lists the current conversation's plan/walkthrough
-// artifacts newest first and renders the selected one through the sanitized
-// markdown pipeline. Comments and the Proceed/Review actions render ONLY
-// while a pending submit_plan call is paired to the selected artifact (the
-// pairing seam, design 3.6) -- once the run proceeds, the artifact event
-// re-emits under the same id (upsertEvent replaces by id) and the actions
-// disappear on their own, no renderer bookkeeping required.
-export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.Element | null {
-  const view = useAppStore((s) => s.view)
-  const conversations = useAppStore((s) => s.conversations)
-  const closeReview = useAppStore((s) => s.closeReview)
+// The artifact half of the Auxiliary Pane (Ba4): renders ONE selected plan or
+// walkthrough -- sanitized markdown body, comments, and (only while a pending
+// submit_plan call is paired to it) the Ba2 Proceed/Review loop, unchanged.
+// The rail and selection moved up into AuxiliaryPane; the version chips
+// browse the same-type history (superseded plans viewable, design section 7).
+// SECURITY: a superseded/approved/final version can never show actions --
+// pendingCall requires status 'pending-review' AND a live pairing.
+export function ArtifactViewer({
+  selected,
+  versions,
+  convoEvents,
+  onSelectVersion
+}: {
+  selected: ArtifactEvent
+  versions: ArtifactEvent[]
+  convoEvents: Event[]
+  onSelectVersion: (artifactId: string) => void
+}): React.JSX.Element {
+  const target = useAppStore((s) => s.auxSelection)
   const artifactComments = useAppStore((s) => s.artifactComments)
   const artifactPaneFocusFeedback = useAppStore((s) => s.artifactPaneFocusFeedback)
-  const auxPaneOpenTick = useAppStore((s) => s.auxPaneOpenTick)
   const loadArtifactComments = useAppStore((s) => s.loadArtifactComments)
   const addArtifactComment = useAppStore((s) => s.addArtifactComment)
   const resolvePlanReview = useAppStore((s) => s.resolvePlanReview)
-  const [selectedId, setSelectedId] = useState(artifactId)
   const [draftQuote, setDraftQuote] = useState<string | null>(null)
   const [draftBody, setDraftBody] = useState('')
   const [feedbackText, setFeedbackText] = useState('')
   const feedbackRef = useRef<HTMLTextAreaElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        const target = e.target as HTMLElement | null
-        if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
-        closeReview()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [closeReview])
-
-  // Deep-links (card "Open in pane"/"Send feedback", pending-card hotkeys)
-  // always select the store's target, even when the pane is already mounted
-  // on the same reviewArtifactId (same value -- the mount key does not change,
-  // so local rail browsing would otherwise silently win). Every non-null
-  // reviewArtifactId write goes through openArtifactPane, which bumps this
-  // tick, so syncing on the tick covers value changes too. Render-time state
-  // adjustment per react.dev "you might not need an effect"; rail browsing
-  // keeps working since it only mutates local state afterward.
-  const [seenOpenTick, setSeenOpenTick] = useState(auxPaneOpenTick)
-  if (seenOpenTick !== auxPaneOpenTick) {
-    setSeenOpenTick(auxPaneOpenTick)
-    setSelectedId(artifactId)
-  }
-
-  const convo = view.kind === 'conversation' ? conversations[view.id] : null
-  const artifacts = convo
-    ? convo.events.filter((e): e is ArtifactEvent => e.type === 'artifact')
-    : []
-  const selected =
-    artifacts.find((a) => a.artifactId === selectedId) ?? artifacts[artifacts.length - 1]
-
   const pendingCall =
-    convo && selected && selected.artifactType === 'plan' && selected.status === 'pending-review'
-      ? pendingPlanCallFor(convo.events, selected.artifactId)
+    selected.artifactType === 'plan' && selected.status === 'pending-review'
+      ? pendingPlanCallFor(convoEvents, selected.artifactId)
       : undefined
 
-  // Drop any in-progress draft when the selected artifact changes: its quote
-  // was captured from the previous artifact's body and must not be
-  // submittable against this one. Render-time adjustment, same pattern as the
-  // deep-link sync above.
-  const [draftArtifactId, setDraftArtifactId] = useState(selected?.artifactId)
-  if (draftArtifactId !== selected?.artifactId) {
-    setDraftArtifactId(selected?.artifactId)
+  // Drop any in-progress draft AND the feedback text when the selected
+  // artifact changes: the quote was captured from the previous artifact's
+  // body, and feedback typed against plan A must not pre-fill (and enable)
+  // the Review button against a later plan B -- one click would send A's
+  // text as B's review. The per-artifact mount key that used to guarantee
+  // this is gone (Ba4: the pane no longer remounts per selection), so the
+  // reset is explicit here. Render-time adjustment (react.dev "you might
+  // not need an effect").
+  const [draftArtifactId, setDraftArtifactId] = useState(selected.artifactId)
+  if (draftArtifactId !== selected.artifactId) {
+    setDraftArtifactId(selected.artifactId)
     setDraftQuote(null)
     setDraftBody('')
+    setFeedbackText('')
   }
 
   // Reload comments whenever the selected artifact changes.
   useEffect(() => {
-    if (selected?.artifactId) void loadArtifactComments(selected.artifactId)
+    void loadArtifactComments(selected.artifactId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.artifactId])
+  }, [selected.artifactId])
 
   // Focus + scroll the feedback textarea when the pending card's "Send
-  // feedback" action ticks this counter. Consumes the tick only once the pane
-  // is showing the deep-link's target artifact: the selection sync above can
-  // land a render later, and focusing before it would hit the previous
-  // artifact's textarea (or nothing).
+  // feedback" action ticks this counter. Consumes the tick only once the
+  // viewer is showing the store's deep-link target: the container's tick
+  // sync can land a render later, and focusing before it would hit the
+  // previous artifact's textarea (or nothing).
   useEffect(() => {
     if (artifactPaneFocusFeedback === consumedFocusTick) return
-    if (selected?.artifactId !== artifactId) return
+    if (target?.kind !== 'artifact' || selected.artifactId !== target.artifactId) return
     consumedFocusTick = artifactPaneFocusFeedback
     feedbackRef.current?.focus()
     feedbackRef.current?.scrollIntoView({ block: 'center' })
-  }, [artifactPaneFocusFeedback, selected?.artifactId, artifactId])
+  }, [artifactPaneFocusFeedback, selected.artifactId, target])
 
-  if (!convo) return null
-
-  const comments = selected ? (artifactComments[selected.artifactId] ?? []) : []
+  const comments = artifactComments[selected.artifactId] ?? []
   const unsentCount = comments.filter((c) => c.sentAt === null).length
 
   const onBodyMouseUp = (): void => {
@@ -152,7 +125,7 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
   // hides and refuses to submit -- a resolved plan's comment set is final, so
   // no orphaned never-deliverable draft can be added after the fact.
   const submitDraft = (): void => {
-    if (!pendingCall || !selected || draftBody.trim() === '') return
+    if (!pendingCall || draftBody.trim() === '') return
     void addArtifactComment(selected.artifactId, draftQuote, draftBody.trim())
     setDraftQuote(null)
     setDraftBody('')
@@ -164,7 +137,7 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
   }
 
   const proceed = (): void => {
-    if (!pendingCall || !selected) return
+    if (!pendingCall) return
     void resolvePlanReview(pendingCall.id, true).then((ok) => {
       if (ok) {
         // The review is resolved: drop any half-typed draft immediately rather
@@ -176,7 +149,7 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
   }
 
   const requestReview = (): void => {
-    if (!pendingCall || !selected) return
+    if (!pendingCall) return
     void resolvePlanReview(pendingCall.id, false, feedbackText.trim() || undefined).then((ok) => {
       if (ok) {
         clearDraft()
@@ -187,104 +160,91 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
   }
 
   return (
-    <div className="review-side">
-      <div className="artifact-pane-head">
-        <span className="review-head-title">Artifacts</span>
-        <button className="panel-close" title="Close panel" onClick={closeReview}>
-          <IconClose />
-        </button>
-      </div>
-      <div className="artifact-rail">
-        {[...artifacts].reverse().map((a) => (
-          <button
-            key={a.id}
-            className={'artifact-rail-item' + (selected?.id === a.id ? ' selected' : '')}
-            onClick={() => setSelectedId(a.artifactId)}
-          >
-            <span className="artifact-rail-title">
-              {ARTIFACT_TYPE_LABELS[a.artifactType]} v{a.version}
-            </span>
-            <span className={'artifact-status ' + a.status}>
-              {ARTIFACT_STATUS_LABELS[a.status]}
-            </span>
-          </button>
-        ))}
-      </div>
-      <div className="review-scroll">
-        {selected ? (
-          <div className="artifact-view">
-            <div className="artifact-view-title-row">
-              <div className="artifact-view-title">{selected.title}</div>
-              <span className="artifact-version">v{selected.version}</span>
-              <span className={'artifact-status ' + selected.status}>
-                {ARTIFACT_STATUS_LABELS[selected.status]}
-              </span>
-              {pendingCall ? (
-                <div className="plan-review-actions">
-                  <button className="plan-proceed" onClick={proceed}>
-                    Proceed
-                  </button>
-                  <button
-                    className="plan-request-review"
-                    disabled={unsentCount === 0 && feedbackText.trim() === ''}
-                    title="Needs at least one comment or a message"
-                    onClick={requestReview}
-                  >
-                    Review
-                  </button>
-                </div>
-              ) : null}
+    <div className="review-scroll">
+      <div className="artifact-view">
+        <div className="artifact-view-title-row">
+          <div className="artifact-view-title">{selected.title}</div>
+          <span className="artifact-version">v{selected.version}</span>
+          <span className={'artifact-status ' + selected.status}>
+            {ARTIFACT_STATUS_LABELS[selected.status]}
+          </span>
+          {pendingCall ? (
+            <div className="plan-review-actions">
+              <button className="plan-proceed" onClick={proceed}>
+                Proceed
+              </button>
+              <button
+                className="plan-request-review"
+                disabled={unsentCount === 0 && feedbackText.trim() === ''}
+                title="Needs at least one comment or a message"
+                onClick={requestReview}
+              >
+                Review
+              </button>
             </div>
-            <div ref={bodyRef} onMouseUp={onBodyMouseUp}>
-              <Markdown text={selected.body} />
+          ) : null}
+        </div>
+        {versions.length > 1 ? (
+          <div className="artifact-version-history">
+            {versions.map((v) => (
+              <button
+                key={v.artifactId}
+                className={
+                  'version-chip' + (v.artifactId === selected.artifactId ? ' selected' : '')
+                }
+                onClick={() => onSelectVersion(v.artifactId)}
+              >
+                v{v.version} {ARTIFACT_STATUS_LABELS[v.status]}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <div ref={bodyRef} onMouseUp={onBodyMouseUp}>
+          <Markdown text={selected.body} />
+        </div>
+        {pendingCall ? (
+          <textarea
+            ref={feedbackRef}
+            className="plan-feedback-box"
+            placeholder="Feedback for the agent…"
+            value={feedbackText}
+            onChange={(e) => setFeedbackText(e.target.value)}
+          />
+        ) : null}
+        {pendingCall && draftQuote !== null ? (
+          <div className="comment-composer">
+            <blockquote className="plan-comment-quote">{draftQuote}</blockquote>
+            <textarea
+              value={draftBody}
+              onChange={(e) => setDraftBody(e.target.value)}
+              placeholder="Add a comment…"
+              autoFocus
+            />
+            <div className="comment-composer-actions">
+              <button
+                className="plan-request-review"
+                disabled={draftBody.trim() === ''}
+                onClick={submitDraft}
+              >
+                Add comment
+              </button>
+              <button className="plan-request-review" onClick={clearDraft}>
+                Cancel
+              </button>
             </div>
-            {pendingCall ? (
-              <textarea
-                ref={feedbackRef}
-                className="plan-feedback-box"
-                placeholder="Feedback for the agent…"
-                value={feedbackText}
-                onChange={(e) => setFeedbackText(e.target.value)}
-              />
-            ) : null}
-            {pendingCall && draftQuote !== null ? (
-              <div className="comment-composer">
-                <blockquote className="plan-comment-quote">{draftQuote}</blockquote>
-                <textarea
-                  value={draftBody}
-                  onChange={(e) => setDraftBody(e.target.value)}
-                  placeholder="Add a comment…"
-                  autoFocus
-                />
-                <div className="comment-composer-actions">
-                  <button
-                    className="plan-request-review"
-                    disabled={draftBody.trim() === ''}
-                    onClick={submitDraft}
-                  >
-                    Add comment
-                  </button>
-                  <button className="plan-request-review" onClick={clearDraft}>
-                    Cancel
-                  </button>
-                </div>
+          </div>
+        ) : null}
+        {comments.length > 0 ? (
+          <div className="plan-comment-list">
+            {comments.map((c) => (
+              <div key={c.id} className="plan-comment-item">
+                {c.quote ? <blockquote className="plan-comment-quote">{c.quote}</blockquote> : null}
+                <div>{c.body}</div>
+                <span className={'plan-comment-chip' + (c.sentAt === null ? ' draft' : '')}>
+                  {c.sentAt === null ? 'draft' : 'sent'}
+                </span>
               </div>
-            ) : null}
-            {comments.length > 0 ? (
-              <div className="plan-comment-list">
-                {comments.map((c) => (
-                  <div key={c.id} className="plan-comment-item">
-                    {c.quote ? (
-                      <blockquote className="plan-comment-quote">{c.quote}</blockquote>
-                    ) : null}
-                    <div>{c.body}</div>
-                    <span className={'plan-comment-chip' + (c.sentAt === null ? ' draft' : '')}>
-                      {c.sentAt === null ? 'draft' : 'sent'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
+            ))}
           </div>
         ) : null}
       </div>
