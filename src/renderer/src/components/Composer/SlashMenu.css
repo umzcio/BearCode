@@ -1,0 +1,83 @@
+/* Positions either the slash menu or the resume picker directly above the
+   composer, regardless of the composer's current height (the pill and the
+   textarea both resize it). Composer.tsx supplies this wrapper; both
+   components share the sizing rules below. */
+.slash-menu-wrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 8px;
+  z-index: 60;
+}
+
+.slash-menu {
+  position: static;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+.slash-menu .menu-item,
+.resume-picker .menu-item {
+  align-items: flex-start;
+}
+
+.slash-menu .menu-item.highlighted,
+.resume-picker .menu-item.highlighted {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.slash-item-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.slash-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.slash-item-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.slash-item-desc {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.slash-item-error {
+  color: var(--text-dim);
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.menu-empty {
+  padding: 10px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.resume-picker {
+  position: static;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+.resume-item-time {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-left: auto;
+  white-space: nowrap;
+  flex-shrink: 0;
+}

@@ -92,7 +92,12 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
             return (
               <div key={turn.user.id} className="turn-pair">
                 <div className="msg-user-wrap">
-                  <div className="msg-user">{turn.user.text}</div>
+                  <div className="msg-user">
+                    {turn.user.command ? (
+                      <span className="msg-command-pill">/{turn.user.command.name}</span>
+                    ) : null}
+                    {turn.user.text}
+                  </div>
                   <div className="msg-user-meta">
                     {turn.user.createdAt ? (
                       <span className="msg-time">{messageTimestamp(turn.user.createdAt)}</span>
@@ -186,7 +191,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
       <div className="convo-composer">
         <div className="composer-wrap">
           <Composer
-            onSend={(text) => send(convoId, text)}
+            onSend={(text, command) => send(convoId, text, command)}
             running={running}
             onStop={() => cancelRun(convoId)}
           />
