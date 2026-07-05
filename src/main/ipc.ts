@@ -7,6 +7,7 @@ import type {
   CommandEntry,
   ConversationMeta,
   Event,
+  ManualRuleInfo,
   PingResult,
   ProviderId,
   RunState
@@ -20,6 +21,7 @@ import { filePathFor, getDiff, revertFile } from './diffs'
 import * as db from './db'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
+import { suggestFiles, manualRuleInfos } from './orchestrator/mentionSuggest'
 import {
   assertValidCommand,
   assertValidPlanReviewResolution,
@@ -103,6 +105,16 @@ export function registerIpc(): void {
   // rule/command assembly uses, so this stays cheap on repeated opens.
   ipcMain.handle('bearcode:commands:list', (_e, projectPath: string | null): CommandEntry[] =>
     listCommands(loadAgentsContent(projectPath))
+  )
+
+  // D3 @ menu read models (design 7), mirroring commands:list. Files: a
+  // gitignore-respecting, TTL-cached rg --files listing ranked against the
+  // query. Rules: the live Manual-mode rules from the same mtime-cached loader.
+  ipcMain.handle('bearcode:mentions:files', (_e, projectPath: string | null, query: string) =>
+    suggestFiles(projectPath, query)
+  )
+  ipcMain.handle('bearcode:mentions:rules', (_e, projectPath: string | null): ManualRuleInfo[] =>
+    manualRuleInfos(loadAgentsContent(projectPath))
   )
 
   ipcMain.handle('bearcode:diffs:get', (_e, diffId: string) => getDiff(diffId))
