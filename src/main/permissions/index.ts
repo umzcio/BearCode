@@ -40,16 +40,15 @@ export function evaluateCommandForConversation(
   return evaluateCommand(command, mode, getEffectiveRules(projectPath))
 }
 
-// The file-write gate's single entry point: rules only, no mode (Bb3, design
-// §4.2 -- edits have no allow tier and the mode never participates). Reads
-// rules live per call, same as the command path.
+// The file-write gate's single entry point: rules first (deny/ask), then the
+// MODE as the fallback (design §4.1 -- plan is read-only, so mode now
+// participates in edit decisions too). Reads mode + rules live per call, same
+// as the command path.
 export function evaluateEditForConversation(
   relPath: string,
-  _conversationId: string,
+  conversationId: string,
   projectPath: string
 ): EditDecision {
-  // Mode deliberately unused for edits (design 4.2); the conversationId
-  // parameter is kept for signature parity with the command path and for
-  // when Bb4-era per-conversation edit behavior needs it.
-  return evaluateEdit(relPath, getEffectiveRules(projectPath))
+  const mode = resolveConversationMode(conversationId)
+  return evaluateEdit(relPath, mode, getEffectiveRules(projectPath))
 }

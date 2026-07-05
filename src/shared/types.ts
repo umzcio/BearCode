@@ -57,7 +57,13 @@ export type ToolName =
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
-export type PermissionMode = 'accept-edits' | 'auto' | 'plan'
+// The single per-conversation mode (unified-mode-picker design §3/§4.1). Ask
+// and Accept edits both prompt for commands; they differ only on the edit
+// fallback (prompt vs apply). Plan is read-only (both fallbacks block). Auto
+// runs/applies by default. Bypass skips the rules engine entirely and is the
+// one deliberate security hole (design §6) -- per-conversation only, never a
+// default (see AppSettings.defaultPermissionMode validation in settings.ts).
+export type PermissionMode = 'ask' | 'accept-edits' | 'plan' | 'auto' | 'bypass'
 
 // Per-conversation execution mode (artifacts design 3.2, mirrors Antigravity).
 // Planning researches the codebase, submits an implementation plan for review

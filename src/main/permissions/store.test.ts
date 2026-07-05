@@ -221,8 +221,8 @@ describe('settings-backed manager surface', () => {
         (r) => r.id === 'builtin:edit-env-root'
       )
     ).toBe(true)
-    expect(evaluateEdit('.env', mergeRules([], null, afterCommandDisabled.disabledBuiltins))).toBe(
-      'block'
-    )
+    expect(
+      evaluateEdit('.env', 'accept-edits', mergeRules([], null, afterCommandDisabled.disabledBuiltins))
+    ).toBe('block')
   })
 })

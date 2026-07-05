@@ -94,21 +94,33 @@ export function matchesEditPath(pattern: string, relPath: string): boolean {
   return matchesSegments(patSegs, pathSegs)
 }
 
-// Design 4.2 (edits): deny -> block, ask -> prompt, else apply. There is no
-// allow tier -- the default is already apply, so an 'allow' edit rule is
-// inert and ignored. Mode never participates (unlike commands).
-export function evaluateEdit(relPath: string, rules: PermissionRule[]): EditDecision {
+// Design §3/§4.2 (edits), precedence:
+//   1. any matching deny rule           -> block
+//   2. mode === 'plan'                   -> block (TRUE read-only; outranks ask)
+//   3. any matching ask rule             -> prompt
+//   4. mode fallback: ask -> prompt (stricter than accept-edits),
+//      accept-edits/auto -> apply
+// There is no allow tier for edits -- an 'allow' edit rule is inert and ignored.
+// Bypass never reaches here: the *ForConversation entry point (index.ts)
+// short-circuits first.
+export function evaluateEdit(
+  relPath: string,
+  mode: PermissionMode,
+  rules: PermissionRule[]
+): EditDecision {
   const matching = rules.filter((r) => r.action === 'edit' && matchesEditPath(r.match, relPath))
   if (matching.some((r) => r.effect === 'deny')) return 'block'
+  if (mode === 'plan') return 'block'
   if (matching.some((r) => r.effect === 'ask')) return 'prompt'
-  return 'apply'
+  return mode === 'ask' ? 'prompt' : 'apply'
 }
 
 // Security-critical evaluation order (design §4.2), effect-priority:
 //   1. any matching deny (builtin or user) -> block   (deny always wins)
+//   1b. else if mode === 'plan' -> block (TRUE read-only; outranks allow/ask)
 //   2. else any matching allow             -> run
 //   3. else any matching ask               -> prompt
-//   4. else the mode decides: auto -> run, otherwise -> prompt
+//   4.  else the mode decides: auto -> run, otherwise -> prompt
 // Because deny is checked first, a user allow can never override a builtin deny
 // (§4.4). Pure over its inputs -- rules are passed in (BUILTIN_RULES + user
 // rules for the scope), so this is unit-testable with no DB/Electron.
@@ -119,6 +131,9 @@ export function evaluateCommand(
 ): CommandDecision {
   const matching = rules.filter((r) => r.action === 'command' && matchesCommand(r.match, command))
   if (matching.some((r) => r.effect === 'deny')) return 'block'
+  // Plan mode is TRUE read-only: block outranks allow/ask (design §4.2), second
+  // only to deny. Bypass never reaches here (index.ts short-circuits first).
+  if (mode === 'plan') return 'block'
   if (matching.some((r) => r.effect === 'allow')) return 'run'
   if (matching.some((r) => r.effect === 'ask')) return 'prompt'
   return mode === 'auto' ? 'run' : 'prompt'
