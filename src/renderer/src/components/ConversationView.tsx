@@ -191,7 +191,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
       <div className="convo-composer">
         <div className="composer-wrap">
           <Composer
-            onSend={(text, command) => send(convoId, text, command)}
+            onSend={(text, command, mentions) => send(convoId, text, command, mentions)}
             running={running}
             onStop={() => cancelRun(convoId)}
           />

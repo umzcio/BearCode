@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CommandEntry, CommandRef } from '@shared/types'
+import type { CommandEntry, CommandRef, MentionRef } from '@shared/types'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
 import { refConfigured, useAppStore } from '../../state/store'
@@ -13,12 +13,14 @@ import {
   IconStop
 } from '../icons'
 import { SlashMenu } from './SlashMenu'
+import { MentionMenu } from './MentionMenu'
 import { ResumePicker } from './ResumePicker'
 import { filterSlashCommands } from './slashFilter'
+import { activeMentionQuery, buildMentionSuggestions, type MentionSuggestion } from './mentionQuery'
 import './Composer.css'
 
 interface ComposerProps {
-  onSend(text: string, command: CommandRef | null): void
+  onSend(text: string, command: CommandRef | null, mentions: MentionRef[]): void
   running?: boolean
   onStop?(): void
   showEnvRow?: boolean
@@ -39,8 +41,17 @@ export function Composer({
   const refreshCommands = useAppStore((s) => s.refreshCommands)
   const resumePickerOpen = useAppStore((s) => s.resumePickerOpen)
   const setResumePickerOpen = useAppStore((s) => s.setResumePickerOpen)
+  const fileSuggestions = useAppStore((s) => s.fileSuggestions)
+  const manualRules = useAppStore((s) => s.manualRules)
+  const suggestFiles = useAppStore((s) => s.suggestFiles)
+  const refreshManualRules = useAppStore((s) => s.refreshManualRules)
+  const conversations = useAppStore((s) => s.conversations)
+  const convoOrder = useAppStore((s) => s.convoOrder)
   const [value, setValue] = useState('')
   const [command, setCommand] = useState<CommandRef | null>(null)
+  const [mentions, setMentions] = useState<MentionRef[]>([])
+  const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
   // Escape closes the menu without clearing the typed "/query" text (design
   // 6.1); typing again reopens it -- tracked separately from `value` so
   // Escape's effect does not depend on rewriting the textarea's contents.
@@ -54,7 +65,7 @@ export function Composer({
   const showNotice = providers.length > 0 && !modelReady
   // The pill makes trailing text optional (design 5.2): a bare workflow/goal
   // send is valid, only an empty composer with no pill is not.
-  const hasContent = value.trim() !== '' || command !== null
+  const hasContent = value.trim() !== '' || command !== null || mentions.length > 0
 
   // The menu opens only when the composer is otherwise empty and the very
   // first character typed is '/', and stays open while the text still starts
@@ -67,6 +78,26 @@ export function Composer({
     command === null && !menuDismissed && !resumePickerOpen && value.length > 0 && value[0] === '/'
   const filtered = menuOpen ? filterSlashCommands(value.slice(1), commands) : []
   const safeIndex = Math.min(highlightedIndex, Math.max(0, filtered.length - 1))
+
+  // The @ menu and the / menu never render together (the / menu only opens
+  // when value[0] === '/'); guard the @ menu off when the / menu or resume
+  // picker is open, since both popovers share the spot above the composer.
+  const mentionOpen = mentionQuery !== null && !menuOpen && !resumePickerOpen
+  const mentionItems: MentionSuggestion[] = mentionOpen
+    ? buildMentionSuggestions({
+        query: mentionQuery.query,
+        files: fileSuggestions,
+        rules: manualRules,
+        // PLAN-REVIEW CORRECTION: guard against a convoOrder id that is
+        // missing from the conversations map (e.g. stale ordering during a
+        // delete) so a lookup on an absent entry cannot crash the menu.
+        conversations: convoOrder
+          .map((id) => conversations[id])
+          .filter((c): c is NonNullable<typeof c> => c != null)
+          .map((c) => ({ id: c.id, title: c.title }))
+      })
+    : []
+  const safeMentionIndex = Math.min(mentionIndex, Math.max(0, mentionItems.length - 1))
 
   useEffect(() => {
     const ta = taRef.current
@@ -90,6 +121,26 @@ export function Composer({
     if (menuOpen) refreshCommands()
   }, [menuOpen, refreshCommands])
 
+  useEffect(() => {
+    if (mentionOpen) refreshManualRules()
+  }, [mentionOpen, refreshManualRules])
+  useEffect(() => {
+    if (mentionQuery) suggestFiles(mentionQuery.query)
+  }, [mentionQuery, suggestFiles])
+
+  const selectMention = (item: MentionSuggestion): void => {
+    if (!mentionQuery) return
+    // Remove the "@query" trigger text; the pill row shows the mention instead.
+    const before = value.slice(0, mentionQuery.start)
+    const after = value.slice(mentionQuery.start + 1 + mentionQuery.query.length)
+    setValue(before + after)
+    setMentions((m) =>
+      m.some((x) => x.kind === item.ref.kind && x.name === item.ref.name) ? m : [...m, item.ref]
+    )
+    setMentionQuery(null)
+    setMentionIndex(0)
+  }
+
   const selectEntry = (entry: CommandEntry): void => {
     if (entry.status !== 'live') return
     if (entry.name === 'resume') {
@@ -107,9 +158,12 @@ export function Composer({
     if (!hasContent || running || !modelReady) return
     const text = value.trim()
     const sentCommand = command
+    const sentMentions = mentions
     setValue('')
     setCommand(null)
-    onSend(text, sentCommand)
+    setMentions([])
+    setMentionQuery(null)
+    onSend(text, sentCommand, sentMentions)
   }
 
   return (
@@ -137,6 +191,23 @@ export function Composer({
           </span>
         </div>
       ) : null}
+      {mentions.length > 0 ? (
+        <div className="command-pill-row">
+          {mentions.map((m, i) => (
+            <span className="command-pill" key={`${m.kind}:${m.name}:${i}`}>
+              @{m.name}
+              <button
+                type="button"
+                className="pill-x"
+                title="Remove mention"
+                onClick={() => setMentions((cur) => cur.filter((_, idx) => idx !== i))}
+              >
+                <IconClose size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
       <textarea
         ref={taRef}
         rows={1}
@@ -144,10 +215,36 @@ export function Composer({
         value={value}
         autoFocus={autoFocus}
         onChange={(e) => {
-          setValue(e.target.value)
+          const next = e.target.value
+          setValue(next)
           setMenuDismissed(false)
+          setMentionQuery(activeMentionQuery(next, e.target.selectionStart ?? next.length))
+          setMentionIndex(0)
         }}
         onKeyDown={(e) => {
+          if (mentionOpen) {
+            if (e.key === 'ArrowDown') {
+              e.preventDefault()
+              setMentionIndex((i) => Math.min(i + 1, Math.max(0, mentionItems.length - 1)))
+              return
+            }
+            if (e.key === 'ArrowUp') {
+              e.preventDefault()
+              setMentionIndex((i) => Math.max(i - 1, 0))
+              return
+            }
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              const item = mentionItems[safeMentionIndex]
+              if (item) selectMention(item)
+              return
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              setMentionQuery(null)
+              return
+            }
+          }
           if (menuOpen) {
             if (e.key === 'ArrowDown') {
               e.preventDefault()
@@ -180,6 +277,18 @@ export function Composer({
           ) {
             e.preventDefault()
             setCommand(null)
+            return
+          }
+          if (
+            e.key === 'Backspace' &&
+            command === null &&
+            mentions.length > 0 &&
+            value === '' &&
+            e.currentTarget.selectionStart === 0 &&
+            e.currentTarget.selectionEnd === 0
+          ) {
+            e.preventDefault()
+            setMentions((m) => m.slice(0, -1))
             return
           }
           if (e.key === 'Enter' && !e.shiftKey) {
@@ -239,6 +348,16 @@ export function Composer({
             highlightedIndex={safeIndex}
             onHighlight={setHighlightedIndex}
             onSelect={selectEntry}
+          />
+        </div>
+      ) : null}
+      {mentionOpen ? (
+        <div className="slash-menu-wrap">
+          <MentionMenu
+            items={mentionItems}
+            highlightedIndex={safeMentionIndex}
+            onHighlight={setMentionIndex}
+            onSelect={selectMention}
           />
         </div>
       ) : null}
