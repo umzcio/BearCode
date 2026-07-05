@@ -1756,10 +1756,14 @@ function buildAgentAndContext(
   const agent = createDeepAgent({
     model,
     // meta is null only for a conversation deleted mid-flight (the run is
-    // doomed either way). The execution-mode prompt frame was retired with the
-    // ExecutionMode axis (mode-picker design §10 phase 1); the plan-mode frame
-    // returns in phase 2, keyed on permissionMode === 'plan'.
-    systemPrompt: orchestratorSystemPrompt(projectPath) + ruleAdditions + commandAdditions,
+    // doomed either way). The plan-mode frame (mode-picker design §5, phase 2)
+    // is keyed on the conversation's live permission mode: assembled per-turn,
+    // so switching into/out of plan mode takes effect on the next turn with no
+    // extra machinery.
+    systemPrompt:
+      orchestratorSystemPrompt(projectPath, meta?.permissionMode === 'plan') +
+      ruleAdditions +
+      commandAdditions,
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
     ...(backendFactory

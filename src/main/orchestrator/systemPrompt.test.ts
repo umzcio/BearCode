@@ -21,4 +21,20 @@ describe('orchestratorSystemPrompt', () => {
       "require the user's approval before they run and can be denied"
     )
   })
+  it('plan mode re-adds the planning frame (research, submit_plan, submit_walkthrough)', () => {
+    const prompt = orchestratorSystemPrompt('/tmp/proj', true)
+    expect(prompt).toContain('PLAN MODE')
+    expect(prompt).toContain('submit_plan BEFORE')
+    expect(prompt).toContain('submit_walkthrough')
+    // The plan frame must not resurrect the retired execution-mode block.
+    expect(prompt).not.toContain('Execution mode:')
+  })
+  it('non-plan modes emit NO planning frame (default isPlan=false)', () => {
+    const prompt = orchestratorSystemPrompt('/tmp/proj')
+    expect(prompt).not.toContain('PLAN MODE')
+    expect(prompt).not.toContain('submit_plan')
+  })
+  it('plan frame appears even with no workspace (isPlan=true, projectPath=null)', () => {
+    expect(orchestratorSystemPrompt(null, true)).toContain('PLAN MODE')
+  })
 })
