@@ -508,7 +508,7 @@ export const useAppStore = create<AppState>((set, get) => {
       const id = view.kind === 'conversation' ? view.id : null
       if (id) {
         patchConvo(id, { permissionMode: mode })
-        void window.bearcode.conversations.setMode(id, mode)
+        void window.bearcode.conversations.setMode(id, mode).catch(() => {})
       }
     },
 
@@ -603,11 +603,35 @@ export const useAppStore = create<AppState>((set, get) => {
     // 'stale' (card answered/stopped/unknown) vs 'needs-substance' (design
     // 3.6's Review guard).
     resolvePlanReview: async (callId, proceed, message) => {
+      // The conversation this callId's plan review belongs to is whichever
+      // conversation is open right now (both call sites -- the pending card
+      // and the artifact pane -- only render for the active view). Captured
+      // before the await: the mode flip below must target the conversation
+      // that actually asked, not wherever the view has drifted to by the
+      // time the main process answers.
+      const view = get().view
+      const convoId = view.kind === 'conversation' ? view.id : null
       const result = await window.bearcode.artifacts.resolvePlanReview(callId, proceed, message)
       if (result === 'needs-substance') {
         get().showToast('Add a comment or a message before sending a review')
       } else if (result === 'stale') {
         get().showToast('This plan review is no longer pending')
+      } else if (result === 'resolved' && proceed && convoId) {
+        // Mirror graph.ts planProceedModeFlip/resolvePlanInterrupt: Proceed
+        // conditionally relaxes plan-mode read-only so the resumed run can
+        // implement (design §5). Only when STILL in `plan` -- never on the
+        // Review path, and never overwriting a mode the user manually picked
+        // during the pause. The per-conversation record is always updated to
+        // match the server's durable state; the top-level surface (what the
+        // mode picker renders) only follows along if this conversation is
+        // still the one on screen, matching setPermissionMode/openConvo.
+        if (get().conversations[convoId]?.permissionMode === 'plan') {
+          patchConvo(convoId, { permissionMode: 'accept-edits' })
+          const current = get().view
+          if (current.kind === 'conversation' && current.id === convoId) {
+            set({ permissionMode: 'accept-edits' })
+          }
+        }
       }
       return result === 'resolved'
     },

@@ -7,11 +7,11 @@ import type {
   CommandEntry,
   ConversationMeta,
   Event,
-  PermissionMode,
   PingResult,
   ProviderId,
   RunState
 } from '../shared/types'
+import { isPermissionMode } from '../shared/permissionMode'
 import { keyStatus, setKey } from './keys'
 import { addUserRule, deleteUserRule, listRulesInfo, setBuiltinDisabled } from './permissions'
 import { setSettings, settingsInfo } from './settings'
@@ -168,7 +168,10 @@ export function registerIpc(): void {
     void pruneCheckpoints(id)
     db.deleteConversation(id)
   })
-  ipcMain.handle('bearcode:conversations:set-mode', (_e, id: string, mode: PermissionMode) => {
+  ipcMain.handle('bearcode:conversations:set-mode', (_e, id: string, mode: unknown) => {
+    if (!isPermissionMode(mode)) {
+      throw new Error(`Invalid permission mode: ${String(mode)}`)
+    }
     db.setPermissionMode(id, mode)
   })
   ipcMain.handle('bearcode:conversations:clear', () => {

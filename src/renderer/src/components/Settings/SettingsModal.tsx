@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ProviderId, SettingsInfo } from '@shared/types'
+import type { PermissionMode, ProviderId, SettingsInfo } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { ProviderIcon } from '../ProviderIcon'
 import { RoarBear } from '../brand/RoarBear'
@@ -198,6 +198,28 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                       <span>Always Proceed</span>
                     </label>
                   </div>
+                </Row>
+              </div>
+              <div className="set-group-title">Default Mode</div>
+              <div className="set-card">
+                <Row
+                  title="Default Permission Mode"
+                  desc="The permission mode new conversations start in. Bypass is per-conversation only and can never be a default."
+                >
+                  <select
+                    aria-label="Default permission mode"
+                    value={settings.defaultPermissionMode}
+                    onChange={(e) =>
+                      void saveSettings({
+                        defaultPermissionMode: e.target.value as PermissionMode
+                      })
+                    }
+                  >
+                    <option value="ask">Ask permissions</option>
+                    <option value="accept-edits">Accept edits</option>
+                    <option value="plan">Plan mode</option>
+                    <option value="auto">Auto mode</option>
+                  </select>
                 </Row>
               </div>
               <div className="set-group-title">Agent Settings</div>

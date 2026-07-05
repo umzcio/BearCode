@@ -26,3 +26,25 @@
   margin-left: 0;
   text-align: right;
 }
+.pill-btn.bypass-active {
+  color: var(--danger, #ff5c5c);
+  border-color: var(--danger, #ff5c5c);
+}
+.mode-menu .bypass-item .mode-key {
+  color: var(--danger, #ff5c5c);
+}
+.bypass-confirm {
+  padding: 12px;
+  max-width: 280px;
+}
+.bypass-confirm-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+.bypass-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
