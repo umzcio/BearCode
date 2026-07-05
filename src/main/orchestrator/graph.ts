@@ -32,7 +32,7 @@ import {
   touchedFilesFor
 } from '../db'
 import { loadAgentsContent } from '../agentsDir'
-import { assembleRuleAdditions } from './contextAssembly'
+import { assembleRuleAdditions, withoutModelRules } from './contextAssembly'
 import { parseModelRef } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
@@ -1704,8 +1704,12 @@ function buildAgentAndContext(
   try {
     const content = loadAgentsContent(projectPath)
     const touched = projectPath ? touchedFilesFor(conversationId) : []
+    // buildTools only registers the activate_rule tool below when a project
+    // is open (backendFactory is set); global rules still load with no
+    // project open, so a 'model' activation rule must be filtered out here
+    // or the prompt advertises a tool the model can't call this turn.
     const asm = assembleRuleAdditions({
-      content,
+      content: projectPath ? content : withoutModelRules(content),
       pinnedManualRules: meta?.activeRules ?? [],
       mentionPaths: [], // [] until D3's @ menu ships
       touchedFiles: touched

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { assembleRuleAdditions, type RuleAssemblyInput } from './contextAssembly'
+import { assembleRuleAdditions, withoutModelRules, type RuleAssemblyInput } from './contextAssembly'
 import type { AgentsContent, Rule } from '../agentsDir/types'
 
 const rule = (overrides: Partial<Rule> = {}): Rule => ({
@@ -137,5 +137,29 @@ describe('assembleRuleAdditions', () => {
     const sectionOrder = result.systemAdditions.filter((line) => line.startsWith('## '))
     expect(sectionOrder).toEqual(['## Project rules', '## Activated rules', '## Available rules'])
     expect(result.activatedGlobRules).toEqual(['g1'])
+  })
+})
+
+describe('withoutModelRules', () => {
+  it('drops model-activation rules, leaving other activations untouched', () => {
+    const always = rule({ name: 'a1' })
+    const manual = rule({ name: 'm1', activation: 'manual' })
+    const glob = rule({ name: 'g1', activation: 'glob', globs: ['*.ts'] })
+    const model = rule({ name: 'mod1', activation: 'model', description: 'desc' })
+    const result = withoutModelRules({ rules: [always, manual, glob, model] })
+    expect(result.rules.map((r) => r.name)).toEqual(['a1', 'm1', 'g1'])
+  })
+
+  it('never renders the "## Available rules" index once filtered', () => {
+    const model = rule({ name: 'mod1', activation: 'model', description: 'desc' })
+    const filtered = withoutModelRules({ rules: [model] })
+    const result = assembleRuleAdditions(input(filtered))
+    expect(result.systemAdditions).toEqual([])
+  })
+
+  it('is a no-op when there are no model rules', () => {
+    const always = rule({ name: 'a1' })
+    const result = withoutModelRules({ rules: [always] })
+    expect(result.rules.map((r) => r.name)).toEqual(['a1'])
   })
 })

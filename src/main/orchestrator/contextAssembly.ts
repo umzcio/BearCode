@@ -23,6 +23,19 @@ function renderRuleBlock(rule: Rule): string[] {
   return ['', `### ${rule.name} (${rule.source})`, rule.body]
 }
 
+// graph.ts only registers the activate_rule tool (buildTools) when a
+// project is open (a backend/backendFactory exists); a no-project turn never
+// gets that tool wired in. Global rules (~/.bearcode/agents/rules) still
+// load with no project open, so a 'model' activation rule can reach
+// assembleRuleAdditions there too -- without this filter the prompt would
+// advertise "Call the activate_rule tool" for a tool that isn't registered.
+// Callers without a project must filter model rules out of the content
+// before assembling, so section 4 (the "## Available rules" index) is never
+// rendered.
+export function withoutModelRules(content: AgentsContent): AgentsContent {
+  return { ...content, rules: content.rules.filter((r) => r.activation !== 'model') }
+}
+
 export function assembleRuleAdditions(input: RuleAssemblyInput): RuleAssembly {
   const rules = input.content.rules.filter((r) => !r.error)
   const additions: string[] = []

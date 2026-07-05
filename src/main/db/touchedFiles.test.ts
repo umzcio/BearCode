@@ -13,7 +13,8 @@ vi.mock('better-sqlite3', () => ({
   default: vi.fn()
 }))
 
-import { touchedFilesFromRows, type TouchedFileRow } from './index'
+import { touchedFilesFromRows, normalizeTouchedPath, type TouchedFileRow } from './index'
+import { matchesEditPath } from '../permissions/rules'
 
 describe('touchedFilesFromRows', () => {
   it('collects file_path values from write_file/edit_file rows', () => {
@@ -50,5 +51,33 @@ describe('touchedFilesFromRows', () => {
 
   it('returns [] for no rows', () => {
     expect(touchedFilesFromRows([])).toEqual([])
+  })
+
+  it('strips a leading / (root-relative convention) so glob matching still works', () => {
+    const rows: TouchedFileRow[] = [{ file_path: '/src/a.ts', path: null }]
+    expect(touchedFilesFromRows(rows)).toEqual(['src/a.ts'])
+  })
+
+  it('dedupes a root-relative and workspace-relative row referring to the same path', () => {
+    const rows: TouchedFileRow[] = [
+      { file_path: '/src/a.ts', path: null },
+      { file_path: 'src/a.ts', path: null }
+    ]
+    expect(touchedFilesFromRows(rows)).toEqual(['src/a.ts'])
+  })
+})
+
+describe('normalizeTouchedPath', () => {
+  it('strips a leading / so a glob like src/** matches a root-relative path', () => {
+    expect(normalizeTouchedPath('/src/a.ts')).toBe('src/a.ts')
+    expect(matchesEditPath('src/**', normalizeTouchedPath('/src/a.ts'))).toBe(true)
+  })
+
+  it('leaves a ./-relative path unchanged (no leading slash to strip)', () => {
+    expect(normalizeTouchedPath('./x')).toBe('./x')
+  })
+
+  it('leaves a bare relative path unchanged', () => {
+    expect(normalizeTouchedPath('x')).toBe('x')
   })
 })

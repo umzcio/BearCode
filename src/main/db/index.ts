@@ -491,14 +491,36 @@ export interface TouchedFileRow {
   path: string | null
 }
 
+// Deep Agents' built-in file tools (write_file/edit_file/read_file) supply
+// input.file_path/input.path in three conventions: workspace-relative
+// ('src/a.ts'), root-relative ('/src/a.ts'), and -- rarely -- a literal
+// absolute OS path. matchesEditPath (permissions/rules.ts) only strips a
+// leading './', so a stored root-relative path never matched a glob like
+// 'src/**' before this normalization.
+//
+// Simplest honest rule: strip exactly ONE leading '/', turning the common
+// root-relative convention into the workspace-relative form matchesEditPath
+// expects. A genuine absolute OS path (e.g. '/Users/z/project/src/a.ts')
+// also starts with '/' and gets the same treatment, which does NOT produce a
+// workspace-relative path -- that case is deliberately left out of scope
+// here. The write-time gate already resolves absolute paths against the
+// project root via relForGate; storing a literal absolute path in a touched
+// row is rare, and can be special-cased in a follow-up if it's seen in
+// practice.
+export function normalizeTouchedPath(value: string): string {
+  return value.startsWith('/') ? value.slice(1) : value
+}
+
 export function touchedFilesFromRows(rows: TouchedFileRow[]): string[] {
   const seen = new Set<string>()
   const files: string[] = []
   for (const row of rows) {
     for (const value of [row.file_path, row.path]) {
-      if (value != null && !seen.has(value)) {
-        seen.add(value)
-        files.push(value)
+      if (value == null) continue
+      const normalized = normalizeTouchedPath(value)
+      if (!seen.has(normalized)) {
+        seen.add(normalized)
+        files.push(normalized)
       }
     }
   }
