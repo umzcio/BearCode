@@ -1,82 +1,62 @@
-// Exercises the actual toRule()/listRules()/insertRule() seam against a real
-// (temp-file) better-sqlite3 database -- the seam store.test.ts's mocked '../db'
-// module skips entirely, which is why the R1 action:'command' hardcoding bug
-// shipped with a green unit suite. See .superpowers/sdd/task-6-report.md.
+// Pins the permission_rules row -> PermissionRule mapping (toRule), the seam
+// store.test.ts's mocked '../db' module skips entirely -- which is why the R1
+// action:'command' hardcoding bug shipped with a green unit suite (see
+// .superpowers/sdd/task-6-report.md). The mapping is tested pure, on
+// hand-built row objects: better-sqlite3's native binding is compiled for
+// Electron's ABI and cannot load under plain-Node vitest, so both 'electron'
+// and 'better-sqlite3' are mocked at module level and no database is opened.
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { randomUUID } from 'crypto'
-import type { PermissionRule } from '../../shared/types'
-
-let userDataDir: string
 
 vi.mock('electron', () => ({
-  app: {
-    getPath: () => userDataDir
-  }
+  app: { getPath: vi.fn(() => '/nonexistent') }
+}))
+vi.mock('better-sqlite3', () => ({
+  default: vi.fn()
 }))
 
-// getDb() memoizes its Database handle at module scope, so each test needs a
-// fresh module instance to get a fresh (empty) database file.
-async function freshDb(): Promise<typeof import('./index')> {
-  vi.resetModules()
-  userDataDir = mkdtempSync(join(tmpdir(), 'bearcode-db-test-'))
-  return import('./index')
-}
+import { toRule, type RuleRow } from './index'
 
-describe('permission_rules round-trip', () => {
+const row = (overrides: Partial<RuleRow> = {}): RuleRow => ({
+  id: 'rule-1',
+  project_path: null,
+  action: 'command',
+  match: 'git *',
+  effect: 'allow',
+  ...overrides
+})
+
+describe('toRule', () => {
   afterEach(() => {
-    rmSync(userDataDir, { recursive: true, force: true })
+    vi.restoreAllMocks()
   })
 
-  it('preserves action across an insert/list round trip for both known actions', async () => {
-    const { insertRule, listRules } = await freshDb()
-    const editRule: PermissionRule = {
-      id: randomUUID(),
-      scope: 'global',
-      action: 'edit',
-      match: 'guarded/**',
-      effect: 'ask',
-      source: 'user'
-    }
-    const commandRule: PermissionRule = {
-      id: randomUUID(),
-      scope: 'global',
-      action: 'command',
-      match: 'git *',
-      effect: 'allow',
-      source: 'user'
-    }
-    insertRule(editRule)
-    insertRule(commandRule)
-
-    const rules = listRules()
-    expect(rules.find((r) => r.id === editRule.id)?.action).toBe('edit')
-    expect(rules.find((r) => r.id === commandRule.id)?.action).toBe('command')
+  it("maps a stored action='edit' row through as an edit rule (R1 regression)", () => {
+    const rule = toRule(row({ action: 'edit', match: 'guarded/**', effect: 'ask' }))
+    expect(rule).not.toBeNull()
+    expect(rule?.action).toBe('edit')
+    expect(rule?.match).toBe('guarded/**')
+    expect(rule?.effect).toBe('ask')
   })
 
-  it('filters out a row with an unknown action and warns instead of defaulting to command', async () => {
-    const { listRules } = await freshDb()
-    // Force getDb() to create the schema/file, then seed a row with an action
-    // outside the known PermissionAction union directly via better-sqlite3 --
-    // simulating a stored value that predates (or otherwise falls outside) the
-    // typed insertRule() path.
-    listRules()
-    const Database = (await import('better-sqlite3')).default
-    const raw = new Database(join(userDataDir, 'bearcode.db'))
-    raw
-      .prepare(
-        `INSERT INTO permission_rules (id, project_path, action, match, effect, created_at)
-         VALUES (?, NULL, 'network', '*', 'ask', ?)`
-      )
-      .run(randomUUID(), Date.now())
-    raw.close()
+  it("still maps a stored action='command' row as a command rule", () => {
+    const rule = toRule(row({ action: 'command' }))
+    expect(rule?.action).toBe('command')
+    expect(rule?.match).toBe('git *')
+    expect(rule?.effect).toBe('allow')
+    expect(rule?.source).toBe('user')
+  })
 
+  it('maps project_path to scope: null is global, a path binds the project', () => {
+    expect(toRule(row())?.scope).toBe('global')
+    expect(toRule(row({ project_path: '/a' }))?.scope).toEqual({ projectPath: '/a' })
+  })
+
+  it('returns null and warns once for a row with an unknown action, never defaulting to command', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const rules = listRules()
-    expect(rules.every((r) => r.action === 'command' || r.action === 'edit')).toBe(true)
+    const rule = toRule(row({ action: 'network', match: '*', effect: 'ask' }))
+    expect(rule).toBeNull()
     expect(warnSpy).toHaveBeenCalledTimes(1)
-    warnSpy.mockRestore()
+    expect(warnSpy.mock.calls[0][0]).toContain('network')
+    expect(warnSpy.mock.calls[0][0]).toContain('rule-1')
   })
 })

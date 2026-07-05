@@ -323,7 +323,7 @@ export function setPermissionMode(conversationId: string, mode: PermissionMode):
     .run(mode, Date.now(), conversationId)
 }
 
-interface RuleRow {
+export interface RuleRow {
   id: string
   project_path: string | null
   action: string
@@ -337,8 +337,10 @@ interface RuleRow {
 // a command rule that matches nothing -- inert, and indistinguishable from
 // R1 (the bug this guards against). Filtering the row out and warning is
 // louder and safer: a future unknown action type never masquerades as a rule
-// it is not.
-function toRule(row: RuleRow): PermissionRule | null {
+// it is not. Exported (pure, no DB handle) so rules.test.ts can pin the
+// mapping without loading better-sqlite3's native binding, which is built for
+// Electron's ABI and cannot load under plain-Node vitest.
+export function toRule(row: RuleRow): PermissionRule | null {
   if (row.action !== 'command' && row.action !== 'edit') {
     console.warn(
       `[bearcode] db: permission_rules row ${row.id} has unknown action "${row.action}"; skipping`
