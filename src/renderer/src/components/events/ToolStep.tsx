@@ -190,6 +190,51 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
     )
   }
 
+  // Keyed on the enriched input's artifactId (Task 3), never on tool name
+  // alone: a malformed submit_plan payload without the plan marker falls
+  // through to the generic step rendering below rather than rendering
+  // Proceed buttons wired to a dead channel (Task 3 review, binding).
+  if (
+    call.tool === 'submit_plan' &&
+    call.approvalState === 'pending' &&
+    inputStr(call, 'artifactId')
+  ) {
+    return (
+      <PendingPlan
+        callId={call.id}
+        title={inputStr(call, 'title') ?? 'Implementation plan'}
+        artifactId={inputStr(call, 'artifactId')}
+        convoId={convoId}
+      />
+    )
+  }
+  if (
+    call.tool === 'submit_plan' &&
+    (call.approvalState === 'approved' || call.approvalState === 'denied') &&
+    inputStr(call, 'artifactId')
+  ) {
+    // 'denied' here means "resolved without proceeding" (feedback sent, or the
+    // run was stopped) -- never a permission denial; hence the plan-specific copy.
+    const planTitle = inputStr(call, 'title') ?? 'the plan'
+    return (
+      <div className="step">
+        <div className="step-row static">
+          <span>
+            {call.approvalState === 'approved' ? (
+              <>
+                Proceeding with plan <b>{planTitle}</b>
+              </>
+            ) : (
+              <>
+                Did not proceed with plan <b>{planTitle}</b>
+              </>
+            )}
+          </span>
+        </div>
+      </div>
+    )
+  }
+
   if (call.tool === 'run_command') {
     const command =
       typeof call.input === 'object' && call.input !== null && 'command' in call.input
@@ -430,6 +475,81 @@ function PendingEdit({
           {isFirstPending ? <span className="opt-num">2</span> : null}
           No, deny it
           <span className="opt-hint">the agent is told you declined</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// The plan-review pending card (design 3.5): the third pending-card kind,
+// sharing useIsFirstPendingCard's single-active-card hotkey scheme with
+// PendingCommand/PendingEdit. Proceed resumes { proceed: true } over the
+// artifacts channel -- it never touches tools.approve and NEVER pre-approves
+// any command or edit (the Bb gates still run per call during implementation).
+function PendingPlan({
+  callId,
+  title,
+  artifactId,
+  convoId
+}: {
+  callId: string
+  title: string
+  artifactId: string | null
+  convoId: string
+}): React.JSX.Element {
+  const resolvePlanReview = useAppStore((s) => s.resolvePlanReview)
+  const openArtifactPane = useAppStore((s) => s.openArtifactPane)
+  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+
+  const proceed = (): void => void resolvePlanReview(callId, true)
+  const openPane = (): void => {
+    if (artifactId) openArtifactPane(artifactId)
+  }
+  const sendFeedback = (): void => {
+    if (artifactId) openArtifactPane(artifactId, true)
+  }
+
+  useEffect(() => {
+    if (!isFirstPending) return undefined
+    const onKey = (e: KeyboardEvent): void => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === '1') proceed()
+      else if (e.key === '2') openPane()
+      else if (e.key === '3') sendFeedback()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId, isFirstPending, artifactId])
+
+  return (
+    <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
+      <div className="step-row static">
+        <span>
+          Plan ready for review: <b>{title}</b>
+        </span>
+      </div>
+      <div className="waiting-note">Waiting for your review…</div>
+      <div className="approval-card pulse-once">
+        <div className="approval-title">
+          Review the implementation plan before the agent proceeds.
+        </div>
+        <button className="approval-opt" onClick={proceed}>
+          {isFirstPending ? <span className="opt-num">1</span> : null}
+          Proceed
+          <span className="opt-hint">approve the plan and begin implementation</span>
+        </button>
+        <button className="approval-opt" onClick={openPane} disabled={!artifactId}>
+          {isFirstPending ? <span className="opt-num">2</span> : null}
+          Open in pane
+          <span className="opt-hint">read the full plan and add comments</span>
+        </button>
+        <button className="approval-opt" onClick={sendFeedback} disabled={!artifactId}>
+          {isFirstPending ? <span className="opt-num">3</span> : null}
+          Send feedback
+          <span className="opt-hint">opens the plan with the comment box focused</span>
         </button>
       </div>
     </div>

@@ -18,23 +18,33 @@ import type { AIMessageChunk, BaseMessageChunk, ToolMessageChunk } from '@langch
 import { isToolMessageChunk } from '@langchain/core/messages'
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base'
 import type { LLMResult } from '@langchain/core/outputs'
-import type { Event, ProviderId, ToolName } from '../../shared/types'
+import type { Event, PlanReviewResolveResult, ProviderId, ToolName } from '../../shared/types'
 import type { RunSink } from '../sink'
 import {
   appendEvent,
   appendOrReplaceEvent,
   dropDanglingApprovalRows,
   dropDanglingCancel,
-  getConversationMeta
+  getConversationMeta,
+  listArtifactComments,
+  markArtifactCommentsSent
 } from '../db'
 import { parseModelRef } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
+import { renderPlanFeedback } from '../artifacts/feedback'
 import { makeModel } from './models'
 import { orchestratorSystemPrompt } from './systemPrompt'
 import { textDeltaEvent, thinkingDeltaEvent } from './bridge'
 import { getCheckpointer } from './checkpointer'
 import { DiffFsBackend, GatedDiffFsBackend } from './fsBackend'
-import { buildTools, clearDeniedReplayPins, pinDeniedReplays } from './tools'
+import {
+  buildTools,
+  clearAllPlanReviewPending,
+  clearDeniedReplayPins,
+  clearPlanReviewPending,
+  pinDeniedReplays,
+  type PlanReviewResolution
+} from './tools'
 
 // The tuple shape yielded by `.stream(..., { streamMode: "messages", subgraphs: true })`
 // with a single (non-array) streamMode: [namespace, [chunk, metadata]]. (The
@@ -249,6 +259,11 @@ interface PendingItem {
   tool: ToolName
   input: unknown
   toolCallId?: string
+  // Present iff this card is a plan_review pause. `resolution` is recorded by
+  // resolvePlanInterrupt and is what buildResumeMap delivers to the suspended
+  // submit_plan interrupt -- the kind-branched resume shape. Command/edit
+  // items keep using `decision`; the two are mutually exclusive.
+  planReview?: { artifactId: string; resolution?: PlanReviewResolution }
 }
 
 interface DriveResult {
@@ -319,7 +334,14 @@ export function interruptBelongsToToolCall(
   tc: { id?: string; name?: string; args?: unknown }
 ): boolean {
   const value = interruptValue as
-    | { kind?: string; command?: string; tool?: string; path?: string; toolCallId?: unknown }
+    | {
+        kind?: string
+        command?: string
+        tool?: string
+        path?: string
+        title?: string
+        toolCallId?: unknown
+      }
     | null
     | undefined
   if (value?.kind === 'run_command') {
@@ -332,7 +354,24 @@ export function interruptBelongsToToolCall(
     const args = tc.args as { file_path?: unknown; path?: unknown } | null | undefined
     return (args?.file_path ?? args?.path) === value.path
   }
+  if (value?.kind === 'plan_review') {
+    if (tc.name !== 'submit_plan') return false
+    if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
+    // Id-less fallback: the tool args carry no artifactId, so the title is the
+    // pairing analog of run_command's command match (the payload's title is
+    // the zod-parsed title the tool received, verbatim).
+    return (tc.args as { title?: unknown } | null | undefined)?.title === value.title
+  }
   return true
+}
+
+// The plan_review payload's artifactId, or undefined for any other kind.
+// Exported for tests; shared by drive()'s post-loop and rehydratePausedRun.
+export function planReviewArtifactIdOf(interruptValue: unknown): string | undefined {
+  const value = interruptValue as { kind?: string; artifactId?: unknown } | null | undefined
+  return value?.kind === 'plan_review' && typeof value.artifactId === 'string'
+    ? value.artifactId
+    : undefined
 }
 
 // Locate the checkpointed tool calls a rehydrated approval set belongs to
@@ -433,11 +472,33 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
         tool?: string
         path?: string
         resolvedPath?: string
+        artifactId?: unknown
+        title?: string
         toolCallId?: unknown
       }
     | null
     | undefined
   const toolCallId = typeof value?.toolCallId === 'string' ? value.toolCallId : undefined
+  if (value?.kind === 'plan_review') {
+    // The card is built from the payload alone: title for the copy, artifactId
+    // so the renderer can pair the card with the pane's plan viewer (and the
+    // Open-in-pane deep link). The body is NOT duplicated here -- the artifact
+    // event already carries it.
+    // Note the discriminant asymmetry: this branches on `kind` alone, so a
+    // malformed payload with a missing/non-string artifactId still produces a
+    // 'submit_plan' card (artifactId silently falls back to ''), while
+    // planReviewArtifactIdOf above additionally requires a genuine string
+    // artifactId and returns undefined for that same payload -- the two
+    // readers of this discriminant can disagree on a bad payload.
+    return {
+      tool: 'submit_plan',
+      input: {
+        title: typeof value.title === 'string' ? value.title : '',
+        artifactId: typeof value.artifactId === 'string' ? value.artifactId : ''
+      },
+      toolCallId
+    }
+  }
   if (value?.kind === 'edit_file') {
     const raw = typeof value.path === 'string' ? value.path : undefined
     const resolved = typeof value.resolvedPath === 'string' ? value.resolvedPath : undefined
@@ -468,7 +529,17 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
 // untouched. Exported for tests.
 export function pairedApprovalInput(interruptValue: unknown, args: unknown): unknown {
   const value = interruptValue as
-    { kind?: string; path?: string; resolvedPath?: string } | null | undefined
+    { kind?: string; path?: string; resolvedPath?: string; artifactId?: unknown } | null | undefined
+  if (value?.kind === 'plan_review') {
+    if (typeof value.artifactId !== 'string') return args
+    const base = (typeof args === 'object' && args !== null ? args : {}) as Record<string, unknown>
+    // Enrich the pending card's input with the artifactId (the streamed args
+    // are only { title, body }): the pane's Proceed/Review header actions and
+    // the card's Open-in-pane link pair on it. Pairing itself already matched
+    // on the raw streamed args; only the emitted event / parked item changes
+    // (the edit_file precedent above).
+    return { ...base, artifactId: value.artifactId }
+  }
   if (value?.kind !== 'edit_file') return args
   const resolved = typeof value.resolvedPath === 'string' ? value.resolvedPath : undefined
   if (resolved === undefined) return args
@@ -489,24 +560,55 @@ export interface ApprovalItem {
   input: unknown
   toolCallId?: string
   decision?: boolean
+  // Present iff this card is a plan_review pause. `resolution` is recorded by
+  // resolvePlanInterrupt and is what buildResumeMap delivers to the suspended
+  // submit_plan interrupt -- the kind-branched resume shape. Command/edit
+  // items keep using `decision`; the two are mutually exclusive.
+  planReview?: { artifactId: string; resolution?: PlanReviewResolution }
 }
 
 // All-answered detection for collect-then-resume: the batch keyed resume is
-// dispatched only once every card has a decision. Exported for tests.
+// dispatched only once every card has a decision. A plan card is decided by
+// its recorded PlanReviewResolution, never by the boolean `decision` field.
+// Exported for tests.
 export function allDecided(items: ReadonlyMap<string, ApprovalItem>): boolean {
-  for (const item of items.values()) if (item.decision === undefined) return false
+  for (const item of items.values()) {
+    const decided = item.planReview
+      ? item.planReview.resolution !== undefined
+      : item.decision !== undefined
+    if (!decided) return false
+  }
   return true
 }
 
-// The keyed resume map for one dispatch: every interrupt id -> the truthy
-// `{ approved }` object its suspended interrupt() call returns on replay
-// (tools.ts documents why the value must never be falsy). `decision === true`
-// so an impossible undecided item fails safe to denied. Exported for tests.
+// The keyed resume map for one dispatch. THE RESUME SHAPE BRANCHES BY KIND
+// HERE AND ONLY HERE (security lens): a run_command/edit_file interrupt gets
+// the truthy { approved } object its suspended interrupt() expects; a
+// plan_review interrupt gets its PlanReviewResolution. The branch keys on the
+// parked item's planReview field -- set exclusively from the interrupt
+// payload's kind at park time -- never on anything user-supplied, so a
+// { approved: true } can never reach a plan interrupt (it would falsely read
+// as no-proceed... worse, a { proceed } object reaching run_command would
+// read approved:undefined -> falsy -> denied; both directions are pinned by
+// tests). Fail-safes: undecided commands resume denied (unchanged); an
+// undecided plan item resumes with design 3.5's deny-all value
+// { proceed: false, feedback: 'The user stopped the run.' } -- unreachable
+// via allDecided, but the honest value if it ever dispatches.
+export type ResumeValue = { approved: boolean } | PlanReviewResolution
 export function buildResumeMap(
   items: ReadonlyMap<string, ApprovalItem>
-): Record<string, { approved: boolean }> {
-  const resume: Record<string, { approved: boolean }> = {}
-  for (const item of items.values()) resume[item.interruptId] = { approved: item.decision === true }
+): Record<string, ResumeValue> {
+  const resume: Record<string, ResumeValue> = {}
+  for (const item of items.values()) {
+    if (item.planReview) {
+      resume[item.interruptId] = item.planReview.resolution ?? {
+        proceed: false,
+        feedback: 'The user stopped the run.'
+      }
+    } else {
+      resume[item.interruptId] = { approved: item.decision === true }
+    }
+  }
   return resume
 }
 
@@ -521,12 +623,19 @@ export function buildResumeMap(
 export function resolvedToolCallEvents(
   items: ReadonlyMap<string, ApprovalItem>
 ): Extract<Event, { type: 'tool_call' }>[] {
+  // Plan vocabulary: 'denied' = resolved-without-proceed (feedback or Stop);
+  // the renderer's plan card renders its own copy. The artifact row is NOT
+  // touched here -- feedback leaves it pending-review by design (3.1).
   return [...items].map(([callId, item]) => ({
     type: 'tool_call',
     id: callId,
     tool: item.tool,
     input: item.input,
-    approvalState: item.decision === true ? 'approved' : 'denied'
+    approvalState: (
+      item.planReview ? item.planReview.resolution?.proceed === true : item.decision === true
+    )
+      ? 'approved'
+      : 'denied'
   }))
 }
 
@@ -543,6 +652,14 @@ export function deniedReplayPinsOf(
 ): Array<{ toolCallId?: string; command?: string; editPath?: string }> {
   const pins: Array<{ toolCallId?: string; command?: string; editPath?: string }> = []
   for (const item of items.values()) {
+    // NO pin analog for plan_review (decided): pins exist solely so a Denied
+    // command/edit replay cannot re-evaluate to run/apply and EXECUTE.
+    // submit_plan consults no rules engine and executes nothing; its replay
+    // gets the recorded resolution straight from the keyed resume, and its
+    // store is idempotent-by-key. A feedback "denial" is an answer to deliver,
+    // not an action to block -- pinning it would only plant a stray
+    // toolCallId in the shared pin set.
+    if (item.planReview) continue
     if (item.decision === true) continue
     if (item.tool === 'write_file' || item.tool === 'edit_file') {
       const input = item.input as
@@ -567,7 +684,9 @@ export function deniedReplayPinsOf(
 // per card, INCLUDING cards already answered 'approved' -- the batch resume
 // had not been dispatched, so nothing executed and denied is the truthful
 // terminal state; the row replaces any earlier approved row under the same
-// event id. Exported for tests.
+// event id. Plan cards flip to 'denied' too (resolved-without-proceed); their
+// artifact rows stay pending-review -- Stop is not plan rejection (design
+// 3.5). Exported for tests.
 export function deniedToolCallEvents(
   items: ReadonlyMap<string, ApprovalItem>
 ): Extract<Event, { type: 'tool_call' }>[] {
@@ -1110,6 +1229,10 @@ async function drive(
             localId = randomUUID()
             ctx.callIdMap.set(pairing.call.id, localId)
           }
+          // item.planReview is set EXCLUSIVELY from the checkpointed interrupt
+          // payload's kind (planReviewArtifactIdOf), never from renderer
+          // input: it is what buildResumeMap's kind branch keys on.
+          const planArtifactId = planReviewArtifactIdOf(pairing.value)
           item = {
             callId: localId,
             interruptId: pairing.interruptId,
@@ -1118,20 +1241,25 @@ async function drive(
             // card's input must show the resolved target in the common live
             // paired case too. Pairing above already matched on the RAW
             // streamed args; only the emitted event/parked item changes.
+            // Plan interrupts get the payload's artifactId merged in the same
+            // way, for card <-> pane pairing.
             input: pairedApprovalInput(pairing.value, pairing.call.args),
-            toolCallId: pairing.call.id
+            toolCallId: pairing.call.id,
+            ...(planArtifactId !== undefined ? { planReview: { artifactId: planArtifactId } } : {})
           }
           agentId = agentIdByTcId.get(pairing.call.id)
         } else {
           // The interrupt paired to no candidate (e.g. a stripped call the
           // bridge also missed): synthesize the card from the interrupt
           // payload so the approval still surfaces instead of hanging
-          // (synthesizedApprovalCard branches run_command vs edit_file and
-          // keeps the pin identity intact).
+          // (synthesizedApprovalCard branches run_command vs edit_file vs
+          // plan_review and keeps the pin identity intact).
+          const planArtifactId = planReviewArtifactIdOf(pairing.value)
           item = {
             callId: randomUUID(),
             interruptId: pairing.interruptId,
-            ...synthesizedApprovalCard(pairing.value)
+            ...synthesizedApprovalCard(pairing.value),
+            ...(planArtifactId !== undefined ? { planReview: { artifactId: planArtifactId } } : {})
           }
         }
         // Not persisted here (matching legacy run.ts): only the final
@@ -1219,6 +1347,16 @@ export function resolveInterrupt(
   // the replay, which is why continueAfterApproval pins every Denied card at
   // the execution layer before dispatching; see tools.ts deniedReplayPins.)
   if (!item || item.decision !== undefined) return false
+  // Kind cross-guard (SECURITY): the boolean command/edit channel can never
+  // resolve a plan review -- its { approved } shape is not a plan resolution,
+  // and plan approval must never share a wire with command approval. The
+  // mirror guard lives in resolvePlanInterrupt. Defense in depth: even
+  // WITHOUT this guard, a bare `decision` recorded on a plan item could never
+  // dispatch into submit_plan's PlanReviewResolution cast -- allDecided
+  // treats a plan item as decided only by planReview.resolution, so the
+  // batch would simply never dispatch -- but reject explicitly so the wire
+  // contract is visible and the card is not half-flipped.
+  if (item.planReview) return false
   // Defense in depth: cancelRunOrchestrator (src/main/orchestrator/index.ts)
   // is the primary fix -- it deletes this conversation's pendingApprovals
   // entry (via cancelPendingApproval below) the instant Stop is clicked, so
@@ -1232,34 +1370,118 @@ export function resolveInterrupt(
     return false
   }
   item.decision = approved
-  // Emit-only card flip: the UI collapses this card right away, but the row
-  // is NOT persisted yet -- the batch may never dispatch (quit/crash in the
-  // collect window), and the DB must not record an approval/denial for a
-  // command that never replayed. All rows land together at dispatch, below.
+  return finalizeDecision(pending, callId, item, approved ? 'approved' : 'denied')
+}
+
+// Shared tail of resolveInterrupt/resolvePlanInterrupt: emit the terminal
+// card (emit-only; persistence waits for the dispatch, see
+// resolvedToolCallEvents' doc comment), and once EVERY card is decided,
+// persist the batch and dispatch the single keyed resume.
+// The emit-only card flip collapses the card in the UI right away, but the
+// row is NOT persisted yet -- the batch may never dispatch (quit/crash in the
+// collect window), and the DB must not record a decision for a call that
+// never replayed. alreadyAnnounced is stamped before any re-drive so the
+// resumed segment doesn't double-emit this card. At dispatch,
+// appendOrReplaceEvent (not appendEvent): each resolved tool_call reuses its
+// pending card's event id -- in the live flow the pending row was never
+// persisted so this inserts; in the crash-resume flow rehydratePausedRun
+// persisted the pending row, so this replaces it in place rather than
+// colliding on events.id.
+function finalizeDecision(
+  pending: PendingApprovalSet,
+  callId: string,
+  item: ApprovalItem,
+  terminal: 'approved' | 'denied'
+): boolean {
   pending.sink.emit(pending.conversationId, {
     type: 'tool_call',
     id: callId,
     tool: item.tool,
     input: item.input,
-    approvalState: approved ? 'approved' : 'denied'
+    approvalState: terminal
   })
-  // Before any re-drive, so the resumed segment doesn't double-emit this card.
   pending.alreadyAnnounced.add(callId)
   // Sibling cards still undecided: stay parked ('awaiting-approval' stands,
   // the composer stays locked) until every card is answered.
   if (!allDecided(pending.items)) return true
-  pendingApprovals.delete(conversationId)
-  // appendOrReplaceEvent, not appendEvent: each resolved tool_call reuses its
-  // pending card's event id. In the live flow the pending row was never
-  // persisted so this inserts; in the crash-resume flow rehydratePausedRun
-  // persisted the pending row, so this replaces it in place rather than
-  // colliding on events.id.
+  pendingApprovals.delete(pending.conversationId)
   for (const event of resolvedToolCallEvents(pending.items)) {
     appendOrReplaceEvent(pending.conversationId, event)
   }
   pending.sink.setState(pending.conversationId, 'running')
   void continueAfterApproval(pending)
   return true
+}
+
+// Resolves ONE plan-review card (design 3.5/3.6), called from
+// resolvePlanReviewOrchestrator (IPC bearcode:artifacts:resolve-plan-review).
+// The resolution is composed MAIN-side from durable state: the artifact's
+// still-unsent comments (drafted in the pane, persisted since Ba2 Task 1)
+// plus the optional free message, rendered as markdown quotes
+// (renderPlanFeedback). Proceed delivers the rendered comments as steering
+// context AND resumes { proceed: true }; Review resumes { proceed: false,
+// feedback } and REQUIRES at least one comment or a message (the UI enforces
+// it too, but the main process is authoritative). The return DISCRIMINANT
+// exists for the renderer's failure copy: 'stale' (unknown/answered/aborted/
+// non-plan card) vs 'needs-substance' vs 'resolved'.
+// sent_at is stamped the moment the comments are frozen into the resolution.
+// DECIDED + ACCEPTED crash window: a crash between this sent_at stamp and the
+// resumed graph's checkpoint commit loses the delivery (the comments read
+// "sent" but the model never saw them). Reordering cannot close it -- the
+// stamp and checkpoints.db share no transaction wherever it happens (the same
+// accepted class as Ba1's replay windows) -- and stamping at decision time
+// keeps composition and stamping in one place; the recovery is mundane (the
+// re-parked card is answered again; the user re-types or Reviews with a
+// message).
+// SECURITY: this touches only the parked item, the events table, and
+// artifact_comments.sent_at -- never the permission engine, never the
+// workspace; and the kind cross-guard below means this channel can never
+// resolve a command/edit card.
+export function resolvePlanInterrupt(
+  conversationId: string,
+  callId: string,
+  decision: { proceed: boolean; message?: string }
+): PlanReviewResolveResult {
+  const pending = pendingApprovals.get(conversationId)
+  if (!pending) return 'stale'
+  const item = pending.items.get(callId)
+  if (!item?.planReview || item.planReview.resolution !== undefined) return 'stale'
+  if (pending.signal.aborted) {
+    pendingApprovals.delete(conversationId)
+    return 'stale'
+  }
+  const comments = listArtifactComments(item.planReview.artifactId).filter((c) => c.sentAt === null)
+  const message = decision.message?.trim() ?? ''
+  if (!decision.proceed && comments.length === 0 && message === '') return 'needs-substance'
+  const rendered = renderPlanFeedback(comments, message)
+  item.planReview.resolution = decision.proceed
+    ? rendered !== ''
+      ? { proceed: true, comments: rendered }
+      : { proceed: true }
+    : { proceed: false, feedback: rendered }
+  if (comments.length > 0) markArtifactCommentsSent(item.planReview.artifactId, Date.now())
+  finalizeDecision(pending, callId, item, decision.proceed ? 'approved' : 'denied')
+  return 'resolved'
+}
+
+// TEST-ONLY SEAM for graph.test.ts: pendingApprovals is module-private and
+// the real park paths (settleTurn/rehydratePausedRun) need a live graph, so
+// the resolution-channel cross-guard tests seed a synthetic parked set here.
+// The guards under test never touch the agent or the DriveContext fields, so
+// a minimal stub is honest. Never call from production code.
+export function __parkForTest(
+  conversationId: string,
+  items: Map<string, ApprovalItem>,
+  sink: RunSink,
+  signal: AbortSignal
+): void {
+  pendingApprovals.set(conversationId, {
+    conversationId,
+    sink,
+    signal,
+    items,
+    alreadyAnnounced: new Set()
+  } as unknown as PendingApprovalSet)
 }
 
 // Called from cancelRunOrchestrator (src/main/orchestrator/index.ts) when
@@ -1287,6 +1509,13 @@ export function cancelPendingApproval(conversationId: string): RunSink | undefin
   const pending = pendingApprovals.get(conversationId)
   if (!pending) return undefined
   pendingApprovals.delete(conversationId)
+  // Stop during a plan pause: NO resume dispatches (the same no-dispatch that
+  // makes command cancellation deterministic); the artifact row is untouched
+  // and stays pending-review -- stopping is not plan rejection (design 3.5;
+  // the { proceed:false, feedback:'The user stopped the run.' } mapping lives
+  // as buildResumeMap's plan fail-safe). Clear the design-5 gate so a later
+  // turn can submit again.
+  clearPlanReviewPending(conversationId)
   for (const event of deniedToolCallEvents(pending.items)) {
     pending.sink.emit(pending.conversationId, event)
     appendOrReplaceEvent(pending.conversationId, event)
@@ -1301,10 +1530,12 @@ export function cancelPendingApproval(conversationId: string): RunSink | undefin
 // state the renderer still shows.)
 export function forgetPendingApproval(conversationId: string): void {
   pendingApprovals.delete(conversationId)
+  clearPlanReviewPending(conversationId)
 }
 
 export function clearAllPendingApprovals(): void {
   pendingApprovals.clear()
+  clearAllPlanReviewPending()
 }
 
 // Model-facing only: lives in the thread's checkpointed graph state, never in
@@ -1344,7 +1575,13 @@ async function settleTurn(
       items: new Map(
         final.pending.map((p) => [
           p.callId,
-          { interruptId: p.interruptId, tool: p.tool, input: p.input, toolCallId: p.toolCallId }
+          {
+            interruptId: p.interruptId,
+            tool: p.tool,
+            input: p.input,
+            toolCallId: p.toolCallId,
+            ...(p.planReview ? { planReview: { artifactId: p.planReview.artifactId } } : {})
+          }
         ])
       )
     })
@@ -1398,6 +1635,9 @@ async function continueAfterApproval(pending: PendingApprovalSet): Promise<void>
 }
 
 async function failTurn(ctx: DriveContext, err: unknown): Promise<void> {
+  // A segment that dies mid-pause must not leave the design-5 plan-review
+  // gate held (tools.ts tryEnterPlanReview).
+  clearPlanReviewPending(ctx.conversationId)
   const cancelled = ctx.signal.aborted
   const message = cancelled ? 'Cancelled' : err instanceof Error ? err.message : String(err)
   if (!cancelled)
@@ -1491,6 +1731,10 @@ export async function runGraph(opts: {
   const { conversationId, userText, modelRef, sink, signal } = opts
 
   sink.setState(conversationId, 'running')
+  // A stale gate slot from a stopped plan pause must never block this turn's
+  // submissions; if the old interrupted task replays on this thread, it
+  // re-enters its own artifactId slot (tools.ts tryEnterPlanReview).
+  clearPlanReviewPending(conversationId)
   const userEvent: Event = {
     type: 'user_message',
     id: randomUUID(),
@@ -1512,11 +1756,12 @@ export async function runGraph(opts: {
 }
 
 // The interrupt kinds the crash-resume path knows how to re-surface as
-// approval cards: run_command (tools.ts) and Bb3's edit_file (fsBackend.ts
-// GatedDiffFsBackend). Exported for tests.
+// approval cards: run_command (tools.ts), Bb3's edit_file (fsBackend.ts
+// GatedDiffFsBackend), and Ba2's plan_review (tools.ts submit_plan).
+// Exported for tests.
 export function isRehydratableInterrupt(value: unknown): boolean {
   const kind = (value as { kind?: string } | null | undefined)?.kind
-  return kind === 'run_command' || kind === 'edit_file'
+  return kind === 'run_command' || kind === 'edit_file' || kind === 'plan_review'
 }
 
 // Full crash-resume (A2). Called at boot for a dangling conversation: rebuilds
@@ -1569,7 +1814,21 @@ export async function rehydratePausedRun(
     let tool: ToolName
     let input: unknown
     let toolCallId: string | undefined
-    if ((pairing.value as { kind?: string } | null | undefined)?.kind === 'edit_file') {
+    const planArtifactId = planReviewArtifactIdOf(pairing.value)
+    if (planArtifactId !== undefined) {
+      // Plan pauses re-park from the payload, like edits: the dangling-call
+      // scan is run_command-only so pairing.call is always null here, and
+      // synthesizedApprovalCard carries the title + artifactId the card and
+      // pane need. No ctx seeding (the Bb3 edit precedent): the replayed
+      // submit_plan re-emits its artifact events itself (deterministic ids),
+      // so only its tool_result text is a cosmetic history gap. Security:
+      // nothing auto-resolves -- the user must answer the re-parked card, and
+      // the artifact meanwhile stays pending-review.
+      const card = synthesizedApprovalCard(pairing.value)
+      tool = card.tool
+      input = card.input
+      toolCallId = card.toolCallId
+    } else if ((pairing.value as { kind?: string } | null | undefined)?.kind === 'edit_file') {
       // Edit interrupts always re-park from the payload: the dangling-call
       // scan above is deliberately run_command-only, so pairing.call is null
       // for every edit (a toolCallId lookup misses the candidate list and the
@@ -1629,7 +1888,8 @@ export async function rehydratePausedRun(
       interruptId: pairing.interruptId,
       tool,
       input,
-      toolCallId
+      toolCallId,
+      ...(planArtifactId !== undefined ? { planReview: { artifactId: planArtifactId } } : {})
     })
   }
   pendingApprovals.set(conversationId, { ...ctx, agent, items })

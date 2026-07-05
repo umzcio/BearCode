@@ -7,6 +7,7 @@ import Database from 'better-sqlite3'
 import { randomUUID } from 'crypto'
 import type {
   Artifact,
+  ArtifactComment,
   ArtifactStatus,
   ArtifactType,
   ConversationMeta,
@@ -484,17 +485,93 @@ export function listArtifacts(conversationId: string): Artifact[] {
 }
 
 // A new plan submission supersedes any STILL-PENDING prior plan in the same
-// conversation (design 3.1: "the new submission SUPERSEDES the old"). Scoped
-// hard: type='plan' AND status='pending-review' only -- an 'approved' plan row
-// is a historical record of an approval and is never rewritten, and
-// walkthroughs ('final') are never touched.
-export function markPendingPlansSuperseded(conversationId: string, resolvedAt: number): void {
-  getDb()
+// conversation (design 3.1). Scoped hard: type='plan' AND
+// status='pending-review' only -- an 'approved' plan row is a historical
+// record and is never rewritten; walkthroughs ('final') are never touched.
+// Returns the flipped rows (with their new status) so the caller can re-emit
+// each one's artifact event under its deterministic id -- Ba2's chip-unstale
+// contract, superseding Ba1's point-in-time-chip limitation.
+export function markPendingPlansSuperseded(conversationId: string, resolvedAt: number): Artifact[] {
+  const database = getDb()
+  const rows = database
+    .prepare(
+      `SELECT * FROM artifacts
+       WHERE conversation_id = ? AND type = 'plan' AND status = 'pending-review'`
+    )
+    .all(conversationId) as ArtifactRow[]
+  if (rows.length === 0) return []
+  database
     .prepare(
       `UPDATE artifacts SET status = 'superseded', resolved_at = ?
        WHERE conversation_id = ? AND type = 'plan' AND status = 'pending-review'`
     )
     .run(resolvedAt, conversationId)
+  return rows
+    .map(toArtifact)
+    .filter((a): a is Artifact => a !== null)
+    .map((a) => ({ ...a, status: 'superseded' as const, resolvedAt }))
+}
+
+export interface ArtifactCommentRow {
+  id: string
+  artifact_id: string
+  quote: string | null
+  body: string
+  created_at: number
+  sent_at: number | null
+}
+
+// Pure verbatim map (no enum columns to guard). Exported for artifacts.test.ts.
+export function toArtifactComment(row: ArtifactCommentRow): ArtifactComment {
+  return {
+    id: row.id,
+    artifactId: row.artifact_id,
+    quote: row.quote,
+    body: row.body,
+    createdAt: row.created_at,
+    sentAt: row.sent_at
+  }
+}
+
+export function insertArtifactComment(c: ArtifactComment): void {
+  getDb()
+    .prepare(
+      `INSERT INTO artifact_comments (id, artifact_id, quote, body, created_at, sent_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(c.id, c.artifactId, c.quote, c.body, c.createdAt, c.sentAt)
+}
+
+export function listArtifactComments(artifactId: string): ArtifactComment[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM artifact_comments WHERE artifact_id = ? ORDER BY created_at ASC, id ASC`
+    )
+    .all(artifactId) as ArtifactCommentRow[]
+  return rows.map(toArtifactComment)
+}
+
+// Stamps delivery on every still-draft comment of one artifact (Proceed or
+// Review composed them into the resolution). Sent comments are never restamped.
+export function markArtifactCommentsSent(artifactId: string, sentAt: number): void {
+  getDb()
+    .prepare(`UPDATE artifact_comments SET sent_at = ? WHERE artifact_id = ? AND sent_at IS NULL`)
+    .run(sentAt, artifactId)
+}
+
+// One artifact's status flip, returning the fresh row so the caller can
+// re-emit its artifact event (the chip-unstale contract). No status-machine
+// enforcement here -- the store layer (approvePlanArtifact) owns which
+// transitions are legal.
+export function updateArtifactStatus(
+  id: string,
+  status: ArtifactStatus,
+  resolvedAt: number | null
+): Artifact | null {
+  getDb()
+    .prepare(`UPDATE artifacts SET status = ?, resolved_at = ? WHERE id = ?`)
+    .run(status, resolvedAt, id)
+  return getArtifact(id)
 }
 
 export function deleteConversation(id: string): void {

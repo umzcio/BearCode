@@ -11,7 +11,13 @@
 // call when the agent implements.
 import { randomUUID } from 'crypto'
 import type { Artifact, ArtifactReviewPolicy, ArtifactType } from '../../shared/types'
-import { getArtifact, insertArtifact, listArtifacts, markPendingPlansSuperseded } from '../db'
+import {
+  getArtifact,
+  insertArtifact,
+  listArtifacts,
+  markPendingPlansSuperseded,
+  updateArtifactStatus
+} from '../db'
 import { getSettings } from '../settings'
 
 // Pure: versions are per conversation+type and start at 1 (design 3.4).
@@ -47,7 +53,7 @@ export function createPlanArtifact(
   title: string,
   body: string,
   id: string = randomUUID()
-): { artifact: Artifact; policy: ArtifactReviewPolicy } {
+): { artifact: Artifact; policy: ArtifactReviewPolicy; superseded: Artifact[] } {
   const existing = getArtifact(id)
   if (existing) {
     return {
@@ -58,13 +64,16 @@ export function createPlanArtifact(
       // 'approved' row reconstructs 'always-proceed'; anything else (incl.
       // 'superseded') fails safe to 'request-review' so a replay never mints
       // approval copy for a plan the user never green-lit.
-      policy: existing.status === 'approved' ? 'always-proceed' : 'request-review'
+      policy: existing.status === 'approved' ? 'always-proceed' : 'request-review',
+      // A replay never re-supersedes (Ba1 invariant): the original call
+      // already did whatever superseding it was going to do.
+      superseded: []
     }
   }
   const policy = getSettings().artifactReviewPolicy
   const now = Date.now()
   const version = nextArtifactVersion(listArtifacts(conversationId), 'plan')
-  markPendingPlansSuperseded(conversationId, now)
+  const superseded = markPendingPlansSuperseded(conversationId, now)
   const artifact: Artifact = {
     id,
     conversationId,
@@ -77,7 +86,32 @@ export function createPlanArtifact(
     resolvedAt: policy === 'always-proceed' ? now : null
   }
   insertArtifact(artifact)
-  return { artifact, policy }
+  return { artifact, policy, superseded }
+}
+
+// The Proceed status flip (design 3.1/3.5, Ba2). Only a pending-review plan
+// flips; an already-approved row is returned unchanged (the tool replays after
+// a crash between the approve write and the checkpoint commit, and must
+// converge on the same state), and superseded/final rows are NEVER rewritten
+// (approved history and superseded plans are immutable records).
+//
+// INVARIANT (8d5a51f's fail-safe replay policy): createPlanArtifact's replay
+// branch reconstructs 'always-proceed' ONLY from status 'approved'. This
+// function is the sole writer of 'approved' under request-review, and it
+// writes it exclusively for a user-issued proceed -- so a replayed submission
+// mints approval copy only for a plan the user actually green-lit; every
+// other recorded status replays into the request-review path (where the
+// tool's own superseded guard, Task 2, screens dead plans before the
+// interrupt).
+//
+// SECURITY (design section 4): 'approved' is a workflow record, not
+// permission -- plan approval never pre-approves any command or edit; every
+// Bb permission gate still runs per call during implementation.
+export function approvePlanArtifact(id: string): Artifact | null {
+  const existing = getArtifact(id)
+  if (!existing) return null
+  if (existing.status !== 'pending-review') return existing
+  return updateArtifactStatus(id, 'approved', Date.now())
 }
 
 // Walkthroughs never pause and are born 'final' (design 3.4), regardless of

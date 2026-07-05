@@ -22,7 +22,11 @@ import { tool } from 'langchain'
 import { z } from 'zod'
 import type { Artifact, Event } from '../../shared/types'
 import { appendOrReplaceEvent } from '../db'
-import { createPlanArtifact, createWalkthroughArtifact } from '../artifacts/store'
+import {
+  approvePlanArtifact,
+  createPlanArtifact,
+  createWalkthroughArtifact
+} from '../artifacts/store'
 import { evaluateCommandForConversation } from '../permissions'
 import type { RunSink } from '../sink'
 
@@ -135,6 +139,40 @@ export function takeDeniedEditReplayPin(
   if (n <= 1) set.byEditPath.delete(rawPath)
   else set.byEditPath.set(rawPath, n - 1)
   return true
+}
+
+// The truthy resume-object contract for a plan_review interrupt (design 3.1).
+// BOTH variants are truthy objects -- LangGraph's mapCommand drops falsy
+// resume values (see the run_command interrupt comment below). `comments` on
+// the proceed variant is the user's drafted comments rendered as markdown,
+// delivered as steering context in the tool's return (design 3.6 Proceed).
+export type PlanReviewResolution =
+  { proceed: true; comments?: string } | { proceed: false; feedback: string }
+
+// Design 5: one plan review pause at a time per conversation ("cannot stack
+// reviews"). Entered BEFORE the pending row is created, so when the model
+// issues two parallel submit_plan calls the loser records nothing at all.
+// Keyed by artifactId so a REPLAY of the paused submission (live keyed resume
+// or crash-rehydration re-executes the tool from the top) re-enters its own
+// slot. Cleared when the interrupt resolves (both branches), on the
+// always-proceed bypass, and by graph.ts on Stop/forget/clear-all and at the
+// start of every new turn -- a stale slot left by a stopped pause must never
+// block a later legitimate submission.
+const planReviewInFlight = new Map<string, string>()
+
+export function tryEnterPlanReview(conversationId: string, artifactId: string): boolean {
+  const existing = planReviewInFlight.get(conversationId)
+  if (existing !== undefined && existing !== artifactId) return false
+  planReviewInFlight.set(conversationId, artifactId)
+  return true
+}
+
+export function clearPlanReviewPending(conversationId: string): void {
+  planReviewInFlight.delete(conversationId)
+}
+
+export function clearAllPlanReviewPending(): void {
+  planReviewInFlight.clear()
 }
 
 function runCommand(
@@ -252,26 +290,33 @@ export function buildTools(projectPath: string, conversationId: string, sink: Ru
   // return the OLD row -- its policy reconstructed from the recorded status,
   // possibly "Plan approved. Begin implementation." for a plan the user never
   // saw -- and the new plan's body would never be recorded (in Ba2, a
-  // plan_review-bypass trajectory). Folding sha256(title + '\n' + body) into
-  // the key means different content diverges to a fresh row + fresh event.
+  // plan_review-bypass trajectory). Folding sha256(JSON.stringify([title,
+  // body])) into the key means different content diverges to a fresh row +
+  // fresh event.
   //
   // Namespaced by conversationId because provider tool-call ids are only
   // unique per conversation at best (graph.ts callIdMap again). An id-less
   // provider falls back to random ids and accepts the residual
   // duplicate-on-crash window.
-  const artifactIdsFor = (
-    toolCallId: string | undefined,
-    title: string,
-    body: string
-  ): { artifactId: string; eventId: string } => {
-    if (toolCallId === undefined) return { artifactId: randomUUID(), eventId: randomUUID() }
+  const artifactIdFor = (toolCallId: string | undefined, title: string, body: string): string => {
+    if (toolCallId === undefined) return randomUUID()
+    // JSON.stringify([title, body]) rather than title+'\n'+body: the plain
+    // concatenation is not injective (a newline in the title shifts content
+    // into the body's slot), and two DIFFERENT plans must never share a key
+    // under a reused tool-call id -- under request-review that would bypass
+    // the plan_review pause (final-review I3).
     const contentHash = createHash('sha256')
-      .update(title + '\n' + body)
+      .update(JSON.stringify([title, body]))
       .digest('hex')
       .slice(0, 16)
-    const stem = `${conversationId}:${toolCallId}:${contentHash}`
-    return { artifactId: `${stem}:artifact`, eventId: `${stem}:artifact-event` }
+    return `${conversationId}:${toolCallId}:${contentHash}:artifact`
   }
+  // The event id is DERIVABLE from the artifact id (status re-emits need it
+  // for rows created by OTHER calls, e.g. superseded priors, where only the
+  // row id is at hand). For toolCallId-derived ids the concatenation is
+  // byte-identical to the previous `${stem}:artifact-event`, so no history
+  // migration; the random fallback's event id becomes derivable too.
+  const artifactEventIdFor = (artifactId: string): string => `${artifactId}-event`
 
   // The artifact event is the one event these tools emit themselves (their
   // tool_call/tool_result rows ride graph.ts's generic drive-loop emission
@@ -300,7 +345,9 @@ export function buildTools(projectPath: string, conversationId: string, sink: Ru
   // permission rules/modes (there is nothing to gate); and the 'approved'
   // status submit_plan can mint under always-proceed is a workflow record
   // only -- plan approval NEVER pre-approves commands or edits (every Bb
-  // permission gate still runs per call during implementation).
+  // permission gate still runs per call during implementation). The
+  // plan_review pause below is a UX/workflow gate, not a security boundary --
+  // approving a plan never pre-approves commands or edits.
   const submitPlanTool = tool(
     async ({ title, body }: { title: string; body: string }, config?: unknown): Promise<string> => {
       if (!title.trim() || !body.trim()) {
@@ -308,33 +355,105 @@ export function buildTools(projectPath: string, conversationId: string, sink: Ru
       }
       const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
       // Hash the same values handed to the store, so a replayed call (which
-      // re-derives them from the same tool args) folds to the same key.
-      const { artifactId, eventId } = artifactIdsFor(toolCallId, title.trim(), body)
-      const { artifact, policy } = createPlanArtifact(
+      // re-derives them from the same tool args) folds to the same key (main's
+      // 8d5a51f invariant, unchanged).
+      const artifactId = artifactIdFor(toolCallId, title.trim(), body)
+      // Design 5 gate, BEFORE the row exists: a stacked second submission must
+      // record nothing (no orphan pending row that would supersede the plan
+      // actually under review). Same-artifactId re-entry is a replay of the
+      // paused submission (identical content hashes to the identical key) and
+      // passes; a DIFFERENT submission -- even under a reused toolCallId --
+      // derives a different key and is refused while the review is unresolved.
+      // Scope (design 5, resolved): this error applies ONLY while a
+      // plan_review interrupt is in flight; a new submission with no pending
+      // interrupt supersedes still-pending priors instead (Ba1 behavior).
+      if (!tryEnterPlanReview(conversationId, artifactId)) {
+        return "A plan is already awaiting the user's review in this conversation. Wait for that review to be resolved before submitting another plan."
+      }
+      const { artifact, policy, superseded } = createPlanArtifact(
         conversationId,
         title.trim(),
         body,
         artifactId
       )
-      emitArtifactEvent(artifact, eventId)
+      // Chip un-stale (supersedes Ba1's point-in-time limitation): every prior
+      // plan this submission superseded re-emits its artifact event under ITS
+      // deterministic id, replacing the stale pending-review payload in place.
+      for (const s of superseded) {
+        emitArtifactEvent(s, artifactEventIdFor(s.id))
+      }
+      if (artifact.status === 'superseded') {
+        // Replay edge: this submission's own row was superseded by a NEWER
+        // submission in a later turn (the original pause was stopped). Never
+        // re-pause on a dead plan.
+        clearPlanReviewPending(conversationId)
+        return 'This plan was superseded by a newer plan submission. Continue from the newest plan.'
+      }
+      emitArtifactEvent(artifact, artifactEventIdFor(artifact.id))
       if (policy === 'always-proceed') {
-        // Docs: "immediately bypass the pause".
+        // Docs: "immediately bypass the pause". Also the replay path for a row
+        // already approved (Ba1's status->policy reconstruction): a crash
+        // between the proceed-approve write and the checkpoint commit replays
+        // into this branch and converges without re-interrupting.
+        clearPlanReviewPending(conversationId)
         return 'Plan approved. Begin implementation.'
       }
-      // Ba1: the request-review pause (design 3.5, kind 'plan_review') arrives
-      // with Ba2. Until then the tool still returns immediately, but the
-      // artifact is recorded pending-review and the model is told to hold --
-      // the agent pauses its own narrative; no interrupt machinery here.
-      return (
-        `Plan v${artifact.version} recorded. It is awaiting the user's review in the artifacts pane. ` +
-        "Do not begin implementation; wait for the user's decision or feedback before making any changes."
-      )
+      // THE PAUSE (design 3.5). Ordering is deliberate: the pending row and
+      // its event are persisted ABOVE so the transcript card and the pane can
+      // render the plan while the graph is suspended right here. interrupt()
+      // parks this task; the resume value arrives via graph.ts's keyed resume
+      // (buildResumeMap branches to PlanReviewResolution for plan items). On
+      // any replay this whole function re-executes from the top and the
+      // idempotent store + appendOrReplaceEvent + same-id gate re-entry
+      // converge; the interrupt refires and either resolves from the resume
+      // map or pauses again (crash-rehydration). Truthy-object contract: see
+      // run_command's interrupt comment above.
+      const raw = interrupt({
+        kind: 'plan_review',
+        artifactId,
+        title: artifact.title,
+        toolCallId
+      })
+      clearPlanReviewPending(conversationId)
+      // Fail-safe resume handling: a well-formed proceed resolution is the
+      // ONLY thing that reaches approval. Anything else -- a falsy resume, a
+      // malformed object, or `proceed` that isn't literally `true` -- falls
+      // through to the feedback branch below with a generic message. Never
+      // widen this to a truthy-ish check: a bogus or corrupted resume value
+      // must never mint an approval the user did not actually grant.
+      const resolution = raw as
+        { proceed?: unknown; comments?: string; feedback?: unknown } | null | undefined
+      if (resolution != null && resolution.proceed === true) {
+        const approved = approvePlanArtifact(artifact.id)
+        emitArtifactEvent(
+          approved ?? { ...artifact, status: 'approved', resolvedAt: Date.now() },
+          artifactEventIdFor(artifact.id)
+        )
+        return (
+          'Plan approved. Begin implementation.' +
+          (resolution.comments
+            ? `\n\nThe user attached comments to guide the implementation:\n\n${resolution.comments}`
+            : '')
+        )
+      }
+      // Feedback: the artifact STAYS pending-review (design 3.1) -- no status
+      // write, no re-emit. The agent iterates and may submit again; the new
+      // submission supersedes this row (and un-stales its chip, above). A
+      // malformed or missing feedback string still falls here, never into
+      // approval, with a generic message in its place.
+      const feedback =
+        resolution != null &&
+        typeof resolution.feedback === 'string' &&
+        resolution.feedback.length > 0
+          ? resolution.feedback
+          : 'No feedback was provided.'
+      return `The user reviewed the plan and left feedback instead of proceeding:\n\n${feedback}`
     },
     {
       name: 'submit_plan',
       description:
         'Submit an implementation plan artifact (markdown body) for the user to review before you change any files. ' +
-        'The result tells you whether you may proceed.',
+        'The call may pause until the user reviews the plan; the result tells you whether to proceed or contains feedback to address.',
       schema: artifactSchema
     }
   )
@@ -345,9 +464,9 @@ export function buildTools(projectPath: string, conversationId: string, sink: Ru
         return 'submit_walkthrough needs a non-empty title and a non-empty markdown body. Nothing was recorded; call it again with both.'
       }
       const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
-      const { artifactId, eventId } = artifactIdsFor(toolCallId, title.trim(), body)
+      const artifactId = artifactIdFor(toolCallId, title.trim(), body)
       const artifact = createWalkthroughArtifact(conversationId, title.trim(), body, artifactId)
-      emitArtifactEvent(artifact, eventId)
+      emitArtifactEvent(artifact, artifactEventIdFor(artifact.id))
       return `Walkthrough v${artifact.version} recorded.`
     },
     {

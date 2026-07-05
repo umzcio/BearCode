@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { ConversationMeta, Event } from '../../shared/types'
+import type { ConversationMeta, Event, PlanReviewResolveResult } from '../../shared/types'
 import type { RunSink } from '../sink'
 import {
   appendEvent,
@@ -15,6 +15,7 @@ import {
   forgetPendingApproval,
   rehydratePausedRun,
   resolveInterrupt,
+  resolvePlanInterrupt,
   runGraph,
   setOnResumeSettled
 } from './graph'
@@ -132,6 +133,45 @@ export function resolveApprovalOrchestrator(callId: string, approved: boolean): 
   for (const conversationId of aborts.keys()) {
     if (resolveInterrupt(conversationId, callId, approved)) return
   }
+}
+
+// Wire-boundary guard for bearcode:artifacts:resolve-plan-review (src/main
+// /ipc.ts). IPC arguments cross a JS-only bridge with no runtime type
+// enforcement despite the handler's TS signature -- a stale preload build, a
+// compromised renderer, or a future caller with looser types could send
+// something truthy-but-not-`true` for `proceed` or a non-string `message`.
+// resolvePlanInterrupt (graph.ts) treats `decision.proceed` as an
+// already-trusted boolean and branches on it directly (graph.ts:1451), so
+// anything looser than a literal boolean must be rejected HERE, before it
+// ever reaches that branch, rather than silently coerced. Exported for
+// ipc.ts and for direct unit testing (orchestrator/*.test.ts already mocks
+// './graph' + '../db' to exercise this module without a real graph/db).
+export function assertValidPlanReviewResolution(proceed: unknown, message: unknown): void {
+  if (proceed !== true && proceed !== false) {
+    throw new Error('resolvePlanReview: proceed must be a boolean')
+  }
+  if (message !== undefined && typeof message !== 'string') {
+    throw new Error('resolvePlanReview: message must be a string or undefined')
+  }
+}
+
+// Resolves ONE plan-review card (bearcode:artifacts:resolve-plan-review).
+// Same scan idiom as resolveApprovalOrchestrator above: the IPC payload
+// carries only a callId, so `aborts` holds every conversation with a live or
+// parked run. The discriminant rides through so the renderer can tell the
+// user WHY a resolution failed instead of silently no-opping: 'stale' only
+// when NO conversation recognized the card ('needs-substance' comes from the
+// one conversation that did -- callIds are uuids, so at most one matches).
+export function resolvePlanReviewOrchestrator(
+  callId: string,
+  proceed: boolean,
+  message?: string
+): PlanReviewResolveResult {
+  for (const conversationId of aborts.keys()) {
+    const result = resolvePlanInterrupt(conversationId, callId, { proceed, message })
+    if (result !== 'stale') return result
+  }
+  return 'stale'
 }
 
 // Boot-time crash-resume scan (risk 6).

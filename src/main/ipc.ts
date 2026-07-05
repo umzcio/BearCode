@@ -1,7 +1,9 @@
+import { randomUUID } from 'crypto'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
   AddRuleInput,
   AppSettings,
+  ArtifactComment,
   ConversationMeta,
   Event,
   PermissionMode,
@@ -16,11 +18,13 @@ import { listAllModels } from './providers/registry'
 import { filePathFor, getDiff, revertFile } from './diffs'
 import * as db from './db'
 import {
+  assertValidPlanReviewResolution,
   cancelRunOrchestrator,
   clearRunsOrchestrator,
   forgetRunOrchestrator,
   pruneCheckpoints,
   resolveApprovalOrchestrator,
+  resolvePlanReviewOrchestrator,
   resumeInterruptedRuns,
   startRunOrchestrator
 } from './orchestrator'
@@ -94,6 +98,38 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:tools:approve', (_e, callId: string, approved: boolean) => {
     resolveApprovalOrchestrator(callId, approved)
   })
+
+  ipcMain.handle(
+    'bearcode:artifacts:resolve-plan-review',
+    (_e, callId: string, proceed: boolean, message?: string) => {
+      // assertValidPlanReviewResolution throws on anything looser than a
+      // literal boolean/string|undefined, which ipcMain.handle turns into a
+      // rejected promise for the renderer -- see its doc comment
+      // (orchestrator/index.ts) for why this must happen before the call in.
+      assertValidPlanReviewResolution(proceed, message)
+      return resolvePlanReviewOrchestrator(callId, proceed, message)
+    }
+  )
+  ipcMain.handle(
+    'bearcode:artifacts:add-comment',
+    (_e, artifactId: string, quote: string | null, body: string): ArtifactComment => {
+      const trimmedBody = body.trim()
+      if (!trimmedBody) throw new Error('Comment body must not be empty')
+      const comment: ArtifactComment = {
+        id: randomUUID(),
+        artifactId,
+        quote: quote && quote.trim() ? quote.trim() : null,
+        body: trimmedBody,
+        createdAt: Date.now(),
+        sentAt: null
+      }
+      db.insertArtifactComment(comment)
+      return comment
+    }
+  )
+  ipcMain.handle('bearcode:artifacts:list-comments', (_e, artifactId: string) =>
+    db.listArtifactComments(artifactId)
+  )
 
   ipcMain.handle('bearcode:keys:set', (_e, provider: ProviderId, key: string) => {
     setKey(provider, key)
