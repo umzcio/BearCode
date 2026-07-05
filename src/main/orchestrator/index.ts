@@ -4,6 +4,7 @@ import {
   type CommandRef,
   type ConversationMeta,
   type Event,
+  type MentionRef,
   type PlanReviewResolveResult
 } from '../../shared/types'
 import type { RunSink } from '../sink'
@@ -196,6 +197,52 @@ export function assertValidCommand(command: unknown): CommandRef | null {
     throw new Error(`run:start: /${name} cannot be sent as a command`)
   }
   return { name, kind }
+}
+
+// Wire-boundary guard for bearcode:run:start's optional `mentions` argument
+// (src/main/ipc.ts). Same posture as assertValidCommand above: IPC arguments
+// cross a JS-only bridge with no runtime type enforcement, so a stale preload
+// build or compromised renderer could send anything. `mention.path` is used
+// ONLY as prompt text (the Referenced-files block) and a pure glob-match
+// string (matchesEditPath) — never opened here; the agent reads referenced
+// files later through its jailed DiffFsBackend, which re-jails every path. So
+// this bounds shape and size only (no traversal check needed). Returns a
+// clean MentionRef[] (unknown fields dropped); throws on anything malformed.
+export function assertValidMentions(mentions: unknown): MentionRef[] {
+  if (mentions === null || mentions === undefined) return []
+  if (!Array.isArray(mentions)) {
+    throw new Error('run:start: mentions must be an array or null')
+  }
+  if (mentions.length > 50) {
+    throw new Error('run:start: too many mentions')
+  }
+  return mentions.map((m) => {
+    if (typeof m !== 'object' || m === null) {
+      throw new Error('run:start: each mention must be an object')
+    }
+    const { kind, name, path, conversationId } = m as {
+      kind?: unknown
+      name?: unknown
+      path?: unknown
+      conversationId?: unknown
+    }
+    if (kind !== 'file' && kind !== 'rule' && kind !== 'conversation') {
+      throw new Error('run:start: mention.kind must be file, rule, or conversation')
+    }
+    if (typeof name !== 'string' || name.length === 0 || name.length > 1024) {
+      throw new Error('run:start: mention.name must be a non-empty string')
+    }
+    if (path !== undefined && typeof path !== 'string') {
+      throw new Error('run:start: mention.path must be a string')
+    }
+    if (conversationId !== undefined && typeof conversationId !== 'string') {
+      throw new Error('run:start: mention.conversationId must be a string')
+    }
+    const ref: MentionRef = { kind, name }
+    if (typeof path === 'string') ref.path = path
+    if (typeof conversationId === 'string') ref.conversationId = conversationId
+    return ref
+  })
 }
 
 // Resolves ONE plan-review card (bearcode:artifacts:resolve-plan-review).

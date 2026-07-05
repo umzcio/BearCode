@@ -7,6 +7,7 @@ import type {
   CommandRef,
   ConversationMeta,
   Event,
+  MentionRef,
   ModelRef,
   PermissionMode,
   PermissionRulesInfo,
@@ -24,7 +25,8 @@ const bearcode: BearcodeApi = {
       userText: string,
       modelRef: ModelRef,
       projectPath,
-      command?: CommandRef | null
+      command?: CommandRef | null,
+      mentions?: MentionRef[] | null
     ) =>
       ipcRenderer.invoke(
         'bearcode:run:start',
@@ -32,7 +34,8 @@ const bearcode: BearcodeApi = {
         userText,
         modelRef,
         projectPath,
-        command ?? null
+        command ?? null,
+        mentions ?? null
       ),
     cancel: (conversationId: string) => ipcRenderer.invoke('bearcode:run:cancel', conversationId)
   },
@@ -41,6 +44,11 @@ const bearcode: BearcodeApi = {
   },
   commands: {
     list: (projectPath: string | null) => ipcRenderer.invoke('bearcode:commands:list', projectPath)
+  },
+  mentions: {
+    files: (projectPath: string | null, query: string) =>
+      ipcRenderer.invoke('bearcode:mentions:files', projectPath, query),
+    rules: (projectPath: string | null) => ipcRenderer.invoke('bearcode:mentions:rules', projectPath)
   },
   diffs: {
     get: (diffId: string) => ipcRenderer.invoke('bearcode:diffs:get', diffId),
