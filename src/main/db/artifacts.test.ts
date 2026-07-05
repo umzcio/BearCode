@@ -13,7 +13,7 @@ vi.mock('better-sqlite3', () => ({
   default: vi.fn()
 }))
 
-import { toArtifact, type ArtifactRow } from './index'
+import { toArtifact, toArtifactComment, type ArtifactRow, type ArtifactCommentRow } from './index'
 
 const row = (overrides: Partial<ArtifactRow> = {}): ArtifactRow => ({
   id: 'art-1',
@@ -70,5 +70,33 @@ describe('toArtifact', () => {
     expect(toArtifact(row({ status: 'rejected' }))).toBeNull()
     expect(warn).toHaveBeenCalledTimes(1)
     warn.mockRestore()
+  })
+})
+
+const commentRow = (overrides: Partial<ArtifactCommentRow> = {}): ArtifactCommentRow => ({
+  id: 'c-1',
+  artifact_id: 'art-1',
+  quote: 'Step 2: rewrite the config',
+  body: 'Do not touch the config; extend it instead.',
+  created_at: 1000,
+  sent_at: null,
+  ...overrides
+})
+
+describe('toArtifactComment', () => {
+  it('maps a draft comment row verbatim (sent_at NULL stays null)', () => {
+    expect(toArtifactComment(commentRow())).toEqual({
+      id: 'c-1',
+      artifactId: 'art-1',
+      quote: 'Step 2: rewrite the config',
+      body: 'Do not touch the config; extend it instead.',
+      createdAt: 1000,
+      sentAt: null
+    })
+  })
+  it('maps a sent, quoteless comment', () => {
+    const c = toArtifactComment(commentRow({ quote: null, sent_at: 2000 }))
+    expect(c.quote).toBeNull()
+    expect(c.sentAt).toBe(2000)
   })
 })

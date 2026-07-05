@@ -5,7 +5,8 @@ vi.mock('../db', () => ({
   insertArtifact: vi.fn(),
   getArtifact: vi.fn(() => null),
   listArtifacts: vi.fn(() => []),
-  markPendingPlansSuperseded: vi.fn()
+  markPendingPlansSuperseded: vi.fn(() => []),
+  updateArtifactStatus: vi.fn()
 }))
 vi.mock('../settings', () => ({
   getSettings: vi.fn(() => ({
@@ -18,8 +19,19 @@ vi.mock('../settings', () => ({
 }))
 
 import { getSettings } from '../settings'
-import { getArtifact, insertArtifact, listArtifacts, markPendingPlansSuperseded } from '../db'
-import { createPlanArtifact, createWalkthroughArtifact, nextArtifactVersion } from './store'
+import {
+  getArtifact,
+  insertArtifact,
+  listArtifacts,
+  markPendingPlansSuperseded,
+  updateArtifactStatus
+} from '../db'
+import {
+  approvePlanArtifact,
+  createPlanArtifact,
+  createWalkthroughArtifact,
+  nextArtifactVersion
+} from './store'
 
 const art = (over: Partial<Artifact> = {}): Artifact => ({
   id: 'a-' + Math.random(),
@@ -48,6 +60,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(listArtifacts).mockReturnValue([])
   vi.mocked(getArtifact).mockReturnValue(null)
+  vi.mocked(markPendingPlansSuperseded).mockReturnValue([])
   settingsWith('request-review')
 })
 
@@ -157,5 +170,51 @@ describe('replay idempotency (crash-rehydration re-executes completed submit too
     vi.mocked(getArtifact).mockReturnValue(existing)
     expect(createWalkthroughArtifact('convo', 'T', 'B', 'w1')).toBe(existing)
     expect(insertArtifact).not.toHaveBeenCalled()
+  })
+})
+
+describe('supersede pass-through (Ba2 chip un-stale)', () => {
+  it('createPlanArtifact returns the rows the supersede flipped', () => {
+    const flipped = [art({ id: 'v1', status: 'superseded', resolvedAt: 5 })]
+    vi.mocked(markPendingPlansSuperseded).mockReturnValue(flipped)
+    expect(createPlanArtifact('convo', 'T', 'B').superseded).toBe(flipped)
+  })
+  it('the replay branch supersedes nothing and returns an empty list', () => {
+    vi.mocked(getArtifact).mockReturnValue(
+      art({ id: 'x', status: 'pending-review', resolvedAt: null })
+    )
+    const out = createPlanArtifact('convo', 'T', 'B', 'x')
+    expect(out.superseded).toEqual([])
+    expect(markPendingPlansSuperseded).not.toHaveBeenCalled()
+  })
+})
+
+describe('approvePlanArtifact (the Proceed status flip)', () => {
+  it('flips a pending-review plan to approved with resolvedAt', () => {
+    vi.mocked(getArtifact).mockReturnValue(
+      art({ id: 'p', status: 'pending-review', resolvedAt: null })
+    )
+    vi.mocked(updateArtifactStatus).mockReturnValue(
+      art({ id: 'p', status: 'approved', resolvedAt: 9 })
+    )
+    const out = approvePlanArtifact('p')
+    expect(updateArtifactStatus).toHaveBeenCalledWith('p', 'approved', expect.any(Number))
+    expect(out?.status).toBe('approved')
+  })
+  it('is idempotent on an already-approved row (crash-replay): no update, row returned', () => {
+    const existing = art({ id: 'p', status: 'approved' })
+    vi.mocked(getArtifact).mockReturnValue(existing)
+    expect(approvePlanArtifact('p')).toBe(existing)
+    expect(updateArtifactStatus).not.toHaveBeenCalled()
+  })
+  it('never resurrects a superseded plan: returns it unchanged without updating', () => {
+    const existing = art({ id: 'p', status: 'superseded' })
+    vi.mocked(getArtifact).mockReturnValue(existing)
+    expect(approvePlanArtifact('p')).toBe(existing)
+    expect(updateArtifactStatus).not.toHaveBeenCalled()
+  })
+  it('returns null for an unknown id', () => {
+    vi.mocked(getArtifact).mockReturnValue(null)
+    expect(approvePlanArtifact('nope')).toBeNull()
   })
 })

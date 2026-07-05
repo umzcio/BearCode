@@ -97,6 +97,21 @@ export interface Artifact {
 // settings on every submit; never cached.
 export type ArtifactReviewPolicy = 'request-review' | 'always-proceed'
 
+// A comment drafted against a plan artifact in the pane (design 3.4). `quote`
+// is the selected plan text the comment anchors to (a plain-text anchor, not
+// an offset). Comments are drafted locally (sent_at NULL, surviving restarts)
+// and delivered as a batch when the user answers the plan review: Proceed
+// sends them as steering context, Review sends them as feedback. `sentAt`
+// stamps that delivery.
+export interface ArtifactComment {
+  id: string
+  artifactId: string
+  quote: string | null
+  body: string
+  createdAt: number
+  sentAt: number | null
+}
+
 export type RunState = 'running' | 'awaiting-approval' | 'done' | 'error' | 'cancelled'
 
 export type Event =

@@ -179,7 +179,8 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
   it('always-proceed: returns the approval copy and emits+persists one approved artifact event', async () => {
     vi.mocked(createPlanArtifact).mockReturnValue({
       artifact: art({ status: 'approved' }),
-      policy: 'always-proceed'
+      policy: 'always-proceed',
+      superseded: []
     })
     const sink = makeSink()
     const { submitPlan } = toolsFor(sink)
@@ -213,7 +214,8 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
   it('request-review: returns immediately with awaiting-review copy; artifact event is pending-review', async () => {
     vi.mocked(createPlanArtifact).mockReturnValue({
       artifact: art({ status: 'pending-review', version: 2, resolvedAt: null }),
-      policy: 'request-review'
+      policy: 'request-review',
+      superseded: []
     })
     const sink = makeSink()
     const { submitPlan } = toolsFor(sink)
@@ -272,7 +274,8 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
     const expectedId = 'convo:tc1:e1725446192b97dc:artifact'
     vi.mocked(createPlanArtifact).mockReturnValue({
       artifact: art({ id: expectedId }),
-      policy: 'always-proceed'
+      policy: 'always-proceed',
+      superseded: []
     })
     const sink = makeSink()
     const { submitPlan } = toolsFor(sink)
@@ -299,7 +302,8 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
     // so the store records a fresh row and a fresh event.
     vi.mocked(createPlanArtifact).mockReturnValue({
       artifact: art(),
-      policy: 'always-proceed'
+      policy: 'always-proceed',
+      superseded: []
     })
     const sink = makeSink()
     const { submitPlan } = toolsFor(sink)
@@ -314,7 +318,11 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
   })
 
   it('SECURITY: submit tools never consult the permission engine (nothing to gate)', async () => {
-    vi.mocked(createPlanArtifact).mockReturnValue({ artifact: art(), policy: 'always-proceed' })
+    vi.mocked(createPlanArtifact).mockReturnValue({
+      artifact: art(),
+      policy: 'always-proceed',
+      superseded: []
+    })
     const { submitPlan } = toolsFor(makeSink())
     await submitPlan.invoke({ title: 'T', body: 'B' })
     expect(evaluateCommandForConversation).not.toHaveBeenCalled()
