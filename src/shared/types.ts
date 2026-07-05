@@ -21,6 +21,8 @@ export type ToolName =
   | 'grep'
   | 'write_todos'
   | 'task'
+  | 'submit_plan'
+  | 'submit_walkthrough'
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
@@ -68,6 +70,33 @@ export interface PermissionRulesInfo {
   builtins: BuiltinRuleInfo[]
 }
 
+// ---- Artifacts (Ba) ----
+
+// The agent's structured deliverables (design 2026-07-04-ba-artifacts-design.md
+// section 3.4). Plans are born 'pending-review' or 'approved' depending on the
+// artifact review policy at submit time; walkthroughs are born 'final'.
+// 'superseded' marks a still-pending plan that a newer submission replaced.
+export type ArtifactType = 'plan' | 'walkthrough'
+export type ArtifactStatus = 'pending-review' | 'approved' | 'superseded' | 'final'
+
+export interface Artifact {
+  id: string
+  conversationId: string
+  type: ArtifactType
+  version: number // per conversation+type, starts at 1
+  title: string
+  // Markdown. Rendered ONLY through the renderer's sanitized markdown pipeline
+  // (lib/markdown.tsx), the same one chat prose uses -- design section 4.
+  body: string
+  status: ArtifactStatus
+  createdAt: number
+  resolvedAt: number | null
+}
+
+// Governs what submit_plan does at call time (design 3.3). Read live from
+// settings on every submit; never cached.
+export type ArtifactReviewPolicy = 'request-review' | 'always-proceed'
+
 export type RunState = 'running' | 'awaiting-approval' | 'done' | 'error' | 'cancelled'
 
 export type Event =
@@ -109,6 +138,21 @@ export type Event =
         deletions: number
         status: 'created' | 'modified' | 'deleted'
       }[]
+    }
+  | {
+      type: 'artifact'
+      id: string
+      artifactId: string
+      artifactType: ArtifactType
+      version: number
+      title: string
+      status: ArtifactStatus
+      // The full markdown body rides in the event payload (v1 simplicity,
+      // design 3.4): the transcript card and the artifacts pane render
+      // entirely off the event stream, so Ba1 needs no artifact IPC surface.
+      // The artifacts table remains the durable source of truth for Ba2's
+      // review loop; this payload is a display copy.
+      body: string
     }
   | { type: 'assistant_text'; id: string; text: string; agentId?: string }
   | {
@@ -187,6 +231,9 @@ export interface AppSettings {
   // time; the rules themselves stay visible in the manager so a disabled builtin
   // is never silent.
   disabledBuiltins: string[]
+  // Whether submit_plan holds plans for user review or proceeds immediately
+  // (artifacts design 3.3). Read live at each submit call.
+  artifactReviewPolicy: ArtifactReviewPolicy
 }
 
 export interface SettingsInfo extends AppSettings {

@@ -6,6 +6,9 @@ import { join } from 'path'
 import Database from 'better-sqlite3'
 import { randomUUID } from 'crypto'
 import type {
+  Artifact,
+  ArtifactStatus,
+  ArtifactType,
   ConversationMeta,
   Event,
   PermissionAction,
@@ -59,6 +62,26 @@ function getDb(): Database.Database {
       effect TEXT NOT NULL,       -- 'allow' | 'deny' | 'ask'
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS artifacts (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,        -- 'plan' | 'walkthrough'
+      version INTEGER NOT NULL,  -- per conversation+type, starts 1
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,        -- markdown
+      status TEXT NOT NULL,      -- 'pending-review' | 'approved' | 'superseded' | 'final'
+      created_at INTEGER NOT NULL,
+      resolved_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS artifact_comments (
+      id TEXT PRIMARY KEY,
+      artifact_id TEXT REFERENCES artifacts(id) ON DELETE CASCADE,
+      quote TEXT,                -- plain-text anchor, the selected plan text
+      body TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      sent_at INTEGER            -- NULL until delivered on Proceed/Review (Ba2)
+    );
+    CREATE INDEX IF NOT EXISTS idx_artifacts_convo ON artifacts(conversation_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_events_convo ON events(conversation_id, seq);
   `)
   // Additive column for the per-conversation permission mode (Bb1). SQLite
@@ -378,12 +401,110 @@ export function deleteRule(id: string): void {
   getDb().prepare(`DELETE FROM permission_rules WHERE id = ?`).run(id)
 }
 
+export interface ArtifactRow {
+  id: string
+  conversation_id: string
+  type: string
+  version: number
+  title: string
+  body: string
+  status: string
+  created_at: number
+  resolved_at: number | null
+}
+
+const ARTIFACT_TYPES: readonly string[] = ['plan', 'walkthrough']
+const ARTIFACT_STATUSES: readonly string[] = ['pending-review', 'approved', 'superseded', 'final']
+
+// toRule's posture (R1 guard): a row holding a type or status neither writer
+// ever produces is filtered out loudly rather than coerced into something it
+// is not. Exported (pure, no DB handle) so artifacts.test.ts can pin the
+// mapping without loading better-sqlite3's native binding.
+export function toArtifact(row: ArtifactRow): Artifact | null {
+  if (!ARTIFACT_TYPES.includes(row.type) || !ARTIFACT_STATUSES.includes(row.status)) {
+    console.warn(
+      `[bearcode] db: artifacts row ${row.id} has unknown type/status "${row.type}"/"${row.status}"; skipping`
+    )
+    return null
+  }
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    type: row.type as ArtifactType,
+    version: row.version,
+    title: row.title,
+    body: row.body,
+    status: row.status as ArtifactStatus,
+    createdAt: row.created_at,
+    resolvedAt: row.resolved_at
+  }
+}
+
+// INSERT OR IGNORE: artifact ids are derived deterministically from the
+// provider tool-call id (tools.ts, Task 3), and a crash-rehydration replay can
+// RE-EXECUTE a completed submit tool -- checkpoint durability is 'async' (the
+// checkpointer promise is tracked, not awaited) and checkpoints.db shares no
+// transaction with bearcode.db, so a crash between the tool completing and its
+// task writes committing replays the task on resume. The authoritative replay
+// guard is the store's getArtifact existence check (Task 2, which also skips
+// re-supersede); OR IGNORE is belt-and-braces so a race can never throw on the
+// primary key.
+export function insertArtifact(a: Artifact): void {
+  getDb()
+    .prepare(
+      `INSERT OR IGNORE INTO artifacts (id, conversation_id, type, version, title, body, status, created_at, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      a.id,
+      a.conversationId,
+      a.type,
+      a.version,
+      a.title,
+      a.body,
+      a.status,
+      a.createdAt,
+      a.resolvedAt
+    )
+}
+
+export function getArtifact(id: string): Artifact | null {
+  const row = getDb().prepare(`SELECT * FROM artifacts WHERE id = ?`).get(id) as
+    ArtifactRow | undefined
+  return row ? toArtifact(row) : null
+}
+
+export function listArtifacts(conversationId: string): Artifact[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM artifacts WHERE conversation_id = ? ORDER BY created_at ASC, version ASC`
+    )
+    .all(conversationId) as ArtifactRow[]
+  return rows.map(toArtifact).filter((a): a is Artifact => a !== null)
+}
+
+// A new plan submission supersedes any STILL-PENDING prior plan in the same
+// conversation (design 3.1: "the new submission SUPERSEDES the old"). Scoped
+// hard: type='plan' AND status='pending-review' only -- an 'approved' plan row
+// is a historical record of an approval and is never rewritten, and
+// walkthroughs ('final') are never touched.
+export function markPendingPlansSuperseded(conversationId: string, resolvedAt: number): void {
+  getDb()
+    .prepare(
+      `UPDATE artifacts SET status = 'superseded', resolved_at = ?
+       WHERE conversation_id = ? AND type = 'plan' AND status = 'pending-review'`
+    )
+    .run(resolvedAt, conversationId)
+}
+
 export function deleteConversation(id: string): void {
   getDb().prepare(`DELETE FROM conversations WHERE id = ?`).run(id)
 }
 
 export function clearAll(): void {
   const database = getDb()
+  database.prepare(`DELETE FROM artifact_comments`).run()
+  database.prepare(`DELETE FROM artifacts`).run()
   database.prepare(`DELETE FROM events`).run()
   database.prepare(`DELETE FROM diffs`).run()
   database.prepare(`DELETE FROM conversations`).run()
