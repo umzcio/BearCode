@@ -28,6 +28,15 @@ export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
 export type PermissionMode = 'accept-edits' | 'auto' | 'plan'
 
+// Per-conversation execution mode (artifacts design 3.2, mirrors Antigravity).
+// Planning researches the codebase, submits an implementation plan for review
+// before changing anything, and finishes with a walkthrough; Fast executes
+// directly without a dedicated planning phase. Chosen when the conversation
+// starts and LOCKED once the first turn has run. NOT a permission mode: the
+// permission engine never reads it, and Planning restricts no tools -- the
+// plan gate is additive, not a sandbox (design 3.2 SECURITY).
+export type ExecutionMode = 'planning' | 'fast'
+
 export type PermissionRuleEffect = 'allow' | 'deny' | 'ask'
 
 export type PermissionAction = 'command' | 'edit'
@@ -221,6 +230,7 @@ export interface ConversationMeta {
   createdAt: number
   updatedAt: number
   permissionMode: PermissionMode
+  executionMode: ExecutionMode
 }
 
 // ---- Diffs ----
@@ -255,6 +265,11 @@ export interface AppSettings {
   // Whether submit_plan holds plans for user review or proceeds immediately
   // (artifacts design 3.3). Read live at each submit call.
   artifactReviewPolicy: ArtifactReviewPolicy
+  // The execution mode new conversations start in (design 3.2). 'planning' is
+  // the default: Antigravity treats planning as the primary mode. Each
+  // conversation pins its own value at first-turn start, so changing this
+  // never affects a conversation that already ran.
+  defaultExecutionMode: ExecutionMode
 }
 
 export interface SettingsInfo extends AppSettings {
