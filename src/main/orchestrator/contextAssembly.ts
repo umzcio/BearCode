@@ -4,8 +4,10 @@
 // touchedFilesFor's query result) and this just orders and renders them.
 // Rules with `error` set are malformed (design 11) and are skipped in every
 // section below, never surfaced to the model.
-import type { AgentsContent, Rule } from '../agentsDir/types'
+import type { AgentsContent, Rule, Workflow } from '../agentsDir/types'
 import { matchesEditPath } from '../permissions/rules'
+import { resolveWorkflowSteps } from './commands'
+import type { CommandRef } from '../../shared/types'
 
 export interface RuleAssemblyInput {
   content: AgentsContent
@@ -79,4 +81,78 @@ export function assembleRuleAdditions(input: RuleAssemblyInput): RuleAssembly {
   }
 
   return { systemAdditions: additions, activatedGlobRules }
+}
+
+// Turns a chosen slash command into the turn's system-prompt additions
+// (design 3.2 items 5/6, 5.2/6.2, D2 Task 2). Pure and separate from
+// assembleRuleAdditions above on purpose (Task 3's caller-side note): a
+// broken .agents dir degrades the RULE additions and the turn still runs; a
+// broken COMMAND refuses the turn outright. Those are different policies and
+// must never share a try/catch.
+export interface CommandAdditions {
+  systemAdditions: string[]
+  error?: string
+}
+
+// EXECUTION-MODE PRECEDENCE (Global Constraints, review finding): every
+// command addition block ends with this line so a workflow's write_todos-
+// first frame, or /goal's never-wait modifier, wins over the pinned
+// execution mode's competing instructions (Ba3's default PLANNING mode
+// instructs submit_plan-first / wait-for-review) for this turn only.
+const PRECEDENCE_LINES = [
+  '',
+  'For this turn, these command instructions take precedence over the execution mode',
+  'instructions above wherever the two conflict.'
+]
+
+export function assembleCommandAdditions(
+  command: CommandRef | null,
+  workflows: Workflow[]
+): CommandAdditions {
+  if (!command) return { systemAdditions: [] }
+
+  if (command.kind === 'builtin') {
+    if (command.name === 'goal') {
+      return {
+        systemAdditions: [
+          '',
+          "Turn modifier: /goal. Run until the user's stated goal is completely finished.",
+          'Do not stop to ask intermediate questions or wait for confirmation; make reasonable',
+          'decisions yourself and keep working until the goal is fully done.',
+          ...PRECEDENCE_LINES
+        ]
+      }
+    }
+    if (command.name === 'grill-me') {
+      return {
+        systemAdditions: [
+          '',
+          'Turn modifier: /grill-me. Before implementing anything, interview the user to align',
+          'on a plan. Ask focused clarifying questions about scope, constraints, and intent,',
+          'then wait for the answers. Do not create or edit any files and do not run any',
+          'state-changing commands in this turn.',
+          ...PRECEDENCE_LINES
+        ]
+      }
+    }
+    return { systemAdditions: [], error: `Unknown command: /${command.name}` }
+  }
+
+  const resolved = resolveWorkflowSteps(command.name, workflows)
+  if (!resolved.ok) return { systemAdditions: [], error: resolved.error }
+
+  const stepLines = resolved.steps.map((step, i) => `${i + 1}. ${step}`)
+  return {
+    systemAdditions: [
+      '',
+      `You are executing the workflow "/${command.name}". Its steps, in order:`,
+      ...stepLines,
+      '',
+      'Begin by calling write_todos exactly once to record these steps as your todo list,',
+      'one todo per step, in this order. Then process each step sequentially and',
+      'completely; do not skip or reorder steps. Mark each todo completed as soon as you',
+      'finish it and keep the todo list current with write_todos as you work.',
+      ...PRECEDENCE_LINES
+    ]
+  }
 }

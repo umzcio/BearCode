@@ -8,6 +8,30 @@
 // dashes only, 1-64 characters, must not start with a dash.
 export const COMMAND_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
 
+// The minimal command slot (D2 design 3.3 deferral, D2 Task 2). A CommandRef
+// is exactly design 3.3's future MessageParts.command field shape, so D3's
+// full MessageParts can absorb it unchanged: it travels structured end to
+// end (run:start argument, the persisted user_message payload) and is never
+// concatenated into the message text.
+export interface CommandRef {
+  name: string
+  kind: 'builtin' | 'workflow'
+}
+
+// The slash menu's read model (design 6.1/6.2, D2 Task 2). Produced by
+// src/main/orchestrator/commands.ts's listCommands from the live
+// AgentsContent; 'coming-soon' covers both the not-yet-implemented built-ins
+// and any workflow entry that cannot be sent (a parse error or a name
+// collision with a built-in) -- greyed in the menu either way.
+export interface CommandEntry {
+  name: string
+  description: string
+  kind: 'builtin' | 'workflow'
+  status: 'live' | 'coming-soon'
+  source?: 'project' | 'global'
+  error?: string
+}
+
 // The legacy engine's tool set is 'list_dir' | 'read_file' | 'search_files' |
 // 'write_file' | 'edit_file' | 'run_command'. The orchestrator engine's tools
 // are Deep Agents' always-on built-ins (createDeepAgent() injects these

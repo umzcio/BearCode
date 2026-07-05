@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { assembleRuleAdditions, withoutModelRules, type RuleAssemblyInput } from './contextAssembly'
-import type { AgentsContent, Rule } from '../agentsDir/types'
+import {
+  assembleRuleAdditions,
+  withoutModelRules,
+  assembleCommandAdditions,
+  type RuleAssemblyInput
+} from './contextAssembly'
+import type { AgentsContent, Rule, Workflow } from '../agentsDir/types'
+import type { CommandRef } from '../../shared/types'
 
 const rule = (overrides: Partial<Rule> = {}): Rule => ({
   name: 'r',
@@ -174,5 +180,92 @@ describe('withoutModelRules', () => {
     const always = rule({ name: 'a1' })
     const result = withoutModelRules({ rules: [always], workflows: [] })
     expect(result.rules.map((r) => r.name)).toEqual(['a1'])
+  })
+})
+
+const workflow = (overrides: Partial<Workflow> = {}): Workflow => ({
+  name: 'wf',
+  description: '',
+  body: 'step',
+  steps: ['step'],
+  source: 'project',
+  ...overrides
+})
+
+const PRECEDENCE_SUBSTRING = 'take precedence over the execution mode'
+
+describe('assembleCommandAdditions', () => {
+  it('returns an empty systemAdditions and no error for a null command', () => {
+    const result = assembleCommandAdditions(null, [])
+    expect(result).toEqual({ systemAdditions: [] })
+  })
+
+  it('produces the /goal turn-modifier block ending with the precedence line', () => {
+    const command: CommandRef = { name: 'goal', kind: 'builtin' }
+    const result = assembleCommandAdditions(command, [])
+    expect(result.error).toBeUndefined()
+    const joined = result.systemAdditions.join('\n')
+    expect(joined).toContain('Turn modifier: /goal.')
+    expect(joined).toContain("Run until the user's stated goal is completely finished.")
+    expect(joined).toContain('Do not stop to ask intermediate questions or wait for confirmation')
+    expect(joined).toContain(PRECEDENCE_SUBSTRING)
+    expect(result.systemAdditions.slice(-3)).toEqual([
+      '',
+      'For this turn, these command instructions take precedence over the execution mode',
+      'instructions above wherever the two conflict.'
+    ])
+  })
+
+  it('produces the /grill-me turn-modifier block ending with the precedence line', () => {
+    const command: CommandRef = { name: 'grill-me', kind: 'builtin' }
+    const result = assembleCommandAdditions(command, [])
+    expect(result.error).toBeUndefined()
+    const joined = result.systemAdditions.join('\n')
+    expect(joined).toContain('Turn modifier: /grill-me.')
+    expect(joined).toContain('interview the user to align')
+    expect(joined).toContain('Do not create or edit any files')
+    expect(joined).toContain(PRECEDENCE_SUBSTRING)
+  })
+
+  it('errors on an unknown or non-sendable builtin', () => {
+    const command: CommandRef = { name: 'schedule', kind: 'builtin' }
+    const result = assembleCommandAdditions(command, [])
+    expect(result).toEqual({ systemAdditions: [], error: 'Unknown command: /schedule' })
+  })
+
+  it('produces a workflow frame with numbered resolved steps, the write_todos bootstrap, and the precedence line', () => {
+    const wf = workflow({ name: 'release-check', steps: ['first step', 'second step'] })
+    const command: CommandRef = { name: 'release-check', kind: 'workflow' }
+    const result = assembleCommandAdditions(command, [wf])
+    expect(result.error).toBeUndefined()
+    const joined = result.systemAdditions.join('\n')
+    expect(joined).toContain(
+      'You are executing the workflow "/release-check". Its steps, in order:'
+    )
+    expect(joined).toContain('1. first step')
+    expect(joined).toContain('2. second step')
+    expect(joined).toContain('Begin by calling write_todos exactly once')
+    expect(joined).toContain(PRECEDENCE_SUBSTRING)
+  })
+
+  it('inlines a referenced workflow so no raw /other-name line survives in the frame', () => {
+    const inner = workflow({ name: 'inner', steps: ['inner step'] })
+    const outer = workflow({ name: 'nested', steps: ['/inner'] })
+    const command: CommandRef = { name: 'nested', kind: 'workflow' }
+    const result = assembleCommandAdditions(command, [outer, inner])
+    const joined = result.systemAdditions.join('\n')
+    expect(joined).toContain('1. inner step')
+    expect(joined).not.toContain('/inner')
+  })
+
+  it('passes a resolveWorkflowSteps error through as the assembly error, with no system additions', () => {
+    const loopA = workflow({ name: 'loop-a', steps: ['/loop-b'] })
+    const loopB = workflow({ name: 'loop-b', steps: ['/loop-a'] })
+    const command: CommandRef = { name: 'loop-a', kind: 'workflow' }
+    const result = assembleCommandAdditions(command, [loopA, loopB])
+    expect(result.systemAdditions).toEqual([])
+    expect(result.error).toBe(
+      'Workflow /loop-b references /loop-a, which creates a reference cycle'
+    )
   })
 })
