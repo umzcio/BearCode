@@ -26,7 +26,7 @@ import {
   setBuiltinDisabled,
   toggleDisabledBuiltin
 } from './store'
-import { evaluateCommand, BUILTIN_RULES } from './rules'
+import { evaluateCommand, evaluateEdit, BUILTIN_RULES } from './rules'
 
 const g = (match: string): PermissionRule => ({
   id: 'g:' + match,
@@ -209,5 +209,8 @@ describe('settings-backed manager surface', () => {
         (r) => r.id === 'builtin:edit-env-root'
       )
     ).toBe(true)
+    expect(evaluateEdit('.env', mergeRules([], null, afterCommandDisabled.disabledBuiltins))).toBe(
+      'block'
+    )
   })
 })
