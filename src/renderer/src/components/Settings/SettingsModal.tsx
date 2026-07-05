@@ -168,6 +168,34 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                 sub="Global agent permissions. These apply everywhere unless a project overrides them."
               />
               <PermissionRulesSection />
+              <div className="set-group-title">Artifact Review</div>
+              <div className="set-card">
+                <Row
+                  title="Artifact Review Policy"
+                  desc="How the agent's submitted plans are handled. Request Review holds each plan for your review; Always Proceed approves it immediately. Applies to the next plan the agent submits."
+                >
+                  <div className="radio-col" role="radiogroup" aria-label="Artifact review policy">
+                    <label className="radio-row">
+                      <input
+                        type="radio"
+                        name="artifact-review-policy"
+                        checked={settings.artifactReviewPolicy === 'request-review'}
+                        onChange={() => void saveSettings({ artifactReviewPolicy: 'request-review' })}
+                      />
+                      <span>Request Review (Recommended)</span>
+                    </label>
+                    <label className="radio-row">
+                      <input
+                        type="radio"
+                        name="artifact-review-policy"
+                        checked={settings.artifactReviewPolicy === 'always-proceed'}
+                        onChange={() => void saveSettings({ artifactReviewPolicy: 'always-proceed' })}
+                      />
+                      <span>Always Proceed</span>
+                    </label>
+                  </div>
+                </Row>
+              </div>
               <div className="set-group-title">Agent Settings</div>
               <div className="set-card">
                 <Row

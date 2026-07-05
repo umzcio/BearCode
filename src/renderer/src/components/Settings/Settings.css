@@ -419,3 +419,25 @@
   color: var(--text-dim);
   font-family: inherit;
 }
+
+/* --- Artifact review policy radios (Permissions page, Ba1) --- */
+.radio-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+.radio-row input[type='radio'] {
+  accent-color: var(--green);
+  margin: 0;
+  cursor: pointer;
+}
