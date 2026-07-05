@@ -28,13 +28,15 @@ export type PermissionMode = 'accept-edits' | 'auto' | 'plan'
 
 export type PermissionRuleEffect = 'allow' | 'deny' | 'ask'
 
+export type PermissionAction = 'command' | 'edit'
+
 // A rule is either global or bound to one project's workspace path.
 export type RuleScope = 'global' | { projectPath: string }
 
 export interface PermissionRule {
   id: string
   scope: RuleScope
-  action: 'command' // Bb2 is command-only; 'edit' rules arrive in Bb3
+  action: PermissionAction
   match: string // exact command, or a trailing '*' prefix glob (e.g. 'git *')
   effect: PermissionRuleEffect
   source: 'user' | 'builtin'
@@ -43,10 +45,13 @@ export interface PermissionRule {
 // What the run_command gate does with a command.
 export type CommandDecision = 'run' | 'prompt' | 'block'
 
+// What the file-write gate does with an edit.
+export type EditDecision = 'apply' | 'prompt' | 'block'
+
 // The renderer sends this to persist a user rule; main assigns id + source.
 export interface AddRuleInput {
   scope: RuleScope
-  action: 'command'
+  action: PermissionAction
   match: string
   effect: PermissionRuleEffect
 }
