@@ -23,6 +23,7 @@ vi.mock('./checkpointer', () => ({
 
 import {
   textOfMessage,
+  buildUserMessageContent,
   shouldEmitBridgedText,
   shouldRetryEmptyFinal,
   interruptBelongsToToolCall,
@@ -81,6 +82,34 @@ describe('textOfMessage', () => {
 
   it('ignores text blocks whose text field is not a string', () => {
     expect(textOfMessage([{ type: 'text' }, { type: 'text', text: 42 }])).toBe('')
+  })
+})
+
+describe('buildUserMessageContent', () => {
+  const ref = (id: string, mime = 'image/png'): { id: string; name: string; mime: string } => ({
+    id,
+    name: `${id}.png`,
+    mime
+  })
+
+  it('returns the plain string when there are no attachments', () => {
+    expect(buildUserMessageContent('hello', [], () => null)).toBe('hello')
+  })
+
+  it('builds a text block followed by one image block per resolvable attachment', () => {
+    const out = buildUserMessageContent('describe these', [ref('a'), ref('b', 'image/jpeg')], (a) =>
+      a.id === 'a' ? 'AAAA' : 'BBBB'
+    )
+    expect(out).toEqual([
+      { type: 'text', text: 'describe these' },
+      { type: 'image', source_type: 'base64', mime_type: 'image/png', data: 'AAAA' },
+      { type: 'image', source_type: 'base64', mime_type: 'image/jpeg', data: 'BBBB' }
+    ])
+  })
+
+  it('skips an attachment whose bytes are gone (readBase64 -> null)', () => {
+    const out = buildUserMessageContent('x', [ref('gone')], () => null)
+    expect(out).toEqual([{ type: 'text', text: 'x' }])
   })
 })
 

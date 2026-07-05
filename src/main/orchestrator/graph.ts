@@ -19,6 +19,7 @@ import { isToolMessageChunk } from '@langchain/core/messages'
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base'
 import type { LLMResult } from '@langchain/core/outputs'
 import type {
+  AttachmentRef,
   CommandRef,
   Event,
   MentionRef,
@@ -41,6 +42,7 @@ import {
   setPermissionMode,
   touchedFilesFor
 } from '../db'
+import { readAttachmentBase64 } from '../attachments/ingest'
 import { loadAgentsContent } from '../agentsDir'
 import type { Workflow } from '../agentsDir/types'
 import {
@@ -326,6 +328,40 @@ export function textOfMessage(content: unknown): string {
     if (b.type === 'text' && typeof b.text === 'string') out += b.text
   }
   return out
+}
+
+// Build the human-message `content` for one turn (D4 design 8). With no
+// attachments it stays a plain string (unchanged behavior). With attachments it
+// becomes an ordered content-block array: the text block first, then one image
+// block per attachment whose bytes still resolve. The image block is the v0.3
+// standard Base64ContentBlock -- { type:'image', source_type:'base64',
+// mime_type, data } -- which @langchain/core's isDataContentBlock routes through
+// each provider's convertToProviderContentBlock (verified for Anthropic,
+// OpenAI, Google; Global Constraints). An attachment whose file is gone
+// (readBase64 -> null) is silently skipped rather than sending a broken block.
+// PURE: the caller injects readBase64 so this needs no fs/electron. Exported
+// for tests.
+export function buildUserMessageContent(
+  modelText: string,
+  attachments: AttachmentRef[],
+  readBase64: (a: AttachmentRef) => string | null
+):
+  | string
+  | Array<
+      | { type: 'text'; text: string }
+      | { type: 'image'; source_type: 'base64'; mime_type: string; data: string }
+    > {
+  if (attachments.length === 0) return modelText
+  const blocks: Array<
+    | { type: 'text'; text: string }
+    | { type: 'image'; source_type: 'base64'; mime_type: string; data: string }
+  > = [{ type: 'text', text: modelText }]
+  for (const a of attachments) {
+    const data = readBase64(a)
+    if (data === null) continue
+    blocks.push({ type: 'image', source_type: 'base64', mime_type: a.mime, data })
+  }
+  return blocks
 }
 
 // Pure decision for the answer-text bridge: emit only when handleLLMEnd
@@ -1873,8 +1909,18 @@ export async function runGraph(opts: {
   signal: AbortSignal
   command?: CommandRef | null
   mentions?: MentionRef[]
+  attachments?: AttachmentRef[]
 }): Promise<{ paused: boolean }> {
-  const { conversationId, userText, modelRef, sink, signal, command = null, mentions = [] } = opts
+  const {
+    conversationId,
+    userText,
+    modelRef,
+    sink,
+    signal,
+    command = null,
+    mentions = [],
+    attachments = []
+  } = opts
 
   sink.setState(conversationId, 'running')
   // A stale gate slot from a stopped plan pause must never block this turn's
@@ -1891,7 +1937,8 @@ export async function runGraph(opts: {
     text: userText,
     createdAt: Date.now(),
     ...(command ? { command } : {}),
-    ...(mentions.length > 0 ? { mentions } : {})
+    ...(mentions.length > 0 ? { mentions } : {}),
+    ...(attachments.length > 0 ? { attachments } : {})
   }
   sink.emit(conversationId, userEvent)
   appendEvent(conversationId, userEvent)
@@ -1929,7 +1976,10 @@ export async function runGraph(opts: {
         : 'Proceed.'
 
   try {
-    const result = await drive(agent, { messages: [{ role: 'user', content: modelText }] }, ctx)
+    const content = buildUserMessageContent(modelText, attachments, (a) =>
+      readAttachmentBase64(conversationId, a.id)
+    )
+    const result = await drive(agent, { messages: [{ role: 'user', content }] }, ctx)
     if (await settleTurn(agent, result, ctx)) return { paused: true }
   } catch (err) {
     await failTurn(ctx, err)
