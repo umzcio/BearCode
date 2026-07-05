@@ -18,7 +18,13 @@ import type { AIMessageChunk, BaseMessageChunk, ToolMessageChunk } from '@langch
 import { isToolMessageChunk } from '@langchain/core/messages'
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base'
 import type { LLMResult } from '@langchain/core/outputs'
-import type { Event, PlanReviewResolveResult, ProviderId, ToolName } from '../../shared/types'
+import type {
+  CommandRef,
+  Event,
+  PlanReviewResolveResult,
+  ProviderId,
+  ToolName
+} from '../../shared/types'
 import type { RunSink } from '../sink'
 import {
   appendEvent,
@@ -32,7 +38,12 @@ import {
   touchedFilesFor
 } from '../db'
 import { loadAgentsContent } from '../agentsDir'
-import { assembleRuleAdditions, withoutModelRules } from './contextAssembly'
+import type { Workflow } from '../agentsDir/types'
+import {
+  assembleCommandAdditions,
+  assembleRuleAdditions,
+  withoutModelRules
+} from './contextAssembly'
 import { parseModelRef } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
@@ -1663,13 +1674,24 @@ async function failTurn(ctx: DriveContext, err: unknown): Promise<void> {
 // execution state survive a crash, not just the token stream (verified option
 // name: planning/replatform-api-notes.md section (e)), AND lets raw `interrupt()`
 // calls (risk 4, tools.ts) pause/resume this thread (section (d2)).
+// The command-refusal marker (D2 Task 3, design 5.3/11): an unknown builtin,
+// an unknown/erroring/colliding workflow, or a workflow that resolves past
+// the cycle/inclusion/12k caps refuses the WHOLE turn before any model call
+// -- returned as a plain data member instead of a thrown error so callers
+// (runGraph, rehydratePausedRun) can each apply their own refusal handling
+// (a visible error event vs. a plain "not resumable") rather than unwinding
+// through a catch shared with unrelated failures.
+type BuildResult =
+  { agent: ReturnType<typeof createDeepAgent>; ctx: DriveContext } | { refusal: string }
+
 function buildAgentAndContext(
   conversationId: string,
   modelRef: string,
   userText: string,
+  command: CommandRef | null,
   sink: RunSink,
   signal: AbortSignal
-): { agent: ReturnType<typeof createDeepAgent>; ctx: DriveContext } {
+): BuildResult {
   const { provider: providerId, modelId } = parseModelRef(modelRef)
   const meta = getConversationMeta(conversationId)
   const projectPath = meta?.projectPath ?? null
@@ -1701,8 +1723,10 @@ function buildAgentAndContext(
   // (design 11): the catch drops the additions and the turn runs on the base
   // prompt alone.
   let ruleAdditions = ''
+  let workflows: Workflow[] = []
   try {
     const content = loadAgentsContent(projectPath)
+    workflows = content.workflows
     const touched = projectPath ? touchedFilesFor(conversationId) : []
     // buildTools only registers the activate_rule tool below when a project
     // is open (backendFactory is set); global rules still load with no
@@ -1718,13 +1742,27 @@ function buildAgentAndContext(
   } catch (err) {
     console.warn('[bearcode] .agents rules skipped:', err)
   }
+  // Command additions (design 3.2 items 5/6, D2 Task 3) are assembled OUTSIDE
+  // the rules try/catch above on purpose: a broken .agents dir degrades the
+  // RULE additions and the turn still runs (design 11), but a broken COMMAND
+  // (unknown builtin, unknown/erroring/colliding workflow, or a workflow past
+  // the cycle/inclusion/12k caps) refuses the whole turn -- different
+  // policies that must never share a catch. loadAgentsContent already ran
+  // above for the rules; `workflows` rides that same call (possibly [] if it
+  // threw), so this never does extra IO.
+  const cmd = assembleCommandAdditions(command, workflows)
+  if (cmd.error) return { refusal: cmd.error }
+  const commandAdditions =
+    cmd.systemAdditions.length > 0 ? '\n\n' + cmd.systemAdditions.join('\n\n') : ''
   const agent = createDeepAgent({
     model,
     // meta is null only for a conversation deleted mid-flight (the run is
     // doomed either way), so the fallback mode is arbitrary; toMeta already
     // resolved a NULL execution_mode column to the live defaultExecutionMode.
     systemPrompt:
-      orchestratorSystemPrompt(projectPath, meta?.executionMode ?? 'planning') + ruleAdditions,
+      orchestratorSystemPrompt(projectPath, meta?.executionMode ?? 'planning') +
+      ruleAdditions +
+      commandAdditions,
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
     ...(backendFactory
@@ -1760,8 +1798,9 @@ export async function runGraph(opts: {
   modelRef: string
   sink: RunSink
   signal: AbortSignal
+  command?: CommandRef | null
 }): Promise<{ paused: boolean }> {
-  const { conversationId, userText, modelRef, sink, signal } = opts
+  const { conversationId, userText, modelRef, sink, signal, command = null } = opts
 
   sink.setState(conversationId, 'running')
   // A stale gate slot from a stopped plan pause must never block this turn's
@@ -1779,15 +1818,46 @@ export async function runGraph(opts: {
     type: 'user_message',
     id: randomUUID(),
     text: userText,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    ...(command ? { command } : {})
   }
   sink.emit(conversationId, userEvent)
   appendEvent(conversationId, userEvent)
 
-  const { agent, ctx } = buildAgentAndContext(conversationId, modelRef, userText, sink, signal)
+  const built = buildAgentAndContext(conversationId, modelRef, userText, command, sink, signal)
+  if ('refusal' in built) {
+    // REFUSAL PATH (design 5.3/11, Global Constraints, review finding): the
+    // user_message above is ALREADY persisted (transcript honesty), so this
+    // must NOT re-append it. Mirrors failTurn's error-event shape
+    // (graph.ts:1649-1656) inline: emit + persist the error, mark the run
+    // 'error', and return { paused: false } -- never a bare return, which
+    // would leave the run state 'running' forever (nothing else resets it on
+    // a clean early return). No turn_meta: no model turn happened.
+    emitAndPersist(conversationId, sink, {
+      type: 'error',
+      id: randomUUID(),
+      message: built.refusal,
+      recoverable: true
+    })
+    sink.setState(conversationId, 'error')
+    return { paused: false }
+  }
+  const { agent, ctx } = built
+
+  // Model-side guard for empty trailing text (design 5.2, review finding):
+  // the persisted user_message above keeps text: '' plus the command (honest
+  // transcript), but drive() must never receive an empty user message. This
+  // also covers retryRun's edge (store.ts resends lastUser.text, which can be
+  // '', dropping the command per Task 4 -- that resend gets 'Proceed.').
+  const modelText =
+    userText.trim() !== ''
+      ? userText
+      : command?.kind === 'workflow'
+        ? 'Run the workflow.'
+        : 'Proceed.'
 
   try {
-    const result = await drive(agent, { messages: [{ role: 'user', content: userText }] }, ctx)
+    const result = await drive(agent, { messages: [{ role: 'user', content: modelText }] }, ctx)
     if (await settleTurn(agent, result, ctx)) return { paused: true }
   } catch (err) {
     await failTurn(ctx, err)
@@ -1818,10 +1888,19 @@ export async function rehydratePausedRun(
   conversationId: string,
   modelRef: string,
   userText: string,
+  command: CommandRef | null,
   sink: RunSink,
   signal: AbortSignal
 ): Promise<boolean> {
-  const { agent, ctx } = buildAgentAndContext(conversationId, modelRef, userText, sink, signal)
+  const built = buildAgentAndContext(conversationId, modelRef, userText, command, sink, signal)
+  // A refusal marker during rehydrate returns false (not resumable): it
+  // cannot happen for a turn that already ran unless the workflow file
+  // changed on disk since (design 5.3/11, review finding) -- degrading to
+  // the existing not-resumable path (caller falls back to 'cancelled') is the
+  // honest response, since the paused turn's original prompt can no longer
+  // be faithfully rebuilt.
+  if ('refusal' in built) return false
+  const { agent, ctx } = built
   const { interrupts, messages } = await findPendingInterrupts(agent, conversationId)
   // No interrupt -> a mid-stream crash with no safe resume point. An interrupt
   // of an unknown kind -> nothing this path knows how to re-surface; one bad

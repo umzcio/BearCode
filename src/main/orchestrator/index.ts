@@ -1,5 +1,11 @@
 import { randomUUID } from 'crypto'
-import type { ConversationMeta, Event, PlanReviewResolveResult } from '../../shared/types'
+import {
+  COMMAND_NAME_PATTERN,
+  type CommandRef,
+  type ConversationMeta,
+  type Event,
+  type PlanReviewResolveResult
+} from '../../shared/types'
 import type { RunSink } from '../sink'
 import {
   appendEvent,
@@ -53,7 +59,8 @@ export async function startRunOrchestrator(
   conversationId: string,
   userText: string,
   modelRef: string,
-  sink: RunSink
+  sink: RunSink,
+  command: CommandRef | null = null
 ): Promise<void> {
   // Persist the model on the conversation row (mirrors the legacy engine's
   // run.ts). Beyond restoring the picker on reopen, crash-resume (A2) needs it:
@@ -68,7 +75,8 @@ export async function startRunOrchestrator(
       userText,
       modelRef,
       sink,
-      signal: controller.signal
+      signal: controller.signal,
+      command
     })
     // Paused at a command-approval interrupt (risk 4): the run isn't done,
     // it's parked in graph.ts's pendingApprovals until
@@ -155,6 +163,41 @@ export function assertValidPlanReviewResolution(proceed: unknown, message: unkno
   }
 }
 
+// The only sendable built-ins (D2 Task 3, design 6.2): `resume` is a pure UI
+// action that never reaches run:start and the remaining four built-ins are
+// coming-soon menu entries only. Mirrors BUILTIN_COMMANDS' status field
+// (commands.ts) without importing it, so this boundary check never needs a
+// live AgentsContent to run.
+const SENDABLE_BUILTINS = new Set(['goal', 'grill-me'])
+
+// Wire-boundary guard for bearcode:run:start's optional `command` argument
+// (src/main/ipc.ts). Same posture as assertValidPlanReviewResolution above:
+// IPC arguments cross a JS-only bridge with no runtime type enforcement, so a
+// stale preload build or a compromised renderer could send anything. A
+// workflow name is a REGISTRY LOOKUP (commands.ts resolveWorkflowSteps), never
+// a path, so this only needs to bound the shape and grammar before the value
+// ever reaches that lookup -- no traversal surface (the activate_rule
+// posture, Global Constraints SECURITY). Throws on anything invalid; ipcMain
+// .handle turns that into a rejected promise for the renderer, before any DB
+// or model work happens.
+export function assertValidCommand(command: unknown): CommandRef | null {
+  if (command === null || command === undefined) return null
+  if (typeof command !== 'object') {
+    throw new Error('run:start: command must be an object or null')
+  }
+  const { kind, name } = command as { kind?: unknown; name?: unknown }
+  if (kind !== 'builtin' && kind !== 'workflow') {
+    throw new Error('run:start: command.kind must be "builtin" or "workflow"')
+  }
+  if (typeof name !== 'string' || !COMMAND_NAME_PATTERN.test(name)) {
+    throw new Error('run:start: command.name must be a kebab-case command name')
+  }
+  if (kind === 'builtin' && !SENDABLE_BUILTINS.has(name)) {
+    throw new Error(`run:start: /${name} cannot be sent as a command`)
+  }
+  return { name, kind }
+}
+
 // Resolves ONE plan-review card (bearcode:artifacts:resolve-plan-review).
 // Same scan idiom as resolveApprovalOrchestrator above: the IPC payload
 // carries only a callId, so `aborts` holds every conversation with a live or
@@ -215,16 +258,22 @@ export function selectDanglingConversations(
   return metas.filter((m) => zombieSet.has(m.id) && !activeIds.has(m.id))
 }
 
-// The most recent user_message text for a conversation, used to seed the
-// rehydrated DriveContext (title generation on eventual completion). Empty
-// string if none -- an established conversation is usually already titled.
-function lastUserText(conversationId: string): string {
+// The most recent user_message (text + command) for a conversation, used to
+// seed the rehydrated DriveContext (title generation on eventual completion)
+// and, for `command`, to rebuild the same command prompt additions a paused
+// `/workflow` or `/goal` turn started with (D2 Task 3 crash-resume
+// threading) -- otherwise the resumed prompt would silently lose them. A
+// pre-D2 event has no `command` field, so `?? null` threads unchanged
+// behavior for every conversation that predates this feature. Empty text/
+// null command if there is no user_message at all -- an established
+// conversation is usually already titled.
+function lastUserMessage(conversationId: string): { text: string; command: CommandRef | null } {
   const events = getEvents(conversationId)
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i]
-    if (e.type === 'user_message') return e.text
+    if (e.type === 'user_message') return { text: e.text, command: e.command ?? null }
   }
-  return ''
+  return { text: '', command: null }
 }
 
 export async function resumeInterruptedRuns(sink: RunSink): Promise<void> {
@@ -243,10 +292,12 @@ export async function resumeInterruptedRuns(sink: RunSink): Promise<void> {
       const controller = new AbortController()
       aborts.set(meta.id, controller)
       try {
+        const lastUser = lastUserMessage(meta.id)
         resumed = await rehydratePausedRun(
           meta.id,
           meta.modelRef,
-          lastUserText(meta.id),
+          lastUser.text,
+          lastUser.command,
           sink,
           controller.signal
         )

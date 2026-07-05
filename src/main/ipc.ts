@@ -4,6 +4,7 @@ import type {
   AddRuleInput,
   AppSettings,
   ArtifactComment,
+  CommandEntry,
   ConversationMeta,
   Event,
   ExecutionMode,
@@ -18,7 +19,10 @@ import { setSettings, settingsInfo } from './settings'
 import { listAllModels } from './providers/registry'
 import { filePathFor, getDiff, revertFile } from './diffs'
 import * as db from './db'
+import { loadAgentsContent } from './agentsDir'
+import { listCommands } from './orchestrator/commands'
 import {
+  assertValidCommand,
   assertValidPlanReviewResolution,
   cancelRunOrchestrator,
   clearRunsOrchestrator,
@@ -74,13 +78,18 @@ export function registerIpc(): void {
       conversationId: string,
       userText: string,
       modelRef: string,
-      _projectPath: string | null
+      _projectPath: string | null,
+      rawCommand?: unknown
     ) => {
       // projectPath is already persisted on the conversation row (set at
       // creation); the orchestrator reads it back from getConversationMeta, so
-      // nothing to stash here. Fire and forget: progress flows back over
-      // bearcode:event.
-      void startRunOrchestrator(conversationId, userText, modelRef, sink)
+      // nothing to stash here. assertValidCommand throws on anything looser
+      // than a well-formed CommandRef (or null/undefined), which ipcMain
+      // .handle turns into a rejected promise for the renderer -- BEFORE any
+      // DB or model work happens (the assertValidPlanReviewResolution
+      // posture). Fire and forget: progress flows back over bearcode:event.
+      const command = assertValidCommand(rawCommand)
+      void startRunOrchestrator(conversationId, userText, modelRef, sink, command)
     }
   )
 
@@ -89,6 +98,13 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('bearcode:models:list', () => listAllModels())
+
+  // The slash menu's live read model (design 6.1/3.1), re-fetched on menu
+  // open: loadAgentsContent is the same mtime-cached loader the turn-time
+  // rule/command assembly uses, so this stays cheap on repeated opens.
+  ipcMain.handle('bearcode:commands:list', (_e, projectPath: string | null): CommandEntry[] =>
+    listCommands(loadAgentsContent(projectPath))
+  )
 
   ipcMain.handle('bearcode:diffs:get', (_e, diffId: string) => getDiff(diffId))
   ipcMain.handle('bearcode:diffs:revert', (_e, fileId: string) => revertFile(fileId))

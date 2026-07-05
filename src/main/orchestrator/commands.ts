@@ -11,7 +11,7 @@
 // NOTHING about gating; this module imports nothing from
 // src/main/permissions/.
 import type { Workflow, AgentsContent } from '../agentsDir/types'
-import type { CommandEntry } from '../../shared/types'
+import { COMMAND_NAME_PATTERN, type CommandEntry } from '../../shared/types'
 
 // Fixed menu order, section 6.2 copy verbatim (no em dashes). `resume` is a
 // pure UI action (Task 4/5: opens the conversation picker, never reaches the
@@ -114,8 +114,10 @@ const WORKFLOW_CHAR_CAP = 12_000
 // A step line is a workflow reference (design 5.3: "as a line or list item")
 // only when its TRIMMED text is exactly `/other-name` -- nothing else on the
 // line, so prose that merely mentions a slash command is never mistaken for
-// a reference.
-const STEP_REF = /^\/([a-z0-9][a-z0-9-]{0,63})$/
+// a reference. Derived from the shared COMMAND_NAME_PATTERN (not a hand-
+// rolled duplicate) so the name grammar can never drift between this and the
+// parse-time/wire-time checks.
+const STEP_REF = new RegExp(`^/(${COMMAND_NAME_PATTERN.source.slice(1, -1)})$`)
 
 export type WorkflowResolution = { ok: true; steps: string[] } | { ok: false; error: string }
 

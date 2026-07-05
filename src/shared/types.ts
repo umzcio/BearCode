@@ -161,7 +161,16 @@ export type PlanReviewResolveResult = 'resolved' | 'needs-substance' | 'stale'
 export type RunState = 'running' | 'awaiting-approval' | 'done' | 'error' | 'cancelled'
 
 export type Event =
-  | { type: 'user_message'; id: string; text: string; createdAt?: number }
+  | {
+      type: 'user_message'
+      id: string
+      text: string
+      createdAt?: number
+      // The slash command this turn was sent with, if any (D2 design 3.3/9).
+      // Optional and additive: events persisted before D2 have no `command`
+      // field and render exactly as before.
+      command?: CommandRef
+    }
   | { type: 'thinking'; id: string; text: string; durationMs: number; agentId?: string }
   | {
       type: 'tool_call'
@@ -326,12 +335,23 @@ export interface BearcodeApi {
       conversationId: string,
       userText: string,
       modelRef: ModelRef,
-      projectPath: string | null
+      projectPath: string | null,
+      // The chosen slash command, if any (D2 design 3.3). Main boundary-
+      // validates this before a run starts (ipc.ts): only `goal`/`grill-me`
+      // builtins and a `workflow`-kind name matching COMMAND_NAME_PATTERN
+      // cross the wire; anything else rejects the promise.
+      command?: CommandRef | null
     ): Promise<void>
     cancel(conversationId: string): Promise<void>
   }
   models: {
     list(): Promise<ProviderModels[]>
+  }
+  commands: {
+    // The slash menu's live read model (design 6.1), re-fetched on menu open:
+    // built-ins first, then the project + global workflows for this project
+    // (or global-only when projectPath is null).
+    list(projectPath: string | null): Promise<CommandEntry[]>
   }
   diffs: {
     get(diffId: string): Promise<FileDiff>
