@@ -231,6 +231,9 @@ export interface ConversationMeta {
   updatedAt: number
   permissionMode: PermissionMode
   executionMode: ExecutionMode
+  // Pinned Manual rules (.agents rule names). Always [] until the D3 @ menu
+  // ships a way to pin them; persisted per conversation in active_rules.
+  activeRules: string[]
 }
 
 // ---- Diffs ----

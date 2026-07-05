@@ -52,7 +52,8 @@ const convoMeta: ConversationMeta = {
   createdAt: 1,
   updatedAt: 1,
   permissionMode: 'accept-edits',
-  executionMode: 'planning'
+  executionMode: 'planning',
+  activeRules: []
 }
 
 const convo = (over: Partial<Convo> = {}): Convo => ({

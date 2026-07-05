@@ -105,6 +105,15 @@ function getDb(): Database.Database {
   } catch {
     // column already exists
   }
+  // Additive column for the conversation's pinned Manual rules (D1 Task 5,
+  // design 3.2): a JSON string[] of .agents rule names. Same
+  // idempotent-guarded ALTER idiom as execution_mode above. NULL/malformed
+  // reads resolve to [] in toMeta.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN active_rules TEXT`)
+  } catch {
+    // column already exists
+  }
   zombieRunIds = cancelZombieRuns(db)
   return db
 }
@@ -162,6 +171,18 @@ interface ConversationRow {
   updated_at: number
   permission_mode: string | null
   execution_mode: string | null
+  active_rules: string | null
+}
+
+// A malformed active_rules value (hand-edited DB, partial write) must never
+// break conversation reads: parse failures resolve to [].
+function parseActiveRules(raw: string | null): string[] {
+  try {
+    const parsed = JSON.parse(raw ?? '[]') as unknown
+    return Array.isArray(parsed) ? parsed.filter((n): n is string => typeof n === 'string') : []
+  } catch {
+    return []
+  }
 }
 
 function toMeta(row: ConversationRow, fallbackTitle?: string | null): ConversationMeta {
@@ -173,7 +194,8 @@ function toMeta(row: ConversationRow, fallbackTitle?: string | null): Conversati
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     permissionMode: (row.permission_mode as PermissionMode) ?? getSettings().defaultPermissionMode,
-    executionMode: (row.execution_mode as ExecutionMode) ?? getSettings().defaultExecutionMode
+    executionMode: (row.execution_mode as ExecutionMode) ?? getSettings().defaultExecutionMode,
+    activeRules: parseActiveRules(row.active_rules)
   }
 }
 
@@ -187,7 +209,8 @@ export function createConversation(projectPath: string | null): ConversationMeta
     created_at: now,
     updated_at: now,
     permission_mode: null,
-    execution_mode: null
+    execution_mode: null,
+    active_rules: null
   }
   getDb()
     .prepare(
@@ -370,6 +393,15 @@ export function setExecutionMode(conversationId: string, mode: ExecutionMode): v
   getDb()
     .prepare(`UPDATE conversations SET execution_mode = ?, updated_at = ? WHERE id = ?`)
     .run(mode, Date.now(), conversationId)
+}
+
+// Persist the conversation's pinned Manual rules (D1 Task 5). Same dumb
+// column-update shape as setExecutionMode above; the value is a JSON string[]
+// of rule names, read back through toMeta's guarded parse.
+export function setActiveRules(conversationId: string, names: string[]): void {
+  getDb()
+    .prepare(`UPDATE conversations SET active_rules = ?, updated_at = ? WHERE id = ?`)
+    .run(JSON.stringify(names), Date.now(), conversationId)
 }
 
 // The lock signal (design 3.2 DOCUMENTED CHOICE): a conversation's first turn
