@@ -79,10 +79,14 @@ export function toggleDisabledBuiltin(
 // AppSettings pattern), so the choice survives restart and is visible in the
 // manager. Always writes a NEW array (toggleDisabledBuiltin never mutates), so
 // the DEFAULTS array in settings.ts is never aliased-and-mutated.
+//
+// Throws on an unknown builtin id rather than warning-and-returning: this is
+// the function the IPC handler calls directly, so a throw here surfaces to
+// the renderer as a rejected promise (Task 1 review) instead of a silent
+// no-op the caller has no way to observe.
 export function setBuiltinDisabled(id: string, disabled: boolean): void {
   if (!BUILTIN_RULES.some((r) => r.id === id)) {
-    console.warn(`[bearcode] permissions: setBuiltinDisabled ignoring unknown builtin id "${id}"`)
-    return
+    throw new Error(`setBuiltinDisabled: unknown builtin id "${id}"`)
   }
   setSettings({
     disabledBuiltins: toggleDisabledBuiltin(getSettings().disabledBuiltins, id, disabled)

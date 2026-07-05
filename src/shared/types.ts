@@ -242,6 +242,9 @@ export interface BearcodeApi {
   }
   permissions: {
     addRule(rule: AddRuleInput): Promise<void>
+    list(): Promise<PermissionRulesInfo>
+    deleteRule(id: string): Promise<void>
+    setBuiltinDisabled(id: string, disabled: boolean): Promise<void>
   }
   workspace: {
     pick(): Promise<string | null>
