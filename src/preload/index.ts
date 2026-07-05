@@ -80,8 +80,8 @@ const bearcode: BearcodeApi = {
   conversations: {
     list: () => ipcRenderer.invoke('bearcode:conversations:list'),
     get: (id: string) => ipcRenderer.invoke('bearcode:conversations:get', id),
-    create: (projectPath: string | null) =>
-      ipcRenderer.invoke('bearcode:conversations:create', projectPath),
+    create: (projectPath: string | null, id?: string) =>
+      ipcRenderer.invoke('bearcode:conversations:create', projectPath, id),
     delete: (id: string) => ipcRenderer.invoke('bearcode:conversations:delete', id),
     clear: () => ipcRenderer.invoke('bearcode:conversations:clear'),
     setMode: (id: string, mode: PermissionMode): Promise<void> =>

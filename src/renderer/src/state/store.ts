@@ -119,6 +119,14 @@ interface AppState {
   // D3 @ menu read models, fetched on menu interaction (mirrors commands).
   fileSuggestions: string[]
   manualRules: ManualRuleInfo[]
+  // D4 Media on Home: a new conversation has no id until startFromHome's first
+  // send (conversations.create happens then), but Media needs a conversation
+  // id to key the attachments directory at PICK time. This is a client-minted
+  // placeholder id (crypto.randomUUID()) lazily set by ensureDraftConvoId the
+  // first time Home's Media is used, then handed to conversations.create as
+  // the id to create so already-picked attachments line up with the real
+  // conversation. Cleared on goHome / after a successful startFromHome.
+  draftConvoId: string | null
 
   init(): void
   refreshProviders(): Promise<void>
@@ -172,6 +180,7 @@ interface AppState {
   suggestFiles(query: string): void
   refreshManualRules(): void
   pickAttachments(existingCount: number): Promise<{ picked: PickedAttachmentWire[]; errors: string[] }>
+  ensureDraftConvoId(): string
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -280,6 +289,7 @@ export const useAppStore = create<AppState>((set, get) => {
     resumePickerOpen: false,
     fileSuggestions: [],
     manualRules: [],
+    draftConvoId: null,
 
     init: () => {
       if (initialized) return
@@ -352,7 +362,11 @@ export const useAppStore = create<AppState>((set, get) => {
         view: { kind: 'home' },
         permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
         auxSelection: null,
-        reviewFocusPath: null
+        reviewFocusPath: null,
+        // Abandoning Home drops any attachments already picked under the draft
+        // id (a minor on-disk orphan, acceptable for v1 -- see D4 design note);
+        // the next Home visit mints a fresh draft id on first Media use.
+        draftConvoId: null
       })),
     openScheduled: () =>
       set({ view: { kind: 'scheduled' }, auxSelection: null, reviewFocusPath: null }),
@@ -400,10 +414,16 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     startFromHome: (text, command, mentions, attachments) => {
-      const { modelRef, workspacePath } = get()
+      const { modelRef, workspacePath, draftConvoId } = get()
       if (!modelRef) return
       void (async () => {
-        const meta = await window.bearcode.conversations.create(workspacePath)
+        // If Media was used on Home first, attachments are already on disk
+        // under draftConvoId -- create the conversation AS that id so they
+        // line up, instead of minting a second, unrelated id.
+        const meta = await window.bearcode.conversations.create(
+          workspacePath,
+          draftConvoId ?? undefined
+        )
         const provisional = text.length > 42 ? text.slice(0, 42) + '…' : text
         const convo = {
           ...fromMeta(meta),
@@ -416,7 +436,8 @@ export const useAppStore = create<AppState>((set, get) => {
           return {
             conversations,
             convoOrder: orderByRecency(conversations),
-            view: { kind: 'conversation', id: meta.id }
+            view: { kind: 'conversation', id: meta.id },
+            draftConvoId: null
           }
         })
         // Persist the mode before the run starts so the very first run_command
@@ -708,12 +729,26 @@ export const useAppStore = create<AppState>((set, get) => {
     setResumePickerOpen: (open) => set({ resumePickerOpen: open }),
 
     // D4 Media: opens the native image picker for the active conversation and
-    // returns the ingested results. The active conversation id comes from the
-    // current view; Home has none, so its composer disables Media (Task 5).
+    // returns the ingested results. An open conversation uses its real id;
+    // Home (no conversation yet) uses the lazily-minted draft id so Media
+    // works before the first send, the primary use case (see ensureDraftConvoId).
     pickAttachments: async (existingCount) => {
       const { view } = get()
-      if (view.kind !== 'conversation') return { picked: [], errors: [] }
-      return window.bearcode.attachments.pick(view.id, existingCount)
+      const conversationId = view.kind === 'conversation' ? view.id : get().ensureDraftConvoId()
+      return window.bearcode.attachments.pick(conversationId, existingCount)
+    },
+
+    // Lazily mints (once) and returns a client-side placeholder conversation
+    // id for Home's Media picker, entirely sync -- no server round trip -- so
+    // the very first Media click on a brand-new conversation has an id to key
+    // the attachments directory by. startFromHome later creates the real
+    // conversation AS this id (see above) so the two line up.
+    ensureDraftConvoId: () => {
+      const existing = get().draftConvoId
+      if (existing) return existing
+      const id = crypto.randomUUID()
+      set({ draftConvoId: id })
+      return id
     }
   }
 })

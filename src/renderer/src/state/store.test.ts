@@ -51,6 +51,11 @@ const conversations = {
 }
 const run = { start: vi.fn(() => Promise.resolve()), cancel: vi.fn(() => Promise.resolve()) }
 
+const attachments = {
+  pick: vi.fn(() => Promise.resolve({ picked: [], errors: [] })),
+  read: vi.fn(() => Promise.resolve(''))
+}
+
 const commandEntries: CommandEntry[] = [
   { name: 'goal', description: 'Run until the goal is done.', kind: 'builtin', status: 'live' },
   {
@@ -106,7 +111,8 @@ beforeEach(() => {
       run,
       commands,
       artifacts,
-      mentions
+      mentions,
+      attachments
     } as unknown as BearcodeApi
   })
   useAppStore.setState({
@@ -114,7 +120,8 @@ beforeEach(() => {
     commands: [],
     resumePickerOpen: false,
     fileSuggestions: [],
-    manualRules: []
+    manualRules: [],
+    draftConvoId: null
   })
 })
 
@@ -352,6 +359,65 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
     expect(useAppStore.getState().resumePickerOpen).toBe(true)
     useAppStore.getState().setResumePickerOpen(false)
     expect(useAppStore.getState().resumePickerOpen).toBe(false)
+  })
+})
+
+describe('D4 Media on Home: draft conversation id (fixes greyed-out Media before the first send)', () => {
+  it('pickAttachments on Home mints a draft id (once) and picks under it', async () => {
+    useAppStore.setState({ view: { kind: 'home' }, draftConvoId: null })
+    const first = await useAppStore.getState().pickAttachments(0)
+    expect(first).toEqual({ picked: [], errors: [] })
+    const mintedId = useAppStore.getState().draftConvoId
+    expect(mintedId).toBeTruthy()
+    expect(attachments.pick).toHaveBeenCalledWith(mintedId, 0)
+
+    // A second pick on the still-unsent Home composer reuses the SAME id
+    // rather than minting a new one each time.
+    await useAppStore.getState().pickAttachments(1)
+    expect(useAppStore.getState().draftConvoId).toBe(mintedId)
+    expect(attachments.pick).toHaveBeenLastCalledWith(mintedId, 1)
+  })
+
+  it('pickAttachments in an open conversation uses its real id, not a draft', async () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo() },
+      draftConvoId: null
+    })
+    await useAppStore.getState().pickAttachments(0)
+    expect(attachments.pick).toHaveBeenCalledWith('c1', 0)
+    expect(useAppStore.getState().draftConvoId).toBeNull()
+  })
+
+  it('startFromHome passes the draft id to conversations.create and clears it', async () => {
+    useAppStore.setState({
+      view: { kind: 'home' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      workspacePath: null
+    })
+    const draftId = useAppStore.getState().ensureDraftConvoId()
+    useAppStore.getState().startFromHome('hello')
+    await vi.waitFor(() => expect(run.start).toHaveBeenCalled())
+    expect(conversations.create).toHaveBeenCalledWith(null, draftId)
+    expect(useAppStore.getState().draftConvoId).toBeNull()
+  })
+
+  it('startFromHome with no prior draft id creates without a supplied id', async () => {
+    useAppStore.setState({
+      view: { kind: 'home' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      workspacePath: null,
+      draftConvoId: null
+    })
+    useAppStore.getState().startFromHome('hello')
+    await vi.waitFor(() => expect(run.start).toHaveBeenCalled())
+    expect(conversations.create).toHaveBeenCalledWith(null, undefined)
+  })
+
+  it('goHome clears any pending draft id', () => {
+    useAppStore.setState({ draftConvoId: 'some-draft-id' })
+    useAppStore.getState().goHome()
+    expect(useAppStore.getState().draftConvoId).toBeNull()
   })
 })
 

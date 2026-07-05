@@ -55,10 +55,10 @@ describe('Add Context menu', () => {
     expect(pickAttachments).toHaveBeenCalledWith(0)
   })
 
-  it('Media is disabled with no conversationId', () => {
+  it('Media is enabled with no conversationId (Home, before the first send)', () => {
     render(<Composer onSend={vi.fn()} />)
     fireEvent.click(screen.getByTitle('Add context'))
     fireEvent.click(screen.getByText('Media'))
-    expect(pickAttachments).not.toHaveBeenCalled()
+    expect(pickAttachments).toHaveBeenCalledWith(0)
   })
 })

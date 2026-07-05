@@ -21,7 +21,10 @@ export const MAX_ATTACHMENTS_PER_MESSAGE = 5
 // BEFORE any mkdir/write/read -- otherwise it is an equally unguarded
 // traversal primitive ('..', '/', '\' segments) as an unchecked id would be.
 const CONVERSATION_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
-function assertValidConversationId(conversationId: string): void {
+// Exported for reuse where a renderer-supplied conversation id crosses another
+// IPC boundary before ever touching the filesystem (e.g. conversations:create,
+// which accepts an optional client-minted draft id -- src/main/ipc.ts).
+export function assertValidConversationId(conversationId: string): void {
   if (typeof conversationId !== 'string' || !CONVERSATION_ID_PATTERN.test(conversationId)) {
     throw new Error('attachments: conversationId must match /^[A-Za-z0-9_-]{1,64}$/')
   }

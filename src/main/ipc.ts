@@ -22,7 +22,11 @@ import * as db from './db'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
 import { suggestFiles, manualRuleInfos } from './orchestrator/mentionSuggest'
-import { ingestPickedFiles, readAttachmentDataUrl } from './attachments/ingest'
+import {
+  assertValidConversationId,
+  ingestPickedFiles,
+  readAttachmentDataUrl
+} from './attachments/ingest'
 import {
   assertValidAttachments,
   assertValidCommand,
@@ -213,9 +217,16 @@ export function registerIpc(): void {
 
   ipcMain.handle('bearcode:conversations:list', () => db.listConversations())
   ipcMain.handle('bearcode:conversations:get', (_e, id: string) => db.getEvents(id))
-  ipcMain.handle('bearcode:conversations:create', (_e, projectPath: string | null) =>
-    db.createConversation(projectPath)
-  )
+  // D4 draft-id flow: Home's composer mints a client-side id (crypto.randomUUID(),
+  // which satisfies this grammar) so Media attachments picked before the first
+  // send land under the SAME id the conversation is created with. SECURITY: id
+  // is renderer-supplied and becomes the conversations.id primary key (and, via
+  // the attachments dir, a filesystem path segment) -- validated against the
+  // same grammar attachments:pick enforces BEFORE it ever reaches the DB.
+  ipcMain.handle('bearcode:conversations:create', (_e, projectPath: string | null, id?: string) => {
+    if (id !== undefined) assertValidConversationId(id)
+    return db.createConversation(projectPath, id)
+  })
   ipcMain.handle('bearcode:conversations:delete', (_e, id: string) => {
     forgetRunOrchestrator(id)
     void pruneCheckpoints(id)

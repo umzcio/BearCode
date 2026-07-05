@@ -455,7 +455,7 @@ export interface BearcodeApi {
   conversations: {
     list(): Promise<ConversationMeta[]>
     get(id: string): Promise<Event[]>
-    create(projectPath: string | null): Promise<ConversationMeta>
+    create(projectPath: string | null, id?: string): Promise<ConversationMeta>
     delete(id: string): Promise<void>
     clear(): Promise<void>
     setMode(id: string, mode: PermissionMode): Promise<void>

@@ -195,10 +195,10 @@ function toMeta(row: ConversationRow, fallbackTitle?: string | null): Conversati
   }
 }
 
-export function createConversation(projectPath: string | null): ConversationMeta {
+export function createConversation(projectPath: string | null, id?: string): ConversationMeta {
   const now = Date.now()
   const row: ConversationRow = {
-    id: randomUUID(),
+    id: id ?? randomUUID(),
     project_path: projectPath ?? '',
     title: null,
     model_ref: null,

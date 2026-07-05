@@ -54,8 +54,7 @@ export function Composer({
   running = false,
   onStop,
   showEnvRow = false,
-  autoFocus = false,
-  conversationId
+  autoFocus = false
 }: ComposerProps): React.JSX.Element {
   const providers = useAppStore((s) => s.providers)
   const modelRef = useAppStore((s) => s.modelRef)
@@ -226,12 +225,14 @@ export function Composer({
   }
 
   // + "Add Context" (design 8). Media ingests images for the active
-  // conversation; Mentions opens the @ menu; Actions opens the / menu; Browser
-  // is coming soon. The @/ menus already key off the textarea contents
-  // (mentionQuery / value[0] === '/'), so those two just seed + focus.
+  // conversation -- OR, on Home (no conversationId yet), under a lazily-minted
+  // draft conversation id that startFromHome later creates the conversation
+  // as (store.ts ensureDraftConvoId), so Media works before the first send.
+  // Mentions opens the @ menu; Actions opens the / menu; Browser is coming
+  // soon. The @/ menus already key off the textarea contents (mentionQuery /
+  // value[0] === '/'), so those two just seed + focus.
   const onMedia = async (): Promise<void> => {
     setAddMenuOpen(false)
-    if (!conversationId) return
     const { picked, errors } = await pickAttachments(attachments.length)
     if (picked.length > 0) setAttachments((cur) => [...cur, ...picked])
     if (errors.length > 0) showToast(errors[0])
@@ -443,11 +444,7 @@ export function Composer({
           </button>
           {addMenuOpen ? (
             <div className="menu add-context-menu">
-              <div
-                className={`menu-item${conversationId ? '' : ' disabled'}`}
-                title={conversationId ? 'Attach images' : 'Open a conversation to attach images'}
-                onClick={conversationId ? () => void onMedia() : undefined}
-              >
+              <div className="menu-item" title="Attach images" onClick={() => void onMedia()}>
                 <IconImage size={16} />
                 <span>Media</span>
               </div>
