@@ -93,6 +93,12 @@ interface AppState {
   // Tick: the pane focuses its feedback box when this increments (the pending
   // card's "Send feedback" action).
   artifactPaneFocusFeedback: number
+  // Tick: incremented on EVERY openArtifactPane call so a deep-link (card
+  // action, pending-card hotkey) re-selects its target even when
+  // reviewArtifactId's VALUE is unchanged -- the pane's mount key does not
+  // change in that case, so the already-mounted pane needs an explicit signal
+  // to override local rail browsing.
+  artifactPaneOpenTick: number
   toast: string | null
 
   init(): void
@@ -234,6 +240,7 @@ export const useAppStore = create<AppState>((set, get) => {
     reviewArtifactId: null,
     artifactComments: {},
     artifactPaneFocusFeedback: 0,
+    artifactPaneOpenTick: 0,
     toast: null,
 
     init: () => {
@@ -523,6 +530,7 @@ export const useAppStore = create<AppState>((set, get) => {
         reviewArtifactId: artifactId,
         reviewDiffId: null,
         reviewFocusPath: null,
+        artifactPaneOpenTick: s.artifactPaneOpenTick + 1,
         artifactPaneFocusFeedback: focusFeedback
           ? s.artifactPaneFocusFeedback + 1
           : s.artifactPaneFocusFeedback

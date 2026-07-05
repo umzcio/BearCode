@@ -26,6 +26,15 @@ function pendingPlanCallFor(events: Event[], artifactId: string): ToolCallEvent 
   )
 }
 
+// The feedback-focus tick consumed so far. Module scope (not a ref) so it
+// survives the pane's unmount/remount cycle: a "Send feedback" press that
+// MOUNTS the pane must still focus the box (a ref initialized at mount would
+// swallow its own tick), while a stale tick from an earlier pane session must
+// not refocus on every remount. Exactly one pane mounts at a time
+// (ReviewPanel's single side-panel slot), so a module singleton is safe.
+// Starts at the store's initial tick value.
+let consumedFocusTick = 0
+
 // The artifacts pane (Ba1 read-only rail/viewer; Ba2 adds comments and the
 // Proceed/Review loop). Lists the current conversation's plan/walkthrough
 // artifacts newest first and renders the selected one through the sanitized
@@ -40,6 +49,7 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
   const closeReview = useAppStore((s) => s.closeReview)
   const artifactComments = useAppStore((s) => s.artifactComments)
   const artifactPaneFocusFeedback = useAppStore((s) => s.artifactPaneFocusFeedback)
+  const artifactPaneOpenTick = useAppStore((s) => s.artifactPaneOpenTick)
   const loadArtifactComments = useAppStore((s) => s.loadArtifactComments)
   const addArtifactComment = useAppStore((s) => s.addArtifactComment)
   const resolvePlanReview = useAppStore((s) => s.resolvePlanReview)
@@ -49,7 +59,6 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
   const [feedbackText, setFeedbackText] = useState('')
   const feedbackRef = useRef<HTMLTextAreaElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
-  const seenFocusTick = useRef(artifactPaneFocusFeedback)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -63,6 +72,20 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
     return () => window.removeEventListener('keydown', onKey)
   }, [closeReview])
 
+  // Deep-links (card "Open in pane"/"Send feedback", pending-card hotkeys)
+  // always select the store's target, even when the pane is already mounted
+  // on the same reviewArtifactId (same value -- the mount key does not change,
+  // so local rail browsing would otherwise silently win). Every non-null
+  // reviewArtifactId write goes through openArtifactPane, which bumps this
+  // tick, so syncing on the tick covers value changes too. Render-time state
+  // adjustment per react.dev "you might not need an effect"; rail browsing
+  // keeps working since it only mutates local state afterward.
+  const [seenOpenTick, setSeenOpenTick] = useState(artifactPaneOpenTick)
+  if (seenOpenTick !== artifactPaneOpenTick) {
+    setSeenOpenTick(artifactPaneOpenTick)
+    setSelectedId(artifactId)
+  }
+
   const convo = view.kind === 'conversation' ? conversations[view.id] : null
   const artifacts = convo
     ? convo.events.filter((e): e is ArtifactEvent => e.type === 'artifact')
@@ -75,6 +98,17 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
       ? pendingPlanCallFor(convo.events, selected.artifactId)
       : undefined
 
+  // Drop any in-progress draft when the selected artifact changes: its quote
+  // was captured from the previous artifact's body and must not be
+  // submittable against this one. Render-time adjustment, same pattern as the
+  // deep-link sync above.
+  const [draftArtifactId, setDraftArtifactId] = useState(selected?.artifactId)
+  if (draftArtifactId !== selected?.artifactId) {
+    setDraftArtifactId(selected?.artifactId)
+    setDraftQuote(null)
+    setDraftBody('')
+  }
+
   // Reload comments whenever the selected artifact changes.
   useEffect(() => {
     if (selected?.artifactId) void loadArtifactComments(selected.artifactId)
@@ -82,14 +116,17 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
   }, [selected?.artifactId])
 
   // Focus + scroll the feedback textarea when the pending card's "Send
-  // feedback" action ticks this counter. Skips the mount value so opening the
-  // pane normally never steals focus.
+  // feedback" action ticks this counter. Consumes the tick only once the pane
+  // is showing the deep-link's target artifact: the selection sync above can
+  // land a render later, and focusing before it would hit the previous
+  // artifact's textarea (or nothing).
   useEffect(() => {
-    if (artifactPaneFocusFeedback === seenFocusTick.current) return
-    seenFocusTick.current = artifactPaneFocusFeedback
+    if (artifactPaneFocusFeedback === consumedFocusTick) return
+    if (selected?.artifactId !== artifactId) return
+    consumedFocusTick = artifactPaneFocusFeedback
     feedbackRef.current?.focus()
     feedbackRef.current?.scrollIntoView({ block: 'center' })
-  }, [artifactPaneFocusFeedback])
+  }, [artifactPaneFocusFeedback, selected?.artifactId, artifactId])
 
   if (!convo) return null
 
@@ -108,9 +145,20 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
     }
   }
 
+  // Drafting is gated on pendingCall end to end: starting (onBodyMouseUp),
+  // rendering the composer (below), and submitting here. Once the review
+  // resolves from ANY path (these buttons, the card hotkey, another window),
+  // the re-emitted tool_call event clears pendingCall and the composer both
+  // hides and refuses to submit -- a resolved plan's comment set is final, so
+  // no orphaned never-deliverable draft can be added after the fact.
   const submitDraft = (): void => {
-    if (!selected || draftBody.trim() === '') return
+    if (!pendingCall || !selected || draftBody.trim() === '') return
     void addArtifactComment(selected.artifactId, draftQuote, draftBody.trim())
+    setDraftQuote(null)
+    setDraftBody('')
+  }
+
+  const clearDraft = (): void => {
     setDraftQuote(null)
     setDraftBody('')
   }
@@ -118,7 +166,12 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
   const proceed = (): void => {
     if (!pendingCall || !selected) return
     void resolvePlanReview(pendingCall.id, true).then((ok) => {
-      if (ok) void loadArtifactComments(selected.artifactId)
+      if (ok) {
+        // The review is resolved: drop any half-typed draft immediately rather
+        // than waiting for the re-emitted event to hide the composer.
+        clearDraft()
+        void loadArtifactComments(selected.artifactId)
+      }
     })
   }
 
@@ -126,6 +179,7 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
     if (!pendingCall || !selected) return
     void resolvePlanReview(pendingCall.id, false, feedbackText.trim() || undefined).then((ok) => {
       if (ok) {
+        clearDraft()
         setFeedbackText('')
         void loadArtifactComments(selected.artifactId)
       }
@@ -193,7 +247,7 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
                 onChange={(e) => setFeedbackText(e.target.value)}
               />
             ) : null}
-            {draftQuote !== null ? (
+            {pendingCall && draftQuote !== null ? (
               <div className="comment-composer">
                 <blockquote className="plan-comment-quote">{draftQuote}</blockquote>
                 <textarea
@@ -210,13 +264,7 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
                   >
                     Add comment
                   </button>
-                  <button
-                    className="plan-request-review"
-                    onClick={() => {
-                      setDraftQuote(null)
-                      setDraftBody('')
-                    }}
-                  >
+                  <button className="plan-request-review" onClick={clearDraft}>
                     Cancel
                   </button>
                 </div>
