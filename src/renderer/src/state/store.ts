@@ -508,7 +508,7 @@ export const useAppStore = create<AppState>((set, get) => {
       const id = view.kind === 'conversation' ? view.id : null
       if (id) {
         patchConvo(id, { permissionMode: mode })
-        void window.bearcode.conversations.setMode(id, mode)
+        void window.bearcode.conversations.setMode(id, mode).catch(() => {})
       }
     },
 
