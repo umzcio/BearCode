@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { BearcodeApi, ConversationMeta, PermissionRulesInfo } from '@shared/types'
+import type { BearcodeApi, ConversationMeta, Event, PermissionRulesInfo } from '@shared/types'
 import { useAppStore, type Convo } from './store'
 
 const info: PermissionRulesInfo = {
@@ -39,7 +39,8 @@ const conversations = {
   create: vi.fn(() => Promise.resolve(convoMeta)),
   setMode: vi.fn(() => Promise.resolve()),
   setExecutionMode: vi.fn(() => Promise.resolve()),
-  get: vi.fn(() => Promise.resolve([]))
+  get: vi.fn(() => Promise.resolve([])),
+  clear: vi.fn(() => Promise.resolve())
 }
 const run = { start: vi.fn(() => Promise.resolve()), cancel: vi.fn(() => Promise.resolve()) }
 
@@ -312,5 +313,69 @@ describe('execution mode (Ba3): pick, mirror-lock, persist-before-run', () => {
     expect(useAppStore.getState().executionMode).toBe('fast')
     useAppStore.getState().goHome()
     expect(useAppStore.getState().executionMode).toBe('planning')
+  })
+})
+
+describe('auxiliary pane selection (Ba4): one field, deep-link ticks, reset on switch', () => {
+  const diffEvent = {
+    type: 'file_diff',
+    id: 'ev-d1',
+    diffId: 'd1',
+    files: [{ path: 'src/a.ts', additions: 3, deletions: 1, status: 'modified' }]
+  } as Event
+
+  it('openArtifactPane selects the artifact, clears focusPath, bumps the open tick', () => {
+    useAppStore.setState({ auxSelection: null, auxPaneOpenTick: 0, reviewFocusPath: 'stale' })
+    useAppStore.getState().openArtifactPane('a1')
+    expect(useAppStore.getState().auxSelection).toEqual({ kind: 'artifact', artifactId: 'a1' })
+    expect(useAppStore.getState().auxPaneOpenTick).toBe(1)
+    expect(useAppStore.getState().reviewFocusPath).toBeNull()
+  })
+  it('openReview selects the diff (structurally closing any artifact) and bumps the tick', () => {
+    useAppStore.setState({
+      auxSelection: { kind: 'artifact', artifactId: 'a1' },
+      auxPaneOpenTick: 0
+    })
+    useAppStore.getState().openReview('d1')
+    expect(useAppStore.getState().auxSelection).toEqual({ kind: 'diff', diffId: 'd1' })
+    expect(useAppStore.getState().auxPaneOpenTick).toBe(1)
+  })
+  it('openReviewForFile finds the newest diff containing the file and focuses it', () => {
+    useAppStore.setState({
+      conversations: { c1: convo({ events: [diffEvent] }) },
+      auxSelection: null,
+      auxPaneOpenTick: 0
+    })
+    useAppStore.getState().openReviewForFile('c1', 'src/a.ts')
+    expect(useAppStore.getState().auxSelection).toEqual({ kind: 'diff', diffId: 'd1' })
+    expect(useAppStore.getState().reviewFocusPath).toBe('src/a.ts')
+    expect(useAppStore.getState().auxPaneOpenTick).toBe(1)
+  })
+  it('switching to a DIFFERENT conversation closes the pane; re-opening the same one keeps it', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo(), c2: convo({ id: 'c2' }) },
+      auxSelection: { kind: 'diff', diffId: 'd1' },
+      reviewFocusPath: 'src/a.ts'
+    })
+    useAppStore.getState().openConvo('c1') // same target: pane survives
+    expect(useAppStore.getState().auxSelection).toEqual({ kind: 'diff', diffId: 'd1' })
+    useAppStore.getState().openConvo('c2') // real switch: pane closes
+    expect(useAppStore.getState().auxSelection).toBeNull()
+    expect(useAppStore.getState().reviewFocusPath).toBeNull()
+  })
+  it('goHome and closeReview both clear the selection', () => {
+    useAppStore.setState({ auxSelection: { kind: 'artifact', artifactId: 'a1' } })
+    useAppStore.getState().goHome()
+    expect(useAppStore.getState().auxSelection).toBeNull()
+    useAppStore.setState({ auxSelection: { kind: 'diff', diffId: 'd1' }, reviewFocusPath: 'x' })
+    useAppStore.getState().closeReview()
+    expect(useAppStore.getState().auxSelection).toBeNull()
+    expect(useAppStore.getState().reviewFocusPath).toBeNull()
+  })
+  it('deleteAllConversations closes the pane with everything else', async () => {
+    useAppStore.setState({ auxSelection: { kind: 'diff', diffId: 'd1' } })
+    await useAppStore.getState().deleteAllConversations()
+    expect(useAppStore.getState().auxSelection).toBeNull()
   })
 })

@@ -35,6 +35,14 @@ export interface Convo {
 
 export type View = { kind: 'home' } | { kind: 'conversation'; id: string } | { kind: 'scheduled' }
 
+// The Auxiliary Pane's target (Ba4 unification). ONE field for the ONE side
+// panel: an artifact (plan/walkthrough viewer) or a diff group (the virtual
+// "Changes" entry over the existing diffs table, design 3.4). Mutual
+// exclusion is structural -- the old reviewDiffId/reviewArtifactId pair kept
+// it by hand across three actions.
+export type AuxSelection =
+  { kind: 'artifact'; artifactId: string } | { kind: 'diff'; diffId: string }
+
 // "Worked for Ns" per agent turn, keyed by the turn's user_message event id.
 // The working phase ends when prose starts streaming.
 export const workedSecondsByTurn = new Map<string, number>()
@@ -87,23 +95,20 @@ interface AppState {
   permissionRules: PermissionRulesInfo | null
   workspacePath: string | null
   settingsOpen: boolean
-  reviewDiffId: string | null
-  // File path the review pane should focus when it opens (chip/step clicks).
+  auxSelection: AuxSelection | null
+  // File path the diff viewer should focus when it opens (chip/step clicks).
   reviewFocusPath: string | null
-  // Artifact the artifacts pane is showing; mutually exclusive with
-  // reviewDiffId (one side panel mount, Ba4 unifies them).
-  reviewArtifactId: string | null
   // Drafted/sent comments per artifact id, loaded lazily by the pane.
   artifactComments: Record<string, ArtifactComment[]>
   // Tick: the pane focuses its feedback box when this increments (the pending
   // card's "Send feedback" action).
   artifactPaneFocusFeedback: number
-  // Tick: incremented on EVERY openArtifactPane call so a deep-link (card
-  // action, pending-card hotkey) re-selects its target even when
-  // reviewArtifactId's VALUE is unchanged -- the pane's mount key does not
-  // change in that case, so the already-mounted pane needs an explicit signal
-  // to override local rail browsing.
-  artifactPaneOpenTick: number
+  // Tick: incremented on EVERY deep-link open (openReview, openReviewForFile,
+  // openArtifactPane) so the pane re-selects its target even when the VALUE
+  // is unchanged -- the unified pane does not remount per selection (rail
+  // browsing is pane-local state), so an already-open pane needs an explicit
+  // signal to override local browsing.
+  auxPaneOpenTick: number
   toast: string | null
 
   init(): void
@@ -242,12 +247,11 @@ export const useAppStore = create<AppState>((set, get) => {
     permissionRules: null,
     workspacePath: null,
     settingsOpen: false,
-    reviewDiffId: null,
+    auxSelection: null,
     reviewFocusPath: null,
-    reviewArtifactId: null,
     artifactComments: {},
     artifactPaneFocusFeedback: 0,
-    artifactPaneOpenTick: 0,
+    auxPaneOpenTick: 0,
     toast: null,
 
     init: () => {
@@ -317,15 +321,30 @@ export const useAppStore = create<AppState>((set, get) => {
       // New conversations start in the configured default (design section 3).
       // Reset the composer mode on the home transition so a mode carried over
       // from a just-viewed conversation cannot leak into the next new
-      // conversation. An explicit pick on the home composer afterward still wins.
+      // conversation. An explicit pick on the home composer afterward still
+      // wins, and close the pane -- its contents belong to the conversation
+      // being left.
       set((s) => ({
         view: { kind: 'home' },
         permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
-        executionMode: s.settings?.defaultExecutionMode ?? 'planning'
+        executionMode: s.settings?.defaultExecutionMode ?? 'planning',
+        auxSelection: null,
+        reviewFocusPath: null
       })),
-    openScheduled: () => set({ view: { kind: 'scheduled' } }),
+    openScheduled: () =>
+      set({ view: { kind: 'scheduled' }, auxSelection: null, reviewFocusPath: null }),
     openConvo: (id) => {
-      set({ view: { kind: 'conversation', id } })
+      const prev = get().view
+      // Ba4: the pane renders the CURRENT conversation's entries and
+      // diffs.get is a global lookup, so any actual view-target change closes
+      // it -- a stale cross-conversation selection could show another
+      // conversation's diff. Re-clicking the already-open conversation keeps
+      // the pane.
+      const switching = !(prev.kind === 'conversation' && prev.id === id)
+      set({
+        view: { kind: 'conversation', id },
+        ...(switching ? { auxSelection: null, reviewFocusPath: null } : {})
+      })
       const convo = get().conversations[id]
       if (!convo) return
       // Restore the model the conversation last used.
@@ -412,7 +431,9 @@ export const useAppStore = create<AppState>((set, get) => {
             executionMode:
               view.kind === 'home'
                 ? (s.settings?.defaultExecutionMode ?? 'planning')
-                : s.executionMode
+                : s.executionMode,
+            auxSelection: view.kind === 'home' ? null : s.auxSelection,
+            reviewFocusPath: view.kind === 'home' ? null : s.reviewFocusPath
           }
         })
         get().showToast('Conversation deleted')
@@ -569,13 +590,19 @@ export const useAppStore = create<AppState>((set, get) => {
         convoOrder: [],
         view: { kind: 'home' },
         permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
-        executionMode: s.settings?.defaultExecutionMode ?? 'planning'
+        executionMode: s.settings?.defaultExecutionMode ?? 'planning',
+        auxSelection: null,
+        reviewFocusPath: null
       }))
       get().showToast('All conversations deleted')
     },
 
     openReview: (diffId) =>
-      set({ reviewDiffId: diffId, reviewFocusPath: null, reviewArtifactId: null }),
+      set((s) => ({
+        auxSelection: { kind: 'diff', diffId },
+        reviewFocusPath: null,
+        auxPaneOpenTick: s.auxPaneOpenTick + 1
+      })),
     openReviewForFile: (convoId, path) => {
       const convo = get().conversations[convoId]
       if (!convo) return
@@ -587,17 +614,20 @@ export const useAppStore = create<AppState>((set, get) => {
           (f) => f.path === path || f.path.endsWith('/' + name) || f.path === name
         )
         if (match) {
-          set({ reviewDiffId: ev.diffId, reviewFocusPath: match.path, reviewArtifactId: null })
+          set((s) => ({
+            auxSelection: { kind: 'diff', diffId: ev.diffId },
+            reviewFocusPath: match.path,
+            auxPaneOpenTick: s.auxPaneOpenTick + 1
+          }))
           return
         }
       }
     },
     openArtifactPane: (artifactId, focusFeedback) =>
       set((s) => ({
-        reviewArtifactId: artifactId,
-        reviewDiffId: null,
+        auxSelection: { kind: 'artifact', artifactId },
         reviewFocusPath: null,
-        artifactPaneOpenTick: s.artifactPaneOpenTick + 1,
+        auxPaneOpenTick: s.auxPaneOpenTick + 1,
         artifactPaneFocusFeedback: focusFeedback
           ? s.artifactPaneFocusFeedback + 1
           : s.artifactPaneFocusFeedback
@@ -628,7 +658,7 @@ export const useAppStore = create<AppState>((set, get) => {
       return result === 'resolved'
     },
 
-    closeReview: () => set({ reviewDiffId: null, reviewFocusPath: null, reviewArtifactId: null }),
+    closeReview: () => set({ auxSelection: null, reviewFocusPath: null }),
 
     showToast: (message) => {
       if (toastTimer) clearTimeout(toastTimer)

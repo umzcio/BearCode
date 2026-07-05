@@ -49,7 +49,7 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
   const closeReview = useAppStore((s) => s.closeReview)
   const artifactComments = useAppStore((s) => s.artifactComments)
   const artifactPaneFocusFeedback = useAppStore((s) => s.artifactPaneFocusFeedback)
-  const artifactPaneOpenTick = useAppStore((s) => s.artifactPaneOpenTick)
+  const auxPaneOpenTick = useAppStore((s) => s.auxPaneOpenTick)
   const loadArtifactComments = useAppStore((s) => s.loadArtifactComments)
   const addArtifactComment = useAppStore((s) => s.addArtifactComment)
   const resolvePlanReview = useAppStore((s) => s.resolvePlanReview)
@@ -80,9 +80,9 @@ export function ArtifactPane({ artifactId }: { artifactId: string }): React.JSX.
   // tick, so syncing on the tick covers value changes too. Render-time state
   // adjustment per react.dev "you might not need an effect"; rail browsing
   // keeps working since it only mutates local state afterward.
-  const [seenOpenTick, setSeenOpenTick] = useState(artifactPaneOpenTick)
-  if (seenOpenTick !== artifactPaneOpenTick) {
-    setSeenOpenTick(artifactPaneOpenTick)
+  const [seenOpenTick, setSeenOpenTick] = useState(auxPaneOpenTick)
+  if (seenOpenTick !== auxPaneOpenTick) {
+    setSeenOpenTick(auxPaneOpenTick)
     setSelectedId(artifactId)
   }
 

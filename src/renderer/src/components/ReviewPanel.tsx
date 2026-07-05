@@ -59,14 +59,12 @@ interface ReviewComment {
 }
 
 export function ReviewPanel(): React.JSX.Element | null {
-  const diffId = useAppStore((s) => s.reviewDiffId)
-  const artifactId = useAppStore((s) => s.reviewArtifactId)
-  // One side-panel mount, two exclusive occupants until Ba4 unifies them:
-  // the artifacts pane (Ba1, read-only) or the diff review pane.
-  if (artifactId) return <ArtifactPane key={artifactId} artifactId={artifactId} />
-  if (!diffId) return null
-  // Keyed on diffId so per-diff state starts fresh each time it opens.
-  return <ReviewPanelInner key={diffId} diffId={diffId} />
+  const sel = useAppStore((s) => s.auxSelection)
+  // One side-panel mount, two exclusive occupants until Task 4 unifies them.
+  if (sel?.kind === 'artifact')
+    return <ArtifactPane key={sel.artifactId} artifactId={sel.artifactId} />
+  if (sel?.kind === 'diff') return <ReviewPanelInner key={sel.diffId} diffId={sel.diffId} />
+  return null
 }
 
 function ReviewPanelInner({ diffId }: { diffId: string }): React.JSX.Element {
