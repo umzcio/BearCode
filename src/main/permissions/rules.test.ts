@@ -152,3 +152,15 @@ describe('evaluateEdit', () => {
     expect(evaluateEdit('.ENV', [rule('deny', '.env')])).toBe('block')
   })
 })
+
+describe('edit builtins', () => {
+  it('deny .git and .env writes at any depth, via evaluateEdit over BUILTIN_RULES', () => {
+    expect(evaluateEdit('.git/config', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('.env', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('.env.local', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('packages/api/.env', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('packages/api/.env.production', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('src/env.ts', BUILTIN_RULES)).toBe('apply')
+    expect(evaluateEdit('.envrc', BUILTIN_RULES)).toBe('apply')
+  })
+})
