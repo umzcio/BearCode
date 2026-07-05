@@ -449,6 +449,48 @@ export function deleteRule(id: string): void {
   getDb().prepare(`DELETE FROM permission_rules WHERE id = ?`).run(id)
 }
 
+// One row of the touched-files query below: the two shapes a tool_call's
+// input carries a path under (write_file/edit_file use file_path, read_file
+// uses path). Exported pure so contextAssembly.test.ts can pin the
+// dedupe/null-filter logic on hand-built rows without opening a database --
+// same rationale as toRule above.
+export interface TouchedFileRow {
+  file_path: string | null
+  path: string | null
+}
+
+export function touchedFilesFromRows(rows: TouchedFileRow[]): string[] {
+  const seen = new Set<string>()
+  const files: string[] = []
+  for (const row of rows) {
+    for (const value of [row.file_path, row.path]) {
+      if (value != null && !seen.has(value)) {
+        seen.add(value)
+        files.push(value)
+      }
+    }
+  }
+  return files
+}
+
+// Distinct file paths a conversation's persisted write_file/edit_file/
+// read_file tool calls have touched (design 3.2's glob-activation input).
+// json_extract reaches into the tool_call event's JSON payload directly so
+// this stays a single query with no per-row JSON.parse.
+export function touchedFilesFor(conversationId: string): string[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT json_extract(payload, '$.input.file_path') as file_path,
+              json_extract(payload, '$.input.path') as path
+       FROM events
+       WHERE conversation_id = ?
+         AND type = 'tool_call'
+         AND json_extract(payload, '$.tool') IN ('write_file', 'edit_file', 'read_file')`
+    )
+    .all(conversationId) as TouchedFileRow[]
+  return touchedFilesFromRows(rows)
+}
+
 export interface ArtifactRow {
   id: string
   conversation_id: string
