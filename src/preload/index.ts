@@ -4,6 +4,7 @@ import type {
   AppSettings,
   ArtifactComment,
   BearcodeApi,
+  CommandRef,
   ConversationMeta,
   Event,
   ExecutionMode,
@@ -19,12 +20,28 @@ import type {
 const bearcode: BearcodeApi = {
   ping: () => ipcRenderer.invoke('bearcode:ping'),
   run: {
-    start: (conversationId: string, userText: string, modelRef: ModelRef, projectPath) =>
-      ipcRenderer.invoke('bearcode:run:start', conversationId, userText, modelRef, projectPath),
+    start: (
+      conversationId: string,
+      userText: string,
+      modelRef: ModelRef,
+      projectPath,
+      command?: CommandRef | null
+    ) =>
+      ipcRenderer.invoke(
+        'bearcode:run:start',
+        conversationId,
+        userText,
+        modelRef,
+        projectPath,
+        command ?? null
+      ),
     cancel: (conversationId: string) => ipcRenderer.invoke('bearcode:run:cancel', conversationId)
   },
   models: {
     list: () => ipcRenderer.invoke('bearcode:models:list')
+  },
+  commands: {
+    list: (projectPath: string | null) => ipcRenderer.invoke('bearcode:commands:list', projectPath)
   },
   diffs: {
     get: (diffId: string) => ipcRenderer.invoke('bearcode:diffs:get', diffId),

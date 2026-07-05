@@ -17,7 +17,7 @@ vi.mock('../artifacts/store', () => ({
   approvePlanArtifact: vi.fn()
 }))
 vi.mock('../agentsDir', () => ({
-  loadAgentsContent: vi.fn(() => ({ rules: [] }))
+  loadAgentsContent: vi.fn(() => ({ rules: [], workflows: [] }))
 }))
 // Spread-importOriginal: only `interrupt` is stubbed, everything else
 // @langchain/langgraph exports (Command, etc.) stays live for this file.
@@ -83,7 +83,7 @@ beforeEach(() => {
   vi.mocked(approvePlanArtifact).mockReset()
   vi.mocked(appendOrReplaceEvent).mockClear()
   vi.mocked(interrupt).mockReset()
-  vi.mocked(loadAgentsContent).mockReturnValue({ rules: [] })
+  vi.mocked(loadAgentsContent).mockReturnValue({ rules: [], workflows: [] })
 })
 
 describe('denied-replay pins (execution-layer deny enforcement)', () => {
@@ -601,14 +601,15 @@ describe('activate_rule (D1 model-decision rules, read-only by construction)', (
     allTools(sink).find((t) => t.name === 'activate_rule')!
 
   it('returns the body for a model rule, prefixed with the rule name', async () => {
-    vi.mocked(loadAgentsContent).mockReturnValue({ rules: [rule()] })
+    vi.mocked(loadAgentsContent).mockReturnValue({ rules: [rule()], workflows: [] })
     const out = await activateRuleOf(makeSink()).invoke({ name: 'deploy' })
     expect(out).toBe('Rule deploy:\nDeploy via carrier pigeon.')
   })
 
   it('an unknown name lists the available model-rule candidates', async () => {
     vi.mocked(loadAgentsContent).mockReturnValue({
-      rules: [rule({ name: 'deploy' }), rule({ name: 'style' })]
+      rules: [rule({ name: 'deploy' }), rule({ name: 'style' })],
+      workflows: []
     })
     const out = await activateRuleOf(makeSink()).invoke({ name: 'nope' })
     expect(out).toBe('Unknown rule: nope. Available rules: deploy, style')
@@ -619,7 +620,8 @@ describe('activate_rule (D1 model-decision rules, read-only by construction)', (
       rules: [
         rule({ name: 'manual-one', activation: 'manual' }),
         rule({ name: 'always-one', activation: 'always' })
-      ]
+      ],
+      workflows: []
     })
     const out = await activateRuleOf(makeSink()).invoke({ name: 'manual-one' })
     expect(out).toBe('Unknown rule: manual-one. Available rules: ')
@@ -627,20 +629,24 @@ describe('activate_rule (D1 model-decision rules, read-only by construction)', (
 
   it('an errored rule is not activatable', async () => {
     vi.mocked(loadAgentsContent).mockReturnValue({
-      rules: [rule({ error: 'missing description' })]
+      rules: [rule({ error: 'missing description' })],
+      workflows: []
     })
     const out = await activateRuleOf(makeSink()).invoke({ name: 'deploy' })
     expect(out).toBe('Unknown rule: deploy. Available rules: ')
   })
 
   it('matches case-foldedly when no exact match exists', async () => {
-    vi.mocked(loadAgentsContent).mockReturnValue({ rules: [rule({ name: 'Deploy' })] })
+    vi.mocked(loadAgentsContent).mockReturnValue({
+      rules: [rule({ name: 'Deploy' })],
+      workflows: []
+    })
     const out = await activateRuleOf(makeSink()).invoke({ name: 'deploy' })
     expect(out).toBe('Rule Deploy:\nDeploy via carrier pigeon.')
   })
 
   it('SECURITY: never consults the permission engine and never interrupts', async () => {
-    vi.mocked(loadAgentsContent).mockReturnValue({ rules: [rule()] })
+    vi.mocked(loadAgentsContent).mockReturnValue({ rules: [rule()], workflows: [] })
     await activateRuleOf(makeSink()).invoke({ name: 'deploy' })
     expect(evaluateCommandForConversation).not.toHaveBeenCalled()
     expect(interrupt).not.toHaveBeenCalled()

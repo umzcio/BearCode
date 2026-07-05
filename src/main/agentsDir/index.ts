@@ -1,14 +1,18 @@
-// Disk reader + cache for the .agents/ rules spine (design 3.1). Reads
-// project `.agents/rules/*.md` and global `~/.bearcode/agents/rules/*.md`,
-// merges them (project wins on filename collision), and resolves `@path`
-// cross-references inside each rule body. Pure Node builtins only, no new
-// deps. Malformed or missing content never throws (design 11 / Global
-// Constraints): callers always get back an AgentsContent, at worst empty.
+// Disk reader + cache for the .agents/ spine (design 3.1). Reads project
+// `.agents/rules/*.md` + `.agents/workflows/*.md` and global
+// `~/.bearcode/agents/rules/*.md` + `~/.bearcode/agents/workflows/*.md`,
+// merges each pair (project wins on filename collision), and resolves
+// `@path` cross-references inside each RULE body only (design 3.1: workflow
+// bodies get no cross-ref resolution, a `@x` token there stays literal).
+// Pure Node builtins only, no new deps. Malformed or missing content never
+// throws (design 11 / Global Constraints): callers always get back an
+// AgentsContent, at worst empty.
 import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { isAbsolute, join, resolve, sep } from 'path'
 import { parseRuleFile } from './parseRule'
-import type { AgentsContent, Rule } from './types'
+import { parseWorkflowFile } from './parseWorkflow'
+import type { AgentsContent, Rule, Workflow } from './types'
 
 const MAX_REF_BYTES = 64 * 1024
 // Rule files themselves get the same cap as cross-refs: a rule is prompt
@@ -16,6 +20,8 @@ const MAX_REF_BYTES = 64 * 1024
 // through readFileCapped means an arbitrarily large .agents/rules/*.md can
 // never be materialized in memory either (security review item 3).
 const MAX_RULE_BYTES = MAX_REF_BYTES
+// Workflow files are prompt text too; same cap and same rationale.
+const MAX_WORKFLOW_BYTES = MAX_REF_BYTES
 
 // Bounded, stat-gated file read (security review item 1). Two guarantees:
 // 1. Regular files ONLY: stats.isFile() is checked BEFORE any open. This is
@@ -78,6 +84,15 @@ interface CacheEntry {
 // against a stale, different project's workspace.
 const cache = new Map<string, CacheEntry>()
 
+// Cache of the parsed Workflow, keyed the same way as the rule cache (path +
+// projectPath) for consistency, even though workflow parsing itself never
+// depends on projectPath (no cross-ref resolution, design 3.1).
+interface WorkflowCacheEntry {
+  mtimeMs: number
+  workflow: Workflow
+}
+const workflowCache = new Map<string, WorkflowCacheEntry>()
+
 function cacheKey(path: string, projectPath: string | null): string {
   return `${projectPath ?? ''}::${path}`
 }
@@ -86,7 +101,13 @@ function globalRulesDir(): string {
   return join(homedir(), '.bearcode', 'agents', 'rules')
 }
 
-function listRuleFiles(dir: string): string[] {
+function globalWorkflowsDir(): string {
+  return join(homedir(), '.bearcode', 'agents', 'workflows')
+}
+
+// Generalized lister (Task 1: was listRuleFiles, now shared by rules and
+// workflows -- both are flat directories of *.md files).
+function listMdFiles(dir: string): string[] {
   if (!existsSync(dir)) return []
   try {
     return readdirSync(dir)
@@ -99,7 +120,7 @@ function listRuleFiles(dir: string): string[] {
   }
 }
 
-function ruleNameFromPath(path: string): string {
+function mdNameFromPath(path: string): string {
   const base = path.slice(path.lastIndexOf(sep) + 1)
   return base.endsWith('.md') ? base.slice(0, -3) : base
 }
@@ -155,31 +176,101 @@ function loadOneRule(
   return rule
 }
 
-// Read `<projectPath>/.agents/rules/*.md` (project) and
-// `~/.bearcode/agents/rules/*.md` (global), merge them (project wins on a
-// filename collision), and return the live rule set. Missing directories are
-// treated as empty, never an error.
+// Load + cache one workflow file. Mirrors loadOneRule minus cross-reference
+// resolution (design 3.1: workflow bodies are never ref-resolved). Returns
+// null if the file can no longer be read (race: deleted between readdir and
+// stat/read) -- the caller simply drops it from the result set. Malformed or
+// misnamed files (parseWorkflowFile sets `error`) are kept with the raw body
+// so the slash menu can still show a greyed entry.
+function loadOneWorkflow(
+  path: string,
+  name: string,
+  source: 'project' | 'global',
+  projectPath: string | null
+): Workflow | null {
+  let mtimeMs: number
+  try {
+    mtimeMs = statSync(path).mtimeMs
+  } catch {
+    return null
+  }
+
+  const key = cacheKey(path, projectPath)
+  const cached = workflowCache.get(key)
+  if (cached && cached.mtimeMs === mtimeMs) {
+    return cached.workflow
+  }
+
+  // Bounded primary read: a workflow file that is a non-regular file (would
+  // block or never end) is dropped like an unreadable one, and an oversized
+  // one is truncated at the cap with a warning instead of being read whole.
+  const read = readFileCapped(path, MAX_WORKFLOW_BYTES)
+  if (!read) return null
+  const fileWarnings: string[] = read.truncated
+    ? [`Workflow file exceeds ${MAX_WORKFLOW_BYTES / 1024}KB and was truncated`]
+    : []
+
+  const parsed = parseWorkflowFile(name, read.text, source)
+  const workflow: Workflow =
+    fileWarnings.length > 0
+      ? { ...parsed, warnings: [...(parsed.warnings ?? []), ...fileWarnings] }
+      : parsed
+
+  workflowCache.set(key, { mtimeMs, workflow })
+  return workflow
+}
+
+// Read `<projectPath>/.agents/rules/*.md` + `.agents/workflows/*.md`
+// (project) and `~/.bearcode/agents/rules/*.md` +
+// `~/.bearcode/agents/workflows/*.md` (global), merge each pair (project
+// wins on a filename collision within its own kind -- a rule and a workflow
+// may share a name without conflict, they are separate registries here;
+// Task 2's command registry is where cross-kind collisions with built-ins
+// are handled), and return the live content. Missing directories are treated
+// as empty, never an error.
 export function loadAgentsContent(projectPath: string | null): AgentsContent {
-  const projectDir = projectPath ? join(projectPath, '.agents', 'rules') : null
-  const projectFiles = projectDir ? listRuleFiles(projectDir) : []
-  const globalFiles = listRuleFiles(globalRulesDir())
+  const projectRulesDir = projectPath ? join(projectPath, '.agents', 'rules') : null
+  const projectRuleFiles = projectRulesDir ? listMdFiles(projectRulesDir) : []
+  const globalRuleFiles = listMdFiles(globalRulesDir())
 
-  const byName = new Map<string, Rule>()
+  const rulesByName = new Map<string, Rule>()
 
-  for (const path of globalFiles) {
-    const name = ruleNameFromPath(path)
+  for (const path of globalRuleFiles) {
+    const name = mdNameFromPath(path)
     const rule = loadOneRule(path, name, 'global', projectPath)
-    if (rule) byName.set(name, rule)
+    if (rule) rulesByName.set(name, rule)
   }
   // Project rules load second and overwrite same-named global entries, so
   // project always wins on collision.
-  for (const path of projectFiles) {
-    const name = ruleNameFromPath(path)
+  for (const path of projectRuleFiles) {
+    const name = mdNameFromPath(path)
     const rule = loadOneRule(path, name, 'project', projectPath)
-    if (rule) byName.set(name, rule)
+    if (rule) rulesByName.set(name, rule)
   }
 
-  return { rules: Array.from(byName.values()) }
+  const projectWorkflowsDir = projectPath ? join(projectPath, '.agents', 'workflows') : null
+  const projectWorkflowFiles = projectWorkflowsDir ? listMdFiles(projectWorkflowsDir) : []
+  const globalWorkflowFiles = listMdFiles(globalWorkflowsDir())
+
+  const workflowsByName = new Map<string, Workflow>()
+
+  for (const path of globalWorkflowFiles) {
+    const name = mdNameFromPath(path)
+    const workflow = loadOneWorkflow(path, name, 'global', projectPath)
+    if (workflow) workflowsByName.set(name, workflow)
+  }
+  // Project workflows load second and overwrite same-named global entries,
+  // so project always wins on collision.
+  for (const path of projectWorkflowFiles) {
+    const name = mdNameFromPath(path)
+    const workflow = loadOneWorkflow(path, name, 'project', projectPath)
+    if (workflow) workflowsByName.set(name, workflow)
+  }
+
+  return {
+    rules: Array.from(rulesByName.values()),
+    workflows: Array.from(workflowsByName.values())
+  }
 }
 
 // Resolve `@<path>` cross-reference tokens in a rule body (design 2 / 3.1).
