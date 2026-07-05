@@ -107,9 +107,26 @@ describe('GatedDiffFsBackend', () => {
       kind: 'edit_file',
       tool: 'write_file',
       path: 'a/b.txt',
+      resolvedPath: 'a/b.txt',
       toolCallId: 'tc1'
     })
     expect(shared.write).toHaveBeenCalledWith('a/b.txt', 'new')
+  })
+
+  it('carries the RESOLVED relative path in the payload so the approval card is truthful', async () => {
+    // A traversal-laden or aliased raw path must not be able to mislead the
+    // user: 'path' stays the raw string (Task 4's fallback pairing matches it
+    // against the tool call args) while 'resolvedPath' is what the UI shows.
+    vi.mocked(evaluateEditForConversation).mockReturnValue('prompt')
+    vi.mocked(interrupt).mockReturnValue({ approved: true })
+    await gated.write('a/../.env', 'SECRET=1')
+    expect(interrupt).toHaveBeenCalledWith({
+      kind: 'edit_file',
+      tool: 'write_file',
+      path: 'a/../.env',
+      resolvedPath: '.env',
+      toolCallId: 'tc1'
+    })
   })
 
   it('returns the denial {error} when the resume value is {approved: false}', async () => {
@@ -151,6 +168,7 @@ describe('GatedDiffFsBackend', () => {
       kind: 'edit_file',
       tool: 'edit_file',
       path: 'a/b.txt',
+      resolvedPath: 'a/b.txt',
       toolCallId: 'tc1'
     })
     expect(shared.edit).toHaveBeenCalledWith('a/b.txt', 'hello', 'goodbye', false)
@@ -177,6 +195,7 @@ describe('GatedDiffFsBackend', () => {
       kind: 'edit_file',
       tool: 'write_file',
       path: 'a/b.txt',
+      resolvedPath: 'a/b.txt',
       toolCallId: undefined
     })
   })

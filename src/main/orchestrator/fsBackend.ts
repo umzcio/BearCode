@@ -275,12 +275,18 @@ export class GatedDiffFsBackend implements BackendProtocolV2 {
     if (decision === 'prompt') {
       // Resume value is a truthy object, never a bare boolean -- same
       // EmptyInputError footgun documented on run_command (tools.ts). The
-      // payload contract ({kind, tool, path, toolCallId}) is what Task 4's
-      // pairing and the renderer's approval card consume.
+      // payload contract ({kind, tool, path, resolvedPath, toolCallId}) is
+      // what Task 4's pairing and the renderer's approval card consume:
+      // 'path' stays the RAW agent string (the fallback pairing matches it
+      // against the streamed tool-call args) while 'resolvedPath' is the
+      // jail-resolved workspace-relative path the UI must display -- a card
+      // showing 'safe/../.env' while the write lands on '.env' would mislead
+      // the user into approving.
       const approval = interrupt({
         kind: 'edit_file',
         tool,
         path: filePath,
+        resolvedPath: rel,
         toolCallId: this.toolCallId
       }) as { approved: boolean }
       if (!approval.approved) return { error: 'User denied this edit.' }
