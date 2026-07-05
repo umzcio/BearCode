@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 
@@ -26,9 +26,9 @@ vi.mock('@langchain/langgraph', async (importOriginal) => {
 })
 
 import { GraphInterrupt, interrupt, isGraphInterrupt } from '@langchain/langgraph'
+import { stageFile } from '../diffs'
 import { evaluateEditForConversation } from '../permissions'
-import type { DiffFsBackend } from './fsBackend'
-import { GatedDiffFsBackend, relForGate } from './fsBackend'
+import { DiffFsBackend, GatedDiffFsBackend, relForGate } from './fsBackend'
 import { clearDeniedReplayPins, pinDeniedReplays } from './tools'
 
 describe('relForGate', () => {
@@ -260,5 +260,105 @@ describe('GatedDiffFsBackend', () => {
     expect(shared.glob).toHaveBeenCalledWith('**/*.txt', 'a')
     // None of the read-side delegations consult the gate.
     expect(evaluateEditForConversation).not.toHaveBeenCalled()
+  })
+})
+
+// Regression pins for smoke finding F1 (.superpowers/sdd/task-5-report.md):
+// when the workspace was opened via a symlinked path (macOS classic:
+// /tmp/proj while /tmp -> /private/tmp) and the agent echoes back an
+// ABSOLUTE path through that symlink, jailPath must resolve it to the real
+// target and gate it by the TRUE workspace-relative path -- pre-fix it was
+// misread as root-RELATIVE, producing a nested phantom write target and a
+// relative path that silently dodged edit rules like 'guarded/**'.
+describe('jailPath with a symlinked workspace root (smoke F1)', () => {
+  let base: string
+  let workspace: string
+  let linkPath: string
+  let shared: ReturnType<typeof fakeShared>
+
+  beforeEach(() => {
+    clearDeniedReplayPins('convo')
+    vi.mocked(evaluateEditForConversation).mockClear()
+    vi.mocked(evaluateEditForConversation).mockReturnValue('apply')
+    vi.mocked(interrupt).mockClear()
+    vi.mocked(stageFile).mockClear()
+    // realpathSync'd base so the ONLY symlink in play is the one we create.
+    base = realpathSync(mkdtempSync(join(tmpdir(), 'bearcode-symlink-')))
+    workspace = join(base, 'proj')
+    mkdirSync(join(workspace, 'guarded'), { recursive: true })
+    linkPath = join(base, 'wslink')
+    symlinkSync(workspace, linkPath, 'dir')
+    shared = fakeShared()
+  })
+
+  it('gates an absolute path supplied THROUGH the symlink by the true relative path', async () => {
+    const gated = new GatedDiffFsBackend(
+      shared as unknown as DiffFsBackend,
+      'tc1',
+      'convo',
+      linkPath
+    )
+    await gated.write(join(linkPath, 'guarded', 'x.txt'), 'hi')
+    // Pre-fix the evaluator saw a nested phantom ('…/wslink/guarded/x.txt'
+    // relative shape), so a guarded/** ask rule never fired.
+    expect(evaluateEditForConversation).toHaveBeenCalledWith('guarded/x.txt', 'convo', linkPath)
+    expect(shared.write).toHaveBeenCalledWith(join(linkPath, 'guarded', 'x.txt'), 'hi')
+  })
+
+  it('stages the write at the REAL absolute target, not a nested phantom path', async () => {
+    const backend = new DiffFsBackend('convo', linkPath, 'dg1')
+    const result = await backend.write(join(linkPath, 'guarded', 'x.txt'), 'hi')
+    expect(result).toEqual({ path: join(linkPath, 'guarded', 'x.txt'), filesUpdate: null })
+    // Pre-fix this staged '<root>/<base>/wslink/guarded/x.txt' (wrong place).
+    expect(stageFile).toHaveBeenCalledWith(
+      'dg1',
+      'convo',
+      join(workspace, 'guarded', 'x.txt'),
+      '',
+      'hi'
+    )
+  })
+
+  it('an absolute path via the REAL root still gates and delegates as before', async () => {
+    const gated = new GatedDiffFsBackend(
+      shared as unknown as DiffFsBackend,
+      'tc1',
+      'convo',
+      workspace
+    )
+    await gated.write(join(workspace, 'guarded', 'x.txt'), 'hi')
+    expect(evaluateEditForConversation).toHaveBeenCalledWith('guarded/x.txt', 'convo', workspace)
+    expect(shared.write).toHaveBeenCalledWith(join(workspace, 'guarded', 'x.txt'), 'hi')
+  })
+
+  it('an escape attempt through a symlink inside the workspace still throws', async () => {
+    const outside = join(base, 'outside')
+    mkdirSync(outside)
+    symlinkSync(outside, join(workspace, 'out'), 'dir')
+    const gated = new GatedDiffFsBackend(
+      shared as unknown as DiffFsBackend,
+      'tc1',
+      'convo',
+      workspace
+    )
+    const result = await gated.write(join(workspace, 'out', 'secret.txt'), 'x')
+    expect(result).toEqual({ error: expect.stringContaining('outside the workspace') })
+    expect(evaluateEditForConversation).not.toHaveBeenCalled()
+    expect(shared.write).not.toHaveBeenCalled()
+  })
+
+  it('relative traversal behavior is unchanged under a symlinked root', async () => {
+    const gated = new GatedDiffFsBackend(
+      shared as unknown as DiffFsBackend,
+      'tc1',
+      'convo',
+      linkPath
+    )
+    const escaped = await gated.write('../escape.txt', 'x')
+    expect(escaped).toEqual({ error: expect.stringContaining('outside the workspace') })
+    expect(shared.write).not.toHaveBeenCalled()
+    const inside = await gated.write('guarded/../guarded/x.txt', 'hi')
+    expect(inside).toEqual({ path: 'x', filesUpdate: null })
+    expect(evaluateEditForConversation).toHaveBeenCalledWith('guarded/x.txt', 'convo', linkPath)
   })
 })
