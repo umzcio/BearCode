@@ -5,6 +5,7 @@ import type {
   ArtifactComment,
   ConversationMeta,
   Event,
+  ExecutionMode,
   ModelRef,
   PermissionMode,
   PermissionRulesInfo,
@@ -23,6 +24,7 @@ export interface Convo {
   title: string
   modelRef: ModelRef | null
   permissionMode: PermissionMode
+  executionMode: ExecutionMode
   updatedAt: number
   loaded: boolean
   events: Event[]
@@ -50,6 +52,7 @@ function fromMeta(meta: ConversationMeta): Convo {
     title: meta.title ?? 'New conversation',
     modelRef: meta.modelRef,
     permissionMode: meta.permissionMode,
+    executionMode: meta.executionMode,
     updatedAt: meta.updatedAt,
     loaded: false,
     events: [],
@@ -77,6 +80,7 @@ interface AppState {
   providers: ProviderModels[]
   modelRef: ModelRef | null
   permissionMode: PermissionMode
+  executionMode: ExecutionMode
   settings: SettingsInfo | null
   // Permissions manager read model; null until the Settings section first loads it.
   permissionRules: PermissionRulesInfo | null
@@ -120,6 +124,7 @@ interface AppState {
   retryRun(convoId: string): void
   selectModel(ref: ModelRef): void
   setPermissionMode(mode: PermissionMode): void
+  setExecutionMode(mode: ExecutionMode): void
   togglePermMenu(): void
   pickWorkspace(): Promise<void>
   setWorkspace(path: string | null): void
@@ -231,6 +236,7 @@ export const useAppStore = create<AppState>((set, get) => {
     providers: [],
     modelRef: null,
     permissionMode: 'accept-edits',
+    executionMode: 'planning',
     settings: null,
     permissionRules: null,
     workspacePath: null,
@@ -287,6 +293,9 @@ export const useAppStore = create<AppState>((set, get) => {
         if (settings.defaultPermissionMode && get().permissionMode === 'accept-edits') {
           set({ permissionMode: settings.defaultPermissionMode })
         }
+        if (settings.defaultExecutionMode && get().executionMode === 'planning') {
+          set({ executionMode: settings.defaultExecutionMode })
+        }
         const metas = await window.bearcode.conversations.list()
         const conversations: Record<string, Convo> = {}
         for (const meta of metas) conversations[meta.id] = fromMeta(meta)
@@ -310,7 +319,8 @@ export const useAppStore = create<AppState>((set, get) => {
       // conversation. An explicit pick on the home composer afterward still wins.
       set((s) => ({
         view: { kind: 'home' },
-        permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits'
+        permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
+        executionMode: s.settings?.defaultExecutionMode ?? 'planning'
       })),
     openScheduled: () => set({ view: { kind: 'scheduled' } }),
     openConvo: (id) => {
@@ -321,7 +331,7 @@ export const useAppStore = create<AppState>((set, get) => {
       if (convo.modelRef && refConfigured(get().providers, convo.modelRef)) {
         set({ modelRef: convo.modelRef })
       }
-      set({ permissionMode: convo.permissionMode })
+      set({ permissionMode: convo.permissionMode, executionMode: convo.executionMode })
       // Load history from the DB the first time a conversation is opened. A
       // live running conversation is already `loaded` (it was open when it
       // started), so guarding on `!loaded` avoids clobbering in-flight streamed
@@ -356,7 +366,8 @@ export const useAppStore = create<AppState>((set, get) => {
           ...fromMeta(meta),
           title: provisional,
           loaded: true,
-          permissionMode: get().permissionMode
+          permissionMode: get().permissionMode,
+          executionMode: get().executionMode
         }
         set((s) => {
           const conversations = { ...s.conversations, [meta.id]: convo }
@@ -370,6 +381,11 @@ export const useAppStore = create<AppState>((set, get) => {
         // resolves the right mode. Await rather than fire-and-forget: do not rely
         // on IPC ordering for a security-sensitive default.
         await window.bearcode.conversations.setMode(meta.id, get().permissionMode)
+        // Persist the execution mode BEFORE the first run: runGraph pins the
+        // column at turn start, so this write must land first for an explicit
+        // Home pick to beat the settings default. Awaited like setMode above,
+        // never fire-and-forget.
+        await window.bearcode.conversations.setExecutionMode(meta.id, get().executionMode)
         await window.bearcode.run.start(meta.id, text, modelRef, workspacePath)
       })()
     },
@@ -391,7 +407,11 @@ export const useAppStore = create<AppState>((set, get) => {
             permissionMode:
               view.kind === 'home'
                 ? (s.settings?.defaultPermissionMode ?? 'accept-edits')
-                : s.permissionMode
+                : s.permissionMode,
+            executionMode:
+              view.kind === 'home'
+                ? (s.settings?.defaultExecutionMode ?? 'planning')
+                : s.executionMode
           }
         })
         get().showToast('Conversation deleted')
@@ -470,6 +490,37 @@ export const useAppStore = create<AppState>((set, get) => {
         void window.bearcode.conversations.setMode(id, mode)
       }
     },
+
+    setExecutionMode: (mode) => {
+      const view = get().view
+      if (view.kind !== 'conversation') {
+        // Home composer: a local pick for the NEXT conversation, persisted by
+        // startFromHome before its first run.
+        set({ executionMode: mode })
+        return
+      }
+      const convo = get().conversations[view.id]
+      // THE LOCK, mirrored fail-closed (design 3.2): locked once any event
+      // exists, and an unloaded conversation (history unknown) counts as
+      // locked. Main enforces the same rule authoritatively -- the
+      // set-execution-mode channel throws once the first turn has run -- so
+      // this mirror exists to keep honest UI, not as the security boundary.
+      if (!convo || !convo.loaded || convo.events.length > 0) return
+      const prior = convo.executionMode
+      set({ executionMode: mode })
+      patchConvo(view.id, { executionMode: mode })
+      window.bearcode.conversations.setExecutionMode(view.id, mode).catch(() => {
+        // The race the mirror cannot see: main appended the first turn's
+        // user_message (locking) before the broadcast reached us, so the
+        // optimistic patch above described a mode the pinned column never
+        // used -- and openConvo re-adopts the patched value, so a stale patch
+        // would never self-correct. Revert and say why (the rejected-mutation
+        // idiom: deletePermissionRule/setBuiltinDisabled above).
+        set({ executionMode: prior })
+        patchConvo(view.id, { executionMode: prior })
+        get().showToast('Execution mode is locked after the first turn')
+      })
+    },
     togglePermMenu: () => set((s) => ({ permMenuTick: s.permMenuTick + 1 })),
 
     pickWorkspace: async () => {
@@ -502,7 +553,8 @@ export const useAppStore = create<AppState>((set, get) => {
         conversations: {},
         convoOrder: [],
         view: { kind: 'home' },
-        permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits'
+        permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
+        executionMode: s.settings?.defaultExecutionMode ?? 'planning'
       }))
       get().showToast('All conversations deleted')
     },
