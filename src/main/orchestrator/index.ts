@@ -78,7 +78,7 @@ export async function startRunOrchestrator(
   } catch (err) {
     const cancelled = controller.signal.aborted
     const message = cancelled ? 'Cancelled' : err instanceof Error ? err.message : String(err)
-    if (!cancelled) console.error(`[ursa] orchestrator run failed (${modelRef}):`, message)
+    if (!cancelled) console.error(`[bearcode] orchestrator run failed (${modelRef}):`, message)
     const event: Event = { type: 'error', id: randomUUID(), message, recoverable: true }
     sink.emit(conversationId, event)
     appendEvent(conversationId, event)
@@ -211,7 +211,7 @@ export async function resumeInterruptedRuns(sink: RunSink): Promise<void> {
           controller.signal
         )
       } catch (err) {
-        console.error(`[ursa] orchestrator: crash-resume rehydrate failed for ${meta.id}:`, err)
+        console.error(`[bearcode] orchestrator: crash-resume rehydrate failed for ${meta.id}:`, err)
       }
       if (!resumed) aborts.delete(meta.id)
     }

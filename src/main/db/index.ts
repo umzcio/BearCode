@@ -95,7 +95,7 @@ function cancelZombieRuns(database: Database.Database): string[] {
         recoverable: true
       }
       insert.run(event.id, row.convoId, row.seq + 1, JSON.stringify(event), Date.now())
-      console.log(`[ursa] db: cancelled zombie run in conversation ${row.convoId}`)
+      console.log(`[bearcode] db: cancelled zombie run in conversation ${row.convoId}`)
       patched.push(row.convoId)
     }
   }

@@ -37,7 +37,7 @@ function importKeys(): void {
       imported.push(provider)
     }
   }
-  console.log(`[ursa] smoke: imported keys for: ${imported.join(', ') || 'none'}`)
+  console.log(`[bearcode] smoke: imported keys for: ${imported.join(', ') || 'none'}`)
 }
 
 const QUESTION =
@@ -77,11 +77,11 @@ function inspect(win: BrowserWindow): void {
             return JSON.stringify({ list }, null, 1);
           })()`
         )
-        console.log(`[ursa] inspect: ${dump}`)
+        console.log(`[bearcode] inspect: ${dump}`)
         await win.webContents.capturePage().then((img) => {
           writeFileSync('/tmp/bearcode-smoke-inspect.png', img.toPNG())
         })
-        console.log('[ursa] inspect: saved /tmp/bearcode-smoke-inspect.png')
+        console.log('[bearcode] inspect: saved /tmp/bearcode-smoke-inspect.png')
 
         if (approve) {
           // Approve the re-surfaced command and confirm the resumed run reaches
@@ -105,13 +105,13 @@ function inspect(win: BrowserWindow): void {
               return JSON.stringify({ approved: true, runState: 'timeout' });
             })()`
           )
-          console.log(`[ursa] inspect resume-approve: ${resumed}`)
+          console.log(`[bearcode] inspect resume-approve: ${resumed}`)
           await win.webContents.capturePage().then((img) => {
             writeFileSync('/tmp/bearcode-smoke-inspect-resumed.png', img.toPNG())
           })
         }
       } catch (e) {
-        console.error('[ursa] inspect failed:', e)
+        console.error('[bearcode] inspect failed:', e)
       }
     })()
   }, 4000)
@@ -136,7 +136,7 @@ export function runDevSmoke(win: BrowserWindow): void {
   const shot = (name: string): Promise<void> =>
     win.webContents.capturePage().then((img) => {
       writeFileSync(`/tmp/bearcode-smoke-${name}.png`, img.toPNG())
-      console.log(`[ursa] smoke: saved /tmp/bearcode-smoke-${name}.png`)
+      console.log(`[bearcode] smoke: saved /tmp/bearcode-smoke-${name}.png`)
     })
 
   const js = (script: string): Promise<unknown> => win.webContents.executeJavaScript(script)
@@ -189,7 +189,7 @@ export function runDevSmoke(win: BrowserWindow): void {
         )
         if (answered) {
           console.log(
-            `[ursa] smoke: ${approveMode === 'allow' ? 'approved' : approveMode === 'cancel' ? 'cancelled (Stop)' : 'denied'} a command`
+            `[bearcode] smoke: ${approveMode === 'allow' ? 'approved' : approveMode === 'cancel' ? 'cancelled (Stop)' : 'denied'} a command`
           )
         }
       } else if (state !== 'running' && state !== 'missing') {
@@ -212,11 +212,11 @@ export function runDevSmoke(win: BrowserWindow): void {
       })()`
     )) as string | null
     if (!diffInfo) {
-      console.log('[ursa] smoke: no staged diff found')
+      console.log('[bearcode] smoke: no staged diff found')
       return
     }
     const { diffId, paths } = JSON.parse(diffInfo) as { diffId: string; paths: string[] }
-    console.log(`[ursa] smoke: staged diff ${diffId}: ${paths.join(', ')}`)
+    console.log(`[bearcode] smoke: staged diff ${diffId}: ${paths.join(', ')}`)
     await js(`window.__bearcodeStore.getState().openReview(${JSON.stringify(diffId)})`)
     await new Promise((r) => setTimeout(r, 3000))
     await shot('review')
@@ -248,7 +248,7 @@ export function runDevSmoke(win: BrowserWindow): void {
         const abs = join(dir, p)
         const ok = existsSync(abs)
         console.log(
-          `[ursa] smoke: on-disk ${p}: ${ok ? `EXISTS (${statSync(abs).size} bytes)` : 'MISSING'}`
+          `[bearcode] smoke: on-disk ${p}: ${ok ? `EXISTS (${statSync(abs).size} bytes)` : 'MISSING'}`
         )
       }
     }
@@ -262,7 +262,7 @@ export function runDevSmoke(win: BrowserWindow): void {
       )
       const abs = join(dir, paths[0])
       console.log(
-        `[ursa] smoke: after revert ${paths[0]}: ${existsSync(abs) ? 'STILL EXISTS' : 'REMOVED'}`
+        `[bearcode] smoke: after revert ${paths[0]}: ${existsSync(abs) ? 'STILL EXISTS' : 'REMOVED'}`
       )
     }
   }
@@ -288,7 +288,7 @@ export function runDevSmoke(win: BrowserWindow): void {
 
         for (let i = 0; i < refs.length; i++) {
           const ref = refs[i]
-          console.log(`[ursa] smoke: turn ${i + 1}/${refs.length} on ${ref}`)
+          console.log(`[bearcode] smoke: turn ${i + 1}/${refs.length} on ${ref}`)
           await js(`window.__bearcodeStore.getState().selectModel(${JSON.stringify(ref)})`)
           if (i === 0) {
             await js(`window.__bearcodeStore.getState().startFromHome(${JSON.stringify(QUESTION)})`)
@@ -303,7 +303,7 @@ export function runDevSmoke(win: BrowserWindow): void {
           }
           await new Promise((r) => setTimeout(r, 1500))
           const state = await waitForIdle(90000)
-          console.log(`[ursa] smoke: turn ${i + 1} finished with state: ${state}`)
+          console.log(`[bearcode] smoke: turn ${i + 1} finished with state: ${state}`)
           await shot(`turn-${i + 1}`)
         }
 
@@ -325,11 +325,11 @@ export function runDevSmoke(win: BrowserWindow): void {
             return JSON.stringify({ runState: convo.runState, turns }, null, 1);
           })()`
         )
-        console.log(`[ursa] smoke result: ${result}`)
+        console.log(`[bearcode] smoke result: ${result}`)
         await reviewAndAccept()
         await shot('final')
       } catch (e) {
-        console.error('[ursa] smoke failed:', e)
+        console.error('[bearcode] smoke failed:', e)
       }
     })()
   }, 1500)

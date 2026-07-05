@@ -8,8 +8,8 @@ import { diffLines } from 'diff'
 import { app } from 'electron'
 import { join } from 'path'
 import Database from 'better-sqlite3'
-import type { FileDiff, FileDiffFile } from '../../shared/types'
-import { getConversationMeta } from '../db'
+import type { FileDiff, FileDiffFile } from '../shared/types'
+import { getConversationMeta } from './db'
 
 // Reuse the main database file; the diffs table gains a group_id column so
 // one review card can carry several files staged in the same turn.
@@ -66,7 +66,7 @@ export function stageFile(
        VALUES (?, ?, ?, ?, ?, 'applied', ?)`
     )
     .run(fileId, conversationId, absPath, beforeText, afterText, groupId)
-  console.log(`[ursa] change applied: ${absPath}`)
+  console.log(`[bearcode] change applied: ${absPath}`)
   const { additions, deletions } = countChanges(beforeText, afterText)
   return {
     fileId,
@@ -131,5 +131,5 @@ export function revertFile(fileId: string): void {
     writeFileSync(row.path, row.before_text)
   }
   getDb().prepare(`UPDATE diffs SET state = 'rejected' WHERE id = ?`).run(fileId)
-  console.log(`[ursa] change reverted: ${row.path}`)
+  console.log(`[bearcode] change reverted: ${row.path}`)
 }

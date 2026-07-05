@@ -1,6 +1,6 @@
 // The orchestrator's streaming graph: createDeepAgent() is called with a
 // custom filesystem backend (fsBackend.ts, routes writes through
-// src/main/ursa/diffs.ts stageFile) and one custom tool (tools.ts,
+// src/main/diffs.ts stageFile) and one custom tool (tools.ts,
 // run_command, gated behind a LangGraph interrupt for approval). Deep Agents
 // always injects its own built-ins on top of that (the write_todos planning
 // tool, filesystem tools backed by our custom backend, and a `task` subagent
@@ -26,8 +26,8 @@ import {
   dropDanglingCancel,
   getConversationMeta
 } from '../db'
-import { parseModelRef } from '../ursa/providers/registry'
-import { maybeGenerateTitle } from '../ursa/title'
+import { parseModelRef } from '../providers/registry'
+import { maybeGenerateTitle } from '../title'
 import { makeModel } from './models'
 import { orchestratorSystemPrompt } from './systemPrompt'
 import { textDeltaEvent, thinkingDeltaEvent } from './bridge'
@@ -1298,7 +1298,7 @@ async function failTurn(ctx: DriveContext, err: unknown): Promise<void> {
   const cancelled = ctx.signal.aborted
   const message = cancelled ? 'Cancelled' : err instanceof Error ? err.message : String(err)
   if (!cancelled)
-    console.error(`[ursa] orchestrator resume failed (${ctx.conversationId}):`, message)
+    console.error(`[bearcode] orchestrator resume failed (${ctx.conversationId}):`, message)
   emitAndPersist(ctx.conversationId, ctx.sink, {
     type: 'error',
     id: randomUUID(),

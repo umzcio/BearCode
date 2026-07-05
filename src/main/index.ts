@@ -13,7 +13,7 @@ function runBootResumeOnce(): void {
   if (bootResumeRan) return
   bootResumeRan = true
   void bootResumeInterruptedRuns().catch((err) => {
-    console.error('[ursa] bootResumeInterruptedRuns failed:', err)
+    console.error('[bearcode] bootResumeInterruptedRuns failed:', err)
   })
 }
 

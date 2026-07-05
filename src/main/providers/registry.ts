@@ -9,9 +9,9 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import type { LanguageModel } from 'ai'
 import type { ProviderOptions } from '@ai-sdk/provider-utils'
-import type { ModelInfo, ProviderId, ProviderModels } from '../../../shared/types'
-import { getKey, keyStatus } from '../../keys'
-import { getSettings } from '../../settings'
+import type { ModelInfo, ProviderId, ProviderModels } from '../../shared/types'
+import { getKey, keyStatus } from '../keys'
+import { getSettings } from '../settings'
 
 interface ProviderRegistryEntry {
   id: ProviderId

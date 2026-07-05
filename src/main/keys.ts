@@ -42,7 +42,7 @@ export function getKey(provider: ProviderId): string | undefined {
   try {
     return safeStorage.decryptString(Buffer.from(stored, 'base64'))
   } catch (err) {
-    console.error(`[ursa] failed to decrypt key for ${provider}:`, err)
+    console.error(`[bearcode] failed to decrypt key for ${provider}:`, err)
     return undefined
   }
 }

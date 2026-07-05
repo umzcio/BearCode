@@ -8,7 +8,7 @@ import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
 import { ChatOllama } from '@langchain/ollama'
 import { getKey } from '../keys'
 import { getSettings } from '../settings'
-import { parseModelRef } from '../ursa/providers/registry'
+import { parseModelRef } from '../providers/registry'
 import type { ProviderId } from '../../shared/types'
 
 function requireKey(provider: ProviderId): string {
@@ -45,7 +45,7 @@ export function makeModel(modelRef: string): BaseChatModel {
         // (`GoogleGenerativeAIThinkingConfig` in @langchain/google-genai's types.d.ts).
         // Older 1.x models don't support thinking and error if this is set, so guard
         // on model id, mirroring the Haiku exclusion above and the legacy engine's
-        // providerOptions() in src/main/ursa/providers/registry.ts.
+        // providerOptions() in src/main/providers/registry.ts.
         ...(/^gemini-1[.-]/.test(modelId) ? {} : { thinkingConfig: { includeThoughts: true } })
       })
     case 'openrouter':
