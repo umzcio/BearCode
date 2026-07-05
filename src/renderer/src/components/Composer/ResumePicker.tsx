@@ -46,9 +46,21 @@ export function ResumePicker(): React.JSX.Element {
         }
       }
     }
-    document.addEventListener('click', close)
-    window.addEventListener('keydown', onKey)
+    // Deferred by one tick on purpose: Composer's selectEntry('resume') flips
+    // resumePickerOpen (and, for the mouse path, SlashMenu's row click) on
+    // the SAME native keydown/click event that is still bubbling when this
+    // effect first runs on mount. Attaching synchronously here would catch
+    // the tail of that opening event -- window sees the Enter that opened
+    // the picker and immediately "confirms" the top row, or document sees
+    // the opening click as an outside click and immediately closes it
+    // (smoke-caught, D2 task-6-report.md Drill 3). A zero-delay timeout
+    // lets the opening event finish its dispatch before we start listening.
+    const timer = setTimeout(() => {
+      document.addEventListener('click', close)
+      window.addEventListener('keydown', onKey)
+    }, 0)
     return () => {
+      clearTimeout(timer)
       document.removeEventListener('click', close)
       window.removeEventListener('keydown', onKey)
     }

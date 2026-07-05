@@ -148,10 +148,12 @@ export function assembleCommandAdditions(
       `You are executing the workflow "/${command.name}". Its steps, in order:`,
       ...stepLines,
       '',
-      'Begin by calling write_todos exactly once to record these steps as your todo list,',
-      'one todo per step, in this order. Then process each step sequentially and',
-      'completely; do not skip or reorder steps. Mark each todo completed as soon as you',
-      'finish it and keep the todo list current with write_todos as you work.',
+      'Your FIRST tool call this turn MUST be write_todos, recording exactly these steps',
+      'as your todo list, one todo per step, in this order. Do not call any other tool',
+      'before write_todos.',
+      'Then process each step sequentially and completely; do not skip or reorder steps.',
+      'Mark each todo completed as soon as you finish it and keep the todo list current',
+      'with write_todos as you work.',
       ...PRECEDENCE_LINES
     ]
   }

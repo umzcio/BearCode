@@ -244,7 +244,9 @@ describe('assembleCommandAdditions', () => {
     )
     expect(joined).toContain('1. first step')
     expect(joined).toContain('2. second step')
-    expect(joined).toContain('Begin by calling write_todos exactly once')
+    expect(joined).toContain('Your FIRST tool call this turn MUST be write_todos')
+    expect(joined).toContain('Do not call any other tool')
+    expect(joined).toContain('before write_todos.')
     expect(joined).toContain(PRECEDENCE_SUBSTRING)
   })
 
