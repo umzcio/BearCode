@@ -48,7 +48,9 @@ function parseFrontmatter(raw: string): {
   const openLine = firstLineEnd === -1 ? raw : raw.slice(0, firstLineEnd)
   if (openLine.trim() !== '---') return null
 
-  const closeMatch = afterOpen.match(/\n---[ \t]*(?:\n|$)/)
+  // The closer may be the very first line after the opener (an empty
+  // frontmatter block, valid: defaults apply) or any later '---' line.
+  const closeMatch = afterOpen.match(/(?:^|\n)---[ \t]*(?:\n|$)/)
   if (!closeMatch || closeMatch.index === undefined) {
     return { body: raw, error: 'frontmatter block is missing a closing "---"' }
   }
@@ -102,13 +104,19 @@ function parseFrontmatter(raw: string): {
 // Malformed input never throws -- it comes back as a Rule with `error` set
 // and the body preserved, so assembly can skip it while menus can still show
 // something (design 11).
+//
+// CRLF handling: Windows-edited files are normalized to LF at entry, so the
+// frontmatter reader only ever sees '\n' line endings and body output is
+// always LF-normalized (documented behavior; rules are prompt text, so exact
+// on-disk line endings do not need to round-trip).
 export function parseRuleFile(name: string, raw: string, source: 'project' | 'global'): Rule {
-  const fm = parseFrontmatter(raw)
+  const text = raw.replace(/\r\n/g, '\n')
+  const fm = parseFrontmatter(text)
 
   if (fm === null) {
     return {
       name,
-      body: raw,
+      body: text,
       activation: 'always',
       globs: [],
       description: '',

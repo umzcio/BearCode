@@ -92,6 +92,24 @@ describe('parseRuleFile', () => {
     expect(r.body).toBe('# Title\n\n- one\n- two\n')
   })
 
+  it('parses a CRLF (Windows-edited) glob rule fully', () => {
+    const raw = '---\r\nactivation: glob\r\nglobs: [src/**, "*.ts"]\r\n---\r\nTS rules here\r\n'
+    const r = parseRuleFile('ts', raw, 'project')
+    expect(r).toMatchObject({
+      activation: 'glob',
+      globs: ['src/**', '*.ts'],
+      error: undefined
+    })
+    // Body output is LF-normalized.
+    expect(r.body).toBe('TS rules here\n')
+  })
+
+  it('treats an empty frontmatter block as valid defaults', () => {
+    const r = parseRuleFile('x', '---\n---\nbody', 'project')
+    expect(r).toMatchObject({ activation: 'always', error: undefined })
+    expect(r.body).toBe('body')
+  })
+
   it('ignores unknown frontmatter keys', () => {
     const raw = '---\nactivation: always\nfoo: bar\n---\nbody'
     const r = parseRuleFile('x', raw, 'project')
