@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { describeError } from '../lib/errors'
 import type {
   AddRuleInput,
   AppSettings,
@@ -517,20 +518,22 @@ export const useAppStore = create<AppState>((set, get) => {
         // would never self-correct. Revert and say why (the rejected-mutation
         // idiom: deletePermissionRule/setBuiltinDisabled above).
         //
-        // Guarded revert: only if this call's optimistic value is still
-        // current. Two rapid picks can interleave (A rejects AFTER B was
-        // accepted); an unconditional revert here would clobber B's persisted
-        // value with A's stale prior and show a misleading locked toast.
+        // Guarded PER FIELD (Ba4): the composer value and the convo patch go
+        // stale independently. Two rapid picks can interleave (A rejects
+        // AFTER B was accepted) -- then neither field still holds A's value
+        // and nothing reverts. But navigating away mid-flight (goHome resets
+        // the composer) must not stop the STILL-STALE convo patch from
+        // reverting.
         const s = get()
-        if (s.executionMode !== mode || s.conversations[view.id]?.executionMode !== mode) return
-        set({ executionMode: prior })
-        patchConvo(view.id, { executionMode: prior })
-        // Prefer main's own message so the copy cannot silently drift.
-        get().showToast(
-          err instanceof Error && err.message
-            ? err.message
-            : 'Execution mode is locked after the first turn'
-        )
+        const composerStale =
+          s.view.kind === 'conversation' && s.view.id === view.id && s.executionMode === mode
+        const convoStale = s.conversations[view.id]?.executionMode === mode
+        if (!composerStale && !convoStale) return
+        if (composerStale) set({ executionMode: prior })
+        if (convoStale) patchConvo(view.id, { executionMode: prior })
+        // Main's own message with Electron's IPC wrapper stripped (Ba3
+        // follow-up) -- the copy comes from the throw site, never guessed.
+        get().showToast(describeError(err))
       })
     },
     togglePermMenu: () => set((s) => ({ permMenuTick: s.permMenuTick + 1 })),

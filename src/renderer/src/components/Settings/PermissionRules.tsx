@@ -6,6 +6,7 @@ import type {
   PermissionRuleEffect
 } from '@shared/types'
 import { useAppStore } from '../../state/store'
+import { describeError } from '../../lib/errors'
 
 function basename(p: string): string {
   const parts = p.replace(/\/$/, '').split('/')
@@ -14,10 +15,6 @@ function basename(p: string): string {
 
 function scopeKey(rule: PermissionRule): string {
   return rule.scope === 'global' ? '' : rule.scope.projectPath
-}
-
-function describeError(err: unknown): string {
-  return err instanceof Error ? err.message : 'Something went wrong. Try again.'
 }
 
 // The permissions manager (Bb4, design section 6): lists user rules with

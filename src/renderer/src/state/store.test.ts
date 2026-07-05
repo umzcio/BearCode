@@ -217,6 +217,62 @@ describe('execution mode (Ba3): pick, mirror-lock, persist-before-run', () => {
     expect(useAppStore.getState().conversations.c1.executionMode).toBe('planning')
     expect(useAppStore.getState().toast).toBeNull()
   })
+  it('strips the Electron IPC wrapper from the lock toast (Ba3 follow-up)', async () => {
+    conversations.setExecutionMode.mockRejectedValueOnce(
+      new Error(
+        "Error invoking remote method 'bearcode:conversations:set-execution-mode': " +
+          'Error: Execution mode is locked after the first turn'
+      )
+    )
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo() },
+      executionMode: 'planning',
+      toast: null
+    })
+    useAppStore.getState().setExecutionMode('fast')
+    await vi.waitFor(() =>
+      expect(useAppStore.getState().toast).toBe('Execution mode is locked after the first turn')
+    )
+    expect(useAppStore.getState().executionMode).toBe('planning')
+  })
+  it('navigating home during a pending pick still reverts the stranded convo patch', async () => {
+    // The strand (Ba3 FINAL follow-up): the composer resets on goHome, so a
+    // whole-action staleness guard would bail and leave the optimistic convo
+    // patch describing a mode main rejected -- which openConvo would then
+    // re-adopt forever. The per-field guard reverts the patch anyway.
+    let rejectPick: (err: Error) => void = () => {}
+    conversations.setExecutionMode.mockImplementationOnce(
+      () =>
+        new Promise<void>((_, reject) => {
+          rejectPick = reject
+        })
+    )
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo({ executionMode: 'fast' }) },
+      executionMode: 'fast',
+      settings: {
+        ollamaBaseUrl: '',
+        defaultModelRef: null,
+        defaultPermissionMode: 'accept-edits',
+        disabledBuiltins: [],
+        artifactReviewPolicy: 'request-review',
+        defaultExecutionMode: 'planning',
+        dataPath: '/tmp'
+      },
+      toast: null
+    })
+    useAppStore.getState().setExecutionMode('planning') // optimistic patch lands, IPC pending
+    useAppStore.getState().goHome() // composer resets to the default ('planning')
+    rejectPick(new Error('Execution mode is locked after the first turn'))
+    await vi.waitFor(() =>
+      expect(useAppStore.getState().conversations.c1.executionMode).toBe('fast')
+    )
+    // The composer belongs to Home now -- untouched by the revert.
+    expect(useAppStore.getState().executionMode).toBe('planning')
+    expect(useAppStore.getState().toast).toBe('Execution mode is locked after the first turn')
+  })
   it('startFromHome persists the picked mode BEFORE the run starts (the pin must find it)', async () => {
     const order: string[] = []
     conversations.setExecutionMode.mockImplementation(() => {
