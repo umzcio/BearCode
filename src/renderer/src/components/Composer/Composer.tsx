@@ -16,7 +16,13 @@ import { SlashMenu } from './SlashMenu'
 import { MentionMenu } from './MentionMenu'
 import { ResumePicker } from './ResumePicker'
 import { filterSlashCommands } from './slashFilter'
-import { activeMentionQuery, buildMentionSuggestions, type MentionSuggestion } from './mentionQuery'
+import {
+  activeMentionQuery,
+  buildMentionRows,
+  mentionCategoryPrefix,
+  parseMentionQuery,
+  type MentionRow
+} from './mentionQuery'
 import './Composer.css'
 
 interface ComposerProps {
@@ -52,6 +58,10 @@ export function Composer({
   const [mentions, setMentions] = useState<MentionRef[]>([])
   const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
+  // After a category pick rewrites the composer text, park the caret just past
+  // the inserted "@kind:" so typing filters that category (applied in an effect
+  // once the controlled value has re-rendered).
+  const [pendingCaret, setPendingCaret] = useState<number | null>(null)
   // Escape closes the menu without clearing the typed "/query" text (design
   // 6.1); typing again reopens it -- tracked separately from `value` so
   // Escape's effect does not depend on rewriting the textarea's contents.
@@ -83,21 +93,30 @@ export function Composer({
   // when value[0] === '/'); guard the @ menu off when the / menu or resume
   // picker is open, since both popovers share the spot above the composer.
   const mentionOpen = mentionQuery !== null && !menuOpen && !resumePickerOpen
-  const mentionItems: MentionSuggestion[] = mentionOpen
-    ? buildMentionSuggestions({
-        query: mentionQuery.query,
-        files: fileSuggestions,
-        rules: manualRules,
-        // PLAN-REVIEW CORRECTION: guard against a convoOrder id that is
-        // missing from the conversations map (e.g. stale ordering during a
-        // delete) so a lookup on an absent entry cannot crash the menu.
-        conversations: convoOrder
-          .map((id) => conversations[id])
-          .filter((c): c is NonNullable<typeof c> => c != null)
-          .map((c) => ({ id: c.id, title: c.title }))
-      })
-    : []
-  const safeMentionIndex = Math.min(mentionIndex, Math.max(0, mentionItems.length - 1))
+  // Antigravity's category-first flow: a bare `@` shows the category chooser
+  // (Files/Rules/Conversations); choosing one inserts `@<kind>:` and the menu
+  // then drills into that category's items. parseMentionQuery splits the token.
+  const mentionParsed = mentionQuery ? parseMentionQuery(mentionQuery.query) : null
+  const mentionRows: MentionRow[] =
+    mentionOpen && mentionParsed
+      ? buildMentionRows({
+          category: mentionParsed.category,
+          sub: mentionParsed.sub,
+          files: fileSuggestions,
+          rules: manualRules,
+          // Guard against a convoOrder id missing from the conversations map
+          // (e.g. stale ordering during a delete) so a lookup can't crash.
+          conversations: convoOrder
+            .map((id) => conversations[id])
+            .filter((c): c is NonNullable<typeof c> => c != null)
+            .map((c) => ({ id: c.id, title: c.title }))
+        })
+      : []
+  const mentionHeader =
+    mentionParsed && mentionParsed.category
+      ? { file: 'Files', rule: 'Rules', conversation: 'Conversations' }[mentionParsed.category]
+      : null
+  const safeMentionIndex = Math.min(mentionIndex, Math.max(0, mentionRows.length - 1))
 
   useEffect(() => {
     const ta = taRef.current
@@ -125,18 +144,38 @@ export function Composer({
     if (mentionOpen) refreshManualRules()
   }, [mentionOpen, refreshManualRules])
   useEffect(() => {
-    if (mentionQuery) suggestFiles(mentionQuery.query)
-  }, [mentionQuery, suggestFiles])
+    // Only fetch file suggestions once the user has drilled into @file:.
+    if (mentionParsed?.category === 'file') suggestFiles(mentionParsed.sub)
+  }, [mentionParsed?.category, mentionParsed?.sub, suggestFiles])
 
-  const selectMention = (item: MentionSuggestion): void => {
+  // Apply a caret parked by a category pick, after the controlled textarea
+  // value has re-rendered, so typing continues right after the "@kind:".
+  useEffect(() => {
+    if (pendingCaret != null && taRef.current) {
+      taRef.current.focus()
+      taRef.current.setSelectionRange(pendingCaret, pendingCaret)
+      setPendingCaret(null)
+    }
+  }, [pendingCaret, value])
+
+  const selectMentionRow = (row: MentionRow): void => {
     if (!mentionQuery) return
-    // Remove the "@query" trigger text; the pill row shows the mention instead.
     const before = value.slice(0, mentionQuery.start)
     const after = value.slice(mentionQuery.start + 1 + mentionQuery.query.length)
+    if (row.type === 'category') {
+      // Drill in: replace the bare "@query" with "@kind:" and keep the menu
+      // open (now in item mode); park the caret just after the colon.
+      const prefix = mentionCategoryPrefix(row.kind)
+      setValue(before + '@' + prefix + after)
+      setMentionQuery({ start: mentionQuery.start, query: prefix })
+      setMentionIndex(0)
+      setPendingCaret(mentionQuery.start + 1 + prefix.length)
+      return
+    }
+    // Item pick: drop the "@kind:query" trigger text; the pill row shows it.
+    const ref = row.suggestion.ref
     setValue(before + after)
-    setMentions((m) =>
-      m.some((x) => x.kind === item.ref.kind && x.name === item.ref.name) ? m : [...m, item.ref]
-    )
+    setMentions((m) => (m.some((x) => x.kind === ref.kind && x.name === ref.name) ? m : [...m, ref]))
     setMentionQuery(null)
     setMentionIndex(0)
   }
@@ -225,7 +264,7 @@ export function Composer({
           if (mentionOpen) {
             if (e.key === 'ArrowDown') {
               e.preventDefault()
-              setMentionIndex((i) => Math.min(i + 1, Math.max(0, mentionItems.length - 1)))
+              setMentionIndex((i) => Math.min(i + 1, Math.max(0, mentionRows.length - 1)))
               return
             }
             if (e.key === 'ArrowUp') {
@@ -233,10 +272,12 @@ export function Composer({
               setMentionIndex((i) => Math.max(i - 1, 0))
               return
             }
-            if (e.key === 'Enter' && !e.shiftKey) {
+            // Only intercept Enter when there is a row to pick; with zero
+            // matches, let it fall through to send the turn.
+            if (e.key === 'Enter' && !e.shiftKey && mentionRows.length > 0) {
               e.preventDefault()
-              const item = mentionItems[safeMentionIndex]
-              if (item) selectMention(item)
+              const row = mentionRows[safeMentionIndex]
+              if (row) selectMentionRow(row)
               return
             }
             if (e.key === 'Escape') {
@@ -354,10 +395,11 @@ export function Composer({
       {mentionOpen ? (
         <div className="slash-menu-wrap">
           <MentionMenu
-            items={mentionItems}
+            rows={mentionRows}
+            header={mentionHeader}
             highlightedIndex={safeMentionIndex}
             onHighlight={setMentionIndex}
-            onSelect={selectMention}
+            onSelect={selectMentionRow}
           />
         </div>
       ) : null}

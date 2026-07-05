@@ -23,6 +23,21 @@
   align-items: flex-start;
 }
 
+/* @ menu: keep the drilled-in item list compact + scrollable, and push the
+   category drill-in chevron to the right edge. */
+.mention-menu {
+  max-height: 320px;
+}
+.mention-menu .menu-item {
+  align-items: center;
+}
+.mention-cat-chev {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+}
+
 .slash-menu .menu-item.highlighted,
 .resume-picker .menu-item.highlighted {
   background: var(--bg-hover);

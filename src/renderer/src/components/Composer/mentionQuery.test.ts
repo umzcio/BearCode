@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { activeMentionQuery, buildMentionSuggestions } from './mentionQuery'
+import {
+  activeMentionQuery,
+  buildMentionRows,
+  mentionCategoryPrefix,
+  parseMentionQuery
+} from './mentionQuery'
 import type { ManualRuleInfo } from '@shared/types'
 
 describe('activeMentionQuery', () => {
@@ -28,33 +33,74 @@ describe('activeMentionQuery', () => {
   })
 })
 
-describe('buildMentionSuggestions', () => {
-  const rules: ManualRuleInfo[] = [{ name: 'style', firstLine: 'Use tabs.' }]
-  it('orders Files, then Rules, then Conversations; each subsequence-filtered', () => {
-    const out = buildMentionSuggestions({
-      query: 's',
-      files: ['src/a.ts'],
-      rules,
-      conversations: [{ id: 'c1', title: 'Some chat' }]
+describe('parseMentionQuery', () => {
+  it('treats a bare query (no colon) as category-chooser mode', () => {
+    expect(parseMentionQuery('')).toEqual({ category: null, sub: '' })
+    expect(parseMentionQuery('conv')).toEqual({ category: null, sub: 'conv' })
+  })
+
+  it('recognizes each category prefix and splits off the sub-query', () => {
+    expect(parseMentionQuery('file:src/a')).toEqual({ category: 'file', sub: 'src/a' })
+    expect(parseMentionQuery('rule:sty')).toEqual({ category: 'rule', sub: 'sty' })
+    expect(parseMentionQuery('conversation:cha')).toEqual({ category: 'conversation', sub: 'cha' })
+    expect(parseMentionQuery('conversation:')).toEqual({ category: 'conversation', sub: '' })
+  })
+
+  it('is case-insensitive on the prefix and ignores unknown prefixes', () => {
+    expect(parseMentionQuery('Rule:x')).toEqual({ category: 'rule', sub: 'x' })
+    expect(parseMentionQuery('bogus:x')).toEqual({ category: null, sub: 'bogus:x' })
+  })
+
+  it('round-trips with mentionCategoryPrefix', () => {
+    expect(parseMentionQuery(mentionCategoryPrefix('conversation'))).toEqual({
+      category: 'conversation',
+      sub: ''
     })
-    expect(out.map((s) => s.ref.kind)).toEqual(['file', 'rule', 'conversation'])
-    expect(out[0]).toEqual({ ref: { kind: 'file', name: 'src/a.ts', path: 'src/a.ts' }, label: 'src/a.ts' })
-    expect(out[1]).toEqual({ ref: { kind: 'rule', name: 'style' }, label: 'style', detail: 'Use tabs.' })
-    expect(out[2]).toEqual({
-      ref: { kind: 'conversation', name: 'Some chat', conversationId: 'c1' },
-      label: 'Some chat'
+  })
+})
+
+describe('buildMentionRows', () => {
+  const rules: ManualRuleInfo[] = [{ name: 'style', firstLine: 'Use tabs.' }]
+  const base = { files: ['src/a.ts'], rules, conversations: [{ id: 'c1', title: 'Some chat' }] }
+
+  it('category mode (no category) returns the three category chooser rows', () => {
+    const out = buildMentionRows({ category: null, sub: '', ...base })
+    expect(out.map((r) => r.type)).toEqual(['category', 'category', 'category'])
+    expect(out.map((r) => (r.type === 'category' ? r.kind : null))).toEqual([
+      'file',
+      'rule',
+      'conversation'
+    ])
+  })
+
+  it('category mode filters the chooser by a subsequence on the label', () => {
+    const out = buildMentionRows({ category: null, sub: 'conv', ...base })
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ type: 'category', kind: 'conversation' })
+  })
+
+  it('file item mode passes files through (pre-ranked) as item rows', () => {
+    const out = buildMentionRows({ category: 'file', sub: 'zzz', ...base })
+    expect(out).toHaveLength(1)
+    expect(out[0]).toEqual({
+      type: 'item',
+      suggestion: { ref: { kind: 'file', name: 'src/a.ts', path: 'src/a.ts' }, label: 'src/a.ts' }
     })
   })
 
-  it('passes files through as-is (already ranked main-side) but filters rules/conversations by query', () => {
-    const out = buildMentionSuggestions({
-      query: 'zzz',
-      files: ['src/a.ts'],
-      rules,
-      conversations: [{ id: 'c1', title: 'Some chat' }]
-    })
-    // files come pre-ranked from IPC, so they are not re-filtered here
-    expect(out.filter((s) => s.ref.kind === 'file')).toHaveLength(1)
-    expect(out.filter((s) => s.ref.kind !== 'file')).toHaveLength(0)
+  it('rule item mode filters rules by the sub-query', () => {
+    expect(buildMentionRows({ category: 'rule', sub: 'sty', ...base })).toHaveLength(1)
+    expect(buildMentionRows({ category: 'rule', sub: 'zzz', ...base })).toHaveLength(0)
+  })
+
+  it('conversation item mode filters conversations by the sub-query', () => {
+    expect(buildMentionRows({ category: 'conversation', sub: 'chat', ...base })).toHaveLength(1)
+    expect(buildMentionRows({ category: 'conversation', sub: 'zzz', ...base })).toHaveLength(0)
+  })
+
+  it('caps the drilled-in item list at 8', () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({ id: `c${i}`, title: `Chat ${i}` }))
+    const out = buildMentionRows({ category: 'conversation', sub: '', files: [], rules: [], conversations: many })
+    expect(out).toHaveLength(8)
   })
 })
