@@ -27,7 +27,8 @@ import {
   dropDanglingCancel,
   getConversationMeta,
   listArtifactComments,
-  markArtifactCommentsSent
+  markArtifactCommentsSent,
+  pinExecutionMode
 } from '../db'
 import { parseModelRef } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
@@ -1667,7 +1668,8 @@ function buildAgentAndContext(
   signal: AbortSignal
 ): { agent: ReturnType<typeof createDeepAgent>; ctx: DriveContext } {
   const { provider: providerId, modelId } = parseModelRef(modelRef)
-  const projectPath = getConversationMeta(conversationId)?.projectPath ?? null
+  const meta = getConversationMeta(conversationId)
+  const projectPath = meta?.projectPath ?? null
   const model = makeModel(modelRef)
   const diffGroupId = randomUUID()
   const backend = projectPath
@@ -1691,7 +1693,10 @@ function buildAgentAndContext(
     : undefined
   const agent = createDeepAgent({
     model,
-    systemPrompt: orchestratorSystemPrompt(projectPath),
+    // meta is null only for a conversation deleted mid-flight (the run is
+    // doomed either way), so the fallback mode is arbitrary; toMeta already
+    // resolved a NULL execution_mode column to the live defaultExecutionMode.
+    systemPrompt: orchestratorSystemPrompt(projectPath, meta?.executionMode ?? 'planning'),
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
     ...(backendFactory
@@ -1735,6 +1740,13 @@ export async function runGraph(opts: {
   // submissions; if the old interrupted task replays on this thread, it
   // re-enters its own artifactId slot (tools.ts tryEnterPlanReview).
   clearPlanReviewPending(conversationId)
+  // Pin the execution mode on the conversation's FIRST turn (design 3.2): a
+  // NULL column adopts the current defaultExecutionMode, so a later settings
+  // change never flips a locked conversation's mode. Idempotent (COALESCE):
+  // later turns and explicit renderer-set values pass through untouched.
+  // Ordered before the user_message append so the pin and the lock signal
+  // (any persisted event) can never be observed out of order.
+  pinExecutionMode(conversationId)
   const userEvent: Event = {
     type: 'user_message',
     id: randomUUID(),

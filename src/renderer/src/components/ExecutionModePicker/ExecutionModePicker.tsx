@@ -1,31 +1,33 @@
 import { useEffect, useRef, useState } from 'react'
-import type { PermissionMode } from '@shared/types'
+import type { ExecutionMode } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { Hint } from '../Hint'
 import { IconChevronDown } from '../icons'
-import './ModePicker.css'
+import './ExecutionModePicker.css'
 
-const MODES: { id: PermissionMode; label: string; key: string }[] = [
-  { id: 'accept-edits', label: 'Accept edits', key: '1' },
-  { id: 'auto', label: 'Auto', key: '2' }
+const MODES: { id: ExecutionMode; label: string; key: string }[] = [
+  { id: 'planning', label: 'Planning', key: '1' },
+  { id: 'fast', label: 'Fast', key: '2' }
 ]
 
-export function ModePicker(): React.JSX.Element {
-  const mode = useAppStore((s) => s.permissionMode)
-  const setMode = useAppStore((s) => s.setPermissionMode)
-  const permMenuTick = useAppStore((s) => s.permMenuTick)
+// The per-conversation Planning/Fast control (design 3.2). Chosen when the
+// conversation starts; locked once the first turn has run. The lock here is
+// honest UI only -- the store mirror refuses the action and main enforces it
+// authoritatively (ipc.ts set-execution-mode throws once events exist).
+// NOT a permission control: the ModePicker beside it owns permissions.
+export function ExecutionModePicker(): React.JSX.Element {
+  const mode = useAppStore((s) => s.executionMode)
+  const setMode = useAppStore((s) => s.setExecutionMode)
+  const isConversation = useAppStore((s) => s.view.kind === 'conversation')
+  const convo = useAppStore((s) =>
+    s.view.kind === 'conversation' ? s.conversations[s.view.id] : undefined
+  )
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
-  const lastTick = useRef(permMenuTick)
   const current = MODES.find((m) => m.id === mode) ?? MODES[0]
-
-  // Cmd+. toggles the menu. Compare against the last seen tick so this only
-  // fires on a real tick change, not on mount or StrictMode's double-run.
-  useEffect(() => {
-    if (lastTick.current === permMenuTick) return
-    lastTick.current = permMenuTick
-    setOpen((o) => !o)
-  }, [permMenuTick])
+  // Fail closed, matching the store mirror: an unloaded conversation counts
+  // as locked. On Home there is no conversation yet, so never locked.
+  const locked = isConversation && (!convo || !convo.loaded || convo.events.length > 0)
 
   useEffect(() => {
     if (!open) return undefined
@@ -56,9 +58,20 @@ export function ModePicker(): React.JSX.Element {
   }, [open, setMode])
 
   return (
-    <div className="mode-picker" ref={rootRef}>
-      <Hint label="Permission mode" keys="⌘." side="top" disabled={open}>
-        <button className="pill-btn" onClick={() => setOpen((o) => !o)}>
+    <div className="exec-mode-picker" ref={rootRef}>
+      <Hint
+        label={locked ? 'Execution mode locks once the first turn runs' : 'Execution mode'}
+        side="top"
+        disabled={open}
+      >
+        <button
+          className={'pill-btn' + (locked ? ' locked' : '')}
+          aria-disabled={locked}
+          onClick={() => {
+            if (locked) return
+            setOpen((o) => !o)
+          }}
+        >
           <span>{current.label}</span>
           <span className="chev">
             <IconChevronDown />
@@ -66,8 +79,8 @@ export function ModePicker(): React.JSX.Element {
         </button>
       </Hint>
       {open ? (
-        <div className="menu mode-menu">
-          <div className="menu-group-label">Mode</div>
+        <div className="menu exec-mode-menu">
+          <div className="menu-group-label">Execution</div>
           {MODES.map((m) => (
             <div
               key={m.id}

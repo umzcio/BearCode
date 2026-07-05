@@ -6,6 +6,7 @@ import type {
   ArtifactComment,
   ConversationMeta,
   Event,
+  ExecutionMode,
   PermissionMode,
   PingResult,
   ProviderId,
@@ -155,6 +156,27 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:conversations:set-mode', (_e, id: string, mode: PermissionMode) => {
     db.setPermissionMode(id, mode)
   })
+  ipcMain.handle(
+    'bearcode:conversations:set-execution-mode',
+    (_e, id: string, mode: ExecutionMode) => {
+      // Enum-validate at the boundary: this string lands in a TEXT column and
+      // later selects system-prompt content, so main never trusts the
+      // renderer (the assertValidPlanReviewResolution posture).
+      if (mode !== 'planning' && mode !== 'fast') {
+        throw new Error(`Unknown execution mode: ${String(mode)}`)
+      }
+      // THE LOCK (design 3.2 DOCUMENTED CHOICE): immutable once the first
+      // turn has run -- runGraph persists the user_message as its first act,
+      // so "has any event" is the honest turn-started signal. Enforced here,
+      // main-side, so no renderer race can flip a mode an earlier turn's
+      // system prompt already used. ipcMain.handle turns the throw into a
+      // rejected promise (the set-builtin-disabled idiom).
+      if (db.conversationHasEvents(id)) {
+        throw new Error('Execution mode is locked after the first turn')
+      }
+      db.setExecutionMode(id, mode)
+    }
+  )
   ipcMain.handle('bearcode:conversations:clear', () => {
     clearRunsOrchestrator()
     // Prune each conversation's checkpoints before the rows are gone, so

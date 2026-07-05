@@ -12,7 +12,8 @@ vi.mock('../settings', () => ({
     defaultModelRef: null,
     defaultPermissionMode: 'accept-edits',
     disabledBuiltins: [] as string[],
-    artifactReviewPolicy: 'request-review' as const
+    artifactReviewPolicy: 'request-review' as const,
+    defaultExecutionMode: 'planning' as const
   })),
   setSettings: vi.fn()
 }))
@@ -135,7 +136,8 @@ describe('settings-backed manager surface', () => {
       defaultModelRef: null,
       defaultPermissionMode: 'accept-edits',
       disabledBuiltins: ['builtin:curl-pipe-sh'],
-      artifactReviewPolicy: 'request-review'
+      artifactReviewPolicy: 'request-review',
+      defaultExecutionMode: 'planning'
     })
     const out = getEffectiveRules(null)
     expect(out.some((r) => r.id === 'builtin:curl-pipe-sh')).toBe(false)
@@ -147,7 +149,8 @@ describe('settings-backed manager surface', () => {
       defaultModelRef: null,
       defaultPermissionMode: 'accept-edits',
       disabledBuiltins: ['builtin:fork-bomb'],
-      artifactReviewPolicy: 'request-review'
+      artifactReviewPolicy: 'request-review',
+      defaultExecutionMode: 'planning'
     })
     vi.mocked(listRules).mockReturnValue([g('git *')])
     const info = listRulesInfo()
@@ -168,7 +171,8 @@ describe('settings-backed manager surface', () => {
       defaultModelRef: null,
       defaultPermissionMode: 'accept-edits',
       disabledBuiltins: [],
-      artifactReviewPolicy: 'request-review'
+      artifactReviewPolicy: 'request-review',
+      defaultExecutionMode: 'planning'
     })
     setBuiltinDisabled('builtin:curl-pipe-sh', true)
     expect(setSettings).toHaveBeenCalledWith({ disabledBuiltins: ['builtin:curl-pipe-sh'] })
@@ -186,7 +190,8 @@ describe('settings-backed manager surface', () => {
       defaultModelRef: null,
       defaultPermissionMode: 'accept-edits',
       disabledBuiltins: [],
-      artifactReviewPolicy: 'request-review'
+      artifactReviewPolicy: 'request-review',
+      defaultExecutionMode: 'planning'
     })
     setBuiltinDisabled('builtin:edit-env-root', true)
     const [afterEditDisabled] = vi.mocked(setSettings).mock.calls[0]
@@ -205,7 +210,8 @@ describe('settings-backed manager surface', () => {
       defaultModelRef: null,
       defaultPermissionMode: 'accept-edits',
       disabledBuiltins: [],
-      artifactReviewPolicy: 'request-review'
+      artifactReviewPolicy: 'request-review',
+      defaultExecutionMode: 'planning'
     })
     setBuiltinDisabled('builtin:curl-pipe-sh', true)
     const [afterCommandDisabled] = vi.mocked(setSettings).mock.calls[0]
