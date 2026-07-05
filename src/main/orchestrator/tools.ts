@@ -36,32 +36,44 @@ const commandSchema = z.object({
 // graph.ts's continueAfterApproval therefore pins every denied card here right
 // before dispatching the batch resume (and clears the pins once the resumed
 // segment settles); the tool consults the pins first, so a recorded denial
-// always wins over a re-evaluation.
+// always wins over a re-evaluation. Bb3's gated write_file/edit_file replays
+// the same way (fsBackend.ts GatedDiffFsBackend.gate) and consults the same
+// per-conversation pin set via takeDeniedEditReplayPin below.
 //
 // Pins are keyed by the provider tool-call id when the approval card knew it
 // (the normal case: the interrupt payload carries it), falling back to a
-// command-string multiset for cards without one (pre-toolCallId checkpoints,
-// where the replayed call's config carries no id either). Take-once semantics:
-// a consumed pin is deleted so a later, genuinely new call that happens to
-// reuse a provider tool-call id (non-Anthropic providers can) or repeat the
-// command string is never silently denied.
+// per-kind string multiset for cards without one (pre-toolCallId checkpoints,
+// where the replayed call's config carries no id either): the command string
+// for run_command cards, the RAW agent path for write/edit cards. The two
+// fallback namespaces are separate so a denied command whose string equals a
+// path (or vice versa) can never cross-claim. Take-once semantics: a consumed
+// pin is deleted so a later, genuinely new call that happens to reuse a
+// provider tool-call id (non-Anthropic providers can) or repeat the command
+// string / path is never silently denied.
 interface DeniedPinSet {
   byToolCallId: Set<string>
   byCommand: Map<string, number>
+  byEditPath: Map<string, number>
 }
 const deniedReplayPins = new Map<string, DeniedPinSet>()
 
 export function pinDeniedReplays(
   conversationId: string,
-  pins: ReadonlyArray<{ toolCallId?: string; command?: string }>
+  pins: ReadonlyArray<{ toolCallId?: string; command?: string; editPath?: string }>
 ): void {
   if (pins.length === 0) return
-  const set: DeniedPinSet = { byToolCallId: new Set(), byCommand: new Map() }
+  const set: DeniedPinSet = {
+    byToolCallId: new Set(),
+    byCommand: new Map(),
+    byEditPath: new Map()
+  }
   for (const pin of pins) {
     if (pin.toolCallId !== undefined) {
       set.byToolCallId.add(pin.toolCallId)
     } else if (pin.command !== undefined) {
       set.byCommand.set(pin.command, (set.byCommand.get(pin.command) ?? 0) + 1)
+    } else if (pin.editPath !== undefined) {
+      set.byEditPath.set(pin.editPath, (set.byEditPath.get(pin.editPath) ?? 0) + 1)
     }
   }
   deniedReplayPins.set(conversationId, set)
@@ -89,6 +101,29 @@ export function takeDeniedReplayPin(
   if (n === undefined) return false
   if (n <= 1) set.byCommand.delete(command)
   else set.byCommand.set(command, n - 1)
+  return true
+}
+
+// The write/edit analog of takeDeniedReplayPin, consulted by
+// GatedDiffFsBackend.gate (fsBackend.ts) at the top of every replayed
+// write/edit. Same discipline: byToolCallId is exact and take-once; the
+// raw-path multiset is consulted ONLY for id-less calls, and lives in its
+// own namespace (byEditPath, never byCommand) so command and edit pins can
+// never cross-claim. rawPath is the string the model sent -- the pin was
+// stored from the same raw string (graph.ts deniedReplayPinsOf), so the
+// match happens pre-jail, verbatim.
+export function takeDeniedEditReplayPin(
+  conversationId: string,
+  toolCallId: string | undefined,
+  rawPath: string
+): boolean {
+  const set = deniedReplayPins.get(conversationId)
+  if (!set) return false
+  if (toolCallId !== undefined) return set.byToolCallId.delete(toolCallId)
+  const n = set.byEditPath.get(rawPath)
+  if (n === undefined) return false
+  if (n <= 1) set.byEditPath.delete(rawPath)
+  else set.byEditPath.set(rawPath, n - 1)
   return true
 }
 

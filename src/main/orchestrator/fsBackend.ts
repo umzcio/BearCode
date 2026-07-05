@@ -30,6 +30,7 @@ import type {
 import type { FileDiffFile } from '../../shared/types'
 import { stageFile } from '../diffs'
 import { evaluateEditForConversation } from '../permissions'
+import { takeDeniedEditReplayPin } from './tools'
 
 const execFileAsync = promisify(execFile)
 
@@ -256,6 +257,23 @@ export class GatedDiffFsBackend implements BackendProtocolV2 {
   // OUTSIDE any try so a GraphInterrupt always propagates as the
   // pending-approval pause instead of being swallowed into {error}.
   private gate(filePath: string, tool: 'write_file' | 'edit_file'): { error: string } | null {
+    // BEFORE anything else -- jail resolution included -- honor a recorded
+    // denial from the approval batch (tools.ts deniedReplayPins): on the
+    // keyed-resume replay this method re-runs from the top, and if the rules
+    // evaluation below returned 'apply' now, the interrupt() would be skipped
+    // and the denied write would land. Adjudication (Task 4 carry-forward):
+    // evaluateEdit has no allow tier today, so an ADDED edit rule can only
+    // tighten a 'prompt' (deny -> 'block', which still does not execute), and
+    // no renderer UX removes rules or saves edit rules from an approval card
+    // in Bb3 -- but the add-rule IPC (ipc.ts bearcode:permissions:add-rule ->
+    // addUserRule) already accepts action:'edit' rules unvalidated (Task 1
+    // widened AddRuleInput.action to the full PermissionAction union), so the
+    // mid-pause flip window is treated as real and pinned at the execution
+    // layer, exactly like run_command. The pin match uses the RAW agent
+    // string (pre-jail): the pin was stored from the same raw string.
+    if (takeDeniedEditReplayPin(this.conversationId, this.toolCallId, filePath)) {
+      return { error: 'User denied this edit.' }
+    }
     let rel: string
     try {
       const abs = jailPath(this.projectPath, filePath)

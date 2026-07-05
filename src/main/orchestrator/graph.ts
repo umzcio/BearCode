@@ -306,16 +306,33 @@ export function shouldEmitBridgedText(bridged: string, streamedAnswer: string): 
 // bridged entry left over from an earlier drive() segment (or a parallel
 // sibling that never ran) would claim a NEW interrupt: the approval card
 // shows the stale command while approving resumes -- and executes -- the new,
-// unseen one. Unknown interrupt kinds pass (nothing to verify against).
-// Exported for tests.
+// unseen one. An edit_file interrupt (fsBackend.ts's GatedDiffFsBackend)
+// works the same way: the candidate must be the exact write tool the gate
+// interrupted for, matched by the payload's toolCallId when it carries one
+// (exact, never falling back) and otherwise by the RAW agent path -- the
+// payload's `path` is the string the model sent, so it is what the streamed
+// tool_call args contain; `resolvedPath` is display-only and never
+// participates in pairing (Task 3 review carry-forward). Unknown interrupt
+// kinds pass (nothing to verify against). Exported for tests.
 export function interruptBelongsToToolCall(
   interruptValue: unknown,
-  tc: { name?: string; args?: unknown }
+  tc: { id?: string; name?: string; args?: unknown }
 ): boolean {
-  const value = interruptValue as { kind?: string; command?: string } | null | undefined
-  if (value?.kind !== 'run_command') return true
-  if (tc.name !== 'run_command') return false
-  return (tc.args as { command?: unknown } | null | undefined)?.command === value.command
+  const value = interruptValue as
+    | { kind?: string; command?: string; tool?: string; path?: string; toolCallId?: unknown }
+    | null
+    | undefined
+  if (value?.kind === 'run_command') {
+    if (tc.name !== 'run_command') return false
+    return (tc.args as { command?: unknown } | null | undefined)?.command === value.command
+  }
+  if (value?.kind === 'edit_file') {
+    if (tc.name !== value.tool) return false
+    if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
+    const args = tc.args as { file_path?: unknown; path?: unknown } | null | undefined
+    return (args?.file_path ?? args?.path) === value.path
+  }
+  return true
 }
 
 // Locate the checkpointed tool calls a rehydrated approval set belongs to
@@ -392,6 +409,51 @@ export function pairInterruptsToCalls(
   })
 }
 
+// The card for an interrupt that paired to no tool call (the call:null
+// synthesis in drive()'s post-loop, and every edit interrupt in
+// rehydratePausedRun): built entirely from the interrupt payload so the
+// approval still surfaces instead of hanging. For edit_file payloads the
+// displayed file_path is the jail-RESOLVED workspace-relative path -- a card
+// showing 'safe/../.env' while the write lands on '.env' would mislead the
+// approver -- and the raw agent string rides along as requested_path when
+// the two differ, because the raw string is what the replayed gate call
+// receives and therefore what the denied-replay pin must match
+// (deniedReplayPinsOf below). The payload's toolCallId (when present) still
+// identifies the replayed call exactly, so a Denied decision on a
+// synthesized card pins correctly. Exported for tests.
+export function synthesizedApprovalCard(interruptValue: unknown): {
+  tool: ToolName
+  input: unknown
+  toolCallId?: string
+} {
+  const value = interruptValue as
+    | {
+        kind?: string
+        command?: string
+        tool?: string
+        path?: string
+        resolvedPath?: string
+        toolCallId?: unknown
+      }
+    | null
+    | undefined
+  const toolCallId = typeof value?.toolCallId === 'string' ? value.toolCallId : undefined
+  if (value?.kind === 'edit_file') {
+    const raw = typeof value.path === 'string' ? value.path : undefined
+    const resolved = typeof value.resolvedPath === 'string' ? value.resolvedPath : undefined
+    const filePath = resolved ?? raw ?? ''
+    return {
+      tool: value.tool === 'edit_file' ? 'edit_file' : 'write_file',
+      input:
+        raw !== undefined && raw !== filePath
+          ? { file_path: filePath, requested_path: raw }
+          : { file_path: filePath },
+      toolCallId
+    }
+  }
+  return { tool: 'run_command', input: { command: value?.command ?? '' }, toolCallId }
+}
+
 // One card of a parked approval set: the interrupt it resolves, the event
 // row's tool/input (so the resolved/denied tool_call re-emits the same card),
 // and the user's decision once recorded. Keyed by callId (the tool_call event
@@ -445,20 +507,33 @@ export function resolvedToolCallEvents(
 
 // The execution-layer deny pins for one dispatched batch (tools.ts
 // deniedReplayPins): every card NOT approved, keyed by its provider tool-call
-// id when known, with the command string as the id-less fallback. Undecided
-// items pin too, matching buildResumeMap's fail-safe-to-denied. Exported for
-// tests.
+// id when known, with a kind-specific string as the id-less fallback -- the
+// command for run_command cards; for write_file/edit_file cards the RAW
+// agent path (a synthesized card's requested_path when it carried one, else
+// the input's file_path), since the raw string is what the replayed gate
+// call receives (fsBackend.ts takeDeniedEditReplayPin). Undecided items pin
+// too, matching buildResumeMap's fail-safe-to-denied. Exported for tests.
 export function deniedReplayPinsOf(
   items: ReadonlyMap<string, ApprovalItem>
-): Array<{ toolCallId?: string; command?: string }> {
-  const pins: Array<{ toolCallId?: string; command?: string }> = []
+): Array<{ toolCallId?: string; command?: string; editPath?: string }> {
+  const pins: Array<{ toolCallId?: string; command?: string; editPath?: string }> = []
   for (const item of items.values()) {
     if (item.decision === true) continue
-    const command = (item.input as { command?: unknown } | null | undefined)?.command
-    pins.push({
-      toolCallId: item.toolCallId,
-      command: typeof command === 'string' ? command : undefined
-    })
+    if (item.tool === 'write_file' || item.tool === 'edit_file') {
+      const input = item.input as
+        { file_path?: unknown; requested_path?: unknown; path?: unknown } | null | undefined
+      const raw = input?.requested_path ?? input?.file_path ?? input?.path
+      pins.push({
+        toolCallId: item.toolCallId,
+        editPath: typeof raw === 'string' ? raw : undefined
+      })
+    } else {
+      const command = (item.input as { command?: unknown } | null | undefined)?.command
+      pins.push({
+        toolCallId: item.toolCallId,
+        command: typeof command === 'string' ? command : undefined
+      })
+    }
   }
   return pins
 }
@@ -982,9 +1057,10 @@ async function drive(
   }
 
   // No-result candidates mean the graph may have paused on approval-gated
-  // run_commands. Fetch the checkpointed interrupts ONCE (all parallel tool
-  // calls of a superstep interrupt independently -- one Send/PUSH task each)
-  // and pair every interrupt to its candidate. A no-result candidate with no
+  // tools (run_command, and Bb3's gated write_file/edit_file). Fetch the
+  // checkpointed interrupts ONCE (all parallel tool calls of a superstep
+  // interrupt independently -- one Send/PUSH task each) and pair every
+  // interrupt to its candidate. A no-result candidate with no
   // interrupt is skipped silently, exactly as before: it is either a stale
   // bridged entry from a prior segment or a tool still genuinely running.
   if (unresolved.length > 0) {
@@ -1020,16 +1096,13 @@ async function drive(
         } else {
           // The interrupt paired to no candidate (e.g. a stripped call the
           // bridge also missed): synthesize the card from the interrupt
-          // payload so the approval still surfaces instead of hanging. The
-          // payload's toolCallId (when present) still identifies the replayed
-          // call exactly, so a Denied decision on this card pins correctly.
-          const value = pairing.value as { command?: string; toolCallId?: unknown } | undefined
+          // payload so the approval still surfaces instead of hanging
+          // (synthesizedApprovalCard branches run_command vs edit_file and
+          // keeps the pin identity intact).
           item = {
             callId: randomUUID(),
             interruptId: pairing.interruptId,
-            tool: 'run_command',
-            input: { command: value?.command ?? '' },
-            toolCallId: typeof value?.toolCallId === 'string' ? value.toolCallId : undefined
+            ...synthesizedApprovalCard(pairing.value)
           }
         }
         // Not persisted here (matching legacy run.ts): only the final
@@ -1409,16 +1482,24 @@ export async function runGraph(opts: {
   return { paused: false }
 }
 
+// The interrupt kinds the crash-resume path knows how to re-surface as
+// approval cards: run_command (tools.ts) and Bb3's edit_file (fsBackend.ts
+// GatedDiffFsBackend). Exported for tests.
+export function isRehydratableInterrupt(value: unknown): boolean {
+  const kind = (value as { kind?: string } | null | undefined)?.kind
+  return kind === 'run_command' || kind === 'edit_file'
+}
+
 // Full crash-resume (A2). Called at boot for a dangling conversation: rebuilds
 // the agent (same checkpointer + thread_id, so it reads the persisted execution
-// state) and checks whether the run died parked at command-approval
+// state) and checks whether the run died parked at command- or edit-approval
 // interrupts. If so, re-surfaces every approval card and re-parks the whole
 // set in pendingApprovals so the existing resolveApprovalOrchestrator ->
 // resolveInterrupt -> continueAfterApproval path resumes the graph from the
 // checkpoint. Returns true if it re-parked pending approvals, false if there
 // was nothing safely resumable (caller then degrades to 'cancelled').
-// Security: this only re-shows the approvals; no command ever auto-runs --
-// the user must answer every card again.
+// Security: this only re-shows the approvals; no command ever auto-runs and
+// no write ever auto-lands -- the user must answer every card again.
 export async function rehydratePausedRun(
   conversationId: string,
   modelRef: string,
@@ -1433,9 +1514,7 @@ export async function rehydratePausedRun(
   // apple makes the whole set unresumable, since the batch resume must answer
   // every interrupt. Either way, not resumable.
   if (interrupts.length === 0) return false
-  if (
-    interrupts.some((it) => (it.value as { kind?: string } | undefined)?.kind !== 'run_command')
-  ) {
+  if (interrupts.some((it) => !isRehydratableInterrupt(it.value))) {
     return false
   }
 
@@ -1458,10 +1537,52 @@ export async function rehydratePausedRun(
   const items = new Map<string, ApprovalItem>()
   for (const pairing of pairInterruptsToCalls(interrupts, findDanglingRunCommandCalls(messages))) {
     const pendingCallId = randomUUID()
-    const value = pairing.value as { command?: string; toolCallId?: unknown } | undefined
-    const input = pairing.call ? pairing.call.args : { command: value?.command ?? '' }
-    const toolCallId =
-      pairing.call?.id ?? (typeof value?.toolCallId === 'string' ? value.toolCallId : undefined)
+    let tool: ToolName
+    let input: unknown
+    let toolCallId: string | undefined
+    if ((pairing.value as { kind?: string } | null | undefined)?.kind === 'edit_file') {
+      // Edit interrupts always re-park from the payload: the dangling-call
+      // scan above is deliberately run_command-only, so pairing.call is null
+      // for every edit (a toolCallId lookup misses the candidate list and the
+      // fallback matcher rejects run_command candidates), and
+      // synthesizedApprovalCard shows the TRUE resolved target while keeping
+      // the raw path + toolCallId the denied-replay pin needs. ctx seeding
+      // (the callIdMap/bridgedToolCalls block in the run_command branch) is
+      // deliberately skipped for edits in Bb3: it only recovers the
+      // post-resume tool_result row, and for writes the review pane is driven
+      // by the staged-diff post-loop (backend.stagedFiles -> closeOutTurn's
+      // file_diff), not toolMsgById -- an approved write's replay still lands
+      // on disk and stages its diff regardless. Cost: the crash-resumed
+      // edit's tool_result row is absent from history, a cosmetic gap.
+      const card = synthesizedApprovalCard(pairing.value)
+      tool = card.tool
+      input = card.input
+      toolCallId = card.toolCallId
+    } else {
+      const value = pairing.value as { command?: string; toolCallId?: unknown } | undefined
+      tool = 'run_command'
+      input = pairing.call ? pairing.call.args : { command: value?.command ?? '' }
+      toolCallId =
+        pairing.call?.id ?? (typeof value?.toolCallId === 'string' ? value.toolCallId : undefined)
+      // Bug B residual (crash-resume): buildAgentAndContext made a FRESH ctx, so
+      // without seeding, the resumed drive() neither recalls this event id
+      // (callIdMap mints a new one that can't pair with the approved tool_call
+      // row) nor re-iterates the checkpointed tool call at all (LangGraph doesn't
+      // re-stream the AI message that carried it, and handleLLMEnd doesn't
+      // re-fire for it) -- the command's tool_result was never persisted. Seed
+      // both maps from the checkpointed messages: callIdMap so the tool_result's
+      // callId is pendingCallId, bridgedToolCalls so drive()'s existing fallback
+      // loop processes the call (resolveInterrupt's alreadyAnnounced.add
+      // suppresses a duplicate tool_call emit, same as the live resume path).
+      if (pairing.call) {
+        ctx.callIdMap.set(pairing.call.id, pendingCallId)
+        ctx.bridgedToolCalls.set(pairing.call.id, {
+          id: pairing.call.id,
+          name: pairing.call.name ?? 'run_command',
+          args: pairing.call.args
+        })
+      }
+    }
     // PERSIST (not emit-only) the pending tool_call: at boot the renderer may
     // not have this conversation loaded yet and openConvo rebuilds an
     // awaiting-approval conversation from the DB, so the pending approval must
@@ -1471,31 +1592,13 @@ export async function rehydratePausedRun(
     emitAndPersist(conversationId, sink, {
       type: 'tool_call',
       id: pendingCallId,
-      tool: 'run_command',
+      tool,
       input,
       approvalState: 'pending'
     })
-    // Bug B residual (crash-resume): buildAgentAndContext made a FRESH ctx, so
-    // without seeding, the resumed drive() neither recalls this event id
-    // (callIdMap mints a new one that can't pair with the approved tool_call
-    // row) nor re-iterates the checkpointed tool call at all (LangGraph doesn't
-    // re-stream the AI message that carried it, and handleLLMEnd doesn't
-    // re-fire for it) -- the command's tool_result was never persisted. Seed
-    // both maps from the checkpointed messages: callIdMap so the tool_result's
-    // callId is pendingCallId, bridgedToolCalls so drive()'s existing fallback
-    // loop processes the call (resolveInterrupt's alreadyAnnounced.add
-    // suppresses a duplicate tool_call emit, same as the live resume path).
-    if (pairing.call) {
-      ctx.callIdMap.set(pairing.call.id, pendingCallId)
-      ctx.bridgedToolCalls.set(pairing.call.id, {
-        id: pairing.call.id,
-        name: pairing.call.name ?? 'run_command',
-        args: pairing.call.args
-      })
-    }
     items.set(pendingCallId, {
       interruptId: pairing.interruptId,
-      tool: 'run_command',
+      tool,
       input,
       toolCallId
     })

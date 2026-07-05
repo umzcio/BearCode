@@ -9,7 +9,13 @@ vi.mock('../permissions', () => ({
 }))
 
 import { evaluateCommandForConversation } from '../permissions'
-import { buildTools, clearDeniedReplayPins, pinDeniedReplays, takeDeniedReplayPin } from './tools'
+import {
+  buildTools,
+  clearDeniedReplayPins,
+  pinDeniedReplays,
+  takeDeniedEditReplayPin,
+  takeDeniedReplayPin
+} from './tools'
 
 beforeEach(() => {
   clearDeniedReplayPins('convo')
@@ -58,6 +64,37 @@ describe('denied-replay pins (execution-layer deny enforcement)', () => {
   it('pinning an empty batch leaves earlier state untouched (no-op)', () => {
     pinDeniedReplays('convo', [])
     expect(takeDeniedReplayPin('convo', undefined, 'ls')).toBe(false)
+  })
+})
+
+describe('denied-replay pins for edits (takeDeniedEditReplayPin)', () => {
+  it('returns false when nothing is pinned', () => {
+    expect(takeDeniedEditReplayPin('convo', 'tc1', 'src/a.ts')).toBe(false)
+  })
+
+  it('consumes a toolCallId pin exactly once', () => {
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1', editPath: 'src/a.ts' }])
+    expect(takeDeniedEditReplayPin('convo', 'tc1', 'src/a.ts')).toBe(true)
+    expect(takeDeniedEditReplayPin('convo', 'tc1', 'src/a.ts')).toBe(false)
+  })
+
+  it('falls back to the raw-path multiset only for id-less pins and id-less calls', () => {
+    pinDeniedReplays('convo', [{ editPath: 'a.txt' }, { editPath: 'a.txt' }])
+    // A call carrying a toolCallId never claims an id-less pin.
+    expect(takeDeniedEditReplayPin('convo', 'tc1', 'a.txt')).toBe(false)
+    expect(takeDeniedEditReplayPin('convo', undefined, 'a.txt')).toBe(true)
+    expect(takeDeniedEditReplayPin('convo', undefined, 'a.txt')).toBe(true)
+    expect(takeDeniedEditReplayPin('convo', undefined, 'a.txt')).toBe(false)
+  })
+
+  it('keeps the command and edit-path fallback namespaces separate', () => {
+    // A denied command whose string happens to equal a path must never
+    // satisfy an edit replay, and vice versa.
+    pinDeniedReplays('convo', [{ command: 'a.txt' }, { editPath: 'make' }])
+    expect(takeDeniedEditReplayPin('convo', undefined, 'a.txt')).toBe(false)
+    expect(takeDeniedReplayPin('convo', undefined, 'make')).toBe(false)
+    expect(takeDeniedReplayPin('convo', undefined, 'a.txt')).toBe(true)
+    expect(takeDeniedEditReplayPin('convo', undefined, 'make')).toBe(true)
   })
 })
 

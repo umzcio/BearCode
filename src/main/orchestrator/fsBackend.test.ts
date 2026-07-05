@@ -8,7 +8,10 @@ import { join, resolve } from 'path'
 // under test never opens a real database, and so the gate's rules-engine
 // calls are observable (same idiom as tools.test.ts).
 vi.mock('../permissions', () => ({
-  evaluateEditForConversation: vi.fn(() => 'apply')
+  evaluateEditForConversation: vi.fn(() => 'apply'),
+  // fsBackend.ts now pulls the denied-replay pins in from ./tools, whose
+  // module scope imports this from ../permissions too.
+  evaluateCommandForConversation: vi.fn(() => 'run')
 }))
 vi.mock('../diffs', () => ({
   stageFile: vi.fn()
@@ -26,6 +29,7 @@ import { GraphInterrupt, interrupt, isGraphInterrupt } from '@langchain/langgrap
 import { evaluateEditForConversation } from '../permissions'
 import type { DiffFsBackend } from './fsBackend'
 import { GatedDiffFsBackend, relForGate } from './fsBackend'
+import { clearDeniedReplayPins, pinDeniedReplays } from './tools'
 
 describe('relForGate', () => {
   it('computes the workspace-relative path with forward slashes', () => {
@@ -68,6 +72,7 @@ describe('GatedDiffFsBackend', () => {
   let gated: GatedDiffFsBackend
 
   beforeEach(() => {
+    clearDeniedReplayPins('convo')
     vi.mocked(evaluateEditForConversation).mockClear()
     vi.mocked(evaluateEditForConversation).mockReturnValue('apply')
     vi.mocked(interrupt).mockClear()
@@ -149,6 +154,48 @@ describe('GatedDiffFsBackend', () => {
       thrown = err
     }
     expect(isGraphInterrupt(thrown)).toBe(true)
+    expect(shared.write).not.toHaveBeenCalled()
+  })
+
+  it('honors a denied-replay pin before the rules engine is even asked', async () => {
+    // The Bb3 analog of run_command's execution-layer deny enforcement: the
+    // add-rule IPC accepts action:'edit' rules today, so a rule change during
+    // the collect window could otherwise flip the replayed evaluation.
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1', editPath: 'a/b.txt' }])
+    const result = await gated.write('a/b.txt', 'new')
+    expect(result).toEqual({ error: 'User denied this edit.' })
+    expect(evaluateEditForConversation).not.toHaveBeenCalled()
+    expect(interrupt).not.toHaveBeenCalled()
+    expect(shared.write).not.toHaveBeenCalled()
+  })
+
+  it('honors the pin for edit() too', async () => {
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1', editPath: 'a/b.txt' }])
+    const result = await gated.edit('a/b.txt', 'hello', 'bye')
+    expect(result).toEqual({ error: 'User denied this edit.' })
+    expect(shared.edit).not.toHaveBeenCalled()
+  })
+
+  it('a consumed pin never denies a later identical write (take-once)', async () => {
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1', editPath: 'a/b.txt' }])
+    await gated.write('a/b.txt', 'new')
+    const result = await gated.write('a/b.txt', 'newer')
+    expect(result).toEqual({ path: 'x', filesUpdate: null })
+    expect(shared.write).toHaveBeenCalledTimes(1)
+  })
+
+  it('claims an id-less pin by the RAW agent path, before jail resolution', async () => {
+    // The pin key and the replayed call both carry the raw string the model
+    // sent, so the match happens on it verbatim (never the resolved path).
+    pinDeniedReplays('convo', [{ editPath: 'a/../.env' }])
+    const noId = new GatedDiffFsBackend(
+      shared as unknown as DiffFsBackend,
+      undefined,
+      'convo',
+      projectPath
+    )
+    const result = await noId.write('a/../.env', 'SECRET=1')
+    expect(result).toEqual({ error: 'User denied this edit.' })
     expect(shared.write).not.toHaveBeenCalled()
   })
 
