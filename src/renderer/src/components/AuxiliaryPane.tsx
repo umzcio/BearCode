@@ -1,7 +1,9 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import type { Event, FileDiff, FileDiffFile } from '@shared/types'
-import { useAppStore } from '../state/store'
-import { ArtifactPane } from './ArtifactPane'
+import { useAppStore, type AuxSelection } from '../state/store'
+import { ArtifactViewer } from './ArtifactViewer'
+import { deriveRailEntries, versionsOfType, type ArtifactEvent } from '../lib/auxRail'
+import { ARTIFACT_STATUS_LABELS, ARTIFACT_TYPE_LABELS } from './events/ArtifactCard'
 import {
   IconChevronDown,
   IconClose,
@@ -9,7 +11,6 @@ import {
   IconFile,
   IconLines,
   IconOverview,
-  IconPanel,
   IconSearch
 } from './icons'
 import './ReviewPanel.css'
@@ -58,18 +59,139 @@ interface ReviewComment {
   text: string
 }
 
-export function ReviewPanel(): React.JSX.Element | null {
-  const diffId = useAppStore((s) => s.reviewDiffId)
-  const artifactId = useAppStore((s) => s.reviewArtifactId)
-  // One side-panel mount, two exclusive occupants until Ba4 unifies them:
-  // the artifacts pane (Ba1, read-only) or the diff review pane.
-  if (artifactId) return <ArtifactPane key={artifactId} artifactId={artifactId} />
-  if (!diffId) return null
-  // Keyed on diffId so per-diff state starts fresh each time it opens.
-  return <ReviewPanelInner key={diffId} diffId={diffId} />
+// The Auxiliary Pane (Ba4, design 3.6): ONE side panel listing every
+// deliverable of the current conversation -- plan/walkthrough artifacts plus
+// one virtual "Changes" entry per diff group (derived from file_diff events;
+// the diffs table is never migrated, design 3.4). The store's auxSelection
+// deep-links a target; rail browsing is local state, overridden by the next
+// deep-link via auxPaneOpenTick (the Ba2 tick idiom).
+export function AuxiliaryPane(): React.JSX.Element | null {
+  const target = useAppStore((s) => s.auxSelection)
+  if (!target) return null
+  return <AuxiliaryPaneInner target={target} />
 }
 
-function ReviewPanelInner({ diffId }: { diffId: string }): React.JSX.Element {
+function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Element | null {
+  const view = useAppStore((s) => s.view)
+  const conversations = useAppStore((s) => s.conversations)
+  const closeReview = useAppStore((s) => s.closeReview)
+  const openTick = useAppStore((s) => s.auxPaneOpenTick)
+
+  // Local rail selection, overridden by every deep-link (tick bump): the same
+  // render-time adjustment the Ba2 pane used for its selection sync.
+  const [sel, setSel] = useState<AuxSelection>(target)
+  const [seenTick, setSeenTick] = useState(openTick)
+  if (seenTick !== openTick) {
+    setSeenTick(openTick)
+    setSel(target)
+  }
+
+  // Escape closes the pane, unless a text field has focus. NOTE the real
+  // scope: Monaco's input is a hidden .inputarea TEXTAREA that holds focus
+  // whenever the editor does, so Escape is inert after any click into a diff
+  // or code body until focus leaves the editor -- accepted (Ba4): closing the
+  // pane mid-diff-reading was worse, and Monaco consumes Escape internally
+  // (find widget, suggest) anyway.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        const t = e.target as HTMLElement | null
+        if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return
+        closeReview()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [closeReview])
+
+  const convo = view.kind === 'conversation' ? conversations[view.id] : null
+  if (!convo) return null
+
+  const entries = deriveRailEntries(convo.events)
+  const artifactFor = (artifactId: string): ArtifactEvent | undefined =>
+    convo.events.find(
+      (e): e is ArtifactEvent => e.type === 'artifact' && e.artifactId === artifactId
+    )
+  const diffExists = (diffId: string): boolean =>
+    convo.events.some((e) => e.type === 'file_diff' && e.diffId === diffId)
+
+  // Resolve the local selection against the live events; fall back to the
+  // newest rail entry (e.g. a stale local pick after events changed).
+  let resolved: AuxSelection | null = sel
+  if (sel.kind === 'artifact' && !artifactFor(sel.artifactId)) resolved = null
+  if (sel.kind === 'diff' && !diffExists(sel.diffId)) resolved = null
+  if (!resolved && entries.length > 0) {
+    const first = entries[0]
+    resolved =
+      first.kind === 'artifact'
+        ? { kind: 'artifact', artifactId: first.event.artifactId }
+        : { kind: 'diff', diffId: first.event.diffId }
+  }
+  const selectedArtifact =
+    resolved?.kind === 'artifact' ? artifactFor(resolved.artifactId) : undefined
+
+  return (
+    <div className="review-side">
+      <div className="artifact-pane-head">
+        <span className="review-head-title">Artifacts</span>
+        <button className="panel-close" title="Close panel" onClick={closeReview}>
+          <IconClose />
+        </button>
+      </div>
+      <div className="artifact-rail">
+        {entries.map((entry) =>
+          entry.kind === 'artifact' ? (
+            <button
+              key={entry.event.id}
+              className={
+                'artifact-rail-item' +
+                (resolved?.kind === 'artifact' && resolved.artifactId === entry.event.artifactId
+                  ? ' selected'
+                  : '')
+              }
+              onClick={() => setSel({ kind: 'artifact', artifactId: entry.event.artifactId })}
+            >
+              <span className="artifact-rail-title">
+                {ARTIFACT_TYPE_LABELS[entry.event.artifactType]} v{entry.event.version}
+              </span>
+              <span className={'artifact-status ' + entry.event.status}>
+                {ARTIFACT_STATUS_LABELS[entry.event.status]}
+              </span>
+            </button>
+          ) : (
+            <button
+              key={entry.event.id}
+              className={
+                'artifact-rail-item' +
+                (resolved?.kind === 'diff' && resolved.diffId === entry.event.diffId
+                  ? ' selected'
+                  : '')
+              }
+              onClick={() => setSel({ kind: 'diff', diffId: entry.event.diffId })}
+            >
+              <span className="artifact-rail-title">Changes</span>
+              <span className="artifact-rail-meta">
+                {entry.event.files.length} file{entry.event.files.length === 1 ? '' : 's'}
+              </span>
+            </button>
+          )
+        )}
+      </div>
+      {resolved?.kind === 'diff' ? (
+        <DiffViewer key={resolved.diffId} diffId={resolved.diffId} />
+      ) : selectedArtifact ? (
+        <ArtifactViewer
+          selected={selectedArtifact}
+          versions={versionsOfType(convo.events, selectedArtifact.artifactType)}
+          convoEvents={convo.events}
+          onSelectVersion={(artifactId) => setSel({ kind: 'artifact', artifactId })}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function DiffViewer({ diffId }: { diffId: string }): React.JSX.Element {
   const closeReview = useAppStore((s) => s.closeReview)
   const focusPath = useAppStore((s) => s.reviewFocusPath)
   const view = useAppStore((s) => s.view)
@@ -104,13 +226,8 @@ function ReviewPanelInner({ diffId }: { diffId: string }): React.JSX.Element {
     void window.bearcode.diffs.get(diffId).then((d) => {
       if (!stale) setDiff(d)
     })
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') closeReview()
-    }
-    window.addEventListener('keydown', onKey)
     return () => {
       stale = true
-      window.removeEventListener('keydown', onKey)
     }
   }, [diffId, closeReview])
 
@@ -159,7 +276,7 @@ function ReviewPanelInner({ diffId }: { diffId: string }): React.JSX.Element {
   const soon = (): void => showToast('Coming soon')
 
   return (
-    <div className="review-side">
+    <>
       <div className="review-tabs">
         <button
           className={'review-tab' + (tab === 'overview' ? ' active' : '')}
@@ -185,9 +302,6 @@ function ReviewPanelInner({ diffId }: { diffId: string }): React.JSX.Element {
             {baseName(f.path)}
           </button>
         ))}
-        <button className="panel-close" title="Close panel" onClick={closeReview}>
-          <IconPanel />
-        </button>
       </div>
 
       {tab === 'overview' ? (
@@ -375,6 +489,6 @@ function ReviewPanelInner({ diffId }: { diffId: string }): React.JSX.Element {
           </div>
         </>
       ) : null}
-    </div>
+    </>
   )
 }

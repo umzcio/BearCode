@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { Sidebar } from './components/Sidebar/Sidebar'
 import { Home } from './components/Home'
 import { ConversationView } from './components/ConversationView'
-import { ReviewPanel } from './components/ReviewPanel'
+import { AuxiliaryPane } from './components/AuxiliaryPane'
 import { SettingsModal } from './components/Settings/SettingsModal'
 import { RoarBear } from './components/brand/RoarBear'
 import { Hint } from './components/Hint'
@@ -102,7 +102,7 @@ function App(): React.JSX.Element {
         {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}
         <SettingsModal />
       </div>
-      <ReviewPanel />
+      <AuxiliaryPane />
       {toast ? <div className="toast">{toast}</div> : null}
     </div>
   )

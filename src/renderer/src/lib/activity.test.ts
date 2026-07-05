@@ -50,6 +50,28 @@ describe('deriveActivity', () => {
   it('says Working for an empty event list', () => {
     expect(deriveActivity('running', [])).toEqual({ label: 'Working…', tone: 'busy' })
   })
+
+  const pendingCall = (id: string, tool: string): Event =>
+    ({ type: 'tool_call', id, tool, input: {}, approvalState: 'pending' }) as Event
+
+  it('says Waiting for plan review when the pending call is submit_plan (Ba4)', () => {
+    expect(deriveActivity('awaiting-approval', [pendingCall('c1', 'submit_plan')])).toEqual({
+      label: 'Waiting for plan review',
+      tone: 'attention'
+    })
+  })
+  it('keeps the generic approval copy for a pending run_command', () => {
+    expect(deriveActivity('awaiting-approval', [pendingCall('c1', 'run_command')]).label).toBe(
+      'Waiting for your approval'
+    )
+  })
+  it('follows the FIRST pending card when a command and a plan are both parked', () => {
+    // The status bar's click jumps to the first pending card (its anchor and
+    // hotkeys, ToolStep useIsFirstPendingCard) -- the label must describe
+    // that card, not the plan parked behind it.
+    const events = [pendingCall('c1', 'run_command'), pendingCall('c2', 'submit_plan')]
+    expect(deriveActivity('awaiting-approval', events).label).toBe('Waiting for your approval')
+  })
 })
 
 describe('formatElapsed', () => {
