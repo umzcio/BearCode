@@ -105,9 +105,65 @@ function summaryFor(call: ToolCallEvent, result?: ToolResultEvent): React.ReactN
   }
 }
 
+// Parallel approvals can put several pending cards on screen at once (any
+// mix of run_command and write_file/edit_file); the number-key hotkeys and
+// the jump-to-approval anchor id belong only to the FIRST pending tool_call
+// in the conversation's event order, so one keypress never answers more than
+// one card. Shared by PendingCommand and PendingEdit so both tool kinds
+// participate in the same single-active-card scheme (ded9abc).
+function useIsFirstPendingCard(convoId: string, callId: string): boolean {
+  return useAppStore((s) => {
+    const events = s.conversations[convoId]?.events
+    if (!events) return false
+    for (const e of events) {
+      if (e.type === 'tool_call' && e.approvalState === 'pending') return e.id === callId
+    }
+    return false
+  })
+}
+
 export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const openReviewForFile = useAppStore((s) => s.openReviewForFile)
+
+  if (
+    (call.tool === 'write_file' || call.tool === 'edit_file') &&
+    call.approvalState === 'pending'
+  ) {
+    const path = inputStr(call, 'file_path') ?? inputStr(call, 'path') ?? 'a file'
+    const requestedPath = inputStr(call, 'requested_path')
+    return (
+      <PendingEdit
+        callId={call.id}
+        path={path}
+        requestedPath={requestedPath !== path ? requestedPath : null}
+        verb={call.tool === 'write_file' ? 'write to' : 'edit'}
+        convoId={convoId}
+      />
+    )
+  }
+  if (
+    (call.tool === 'write_file' || call.tool === 'edit_file') &&
+    call.approvalState === 'denied'
+  ) {
+    const path = inputStr(call, 'file_path') ?? inputStr(call, 'path') ?? 'a file'
+    const requestedPath = inputStr(call, 'requested_path')
+    const name = path.split('/').pop() ?? path
+    return (
+      <div className="step">
+        <div className="step-row static">
+          <span>
+            Denied {call.tool === 'write_file' ? 'writing' : 'editing'} <b>{name}</b>
+          </span>
+        </div>
+        {requestedPath && requestedPath !== path ? (
+          <div className="waiting-note">
+            requested as <span className="mono">{requestedPath}</span>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
 
   // Write steps open the review pane at that file, like Antigravity.
   if ((call.tool === 'write_file' || call.tool === 'edit_file') && result?.stats) {
@@ -180,24 +236,14 @@ function PendingCommand({
   const approveTool = useAppStore((s) => s.approveTool)
   const addPermissionRule = useAppStore((s) => s.addPermissionRule)
   const projectPath = useAppStore((s) => s.conversations[convoId]?.projectPath ?? null)
-  // Parallel approvals can put several pending cards on screen at once; the
-  // number keys (and the jump-to-approval anchor id) belong only to the FIRST
-  // pending card in the conversation's event order, so one keypress never
-  // answers more than one card. Each answered card flips via its resolved
-  // event, making the next card the first pending one -- the keys move down
-  // the stack naturally. An "always allow" rule saved on one card never
-  // answers a sibling card: each still needs its own click, and a sibling the
-  // user denies stays denied even though the new rule would now allow its
-  // command -- the main process pins denied decisions so the batch resume's
-  // rules re-evaluation cannot override them (tools.ts deniedReplayPins).
-  const isFirstPending = useAppStore((s) => {
-    const events = s.conversations[convoId]?.events
-    if (!events) return false
-    for (const e of events) {
-      if (e.type === 'tool_call' && e.approvalState === 'pending') return e.id === callId
-    }
-    return false
-  })
+  // Each answered card flips via its resolved event, making the next card the
+  // first pending one -- the keys move down the stack naturally. An "always
+  // allow" rule saved on one card never answers a sibling card: each still
+  // needs its own click, and a sibling the user denies stays denied even
+  // though the new rule would now allow its command -- the main process pins
+  // denied decisions so the batch resume's rules re-evaluation cannot
+  // override them (tools.ts deniedReplayPins).
+  const isFirstPending = useIsFirstPendingCard(convoId, callId)
   const [showAllow, setShowAllow] = useState(false)
   const prefix = command.trim().split(/\s+/)[0] + ' *'
 
@@ -306,6 +352,72 @@ function PendingCommand({
         ) : null}
         <button className="approval-opt" onClick={deny}>
           {isFirstPending ? <span className="opt-num">3</span> : null}
+          No, deny it
+          <span className="opt-hint">the agent is told you declined</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function PendingEdit({
+  callId,
+  path,
+  requestedPath,
+  verb,
+  convoId
+}: {
+  callId: string
+  path: string
+  requestedPath: string | null
+  verb: string
+  convoId: string
+}): React.JSX.Element {
+  const approveTool = useAppStore((s) => s.approveTool)
+  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+
+  const allow = (): void => approveTool(callId, true)
+  const deny = (): void => approveTool(callId, false)
+
+  // Number keys answer the prompt, matching the option badges. Rule
+  // authoring for edits (the "always allow" panel) arrives with the Bb4
+  // manager UI, so this card only ever has two options: allow once or deny.
+  useEffect(() => {
+    if (!isFirstPending) return undefined
+    const onKey = (e: KeyboardEvent): void => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === '1') allow()
+      else if (e.key === '2') deny()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId, isFirstPending])
+
+  return (
+    <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
+      <div className="step-row static">
+        <span>
+          Allow the agent to {verb} <span className="mono">{path}</span>?
+        </span>
+      </div>
+      {requestedPath ? (
+        <div className="waiting-note">
+          requested as <span className="mono">{requestedPath}</span>
+        </div>
+      ) : null}
+      <div className="waiting-note">Waiting for your input…</div>
+      <div className="approval-card pulse-once">
+        <div className="approval-title">A permission rule asks before this edit.</div>
+        <div className="approval-cmd">{path}</div>
+        <button className="approval-opt" onClick={allow}>
+          {isFirstPending ? <span className="opt-num">1</span> : null}
+          Yes, apply this edit
+        </button>
+        <button className="approval-opt" onClick={deny}>
+          {isFirstPending ? <span className="opt-num">2</span> : null}
           No, deny it
           <span className="opt-hint">the agent is told you declined</span>
         </button>
