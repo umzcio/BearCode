@@ -7,7 +7,7 @@
 import type { AgentsContent, Rule, Workflow } from '../agentsDir/types'
 import { matchesEditPath } from '../permissions/rules'
 import { resolveWorkflowSteps } from './commands'
-import type { CommandRef } from '../../shared/types'
+import type { CommandRef, MentionRef } from '../../shared/types'
 
 export interface RuleAssemblyInput {
   content: AgentsContent
@@ -157,4 +157,77 @@ export function assembleCommandAdditions(
       ...PRECEDENCE_LINES
     ]
   }
+}
+
+// ---- @ mentions (D3) ----
+
+// The final assistant answer + title of a referenced conversation, resolved by
+// the caller (buildAgentAndContext) from the db. Kept as an injected dep so
+// this module stays pure/testable (no db import).
+export interface ConversationSummary {
+  title: string
+  finalAnswer: string | null
+}
+
+export interface UserMentionsDeps {
+  conversationSummary(conversationId: string): ConversationSummary | null
+}
+
+// File-kind mention paths (path preferred, name fallback), for BOTH the
+// Referenced-files block below and the glob-on-mention hook
+// (assembleRuleAdditions.mentionPaths, graph.ts). Pure.
+export function mentionedFilePaths(mentions: MentionRef[]): string[] {
+  return mentions
+    .filter((m) => m.kind === 'file')
+    .map((m) => m.path ?? m.name)
+    .filter((p): p is string => !!p)
+}
+
+// Rule-kind mention names, for pinning into active_rules (graph.ts). Pure.
+export function mentionedRuleNames(mentions: MentionRef[]): string[] {
+  return mentions.filter((m) => m.kind === 'rule').map((m) => m.name)
+}
+
+// Union existing pinned rule names with freshly mentioned ones, de-duplicated,
+// order preserved (existing first). Pure.
+export function mergeActiveRules(existing: string[], mentioned: string[]): string[] {
+  return Array.from(new Set([...existing, ...mentioned]))
+}
+
+// Turns @ mentions into this turn's system-prompt additions (D3 design 7):
+// a "Referenced files" block that names the paths and instructs the agent to
+// read what it needs (never inlines content), and one block per referenced
+// conversation with its title + final assistant answer. Pure: the caller
+// supplies conversation lookups via deps. @rule mentions produce NO text here
+// — they pin into active_rules and flow through assembleRuleAdditions instead.
+export function assembleUserMentions(
+  mentions: MentionRef[],
+  deps: UserMentionsDeps
+): { systemAdditions: string[] } {
+  const additions: string[] = []
+
+  const filePaths = mentionedFilePaths(mentions)
+  if (filePaths.length > 0) {
+    additions.push(
+      '',
+      '## Referenced files',
+      'The user referenced these workspace files for this turn. Read the ones you need with',
+      'read_file; do not assume their contents.'
+    )
+    for (const p of filePaths) additions.push(`- ${p}`)
+  }
+
+  for (const m of mentions) {
+    if (m.kind !== 'conversation' || !m.conversationId) continue
+    const summary = deps.conversationSummary(m.conversationId)
+    if (!summary) continue
+    additions.push(
+      '',
+      `## Referenced conversation: ${summary.title}`,
+      'The user referenced a past conversation. Its final answer was:',
+      summary.finalAnswer ?? '(no final answer was recorded in that conversation)'
+    )
+  }
+
+  return { systemAdditions: additions }
 }

@@ -3,10 +3,15 @@ import {
   assembleRuleAdditions,
   withoutModelRules,
   assembleCommandAdditions,
-  type RuleAssemblyInput
+  assembleUserMentions,
+  mentionedFilePaths,
+  mentionedRuleNames,
+  mergeActiveRules,
+  type RuleAssemblyInput,
+  type UserMentionsDeps
 } from './contextAssembly'
 import type { AgentsContent, Rule, Workflow } from '../agentsDir/types'
-import type { CommandRef } from '../../shared/types'
+import type { CommandRef, MentionRef } from '../../shared/types'
 
 const rule = (overrides: Partial<Rule> = {}): Rule => ({
   name: 'r',
@@ -269,5 +274,81 @@ describe('assembleCommandAdditions', () => {
     expect(result.error).toBe(
       'Workflow /loop-b references /loop-a, which creates a reference cycle'
     )
+  })
+})
+
+describe('assembleUserMentions', () => {
+  const noConvos: UserMentionsDeps = { conversationSummary: () => null }
+
+  it('returns no additions for an empty mention list', () => {
+    expect(assembleUserMentions([], noConvos).systemAdditions).toEqual([])
+  })
+
+  it('renders a Referenced files block from file mentions (path preferred)', () => {
+    const mentions: MentionRef[] = [
+      { kind: 'file', name: 'a.ts', path: 'src/a.ts' },
+      { kind: 'file', name: 'src/b.ts' }
+    ]
+    const out = assembleUserMentions(mentions, noConvos).systemAdditions
+    expect(out).toContain('## Referenced files')
+    expect(out).toContain('- src/a.ts')
+    expect(out).toContain('- src/b.ts')
+  })
+
+  it('renders a Referenced conversation block with the final answer', () => {
+    const deps: UserMentionsDeps = {
+      conversationSummary: (id) =>
+        id === 'c1' ? { title: 'Auth refactor', finalAnswer: 'Done: moved to JWT.' } : null
+    }
+    const out = assembleUserMentions(
+      [{ kind: 'conversation', name: 'Auth refactor', conversationId: 'c1' }],
+      deps
+    ).systemAdditions
+    expect(out).toContain('## Referenced conversation: Auth refactor')
+    expect(out).toContain('Done: moved to JWT.')
+  })
+
+  it('renders a placeholder when a referenced conversation has no final answer', () => {
+    const deps: UserMentionsDeps = {
+      conversationSummary: () => ({ title: 'Empty', finalAnswer: null })
+    }
+    const out = assembleUserMentions(
+      [{ kind: 'conversation', name: 'Empty', conversationId: 'c9' }],
+      deps
+    ).systemAdditions
+    expect(out.some((l) => l.includes('no final answer'))).toBe(true)
+  })
+
+  it('skips a conversation mention the deps cannot resolve', () => {
+    expect(
+      assembleUserMentions([{ kind: 'conversation', name: 'gone', conversationId: 'x' }], noConvos)
+        .systemAdditions
+    ).toEqual([])
+  })
+})
+
+describe('mention rule helpers', () => {
+  it('mentionedFilePaths returns path ?? name for file mentions only', () => {
+    expect(
+      mentionedFilePaths([
+        { kind: 'file', name: 'a.ts', path: 'src/a.ts' },
+        { kind: 'file', name: 'b.ts' },
+        { kind: 'rule', name: 'style' }
+      ])
+    ).toEqual(['src/a.ts', 'b.ts'])
+  })
+
+  it('mentionedRuleNames returns names of rule mentions only', () => {
+    expect(
+      mentionedRuleNames([
+        { kind: 'rule', name: 'style' },
+        { kind: 'file', name: 'a.ts' },
+        { kind: 'rule', name: 'security' }
+      ])
+    ).toEqual(['style', 'security'])
+  })
+
+  it('mergeActiveRules unions and de-duplicates preserving order', () => {
+    expect(mergeActiveRules(['style'], ['style', 'security'])).toEqual(['style', 'security'])
   })
 })
