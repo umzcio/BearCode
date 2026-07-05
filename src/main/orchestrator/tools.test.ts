@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { createHash } from 'crypto'
 
 // tools.ts imports ../permissions, which reaches ../db (electron/sqlite at
 // call time); mock the whole module so importing the module under test never
@@ -12,20 +13,34 @@ vi.mock('../db', () => ({
 }))
 vi.mock('../artifacts/store', () => ({
   createPlanArtifact: vi.fn(),
-  createWalkthroughArtifact: vi.fn()
+  createWalkthroughArtifact: vi.fn(),
+  approvePlanArtifact: vi.fn()
+}))
+// Spread-importOriginal: only `interrupt` is stubbed, everything else
+// @langchain/langgraph exports (Command, etc.) stays live for this file.
+vi.mock('@langchain/langgraph', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@langchain/langgraph')>()),
+  interrupt: vi.fn()
 }))
 
 import { evaluateCommandForConversation } from '../permissions'
 import type { Artifact, Event } from '../../shared/types'
 import type { RunSink } from '../sink'
 import { appendOrReplaceEvent } from '../db'
-import { createPlanArtifact, createWalkthroughArtifact } from '../artifacts/store'
+import {
+  createPlanArtifact,
+  createWalkthroughArtifact,
+  approvePlanArtifact
+} from '../artifacts/store'
+import { interrupt } from '@langchain/langgraph'
 import {
   buildTools,
+  clearAllPlanReviewPending,
   clearDeniedReplayPins,
   pinDeniedReplays,
   takeDeniedEditReplayPin,
-  takeDeniedReplayPin
+  takeDeniedReplayPin,
+  tryEnterPlanReview
 } from './tools'
 
 const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
@@ -55,11 +70,14 @@ const allTools = (sink: RunSink): InvokableTool[] =>
 beforeEach(() => {
   clearDeniedReplayPins('convo')
   clearDeniedReplayPins('other')
+  clearAllPlanReviewPending()
   vi.mocked(evaluateCommandForConversation).mockClear()
   vi.mocked(evaluateCommandForConversation).mockReturnValue('run')
   vi.mocked(createPlanArtifact).mockClear()
   vi.mocked(createWalkthroughArtifact).mockClear()
+  vi.mocked(approvePlanArtifact).mockReset()
   vi.mocked(appendOrReplaceEvent).mockClear()
+  vi.mocked(interrupt).mockReset()
 })
 
 describe('denied-replay pins (execution-layer deny enforcement)', () => {
@@ -211,22 +229,11 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
     expect(appendOrReplaceEvent).toHaveBeenCalledWith('convo', event)
   })
 
-  it('request-review: returns immediately with awaiting-review copy; artifact event is pending-review', async () => {
-    vi.mocked(createPlanArtifact).mockReturnValue({
-      artifact: art({ status: 'pending-review', version: 2, resolvedAt: null }),
-      policy: 'request-review',
-      superseded: []
-    })
-    const sink = makeSink()
-    const { submitPlan } = toolsFor(sink)
-    const out = await submitPlan.invoke({ title: 'Add dark mode', body: '# Plan body' })
-    expect(out).toBe(
-      "Plan v2 recorded. It is awaiting the user's review in the artifacts pane. " +
-        "Do not begin implementation; wait for the user's decision or feedback before making any changes."
-    )
-    const [, event] = vi.mocked(sink.emit).mock.calls[0] as [string, Event]
-    expect(event).toMatchObject({ type: 'artifact', status: 'pending-review', version: 2 })
-  })
+  // The Ba1-era "request-review returns immediately" behavior is superseded
+  // by Ba2's plan_review interrupt (see the 'plan_review interrupt (Ba2
+  // proceed loop)' suite below): request-review now PAUSES via interrupt()
+  // instead of returning a hold-copy string, so that scenario is covered
+  // there instead of here.
 
   it('rejects an empty title or body with an error string and records nothing', async () => {
     const sink = makeSink()
@@ -269,9 +276,10 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
     // same provider tool-call id and the same content must converge on ONE
     // artifact row and ONE persisted event, with version/supersede state
     // untouched by the second call (the store's existence check, Task 2).
-    // e1725446192b97dc = sha256('T\nB').slice(0, 16), the content-hash segment
-    // of the deterministic key.
-    const expectedId = 'convo:tc1:e1725446192b97dc:artifact'
+    // f1578752dda3ef03 = sha256(JSON.stringify(['T', 'B'])).slice(0, 16), the
+    // content-hash segment of the deterministic key (injective JSON input,
+    // I3: plain concatenation is not injective across title/body).
+    const expectedId = 'convo:tc1:f1578752dda3ef03:artifact'
     vi.mocked(createPlanArtifact).mockReturnValue({
       artifact: art({ id: expectedId }),
       policy: 'always-proceed',
@@ -289,8 +297,8 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
     // the row in place (exactly one persisted event) and the renderer upserts.
     const persisted = vi.mocked(appendOrReplaceEvent).mock.calls.map(([, e]) => e as Event)
     expect(persisted).toHaveLength(2)
-    expect(persisted[0].id).toBe('convo:tc1:e1725446192b97dc:artifact-event')
-    expect(persisted[1].id).toBe('convo:tc1:e1725446192b97dc:artifact-event')
+    expect(persisted[0].id).toBe('convo:tc1:f1578752dda3ef03:artifact-event')
+    expect(persisted[1].id).toBe('convo:tc1:f1578752dda3ef03:artifact-event')
   })
 
   it('collision-safe by content: the same toolCallId with DIFFERENT content derives different ids', async () => {
@@ -300,11 +308,14 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
     // its recorded policy -- possibly an approval the user never granted for
     // this plan): different content must fold to a different deterministic id
     // so the store records a fresh row and a fresh event.
-    vi.mocked(createPlanArtifact).mockReturnValue({
-      artifact: art(),
+    // Mirror the store's real contract (the returned artifact carries the id
+    // it was called with) since event ids now derive from artifact.id, not a
+    // second independently-hashed value.
+    vi.mocked(createPlanArtifact).mockImplementation((_convo, _title, _body, id) => ({
+      artifact: art({ id }),
       policy: 'always-proceed',
       superseded: []
-    })
+    }))
     const sink = makeSink()
     const { submitPlan } = toolsFor(sink)
     await submitPlan.invoke({ title: 'T', body: 'B' }, { toolCallId: 'tc1' })
@@ -325,6 +336,210 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
     })
     const { submitPlan } = toolsFor(makeSink())
     await submitPlan.invoke({ title: 'T', body: 'B' })
+    expect(evaluateCommandForConversation).not.toHaveBeenCalled()
+  })
+})
+
+describe('plan_review interrupt (Ba2 proceed loop)', () => {
+  const pendingArt = (over: Partial<Artifact> = {}): Artifact =>
+    art({ status: 'pending-review', resolvedAt: null, ...over })
+  const submitPlanOf = (sink: RunSink): InvokableTool =>
+    allTools(sink).find((t) => t.name === 'submit_plan')!
+  // The deterministic key the tool derives (content-hashed since 8d5a51f;
+  // injective JSON input per this plan's Global Constraints / I3). Computed,
+  // not hardcoded, so these tests state the derivation rule itself.
+  const artifactIdOf = (tc: string, title: string, body: string): string =>
+    `convo:${tc}:${createHash('sha256')
+      .update(JSON.stringify([title, body]))
+      .digest('hex')
+      .slice(0, 16)}:artifact`
+
+  it('request-review: creates the pending row and emits its event BEFORE interrupting, with the full payload', async () => {
+    const planId = artifactIdOf('tc1', 'Add dark mode', '# Plan')
+    vi.mocked(createPlanArtifact).mockReturnValue({
+      artifact: pendingArt({ id: planId }),
+      policy: 'request-review',
+      superseded: []
+    })
+    vi.mocked(interrupt).mockReturnValue({ proceed: true })
+    vi.mocked(approvePlanArtifact).mockReturnValue(pendingArt({ id: planId, status: 'approved' }))
+    const sink = makeSink()
+    await submitPlanOf(sink).invoke(
+      { title: 'Add dark mode', body: '# Plan' },
+      { toolCallId: 'tc1' }
+    )
+    expect(createPlanArtifact).toHaveBeenCalledWith('convo', 'Add dark mode', '# Plan', planId)
+    expect(interrupt).toHaveBeenCalledWith({
+      kind: 'plan_review',
+      artifactId: planId,
+      title: 'Add dark mode',
+      toolCallId: 'tc1'
+    })
+    // Ordering: row, event, THEN interrupt (the pause must have something to show).
+    expect(vi.mocked(createPlanArtifact).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(interrupt).mock.invocationCallOrder[0]
+    )
+    const firstEmitOrder = (vi.mocked(sink.emit).mock.invocationCallOrder as number[])[0]
+    expect(firstEmitOrder).toBeLessThan(vi.mocked(interrupt).mock.invocationCallOrder[0])
+  })
+
+  it('proceed resume: approves the artifact, re-emits its event under the SAME id, returns the approval copy', async () => {
+    const planId = artifactIdOf('tc1', 'T', 'B')
+    vi.mocked(createPlanArtifact).mockReturnValue({
+      artifact: pendingArt({ id: planId }),
+      policy: 'request-review',
+      superseded: []
+    })
+    vi.mocked(interrupt).mockReturnValue({ proceed: true })
+    vi.mocked(approvePlanArtifact).mockReturnValue(art({ id: planId, status: 'approved' }))
+    const sink = makeSink()
+    const out = await submitPlanOf(sink).invoke({ title: 'T', body: 'B' }, { toolCallId: 'tc1' })
+    expect(out).toBe('Plan approved. Begin implementation.')
+    // The approve flip writes 'approved' -- the ONLY status the store's
+    // fail-safe replay reconstruction maps to always-proceed (8d5a51f), so a
+    // post-proceed crash replay returns approval copy without re-interrupting.
+    expect(approvePlanArtifact).toHaveBeenCalledWith(planId)
+    const events = vi.mocked(appendOrReplaceEvent).mock.calls.map(([, e]) => e as Event)
+    const artifactEvents = events.filter((e) => e.type === 'artifact')
+    expect(artifactEvents).toHaveLength(2) // pending, then approved
+    expect(artifactEvents[0].id).toBe(`${planId}-event`)
+    expect(artifactEvents[1].id).toBe(`${planId}-event`) // SAME id: replaces in place
+    expect((artifactEvents[1] as Extract<Event, { type: 'artifact' }>).status).toBe('approved')
+  })
+
+  it('proceed with comments: appends the steering block to the approval copy', async () => {
+    vi.mocked(createPlanArtifact).mockReturnValue({
+      artifact: pendingArt({ id: 'a' }),
+      policy: 'request-review',
+      superseded: []
+    })
+    vi.mocked(interrupt).mockReturnValue({ proceed: true, comments: '> quote\n\nnote' })
+    vi.mocked(approvePlanArtifact).mockReturnValue(art({ id: 'a', status: 'approved' }))
+    const out = await submitPlanOf(makeSink()).invoke({ title: 'T', body: 'B' })
+    expect(out).toBe(
+      'Plan approved. Begin implementation.\n\nThe user attached comments to guide the implementation:\n\n> quote\n\nnote'
+    )
+  })
+
+  it('feedback resume: returns the prefixed feedback and leaves the artifact pending (no approve, no status re-emit)', async () => {
+    vi.mocked(createPlanArtifact).mockReturnValue({
+      artifact: pendingArt({ id: 'a' }),
+      policy: 'request-review',
+      superseded: []
+    })
+    vi.mocked(interrupt).mockReturnValue({ proceed: false, feedback: '> quote\n\nchange this' })
+    const sink = makeSink()
+    const out = await submitPlanOf(sink).invoke({ title: 'T', body: 'B' })
+    expect(out).toBe(
+      'The user reviewed the plan and left feedback instead of proceeding:\n\n> quote\n\nchange this'
+    )
+    expect(approvePlanArtifact).not.toHaveBeenCalled()
+    const artifactEvents = vi
+      .mocked(appendOrReplaceEvent)
+      .mock.calls.map(([, e]) => e as Event)
+      .filter((e) => e.type === 'artifact')
+    expect(artifactEvents).toHaveLength(1) // only the pending emit; artifact STAYS pending
+  })
+
+  it('a v2 submission re-emits every superseded prior under ITS deterministic event id (chip un-stale)', async () => {
+    // v1's key came from ITS OWN submission (different toolCallId + content);
+    // its event id must be derivable from its row id alone: `${id}-event`.
+    const v1Id = artifactIdOf('tc1', 'T', 'old body')
+    const v2Id = artifactIdOf('tc2', 'T', 'B')
+    const v1 = art({ id: v1Id, status: 'superseded', version: 1, resolvedAt: 9 })
+    vi.mocked(createPlanArtifact).mockReturnValue({
+      artifact: pendingArt({ id: v2Id, version: 2 }),
+      policy: 'request-review',
+      superseded: [v1]
+    })
+    vi.mocked(interrupt).mockReturnValue({ proceed: false, feedback: 'x' })
+    const sink = makeSink()
+    await submitPlanOf(sink).invoke({ title: 'T', body: 'B' }, { toolCallId: 'tc2' })
+    const artifactEvents = vi
+      .mocked(appendOrReplaceEvent)
+      .mock.calls.map(([, e]) => e as Extract<Event, { type: 'artifact' }>)
+      .filter((e) => e.type === 'artifact')
+    expect(artifactEvents[0]).toMatchObject({
+      id: `${v1Id}-event`,
+      artifactId: v1Id,
+      status: 'superseded'
+    })
+    expect(artifactEvents[1]).toMatchObject({
+      id: `${v2Id}-event`,
+      status: 'pending-review',
+      version: 2
+    })
+  })
+
+  it('design 5: a second submit while a review is pending errors WITHOUT recording anything', async () => {
+    tryEnterPlanReview('convo', 'someone-elses-artifact')
+    const out = await submitPlanOf(makeSink()).invoke(
+      { title: 'T', body: 'B' },
+      { toolCallId: 'tc9' }
+    )
+    expect(out).toBe(
+      "A plan is already awaiting the user's review in this conversation. Wait for that review to be resolved before submitting another plan."
+    )
+    expect(createPlanArtifact).not.toHaveBeenCalled()
+    expect(interrupt).not.toHaveBeenCalled()
+  })
+
+  it('the gate re-admits the SAME artifactId (replay of the paused submission derives the same content-hashed key)', async () => {
+    const planId = artifactIdOf('tc1', 'T', 'B')
+    tryEnterPlanReview('convo', planId)
+    vi.mocked(createPlanArtifact).mockReturnValue({
+      artifact: pendingArt({ id: planId }),
+      policy: 'request-review',
+      superseded: []
+    })
+    vi.mocked(interrupt).mockReturnValue({ proceed: true })
+    vi.mocked(approvePlanArtifact).mockReturnValue(art({ id: planId, status: 'approved' }))
+    const out = await submitPlanOf(makeSink()).invoke(
+      { title: 'T', body: 'B' },
+      { toolCallId: 'tc1' }
+    )
+    expect(out).toBe('Plan approved. Begin implementation.')
+  })
+
+  it('a replayed submission whose plan was superseded returns the notice without pausing (fail-safe policy path)', async () => {
+    vi.mocked(createPlanArtifact).mockReturnValue({
+      artifact: art({ id: 'old', status: 'superseded' }),
+      // 8d5a51f fail-safe: only 'approved' reconstructs always-proceed, so a
+      // superseded row replays into the request-review path -- the tool's own
+      // superseded guard must screen it BEFORE the interrupt.
+      policy: 'request-review',
+      superseded: []
+    })
+    const out = await submitPlanOf(makeSink()).invoke(
+      { title: 'T', body: 'B' },
+      { toolCallId: 'tc1' }
+    )
+    expect(out).toBe(
+      'This plan was superseded by a newer plan submission. Continue from the newest plan.'
+    )
+    expect(interrupt).not.toHaveBeenCalled()
+  })
+
+  it('always-proceed regression: no interrupt, immediate approval (Ba1 path unchanged)', async () => {
+    vi.mocked(createPlanArtifact).mockReturnValue({
+      artifact: art({ status: 'approved' }),
+      policy: 'always-proceed',
+      superseded: []
+    })
+    const out = await submitPlanOf(makeSink()).invoke({ title: 'T', body: 'B' })
+    expect(out).toBe('Plan approved. Begin implementation.')
+    expect(interrupt).not.toHaveBeenCalled()
+  })
+
+  it('SECURITY: the paused-and-resumed submit still never consults the permission engine', async () => {
+    vi.mocked(createPlanArtifact).mockReturnValue({
+      artifact: pendingArt({ id: 'a' }),
+      policy: 'request-review',
+      superseded: []
+    })
+    vi.mocked(interrupt).mockReturnValue({ proceed: true })
+    vi.mocked(approvePlanArtifact).mockReturnValue(art({ id: 'a', status: 'approved' }))
+    await submitPlanOf(makeSink()).invoke({ title: 'T', body: 'B' })
     expect(evaluateCommandForConversation).not.toHaveBeenCalled()
   })
 })
