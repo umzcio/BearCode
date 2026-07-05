@@ -454,6 +454,31 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
   return { tool: 'run_command', input: { command: value?.command ?? '' }, toolCallId }
 }
 
+// The pending card input for a PAIRED interrupt (reviewer finding 2 on Task
+// 4): run_command cards keep the streamed args verbatim (byte-identical
+// events); edit cards get the same resolved-path treatment as
+// synthesizedApprovalCard, so the common live case also displays the TRUE
+// target -- file_path becomes the payload's jail-resolved path, with the raw
+// agent string carried as requested_path only when the two differ (that raw
+// string is what deniedReplayPinsOf keys the execution-layer pin on). The
+// rest of the streamed args (content/old_string/new_string) survive for the
+// card's preview. Pairing itself still matches on the RAW streamed args;
+// only the emitted event / parked item input is enriched. An edit payload
+// without a resolvedPath (never produced by the Bb3 gate) passes through
+// untouched. Exported for tests.
+export function pairedApprovalInput(interruptValue: unknown, args: unknown): unknown {
+  const value = interruptValue as
+    { kind?: string; path?: string; resolvedPath?: string } | null | undefined
+  if (value?.kind !== 'edit_file') return args
+  const resolved = typeof value.resolvedPath === 'string' ? value.resolvedPath : undefined
+  if (resolved === undefined) return args
+  const base = (typeof args === 'object' && args !== null ? args : {}) as Record<string, unknown>
+  const raw = typeof value.path === 'string' ? value.path : undefined
+  return raw !== undefined && raw !== resolved
+    ? { ...base, file_path: resolved, requested_path: raw }
+    : { ...base, file_path: resolved }
+}
+
 // One card of a parked approval set: the interrupt it resolves, the event
 // row's tool/input (so the resolved/denied tool_call re-emits the same card),
 // and the user's decision once recorded. Keyed by callId (the tool_call event
@@ -1089,7 +1114,11 @@ async function drive(
             callId: localId,
             interruptId: pairing.interruptId,
             tool: (pairing.call.name as ToolName) ?? 'run_command',
-            input: pairing.call.args,
+            // Enriched for edit interrupts only (reviewer finding 2): the
+            // card's input must show the resolved target in the common live
+            // paired case too. Pairing above already matched on the RAW
+            // streamed args; only the emitted event/parked item changes.
+            input: pairedApprovalInput(pairing.value, pairing.call.args),
             toolCallId: pairing.call.id
           }
           agentId = agentIdByTcId.get(pairing.call.id)

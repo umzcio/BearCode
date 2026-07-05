@@ -30,6 +30,7 @@ import {
   resolvedToolCallEvents,
   deniedReplayPinsOf,
   synthesizedApprovalCard,
+  pairedApprovalInput,
   isRehydratableInterrupt,
   type ApprovalItem
 } from './graph'
@@ -306,6 +307,49 @@ describe('synthesizedApprovalCard (call:null synthesis and edit rehydration)', (
     expect(
       synthesizedApprovalCard({ kind: 'edit_file', tool: 'run_command', path: 'a' }).tool
     ).toBe('write_file')
+  })
+})
+
+describe('pairedApprovalInput (live paired-card input enrichment)', () => {
+  it('shows the RESOLVED path on a paired edit card, carrying the raw string as requested_path', () => {
+    // Reviewer finding 2: the common live case is a PAIRED interrupt, and its
+    // card must display the TRUE target too, not just synthesized/rehydrated
+    // cards. The streamed args' extra fields survive for the card's preview.
+    const value = {
+      kind: 'edit_file',
+      tool: 'write_file',
+      path: 'safe/../.env',
+      resolvedPath: '.env'
+    }
+    expect(pairedApprovalInput(value, { file_path: 'safe/../.env', content: 'SECRET=1' })).toEqual({
+      file_path: '.env',
+      requested_path: 'safe/../.env',
+      content: 'SECRET=1'
+    })
+  })
+
+  it('omits requested_path when the raw and resolved paths agree', () => {
+    const value = {
+      kind: 'edit_file',
+      tool: 'edit_file',
+      path: 'src/a.ts',
+      resolvedPath: 'src/a.ts'
+    }
+    expect(
+      pairedApprovalInput(value, { file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    ).toEqual({ file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+  })
+
+  it('passes run_command args through untouched (byte-identical events)', () => {
+    const args = { command: 'ls -l' }
+    expect(pairedApprovalInput({ kind: 'run_command', command: 'ls -l' }, args)).toBe(args)
+  })
+
+  it('leaves the args untouched when the edit payload carries no resolvedPath', () => {
+    const args = { file_path: 'a.txt', content: 'x' }
+    expect(
+      pairedApprovalInput({ kind: 'edit_file', tool: 'write_file', path: 'a.txt' }, args)
+    ).toBe(args)
   })
 })
 
