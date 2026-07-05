@@ -27,7 +27,7 @@ import {
   createPlanArtifact,
   createWalkthroughArtifact
 } from '../artifacts/store'
-import { evaluateCommandForConversation } from '../permissions'
+import { evaluateCommandForConversation, resolveConversationMode } from '../permissions'
 import { loadAgentsContent } from '../agentsDir'
 import type { RunSink } from '../sink'
 
@@ -231,7 +231,11 @@ export function buildTools(projectPath: string, conversationId: string, sink: Ru
       }
       const decision = evaluateCommandForConversation(command, conversationId, projectPath)
       if (decision === 'block') {
-        return 'This command was blocked by a permission rule.'
+        // 'block' means either a deny rule OR plan-mode read-only. Re-read the
+        // mode live to tell the agent WHY it was blocked (mode-picker design §5).
+        return resolveConversationMode(conversationId) === 'plan'
+          ? 'Plan mode is read-only; submit a plan and wait for approval before editing or running commands.'
+          : 'This command was blocked by a permission rule.'
       }
       if (decision === 'prompt') {
         // Resume value must be wrapped in a truthy object, not a bare

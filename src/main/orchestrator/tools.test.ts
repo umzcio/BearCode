@@ -6,7 +6,8 @@ import { createHash } from 'crypto'
 // opens a real database, and so the deny gate's rules-engine calls are
 // observable.
 vi.mock('../permissions', () => ({
-  evaluateCommandForConversation: vi.fn(() => 'run')
+  evaluateCommandForConversation: vi.fn(() => 'run'),
+  resolveConversationMode: vi.fn(() => 'accept-edits')
 }))
 vi.mock('../db', () => ({
   appendOrReplaceEvent: vi.fn()
@@ -26,7 +27,7 @@ vi.mock('@langchain/langgraph', async (importOriginal) => ({
   interrupt: vi.fn()
 }))
 
-import { evaluateCommandForConversation } from '../permissions'
+import { evaluateCommandForConversation, resolveConversationMode } from '../permissions'
 import type { Artifact, Event } from '../../shared/types'
 import type { RunSink } from '../sink'
 import { appendOrReplaceEvent } from '../db'
@@ -78,6 +79,7 @@ beforeEach(() => {
   clearAllPlanReviewPending()
   vi.mocked(evaluateCommandForConversation).mockClear()
   vi.mocked(evaluateCommandForConversation).mockReturnValue('run')
+  vi.mocked(resolveConversationMode).mockReturnValue('accept-edits')
   vi.mocked(createPlanArtifact).mockClear()
   vi.mocked(createWalkthroughArtifact).mockClear()
   vi.mocked(approvePlanArtifact).mockReset()
@@ -181,6 +183,16 @@ describe('run_command deny gate (replayed tool honors the recorded denial)', () 
     const out = await runCommandTool.invoke({ command: 'rm -rf /' }, { toolCallId: 'tc1' })
     expect(out).toBe('This command was blocked by a permission rule.')
     expect(evaluateCommandForConversation).toHaveBeenCalledWith('rm -rf /', 'convo', '/tmp')
+  })
+
+  it('block in plan mode returns the read-only message, not the generic rule message', async () => {
+    vi.mocked(evaluateCommandForConversation).mockReturnValue('block')
+    vi.mocked(resolveConversationMode).mockReturnValue('plan')
+    const [runCommandTool] = allTools(makeSink())
+    const out = await runCommandTool.invoke({ command: 'npm test' }, { toolCallId: 'tcP' })
+    expect(out).toBe(
+      'Plan mode is read-only; submit a plan and wait for approval before editing or running commands.'
+    )
   })
 })
 

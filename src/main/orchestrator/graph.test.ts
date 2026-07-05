@@ -10,7 +10,8 @@ vi.mock('../db', () => ({
   dropDanglingCancel: vi.fn(),
   getConversationMeta: vi.fn(() => null),
   listArtifactComments: vi.fn(() => []),
-  markArtifactCommentsSent: vi.fn()
+  markArtifactCommentsSent: vi.fn(),
+  setPermissionMode: vi.fn()
 }))
 
 vi.mock('./checkpointer', () => ({
@@ -35,6 +36,7 @@ import {
   pairedApprovalInput,
   isRehydratableInterrupt,
   planReviewArtifactIdOf,
+  planProceedModeFlip,
   resolvePlanInterrupt,
   resolveInterrupt,
   forgetPendingApproval,
@@ -908,6 +910,21 @@ const cmdItemX = (decision?: boolean): ApprovalItem => ({
   input: { command: 'ls' },
   toolCallId: 'tc2',
   ...(decision === undefined ? {} : { decision })
+})
+
+describe('planProceedModeFlip (Proceed conditionally flips plan -> accept-edits)', () => {
+  it('(a) still in plan at Proceed time: flips to accept-edits', () => {
+    expect(planProceedModeFlip('plan')).toBe('accept-edits')
+  })
+  it('(b) user switched to auto during the pause: no flip (stays auto)', () => {
+    expect(planProceedModeFlip('auto')).toBeNull()
+  })
+  it('never overwrites or downgrades another explicit mode', () => {
+    expect(planProceedModeFlip('accept-edits')).toBeNull()
+    expect(planProceedModeFlip('ask')).toBeNull()
+    expect(planProceedModeFlip('bypass')).toBeNull()
+    expect(planProceedModeFlip(undefined)).toBeNull()
+  })
 })
 
 describe('resolution-channel cross-guards (SECURITY, via the __parkForTest seam)', () => {

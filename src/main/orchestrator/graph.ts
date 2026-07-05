@@ -21,6 +21,7 @@ import type { LLMResult } from '@langchain/core/outputs'
 import type {
   CommandRef,
   Event,
+  PermissionMode,
   PlanReviewResolveResult,
   ProviderId,
   ToolName
@@ -34,6 +35,7 @@ import {
   getConversationMeta,
   listArtifactComments,
   markArtifactCommentsSent,
+  setPermissionMode,
   touchedFilesFor
 } from '../db'
 import { loadAgentsContent } from '../agentsDir'
@@ -1427,6 +1429,16 @@ function finalizeDecision(
   return true
 }
 
+// Proceed of a plan_review flips the conversation out of read-only plan mode so
+// implementation can start (mode-picker design §5). CONDITIONAL: only when the
+// conversation is STILL in `plan` at Proceed time. If the user manually switched
+// during the pause (e.g. to `auto`), their explicit choice is left untouched and
+// this returns null. v1 always targets the default `accept-edits`; it never
+// escalates past accept-edits and never overwrites a non-plan mode.
+export function planProceedModeFlip(current: PermissionMode | undefined): PermissionMode | null {
+  return current === 'plan' ? 'accept-edits' : null
+}
+
 // Resolves ONE plan-review card (design 3.5/3.6), called from
 // resolvePlanReviewOrchestrator (IPC bearcode:artifacts:resolve-plan-review).
 // The resolution is composed MAIN-side from durable state: the artifact's
@@ -1474,6 +1486,14 @@ export function resolvePlanInterrupt(
       : { proceed: true }
     : { proceed: false, feedback: rendered }
   if (comments.length > 0) markArtifactCommentsSent(item.planReview.artifactId, Date.now())
+  // Proceed relaxes plan-mode read-only so the resumed run can implement
+  // (design §5). Read the mode LIVE (a manual switch during the pause wins) and
+  // only flip when still in plan. This is the one net-new state mutation on the
+  // resume path; the Review path leaves the mode as `plan`.
+  if (decision.proceed) {
+    const next = planProceedModeFlip(getConversationMeta(conversationId)?.permissionMode)
+    if (next) setPermissionMode(conversationId, next)
+  }
   finalizeDecision(pending, callId, item, decision.proceed ? 'approved' : 'denied')
   return 'resolved'
 }
@@ -1756,10 +1776,14 @@ function buildAgentAndContext(
   const agent = createDeepAgent({
     model,
     // meta is null only for a conversation deleted mid-flight (the run is
-    // doomed either way). The execution-mode prompt frame was retired with the
-    // ExecutionMode axis (mode-picker design §10 phase 1); the plan-mode frame
-    // returns in phase 2, keyed on permissionMode === 'plan'.
-    systemPrompt: orchestratorSystemPrompt(projectPath) + ruleAdditions + commandAdditions,
+    // doomed either way). The plan-mode frame (mode-picker design §5, phase 2)
+    // is keyed on the conversation's live permission mode: assembled per-turn,
+    // so switching into/out of plan mode takes effect on the next turn with no
+    // extra machinery.
+    systemPrompt:
+      orchestratorSystemPrompt(projectPath, meta?.permissionMode === 'plan') +
+      ruleAdditions +
+      commandAdditions,
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
     ...(backendFactory

@@ -11,7 +11,8 @@ vi.mock('../permissions', () => ({
   evaluateEditForConversation: vi.fn(() => 'apply'),
   // fsBackend.ts now pulls the denied-replay pins in from ./tools, whose
   // module scope imports this from ../permissions too.
-  evaluateCommandForConversation: vi.fn(() => 'run')
+  evaluateCommandForConversation: vi.fn(() => 'run'),
+  resolveConversationMode: vi.fn(() => 'accept-edits')
 }))
 vi.mock('../diffs', () => ({
   stageFile: vi.fn()
@@ -27,7 +28,7 @@ vi.mock('@langchain/langgraph', async (importOriginal) => {
 
 import { GraphInterrupt, interrupt, isGraphInterrupt } from '@langchain/langgraph'
 import { stageFile } from '../diffs'
-import { evaluateEditForConversation } from '../permissions'
+import { evaluateEditForConversation, resolveConversationMode } from '../permissions'
 import { DiffFsBackend, GatedDiffFsBackend, relForGate } from './fsBackend'
 import { clearDeniedReplayPins, pinDeniedReplays } from './tools'
 
@@ -75,6 +76,7 @@ describe('GatedDiffFsBackend', () => {
     clearDeniedReplayPins('convo')
     vi.mocked(evaluateEditForConversation).mockClear()
     vi.mocked(evaluateEditForConversation).mockReturnValue('apply')
+    vi.mocked(resolveConversationMode).mockReturnValue('accept-edits')
     vi.mocked(interrupt).mockClear()
     projectPath = realpathSync(mkdtempSync(join(tmpdir(), 'bearcode-gate-')))
     mkdirSync(join(projectPath, 'a'))
@@ -102,6 +104,17 @@ describe('GatedDiffFsBackend', () => {
     expect(result).toEqual({ error: 'Editing .env is blocked by a permission rule.' })
     expect(shared.write).not.toHaveBeenCalled()
     expect(interrupt).not.toHaveBeenCalled()
+  })
+
+  it("block in plan mode returns the read-only message, not the generic rule message", async () => {
+    vi.mocked(evaluateEditForConversation).mockReturnValue('block')
+    vi.mocked(resolveConversationMode).mockReturnValue('plan')
+    const result = await gated.write('.env', 'SECRET=1')
+    expect(result).toEqual({
+      error:
+        'Plan mode is read-only; submit a plan and wait for approval before editing or running commands.'
+    })
+    expect(shared.write).not.toHaveBeenCalled()
   })
 
   it("interrupts on 'prompt' with the edit_file payload contract", async () => {

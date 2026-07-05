@@ -29,7 +29,7 @@ import type {
 } from 'deepagents'
 import type { FileDiffFile } from '../../shared/types'
 import { stageFile } from '../diffs'
-import { evaluateEditForConversation } from '../permissions'
+import { evaluateEditForConversation, resolveConversationMode } from '../permissions'
 import { takeDeniedEditReplayPin } from './tools'
 
 const execFileAsync = promisify(execFile)
@@ -327,7 +327,14 @@ export class GatedDiffFsBackend implements BackendProtocolV2 {
     }
     const decision = evaluateEditForConversation(rel, this.conversationId, this.projectPath)
     if (decision === 'block') {
-      return { error: `Editing ${filePath} is blocked by a permission rule.` }
+      // 'block' is either a deny rule OR plan-mode read-only. Re-read the mode
+      // live so the agent learns WHY the edit was blocked (mode-picker design §5).
+      return resolveConversationMode(this.conversationId) === 'plan'
+        ? {
+            error:
+              'Plan mode is read-only; submit a plan and wait for approval before editing or running commands.'
+          }
+        : { error: `Editing ${filePath} is blocked by a permission rule.` }
     }
     if (decision === 'prompt') {
       // Resume value is a truthy object, never a bare boolean -- same

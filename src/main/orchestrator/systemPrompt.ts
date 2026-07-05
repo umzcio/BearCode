@@ -8,7 +8,7 @@ import { hostname, platform, release } from 'os'
 // make the agent BUILD with its file tools instead of pasting code into chat --
 // without it the default prompt lets a chatty model (e.g. GPT) answer a "make a
 // website" request by dumping HTML in the reply and never calling write_file.
-export function orchestratorSystemPrompt(projectPath: string | null): string {
+export function orchestratorSystemPrompt(projectPath: string | null, isPlan = false): string {
   const lines = [
     "You are BearCode, an autonomous coding agent running on the user's own machine.",
     `Host: ${platform()} ${release()} (${hostname()}).`
@@ -47,6 +47,26 @@ export function orchestratorSystemPrompt(projectPath: string | null): string {
       'No workspace folder is open for this conversation, so you cannot create or edit files',
       'on disk. If the user asks you to build or modify a project, tell them to open a',
       'project folder first. Otherwise, answer their question directly.'
+    )
+  }
+  // Plan-mode frame (mode-picker design §5): emitted ONLY when the conversation
+  // is in Plan mode. The system prompt is assembled per-turn in
+  // buildAgentAndContext, so switching INTO plan mode adds this on the next turn
+  // automatically. Read-only is ENFORCED at the gate (resolver plan-block); this
+  // frame just tells the agent the intended workflow.
+  if (isPlan) {
+    lines.push(
+      '',
+      'PLAN MODE (read-only until approved):',
+      'The workspace is READ-ONLY right now: run_command and file edits are blocked',
+      'until your plan is approved. Work in this order:',
+      '- Research first: use ls, glob, grep, and read_file to understand the code before planning.',
+      '- Write the plan, then call submit_plan BEFORE attempting to change anything.',
+      '- Wait for the outcome: the user will Proceed (approve) or send review comments.',
+      '  Do not try to edit files or run commands until then; they will be blocked.',
+      '- If review comments come back, revise and call submit_plan again (a new version).',
+      '- Keep your todo list current as you work through the approved plan.',
+      '- When the implementation is finished, call submit_walkthrough to summarize what changed.'
     )
   }
   lines.push('', 'Keep any visible reasoning concise. Do not use em dashes in your replies.')
