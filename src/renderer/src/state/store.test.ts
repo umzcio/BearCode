@@ -4,6 +4,7 @@ import type {
   CommandEntry,
   ConversationMeta,
   Event,
+  MentionRef,
   PermissionRulesInfo,
   PlanReviewResolveResult
 } from '@shared/types'
@@ -62,6 +63,11 @@ const commandEntries: CommandEntry[] = [
 ]
 const commands = { list: vi.fn(() => Promise.resolve(commandEntries)) }
 
+const mentions = {
+  files: vi.fn((_p: string | null, _q: string) => Promise.resolve(['src/a.ts', 'src/b.ts'])),
+  rules: vi.fn((_p: string | null) => Promise.resolve([{ name: 'style', firstLine: 'Use tabs.' }]))
+}
+
 const artifacts = {
   resolvePlanReview: vi.fn((): Promise<PlanReviewResolveResult> => Promise.resolve('resolved'))
 }
@@ -94,9 +100,22 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal('window', {
-    bearcode: { permissions, conversations, run, commands, artifacts } as unknown as BearcodeApi
+    bearcode: {
+      permissions,
+      conversations,
+      run,
+      commands,
+      artifacts,
+      mentions
+    } as unknown as BearcodeApi
   })
-  useAppStore.setState({ permissionRules: null, commands: [], resumePickerOpen: false })
+  useAppStore.setState({
+    permissionRules: null,
+    commands: [],
+    resumePickerOpen: false,
+    fileSuggestions: [],
+    manualRules: []
+  })
 })
 
 describe('permissions manager store actions', () => {
@@ -246,7 +265,8 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
       'do it',
       'anthropic/claude-sonnet-5',
       null,
-      workflowRef
+      workflowRef,
+      null
     )
   })
 
@@ -258,7 +278,14 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
     })
     useAppStore.getState().startFromHome('hello')
     await vi.waitFor(() => expect(run.start).toHaveBeenCalled())
-    expect(run.start).toHaveBeenCalledWith('c1', 'hello', 'anthropic/claude-sonnet-5', null, null)
+    expect(run.start).toHaveBeenCalledWith(
+      'c1',
+      'hello',
+      'anthropic/claude-sonnet-5',
+      null,
+      null,
+      null
+    )
   })
 
   it('send threads the command through to run.start as the fifth argument', () => {
@@ -272,7 +299,8 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
       'do it',
       'anthropic/claude-sonnet-5',
       '/tmp/p',
-      workflowRef
+      workflowRef,
+      null
     )
   })
 
@@ -287,6 +315,7 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
       'hello',
       'anthropic/claude-sonnet-5',
       '/tmp/p',
+      null,
       null
     )
   })
@@ -398,5 +427,33 @@ describe('resolvePlanReview mirrors graph.ts planProceedModeFlip (phase3)', () =
     expect(useAppStore.getState().conversations.c1.permissionMode).toBe('accept-edits')
     // c2's displayed mode must not be clobbered by c1's flip.
     expect(useAppStore.getState().permissionMode).toBe('auto')
+  })
+})
+
+describe('D3 mention read-models + send-path threading', () => {
+  it('suggestFiles fetches from IPC using the active project and stores results', async () => {
+    useAppStore.setState({ view: { kind: 'home' }, workspacePath: '/proj' })
+    useAppStore.getState().suggestFiles('a')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(mentions.files).toHaveBeenCalledWith('/proj', 'a')
+    expect(useAppStore.getState().fileSuggestions).toEqual(['src/a.ts', 'src/b.ts'])
+  })
+
+  it('refreshManualRules populates manualRules from IPC', async () => {
+    useAppStore.setState({ view: { kind: 'home' }, workspacePath: '/proj' })
+    useAppStore.getState().refreshManualRules()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(mentions.rules).toHaveBeenCalledWith('/proj')
+    expect(useAppStore.getState().manualRules).toEqual([{ name: 'style', firstLine: 'Use tabs.' }])
+  })
+
+  it('send forwards mentions as the 6th run.start argument', () => {
+    const convoRef = convo({ id: 'c1', projectPath: '/proj' })
+    useAppStore.setState({ conversations: { c1: convoRef }, modelRef: 'anthropic/claude-sonnet-5' })
+    const refs: MentionRef[] = [{ kind: 'file', name: 'src/a.ts', path: 'src/a.ts' }]
+    useAppStore.getState().send('c1', 'hi', null, refs)
+    expect(run.start).toHaveBeenCalledWith('c1', 'hi', 'anthropic/claude-sonnet-5', '/proj', null, refs)
   })
 })

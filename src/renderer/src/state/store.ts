@@ -7,6 +7,8 @@ import type {
   CommandRef,
   ConversationMeta,
   Event,
+  ManualRuleInfo,
+  MentionRef,
   ModelRef,
   PermissionMode,
   PermissionRulesInfo,
@@ -112,6 +114,9 @@ interface AppState {
   // /resume is a pure UI action (D2 design 6.2): it opens this picker rather
   // than starting a turn.
   resumePickerOpen: boolean
+  // D3 @ menu read models, fetched on menu interaction (mirrors commands).
+  fileSuggestions: string[]
+  manualRules: ManualRuleInfo[]
 
   init(): void
   refreshProviders(): Promise<void>
@@ -120,9 +125,9 @@ interface AppState {
   goHome(): void
   openScheduled(): void
   openConvo(id: string): void
-  startFromHome(text: string, command?: CommandRef | null): void
+  startFromHome(text: string, command?: CommandRef | null, mentions?: MentionRef[] | null): void
   deleteConvo(id: string): void
-  send(convoId: string, text: string, command?: CommandRef | null): void
+  send(convoId: string, text: string, command?: CommandRef | null, mentions?: MentionRef[] | null): void
   cancelRun(convoId: string): void
   approveTool(callId: string, approved: boolean): void
   addPermissionRule(input: AddRuleInput): void
@@ -151,6 +156,8 @@ interface AppState {
   showToast(message: string): void
   refreshCommands(): void
   setResumePickerOpen(open: boolean): void
+  suggestFiles(query: string): void
+  refreshManualRules(): void
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -257,6 +264,8 @@ export const useAppStore = create<AppState>((set, get) => {
     toast: null,
     commands: [],
     resumePickerOpen: false,
+    fileSuggestions: [],
+    manualRules: [],
 
     init: () => {
       if (initialized) return
@@ -376,7 +385,7 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
-    startFromHome: (text, command) => {
+    startFromHome: (text, command, mentions) => {
       const { modelRef, workspacePath } = get()
       if (!modelRef) return
       void (async () => {
@@ -400,7 +409,14 @@ export const useAppStore = create<AppState>((set, get) => {
         // resolves the right mode. Await rather than fire-and-forget: do not rely
         // on IPC ordering for a security-sensitive default.
         await window.bearcode.conversations.setMode(meta.id, get().permissionMode)
-        await window.bearcode.run.start(meta.id, text, modelRef, workspacePath, command ?? null)
+        await window.bearcode.run.start(
+          meta.id,
+          text,
+          modelRef,
+          workspacePath,
+          command ?? null,
+          mentions ?? null
+        )
       })()
     },
 
@@ -430,7 +446,7 @@ export const useAppStore = create<AppState>((set, get) => {
       })
     },
 
-    send: (convoId, text, command) => {
+    send: (convoId, text, command, mentions) => {
       const { modelRef, conversations } = get()
       if (!modelRef) return
       patchConvo(convoId, { modelRef })
@@ -439,7 +455,8 @@ export const useAppStore = create<AppState>((set, get) => {
         text,
         modelRef,
         conversations[convoId].projectPath,
-        command ?? null
+        command ?? null,
+        mentions ?? null
       )
     },
 
@@ -653,6 +670,23 @@ export const useAppStore = create<AppState>((set, get) => {
       const projectPath =
         view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
       void window.bearcode.commands.list(projectPath).then((commands) => set({ commands }))
+    },
+
+    // Query-driven (called as the @-file query changes). The active project is
+    // the open conversation's, or the Home composer's picked workspace.
+    suggestFiles: (query) => {
+      const { view, conversations, workspacePath } = get()
+      const projectPath =
+        view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
+      void window.bearcode.mentions.files(projectPath, query).then((files) => set({ fileSuggestions: files }))
+    },
+
+    // Fetched once on @ menu open (mirrors refreshCommands' pacing).
+    refreshManualRules: () => {
+      const { view, conversations, workspacePath } = get()
+      const projectPath =
+        view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
+      void window.bearcode.mentions.rules(projectPath).then((manualRules) => set({ manualRules }))
     },
 
     setResumePickerOpen: (open) => set({ resumePickerOpen: open })
