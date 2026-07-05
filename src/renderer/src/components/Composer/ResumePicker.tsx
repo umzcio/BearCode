@@ -7,7 +7,7 @@ import './SlashMenu.css'
 // known conversation (the sidebar's own data, no new IPC) sorted by
 // updatedAt descending. Composer positions this via the shared
 // .slash-menu-wrap; this component only owns its own row highlight and
-// close-on-outside-click/Escape, mirroring the ExecutionModePicker idiom.
+// close-on-outside-click/Escape, mirroring the ModePicker idiom.
 export function ResumePicker(): React.JSX.Element {
   const conversations = useAppStore((s) => s.conversations)
   const setOpen = useAppStore((s) => s.setResumePickerOpen)

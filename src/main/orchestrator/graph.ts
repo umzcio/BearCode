@@ -34,7 +34,6 @@ import {
   getConversationMeta,
   listArtifactComments,
   markArtifactCommentsSent,
-  pinExecutionMode,
   touchedFilesFor
 } from '../db'
 import { loadAgentsContent } from '../agentsDir'
@@ -1757,12 +1756,10 @@ function buildAgentAndContext(
   const agent = createDeepAgent({
     model,
     // meta is null only for a conversation deleted mid-flight (the run is
-    // doomed either way), so the fallback mode is arbitrary; toMeta already
-    // resolved a NULL execution_mode column to the live defaultExecutionMode.
-    systemPrompt:
-      orchestratorSystemPrompt(projectPath, meta?.executionMode ?? 'planning') +
-      ruleAdditions +
-      commandAdditions,
+    // doomed either way). The execution-mode prompt frame was retired with the
+    // ExecutionMode axis (mode-picker design §10 phase 1); the plan-mode frame
+    // returns in phase 2, keyed on permissionMode === 'plan'.
+    systemPrompt: orchestratorSystemPrompt(projectPath) + ruleAdditions + commandAdditions,
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
     ...(backendFactory
@@ -1807,13 +1804,6 @@ export async function runGraph(opts: {
   // submissions; if the old interrupted task replays on this thread, it
   // re-enters its own artifactId slot (tools.ts tryEnterPlanReview).
   clearPlanReviewPending(conversationId)
-  // Pin the execution mode on the conversation's FIRST turn (design 3.2): a
-  // NULL column adopts the current defaultExecutionMode, so a later settings
-  // change never flips a locked conversation's mode. Idempotent (COALESCE):
-  // later turns and explicit renderer-set values pass through untouched.
-  // Ordered before the user_message append so the pin and the lock signal
-  // (any persisted event) can never be observed out of order.
-  pinExecutionMode(conversationId)
   const userEvent: Event = {
     type: 'user_message',
     id: randomUUID(),

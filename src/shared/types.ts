@@ -57,16 +57,13 @@ export type ToolName =
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
-export type PermissionMode = 'accept-edits' | 'auto' | 'plan'
-
-// Per-conversation execution mode (artifacts design 3.2, mirrors Antigravity).
-// Planning researches the codebase, submits an implementation plan for review
-// before changing anything, and finishes with a walkthrough; Fast executes
-// directly without a dedicated planning phase. Chosen when the conversation
-// starts and LOCKED once the first turn has run. NOT a permission mode: the
-// permission engine never reads it, and Planning restricts no tools -- the
-// plan gate is additive, not a sandbox (design 3.2 SECURITY).
-export type ExecutionMode = 'planning' | 'fast'
+// The single per-conversation mode (unified-mode-picker design §3/§4.1). Ask
+// and Accept edits both prompt for commands; they differ only on the edit
+// fallback (prompt vs apply). Plan is read-only (both fallbacks block). Auto
+// runs/applies by default. Bypass skips the rules engine entirely and is the
+// one deliberate security hole (design §6) -- per-conversation only, never a
+// default (see AppSettings.defaultPermissionMode validation in settings.ts).
+export type PermissionMode = 'ask' | 'accept-edits' | 'plan' | 'auto' | 'bypass'
 
 export type PermissionRuleEffect = 'allow' | 'deny' | 'ask'
 
@@ -270,7 +267,6 @@ export interface ConversationMeta {
   createdAt: number
   updatedAt: number
   permissionMode: PermissionMode
-  executionMode: ExecutionMode
   // Pinned Manual rules (.agents rule names). Always [] until the D3 @ menu
   // ships a way to pin them; persisted per conversation in active_rules.
   activeRules: string[]
@@ -308,11 +304,6 @@ export interface AppSettings {
   // Whether submit_plan holds plans for user review or proceeds immediately
   // (artifacts design 3.3). Read live at each submit call.
   artifactReviewPolicy: ArtifactReviewPolicy
-  // The execution mode new conversations start in (design 3.2). 'planning' is
-  // the default: Antigravity treats planning as the primary mode. Each
-  // conversation pins its own value at first-turn start, so changing this
-  // never affects a conversation that already ran.
-  defaultExecutionMode: ExecutionMode
 }
 
 export interface SettingsInfo extends AppSettings {
@@ -376,10 +367,6 @@ export interface BearcodeApi {
     delete(id: string): Promise<void>
     clear(): Promise<void>
     setMode(id: string, mode: PermissionMode): Promise<void>
-    // Rejects once the conversation's first turn has run (the design-3.2
-    // lock, enforced main-side); the renderer mirror should prevent the call
-    // from ever being made on a locked conversation.
-    setExecutionMode(id: string, mode: ExecutionMode): Promise<void>
   }
   permissions: {
     addRule(rule: AddRuleInput): Promise<void>

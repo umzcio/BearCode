@@ -52,7 +52,6 @@ function meta(id: string, modelRef: string | null = 'anthropic/claude-sonnet-5')
     createdAt: 0,
     updatedAt: 0,
     permissionMode: 'accept-edits',
-    executionMode: 'planning',
     activeRules: []
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { migrateSettings } from './settings'
+import { migrateSettings, setSettings, SELECTABLE_PERMISSION_MODES } from './settings'
 
 describe('migrateSettings', () => {
   it('seeds defaultPermissionMode from legacy autoApproveCommands=true', () => {
@@ -48,14 +48,39 @@ describe('migrateSettings', () => {
     )
     expect(migrateSettings({ artifactReviewPolicy: 7 }).artifactReviewPolicy).toBe('request-review')
   })
-  it("defaults defaultExecutionMode to 'planning'", () => {
-    expect(migrateSettings({}).defaultExecutionMode).toBe('planning')
+})
+
+describe('migrateSettings defaultPermissionMode coercion', () => {
+  it("defaults defaultPermissionMode to 'accept-edits'", () => {
+    expect(migrateSettings({}).defaultPermissionMode).toBe('accept-edits')
   })
-  it("preserves a stored 'fast' default across load (survives restart)", () => {
-    expect(migrateSettings({ defaultExecutionMode: 'fast' }).defaultExecutionMode).toBe('fast')
+  it('preserves each selectable mode across load', () => {
+    for (const mode of SELECTABLE_PERMISSION_MODES) {
+      expect(migrateSettings({ defaultPermissionMode: mode }).defaultPermissionMode).toBe(mode)
+    }
   })
-  it('coerces an unknown execution mode to the planning default', () => {
-    expect(migrateSettings({ defaultExecutionMode: 'turbo' }).defaultExecutionMode).toBe('planning')
-    expect(migrateSettings({ defaultExecutionMode: 7 }).defaultExecutionMode).toBe('planning')
+  it("coerces bypass (never a valid default) to 'accept-edits' on read", () => {
+    expect(migrateSettings({ defaultPermissionMode: 'bypass' }).defaultPermissionMode).toBe(
+      'accept-edits'
+    )
+  })
+  it("coerces an unknown persisted value to 'accept-edits' on read", () => {
+    expect(migrateSettings({ defaultPermissionMode: 'turbo' }).defaultPermissionMode).toBe(
+      'accept-edits'
+    )
+    expect(migrateSettings({ defaultPermissionMode: 7 }).defaultPermissionMode).toBe('accept-edits')
+  })
+})
+
+describe('setSettings defaultPermissionMode validation', () => {
+  it('rejects a write that sets defaultPermissionMode to bypass', () => {
+    expect(() => setSettings({ defaultPermissionMode: 'bypass' as never })).toThrow(
+      /defaultPermissionMode/
+    )
+  })
+  it('rejects a write that sets an unknown defaultPermissionMode', () => {
+    expect(() => setSettings({ defaultPermissionMode: 'turbo' as never })).toThrow(
+      /defaultPermissionMode/
+    )
   })
 })

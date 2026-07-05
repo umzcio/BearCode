@@ -7,7 +7,6 @@ import type {
   CommandRef,
   ConversationMeta,
   Event,
-  ExecutionMode,
   ModelRef,
   PermissionMode,
   PermissionRulesInfo,
@@ -69,9 +68,7 @@ const bearcode: BearcodeApi = {
     delete: (id: string) => ipcRenderer.invoke('bearcode:conversations:delete', id),
     clear: () => ipcRenderer.invoke('bearcode:conversations:clear'),
     setMode: (id: string, mode: PermissionMode): Promise<void> =>
-      ipcRenderer.invoke('bearcode:conversations:set-mode', id, mode),
-    setExecutionMode: (id: string, mode: ExecutionMode): Promise<void> =>
-      ipcRenderer.invoke('bearcode:conversations:set-execution-mode', id, mode)
+      ipcRenderer.invoke('bearcode:conversations:set-mode', id, mode)
   },
   permissions: {
     addRule: (rule: AddRuleInput): Promise<void> =>

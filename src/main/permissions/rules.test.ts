@@ -38,14 +38,24 @@ describe('evaluateCommand', () => {
   it('falls through to the mode when no rule matches', () => {
     expect(evaluateCommand('ls', 'auto', [])).toBe('run')
     expect(evaluateCommand('ls', 'accept-edits', [])).toBe('prompt')
-    expect(evaluateCommand('ls', 'plan', [])).toBe('prompt')
+    expect(evaluateCommand('ls', 'ask', [])).toBe('prompt')
+    expect(evaluateCommand('ls', 'plan', [])).toBe('block')
   })
   it('deny blocks regardless of mode', () => {
     expect(evaluateCommand('rm -rf /', 'auto', [rule('rm -rf *', 'deny')])).toBe('block')
     expect(evaluateCommand('rm -rf /', 'accept-edits', [rule('rm -rf *', 'deny')])).toBe('block')
+    expect(evaluateCommand('rm -rf /', 'plan', [rule('rm -rf *', 'deny')])).toBe('block')
   })
-  it('allow runs without a prompt regardless of mode', () => {
+  it('allow runs without a prompt in non-plan modes', () => {
     expect(evaluateCommand('git status', 'accept-edits', [rule('git *', 'allow')])).toBe('run')
+    expect(evaluateCommand('git status', 'auto', [rule('git *', 'allow')])).toBe('run')
+  })
+  it('plan mode is TRUE read-only: plan-block OUTRANKS an allow rule (design §3/§4.2)', () => {
+    // Only deny is higher priority than plan-block; an allow cannot pierce it.
+    expect(evaluateCommand('git status', 'plan', [rule('git *', 'allow')])).toBe('block')
+    expect(evaluateCommand('git push', 'plan', [rule('git push', 'ask')])).toBe('block')
+    // deny still wins over plan-block (both block; deny is checked first).
+    expect(evaluateCommand('rm -rf /', 'plan', [rule('rm -rf *', 'deny')])).toBe('block')
   })
   it('ask prompts even in auto mode', () => {
     expect(evaluateCommand('git push', 'auto', [rule('git push', 'ask')])).toBe('prompt')
@@ -56,12 +66,9 @@ describe('evaluateCommand', () => {
     ).toBe('block')
   })
   it('a user allow cannot override a builtin deny', () => {
-    const denied = BUILTIN_RULES[0].match // some builtin-denied pattern
-    // Construct a command the first builtin denies, then add a user allow for it.
     const cmd = 'rm -rf /'
     const rules = [...BUILTIN_RULES, rule('rm -rf *', 'allow')]
     expect(evaluateCommand(cmd, 'auto', rules)).toBe('block')
-    void denied
   })
   it('allow beats ask', () => {
     expect(
@@ -131,13 +138,28 @@ describe('evaluateEdit', () => {
     effect,
     source: 'user'
   })
-  it('deny beats ask beats apply', () => {
-    expect(evaluateEdit('.env', [rule('ask', '.env'), rule('deny', '.env')])).toBe('block')
-    expect(evaluateEdit('.env', [rule('ask', '.env')])).toBe('prompt')
-    expect(evaluateEdit('src/a.ts', [rule('ask', '.env')])).toBe('apply')
+  it('deny beats plan-block beats ask beats the mode fallback', () => {
+    expect(evaluateEdit('.env', 'accept-edits', [rule('ask', '.env'), rule('deny', '.env')])).toBe(
+      'block'
+    )
+    expect(evaluateEdit('.env', 'accept-edits', [rule('ask', '.env')])).toBe('prompt')
+    expect(evaluateEdit('src/a.ts', 'accept-edits', [rule('ask', '.env')])).toBe('apply')
+  })
+  it('falls through to the mode: plan blocks, ask prompts, accept-edits/auto apply', () => {
+    expect(evaluateEdit('src/a.ts', 'plan', [])).toBe('block')
+    expect(evaluateEdit('src/a.ts', 'ask', [])).toBe('prompt') // ask stricter than accept-edits
+    expect(evaluateEdit('src/a.ts', 'accept-edits', [])).toBe('apply')
+    expect(evaluateEdit('src/a.ts', 'auto', [])).toBe('apply')
+  })
+  it('plan mode is TRUE read-only: deny and plan-block both block, plan outranks an ask rule', () => {
+    expect(evaluateEdit('.env', 'plan', [rule('deny', '.env')])).toBe('block')
+    // an ask edit rule would prompt in other modes, but plan-block outranks it.
+    expect(evaluateEdit('src/a.ts', 'plan', [rule('ask', 'src/a.ts')])).toBe('block')
   })
   it('ignores allow edit rules and command rules', () => {
-    expect(evaluateEdit('.env', [rule('allow', '.env'), rule('deny', '.env')])).toBe('block')
+    expect(evaluateEdit('.env', 'accept-edits', [rule('allow', '.env'), rule('deny', '.env')])).toBe(
+      'block'
+    )
     const cmd: PermissionRule = {
       id: 'c',
       scope: 'global',
@@ -146,21 +168,23 @@ describe('evaluateEdit', () => {
       effect: 'deny',
       source: 'user'
     }
-    expect(evaluateEdit('src/a.ts', [cmd])).toBe('apply')
+    expect(evaluateEdit('src/a.ts', 'accept-edits', [cmd])).toBe('apply')
   })
   it('a deny on .env blocks a differently-cased first write like .ENV', () => {
-    expect(evaluateEdit('.ENV', [rule('deny', '.env')])).toBe('block')
+    expect(evaluateEdit('.ENV', 'accept-edits', [rule('deny', '.env')])).toBe('block')
   })
 })
 
 describe('edit builtins', () => {
   it('deny .git and .env writes at any depth, via evaluateEdit over BUILTIN_RULES', () => {
-    expect(evaluateEdit('.git/config', BUILTIN_RULES)).toBe('block')
-    expect(evaluateEdit('.env', BUILTIN_RULES)).toBe('block')
-    expect(evaluateEdit('.env.local', BUILTIN_RULES)).toBe('block')
-    expect(evaluateEdit('packages/api/.env', BUILTIN_RULES)).toBe('block')
-    expect(evaluateEdit('packages/api/.env.production', BUILTIN_RULES)).toBe('block')
-    expect(evaluateEdit('src/env.ts', BUILTIN_RULES)).toBe('apply')
-    expect(evaluateEdit('.envrc', BUILTIN_RULES)).toBe('apply')
+    expect(evaluateEdit('.git/config', 'accept-edits', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('.env', 'accept-edits', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('.env.local', 'accept-edits', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('packages/api/.env', 'accept-edits', BUILTIN_RULES)).toBe('block')
+    expect(evaluateEdit('packages/api/.env.production', 'accept-edits', BUILTIN_RULES)).toBe(
+      'block'
+    )
+    expect(evaluateEdit('src/env.ts', 'accept-edits', BUILTIN_RULES)).toBe('apply')
+    expect(evaluateEdit('.envrc', 'accept-edits', BUILTIN_RULES)).toBe('apply')
   })
 })

@@ -200,34 +200,6 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                   </div>
                 </Row>
               </div>
-              <div className="set-group-title">Execution Mode</div>
-              <div className="set-card">
-                <Row
-                  title="Default Execution Mode"
-                  desc="The mode new conversations start in. Planning has the agent research the codebase and submit an implementation plan for your review before it changes files; Fast executes directly. Each conversation's mode is set when it starts and locks after the first turn."
-                >
-                  <div className="radio-col" role="radiogroup" aria-label="Default execution mode">
-                    <label className="radio-row">
-                      <input
-                        type="radio"
-                        name="default-execution-mode"
-                        checked={settings.defaultExecutionMode === 'planning'}
-                        onChange={() => void saveSettings({ defaultExecutionMode: 'planning' })}
-                      />
-                      <span>Planning (Recommended)</span>
-                    </label>
-                    <label className="radio-row">
-                      <input
-                        type="radio"
-                        name="default-execution-mode"
-                        checked={settings.defaultExecutionMode === 'fast'}
-                        onChange={() => void saveSettings({ defaultExecutionMode: 'fast' })}
-                      />
-                      <span>Fast</span>
-                    </label>
-                  </div>
-                </Row>
-              </div>
               <div className="set-group-title">Agent Settings</div>
               <div className="set-card">
                 <Row

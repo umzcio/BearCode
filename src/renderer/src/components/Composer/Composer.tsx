@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CommandEntry, CommandRef } from '@shared/types'
-import { ExecutionModePicker } from '../ExecutionModePicker/ExecutionModePicker'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
 import { refConfigured, useAppStore } from '../../state/store'
@@ -194,7 +193,6 @@ export function Composer({
           <IconPlus />
         </button>
         <ModelPicker />
-        <ExecutionModePicker />
         <ModePicker />
         <button className="icon-btn mic-btn" disabled title="Voice input: coming soon">
           <IconMic />

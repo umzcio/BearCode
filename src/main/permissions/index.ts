@@ -31,25 +31,37 @@ export function resolveConversationMode(conversationId: string): PermissionMode 
 
 // The run_command gate's single entry point: rules first (deny/allow/ask), mode
 // as the fallback. Reads mode + rules live per call.
+//
+// SECURITY (design §6): mode === 'bypass' is the ONE mode that skips the rules
+// engine entirely -- no deny, no builtin .git/.env protection, no ask/prompt.
+// It returns 'run' BEFORE getEffectiveRules/evaluateCommand are ever called.
+// Every OTHER mode keeps deny-wins. Do not route any non-bypass mode around
+// this engine, and never make 'bypass' a global default (settings.ts rejects it
+// on write).
 export function evaluateCommandForConversation(
   command: string,
   conversationId: string,
   projectPath: string | null
 ): CommandDecision {
   const mode = resolveConversationMode(conversationId)
+  if (mode === 'bypass') return 'run'
   return evaluateCommand(command, mode, getEffectiveRules(projectPath))
 }
 
-// The file-write gate's single entry point: rules only, no mode (Bb3, design
-// §4.2 -- edits have no allow tier and the mode never participates). Reads
-// rules live per call, same as the command path.
+// The file-write gate's single entry point: rules first (deny/ask), then the
+// MODE as the fallback (design §4.1 -- plan is read-only). Reads mode + rules
+// live per call.
+//
+// SECURITY (design §6): mirrors the command path -- mode === 'bypass' returns
+// 'apply' BEFORE getEffectiveRules/evaluateEdit are called, skipping the entire
+// engine (including builtin .env/.git denies). Every other mode keeps
+// deny-wins. See the loud note on evaluateCommandForConversation above.
 export function evaluateEditForConversation(
   relPath: string,
-  _conversationId: string,
+  conversationId: string,
   projectPath: string
 ): EditDecision {
-  // Mode deliberately unused for edits (design 4.2); the conversationId
-  // parameter is kept for signature parity with the command path and for
-  // when Bb4-era per-conversation edit behavior needs it.
-  return evaluateEdit(relPath, getEffectiveRules(projectPath))
+  const mode = resolveConversationMode(conversationId)
+  if (mode === 'bypass') return 'apply'
+  return evaluateEdit(relPath, mode, getEffectiveRules(projectPath))
 }
