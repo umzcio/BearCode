@@ -260,14 +260,18 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
     })
   })
 
-  it('replay-idempotent by key: the same toolCallId derives the same artifact id and event id on re-execution', async () => {
+  it('replay-idempotent by key: the same toolCallId AND content derive the same artifact id and event id on re-execution', async () => {
     // Crash-rehydration can RE-EXECUTE a completed submit tool (durability
-    // 'async'; bearcode.db and checkpoints.db share no transaction). Two
-    // invocations with the same provider tool-call id must converge on ONE
+    // 'async'; bearcode.db and checkpoints.db share no transaction). A true
+    // replay carries the identical title+body, so two invocations with the
+    // same provider tool-call id and the same content must converge on ONE
     // artifact row and ONE persisted event, with version/supersede state
     // untouched by the second call (the store's existence check, Task 2).
+    // e1725446192b97dc = sha256('T\nB').slice(0, 16), the content-hash segment
+    // of the deterministic key.
+    const expectedId = 'convo:tc1:e1725446192b97dc:artifact'
     vi.mocked(createPlanArtifact).mockReturnValue({
-      artifact: art({ id: 'convo:tc1:artifact' }),
+      artifact: art({ id: expectedId }),
       policy: 'always-proceed'
     })
     const sink = makeSink()
@@ -276,14 +280,37 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
     await submitPlan.invoke({ title: 'T', body: 'B' }, { toolCallId: 'tc1' })
     // Same deterministic artifact id both times -> the store returns the
     // existing row on the second call: exactly one artifact row.
-    expect(createPlanArtifact).toHaveBeenNthCalledWith(1, 'convo', 'T', 'B', 'convo:tc1:artifact')
-    expect(createPlanArtifact).toHaveBeenNthCalledWith(2, 'convo', 'T', 'B', 'convo:tc1:artifact')
+    expect(createPlanArtifact).toHaveBeenNthCalledWith(1, 'convo', 'T', 'B', expectedId)
+    expect(createPlanArtifact).toHaveBeenNthCalledWith(2, 'convo', 'T', 'B', expectedId)
     // Same deterministic event id both times -> appendOrReplaceEvent replaces
     // the row in place (exactly one persisted event) and the renderer upserts.
     const persisted = vi.mocked(appendOrReplaceEvent).mock.calls.map(([, e]) => e as Event)
     expect(persisted).toHaveLength(2)
-    expect(persisted[0].id).toBe('convo:tc1:artifact-event')
-    expect(persisted[1].id).toBe('convo:tc1:artifact-event')
+    expect(persisted[0].id).toBe('convo:tc1:e1725446192b97dc:artifact-event')
+    expect(persisted[1].id).toBe('convo:tc1:e1725446192b97dc:artifact-event')
+  })
+
+  it('collision-safe by content: the same toolCallId with DIFFERENT content derives different ids', async () => {
+    // Provider tool-call ids can REPEAT across iterations for non-Anthropic
+    // providers (graph.ts callIdMap). A NEW plan under a reused tc.id must not
+    // hit the store's existence check and silently resurrect the OLD row (and
+    // its recorded policy -- possibly an approval the user never granted for
+    // this plan): different content must fold to a different deterministic id
+    // so the store records a fresh row and a fresh event.
+    vi.mocked(createPlanArtifact).mockReturnValue({
+      artifact: art(),
+      policy: 'always-proceed'
+    })
+    const sink = makeSink()
+    const { submitPlan } = toolsFor(sink)
+    await submitPlan.invoke({ title: 'T', body: 'B' }, { toolCallId: 'tc1' })
+    await submitPlan.invoke({ title: 'T2', body: 'B' }, { toolCallId: 'tc1' })
+    await submitPlan.invoke({ title: 'T', body: 'B2' }, { toolCallId: 'tc1' })
+    const artifactIds = vi.mocked(createPlanArtifact).mock.calls.map((c) => c[3])
+    expect(artifactIds).toHaveLength(3)
+    expect(new Set(artifactIds).size).toBe(3)
+    const eventIds = vi.mocked(appendOrReplaceEvent).mock.calls.map(([, e]) => (e as Event).id)
+    expect(new Set(eventIds).size).toBe(3)
   })
 
   it('SECURITY: submit tools never consult the permission engine (nothing to gate)', async () => {

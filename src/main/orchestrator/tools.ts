@@ -15,7 +15,7 @@
 // same shell, timeout/kill, and output-truncation behavior the engine has
 // always used.
 import { spawn } from 'child_process'
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { realpathSync } from 'fs'
 import { interrupt } from '@langchain/langgraph'
 import { tool } from 'langchain'
@@ -229,30 +229,49 @@ export function buildTools(projectPath: string, conversationId: string, sink: Ru
   )
 
   // Deterministic ids keyed on the provider tool-call id (the same config
-  // field run_command reads, above). REPLAY GUARANTEE -- idempotent-by-key,
-  // NOT "no replay path exists": live keyed resume and the nudge re-drive
-  // never re-execute a completed task (putWrites + skipDoneTasks), but
-  // crash-rehydration can. Checkpoint durability defaults to 'async' (the
-  // checkpointer promise is tracked, not awaited) and this tool's writes land
-  // in bearcode.db while the graph's task writes land in checkpoints.db with
-  // no shared transaction -- so a crash after the tool completed but before
-  // putWrites committed makes the rehydrated+resumed graph RE-EXECUTE this
-  // task silently. The replayed call therefore derives the SAME artifact id
+  // field run_command reads, above) PLUS a content hash. Two properties, both
+  // load-bearing:
+  //
+  // (1) REPLAY IDEMPOTENCY -- idempotent-by-key, NOT "no replay path exists":
+  // live keyed resume and the nudge re-drive never re-execute a completed
+  // task (putWrites + skipDoneTasks), but crash-rehydration can. Checkpoint
+  // durability defaults to 'async' (the checkpointer promise is tracked, not
+  // awaited) and this tool's writes land in bearcode.db while the graph's
+  // task writes land in checkpoints.db with no shared transaction -- so a
+  // crash after the tool completed but before putWrites committed makes the
+  // rehydrated+resumed graph RE-EXECUTE this task silently. A true replay
+  // carries the identical title+body, so it derives the SAME artifact id
   // (the store returns the existing row: no second insert, no re-supersede,
   // no version bump) and the SAME event id (appendOrReplaceEvent replaces in
-  // place; the renderer upserts by id). Namespaced by conversationId because
-  // provider tool-call ids are only unique per conversation at best (see
-  // graph.ts callIdMap). An id-less provider falls back to random ids and
-  // accepts the residual duplicate-on-crash window.
+  // place; the renderer upserts by id).
+  //
+  // (2) COLLISION SAFETY across reused tool-call ids: provider tool-call ids
+  // CAN REPEAT across iterations for non-Anthropic providers (graph.ts
+  // callIdMap documents exactly this). Keyed on the id alone, a NEW plan
+  // submitted under a reused tc.id would hit the store's existence check and
+  // return the OLD row -- its policy reconstructed from the recorded status,
+  // possibly "Plan approved. Begin implementation." for a plan the user never
+  // saw -- and the new plan's body would never be recorded (in Ba2, a
+  // plan_review-bypass trajectory). Folding sha256(title + '\n' + body) into
+  // the key means different content diverges to a fresh row + fresh event.
+  //
+  // Namespaced by conversationId because provider tool-call ids are only
+  // unique per conversation at best (graph.ts callIdMap again). An id-less
+  // provider falls back to random ids and accepts the residual
+  // duplicate-on-crash window.
   const artifactIdsFor = (
-    toolCallId: string | undefined
-  ): { artifactId: string; eventId: string } =>
-    toolCallId !== undefined
-      ? {
-          artifactId: `${conversationId}:${toolCallId}:artifact`,
-          eventId: `${conversationId}:${toolCallId}:artifact-event`
-        }
-      : { artifactId: randomUUID(), eventId: randomUUID() }
+    toolCallId: string | undefined,
+    title: string,
+    body: string
+  ): { artifactId: string; eventId: string } => {
+    if (toolCallId === undefined) return { artifactId: randomUUID(), eventId: randomUUID() }
+    const contentHash = createHash('sha256')
+      .update(title + '\n' + body)
+      .digest('hex')
+      .slice(0, 16)
+    const stem = `${conversationId}:${toolCallId}:${contentHash}`
+    return { artifactId: `${stem}:artifact`, eventId: `${stem}:artifact-event` }
+  }
 
   // The artifact event is the one event these tools emit themselves (their
   // tool_call/tool_result rows ride graph.ts's generic drive-loop emission
@@ -288,7 +307,9 @@ export function buildTools(projectPath: string, conversationId: string, sink: Ru
         return 'submit_plan needs a non-empty title and a non-empty markdown body. Nothing was recorded; call it again with both.'
       }
       const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
-      const { artifactId, eventId } = artifactIdsFor(toolCallId)
+      // Hash the same values handed to the store, so a replayed call (which
+      // re-derives them from the same tool args) folds to the same key.
+      const { artifactId, eventId } = artifactIdsFor(toolCallId, title.trim(), body)
       const { artifact, policy } = createPlanArtifact(
         conversationId,
         title.trim(),
@@ -324,7 +345,7 @@ export function buildTools(projectPath: string, conversationId: string, sink: Ru
         return 'submit_walkthrough needs a non-empty title and a non-empty markdown body. Nothing was recorded; call it again with both.'
       }
       const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
-      const { artifactId, eventId } = artifactIdsFor(toolCallId)
+      const { artifactId, eventId } = artifactIdsFor(toolCallId, title.trim(), body)
       const artifact = createWalkthroughArtifact(conversationId, title.trim(), body, artifactId)
       emitArtifactEvent(artifact, eventId)
       return `Walkthrough v${artifact.version} recorded.`

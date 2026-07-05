@@ -54,8 +54,11 @@ export function createPlanArtifact(
       artifact: existing,
       // Reconstruct the policy that governed the ORIGINAL submission from the
       // recorded status -- the live setting may have flipped since, and the
-      // replayed tool must return the copy the original run earned.
-      policy: existing.status === 'pending-review' ? 'request-review' : 'always-proceed'
+      // replayed tool must return the copy the original run earned. Only an
+      // 'approved' row reconstructs 'always-proceed'; anything else (incl.
+      // 'superseded') fails safe to 'request-review' so a replay never mints
+      // approval copy for a plan the user never green-lit.
+      policy: existing.status === 'approved' ? 'always-proceed' : 'request-review'
     }
   }
   const policy = getSettings().artifactReviewPolicy

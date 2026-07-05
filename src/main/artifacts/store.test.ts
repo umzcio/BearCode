@@ -144,6 +144,14 @@ describe('replay idempotency (crash-rehydration re-executes completed submit too
     vi.mocked(getArtifact).mockReturnValue(art({ id: 'x', status: 'approved' }))
     expect(createPlanArtifact('convo', 'T', 'B', 'x').policy).toBe('always-proceed')
   })
+  it("a replayed plan whose row was superseded reconstructs 'request-review', never approval", () => {
+    // Fail-safe: only an 'approved' row may reconstruct 'always-proceed'. A
+    // superseded row must not hand the replayed tool the approval copy for a
+    // plan the user never green-lit.
+    settingsWith('always-proceed')
+    vi.mocked(getArtifact).mockReturnValue(art({ id: 'x', status: 'superseded', resolvedAt: null }))
+    expect(createPlanArtifact('convo', 'T', 'B', 'x').policy).toBe('request-review')
+  })
   it('a second createWalkthroughArtifact with the same id returns the existing row without inserting', () => {
     const existing = art({ id: 'w1', type: 'walkthrough', status: 'final' })
     vi.mocked(getArtifact).mockReturnValue(existing)
