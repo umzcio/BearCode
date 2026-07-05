@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   AddRuleInput,
   AppSettings,
+  ArtifactComment,
   ConversationMeta,
   Event,
   ModelRef,
@@ -87,6 +88,11 @@ interface AppState {
   // Artifact the artifacts pane is showing; mutually exclusive with
   // reviewDiffId (one side panel mount, Ba4 unifies them).
   reviewArtifactId: string | null
+  // Drafted/sent comments per artifact id, loaded lazily by the pane.
+  artifactComments: Record<string, ArtifactComment[]>
+  // Tick: the pane focuses its feedback box when this increments (the pending
+  // card's "Send feedback" action).
+  artifactPaneFocusFeedback: number
   toast: string | null
 
   init(): void
@@ -119,7 +125,10 @@ interface AppState {
   deleteAllConversations(): Promise<void>
   openReview(diffId: string): void
   openReviewForFile(convoId: string, path: string): void
-  openArtifactPane(artifactId: string): void
+  openArtifactPane(artifactId: string, focusFeedback?: boolean): void
+  loadArtifactComments(artifactId: string): Promise<void>
+  addArtifactComment(artifactId: string, quote: string | null, body: string): Promise<void>
+  resolvePlanReview(callId: string, proceed: boolean, message?: string): Promise<boolean>
   closeReview(): void
   showToast(message: string): void
 }
@@ -223,6 +232,8 @@ export const useAppStore = create<AppState>((set, get) => {
     reviewDiffId: null,
     reviewFocusPath: null,
     reviewArtifactId: null,
+    artifactComments: {},
+    artifactPaneFocusFeedback: 0,
     toast: null,
 
     init: () => {
@@ -507,8 +518,41 @@ export const useAppStore = create<AppState>((set, get) => {
         }
       }
     },
-    openArtifactPane: (artifactId) =>
-      set({ reviewArtifactId: artifactId, reviewDiffId: null, reviewFocusPath: null }),
+    openArtifactPane: (artifactId, focusFeedback) =>
+      set((s) => ({
+        reviewArtifactId: artifactId,
+        reviewDiffId: null,
+        reviewFocusPath: null,
+        artifactPaneFocusFeedback: focusFeedback
+          ? s.artifactPaneFocusFeedback + 1
+          : s.artifactPaneFocusFeedback
+      })),
+
+    loadArtifactComments: async (artifactId) => {
+      const comments = await window.bearcode.artifacts.listComments(artifactId)
+      set((s) => ({ artifactComments: { ...s.artifactComments, [artifactId]: comments } }))
+    },
+
+    addArtifactComment: async (artifactId, quote, body) => {
+      await window.bearcode.artifacts.addComment(artifactId, quote, body)
+      await get().loadArtifactComments(artifactId)
+    },
+
+    // Plan reviews resolve over their own channel, never tools.approve
+    // (main-side kind cross-guards make the wires mutually exclusive). The
+    // failure copy discriminates on the main-side result, never guesses:
+    // 'stale' (card answered/stopped/unknown) vs 'needs-substance' (design
+    // 3.6's Review guard).
+    resolvePlanReview: async (callId, proceed, message) => {
+      const result = await window.bearcode.artifacts.resolvePlanReview(callId, proceed, message)
+      if (result === 'needs-substance') {
+        get().showToast('Add a comment or a message before sending a review')
+      } else if (result === 'stale') {
+        get().showToast('This plan review is no longer pending')
+      }
+      return result === 'resolved'
+    },
+
     closeReview: () => set({ reviewDiffId: null, reviewFocusPath: null, reviewArtifactId: null }),
 
     showToast: (message) => {
