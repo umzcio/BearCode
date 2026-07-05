@@ -12,8 +12,8 @@ import type {
 import { keyStatus, setKey } from './keys'
 import { addUserRule } from './permissions'
 import { setSettings, settingsInfo } from './settings'
-import { listAllModels } from './ursa/providers/registry'
-import { filePathFor, getDiff, revertFile } from './ursa/diffs'
+import { listAllModels } from './providers/registry'
+import { filePathFor, getDiff, revertFile } from './diffs'
 import * as db from './db'
 import {
   cancelRunOrchestrator,

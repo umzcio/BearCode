@@ -1,7 +1,7 @@
 // Pure mappers from the orchestrator's accumulated streaming buffers to the
 // existing Event contract (src/shared/types.ts). These are UPSERT-by-id: the
 // same id is re-emitted with the growing accumulated string on every token,
-// exactly like the legacy engine's streamText loop (src/main/ursa/run.ts).
+// exactly like the deleted legacy engine's streamText loop.
 import type { Event } from '../../shared/types'
 
 export function textDeltaEvent(id: string, text: string, agentId?: string): Event {

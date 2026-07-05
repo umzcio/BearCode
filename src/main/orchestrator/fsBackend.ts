@@ -4,14 +4,13 @@
 // built-in read_file/write_file/edit_file/ls/glob/grep tools (see graph.ts's
 // header comment); this backend is what makes those built-ins operate on the
 // REAL project directory instead of an in-memory/virtual filesystem, and
-// route every write/edit through stageFile (src/main/ursa/diffs.ts) so
+// route every write/edit through stageFile (src/main/diffs.ts) so
 // changes land on disk write-through AND get recorded for the review pane,
-// exactly like the legacy engine (src/main/ursa/run.ts + diffs.ts).
+// exactly like the deleted legacy engine did.
 //
-// jailPath below mirrors (but cannot import, since src/main/ursa/ must not be
-// modified and jailPath there is unexported) the jail logic in
-// src/main/ursa/tools/index.ts: every path is resolved against projectPath
-// and verified to stay inside it after symlink resolution.
+// jailPath below carries the jail logic inherited from the legacy engine's
+// tool layer: every path is resolved against projectPath and verified to
+// stay inside it after symlink resolution.
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'fs'
@@ -28,7 +27,7 @@ import type {
   WriteResult
 } from 'deepagents'
 import type { FileDiffFile } from '../../shared/types'
-import { stageFile } from '../ursa/diffs'
+import { stageFile } from '../diffs'
 
 const execFileAsync = promisify(execFile)
 

@@ -15,7 +15,7 @@ function ScheduledView(): React.JSX.Element {
     <div className="empty-state">
       <RoarBear scale={4} />
       <div className="empty-title">Scheduled tasks are coming soon</div>
-      <div className="empty-sub">Saved prompts on a schedule, run by ursa while you sleep.</div>
+      <div className="empty-sub">Saved prompts on a schedule, run by BearCode while you sleep.</div>
     </div>
   )
 }

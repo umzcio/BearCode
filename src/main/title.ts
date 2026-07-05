@@ -3,9 +3,9 @@
 // provider names the conversation. Failures are silent; the sidebar keeps
 // the first-message fallback.
 import { generateText } from 'ai'
-import type { ProviderId } from '../../shared/types'
+import type { ProviderId } from '../shared/types'
 import { getProvider } from './providers/registry'
-import { getConversationMeta, setTitle } from '../db'
+import { getConversationMeta, setTitle } from './db'
 
 // Cheapest curated model per provider; Ollama and OpenRouter reuse the
 // model already in play rather than assuming what else is available.
@@ -53,7 +53,7 @@ export async function maybeGenerateTitle(
     onTitle(conversationId, title)
   } catch (err) {
     console.log(
-      `[ursa] title generation skipped (${providerId}):`,
+      `[bearcode] title generation skipped (${providerId}):`,
       err instanceof Error ? err.message : err
     )
   }
