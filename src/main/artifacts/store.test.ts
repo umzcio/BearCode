@@ -14,8 +14,7 @@ vi.mock('../settings', () => ({
     defaultModelRef: null,
     defaultPermissionMode: 'accept-edits',
     disabledBuiltins: [] as string[],
-    artifactReviewPolicy: 'request-review' as const,
-    defaultExecutionMode: 'planning' as const
+    artifactReviewPolicy: 'request-review' as const
   }))
 }))
 
@@ -53,8 +52,7 @@ const settingsWith = (policy: 'request-review' | 'always-proceed'): void => {
     defaultModelRef: null,
     defaultPermissionMode: 'accept-edits',
     disabledBuiltins: [],
-    artifactReviewPolicy: policy,
-    defaultExecutionMode: 'planning'
+    artifactReviewPolicy: policy
   })
 }
 

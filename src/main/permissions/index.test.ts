@@ -41,10 +41,6 @@ const asMode = (permissionMode: string): void => {
     createdAt: 0,
     updatedAt: 0,
     permissionMode: permissionMode as never,
-    // executionMode is still a REQUIRED ConversationMeta field until Task 4
-    // removes it (this task runs first, and src/main test files are typechecked).
-    // Task 4 Step 24b deletes this line.
-    executionMode: 'planning' as never,
     activeRules: []
   })
 }

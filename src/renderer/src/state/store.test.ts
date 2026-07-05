@@ -44,7 +44,6 @@ const permissions = {
 const conversations = {
   create: vi.fn(() => Promise.resolve(convoMeta)),
   setMode: vi.fn(() => Promise.resolve()),
-  setExecutionMode: vi.fn(() => Promise.resolve()),
   get: vi.fn(() => Promise.resolve([])),
   clear: vi.fn(() => Promise.resolve())
 }
@@ -70,7 +69,6 @@ const convoMeta: ConversationMeta = {
   createdAt: 1,
   updatedAt: 1,
   permissionMode: 'accept-edits',
-  executionMode: 'planning',
   activeRules: []
 }
 
@@ -81,7 +79,6 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   title: 'T',
   modelRef: 'anthropic/claude-sonnet-5',
   permissionMode: 'accept-edits',
-  executionMode: 'planning',
   updatedAt: 1,
   loaded: true,
   events: [],
@@ -143,195 +140,6 @@ describe('permissions manager store actions', () => {
     )
     expect(permissions.list).toHaveBeenCalledTimes(1)
     expect(useAppStore.getState().permissionRules).toEqual(info)
-  })
-})
-
-describe('execution mode (Ba3): pick, mirror-lock, persist-before-run', () => {
-  it('a Home pick updates the composer value only (no conversation, no IPC)', () => {
-    useAppStore.setState({ view: { kind: 'home' }, executionMode: 'planning' })
-    useAppStore.getState().setExecutionMode('fast')
-    expect(useAppStore.getState().executionMode).toBe('fast')
-    expect(conversations.setExecutionMode).not.toHaveBeenCalled()
-  })
-  it('an unlocked conversation (loaded, zero events) patches the convo and persists over IPC', () => {
-    useAppStore.setState({
-      view: { kind: 'conversation', id: 'c1' },
-      conversations: { c1: convo() },
-      executionMode: 'planning'
-    })
-    useAppStore.getState().setExecutionMode('fast')
-    expect(useAppStore.getState().conversations.c1.executionMode).toBe('fast')
-    expect(conversations.setExecutionMode).toHaveBeenCalledWith('c1', 'fast')
-  })
-  it('LOCK: a conversation with any event ignores the pick entirely', () => {
-    useAppStore.setState({
-      view: { kind: 'conversation', id: 'c1' },
-      conversations: {
-        c1: convo({ events: [{ type: 'user_message', id: 'u1', text: 'hi' }] })
-      },
-      executionMode: 'planning'
-    })
-    useAppStore.getState().setExecutionMode('fast')
-    expect(useAppStore.getState().executionMode).toBe('planning')
-    expect(useAppStore.getState().conversations.c1.executionMode).toBe('planning')
-    expect(conversations.setExecutionMode).not.toHaveBeenCalled()
-  })
-  it('LOCK fails closed: an unloaded conversation (history unknown) counts as locked', () => {
-    useAppStore.setState({
-      view: { kind: 'conversation', id: 'c1' },
-      conversations: { c1: convo({ loaded: false }) },
-      executionMode: 'planning'
-    })
-    useAppStore.getState().setExecutionMode('fast')
-    expect(useAppStore.getState().executionMode).toBe('planning')
-    expect(conversations.setExecutionMode).not.toHaveBeenCalled()
-  })
-  it('reverts the optimistic patch and surfaces the lock when main rejects (broadcast race)', async () => {
-    // The window the mirror cannot see: main appended the first user_message
-    // (locking) before the broadcast reached the renderer, so the mirror
-    // admitted the pick and the IPC then rejected.
-    conversations.setExecutionMode.mockRejectedValueOnce(
-      new Error('Execution mode is locked after the first turn')
-    )
-    useAppStore.setState({
-      view: { kind: 'conversation', id: 'c1' },
-      conversations: { c1: convo() },
-      executionMode: 'planning',
-      toast: null
-    })
-    useAppStore.getState().setExecutionMode('fast')
-    // Optimistic first, then reverted on rejection -- never left stale.
-    await vi.waitFor(() => expect(useAppStore.getState().executionMode).toBe('planning'))
-    expect(useAppStore.getState().conversations.c1.executionMode).toBe('planning')
-    expect(useAppStore.getState().toast).toBe('Execution mode is locked after the first turn')
-  })
-  it('a late rejection of an earlier pick does not clobber a newer accepted pick', async () => {
-    // Two rapid picks: A ('fast') is left pending, B ('planning') resolves,
-    // THEN A rejects. A's catch must see that its optimistic value is no
-    // longer current and skip both the revert and the toast -- otherwise B's
-    // persisted value would be clobbered with A's stale prior plus a
-    // misleading locked message.
-    let rejectA: (err: Error) => void = () => {}
-    conversations.setExecutionMode
-      .mockImplementationOnce(
-        () =>
-          new Promise<void>((_, reject) => {
-            rejectA = reject
-          })
-      )
-      .mockImplementationOnce(() => Promise.resolve())
-    useAppStore.setState({
-      view: { kind: 'conversation', id: 'c1' },
-      conversations: { c1: convo() },
-      executionMode: 'planning',
-      toast: null
-    })
-    useAppStore.getState().setExecutionMode('fast') // pick A, pending
-    useAppStore.getState().setExecutionMode('planning') // pick B, accepted
-    await Promise.resolve() // let B's resolution settle
-    rejectA(new Error('Execution mode is locked after the first turn'))
-    await Promise.resolve()
-    await Promise.resolve() // let A's catch run
-    expect(conversations.setExecutionMode).toHaveBeenCalledTimes(2)
-    expect(useAppStore.getState().executionMode).toBe('planning')
-    expect(useAppStore.getState().conversations.c1.executionMode).toBe('planning')
-    expect(useAppStore.getState().toast).toBeNull()
-  })
-  it('strips the Electron IPC wrapper from the lock toast (Ba3 follow-up)', async () => {
-    conversations.setExecutionMode.mockRejectedValueOnce(
-      new Error(
-        "Error invoking remote method 'bearcode:conversations:set-execution-mode': " +
-          'Error: Execution mode is locked after the first turn'
-      )
-    )
-    useAppStore.setState({
-      view: { kind: 'conversation', id: 'c1' },
-      conversations: { c1: convo() },
-      executionMode: 'planning',
-      toast: null
-    })
-    useAppStore.getState().setExecutionMode('fast')
-    await vi.waitFor(() =>
-      expect(useAppStore.getState().toast).toBe('Execution mode is locked after the first turn')
-    )
-    expect(useAppStore.getState().executionMode).toBe('planning')
-  })
-  it('navigating home during a pending pick still reverts the stranded convo patch', async () => {
-    // The strand (Ba3 FINAL follow-up): the composer resets on goHome, so a
-    // whole-action staleness guard would bail and leave the optimistic convo
-    // patch describing a mode main rejected -- which openConvo would then
-    // re-adopt forever. The per-field guard reverts the patch anyway.
-    let rejectPick: (err: Error) => void = () => {}
-    conversations.setExecutionMode.mockImplementationOnce(
-      () =>
-        new Promise<void>((_, reject) => {
-          rejectPick = reject
-        })
-    )
-    useAppStore.setState({
-      view: { kind: 'conversation', id: 'c1' },
-      conversations: { c1: convo({ executionMode: 'fast' }) },
-      executionMode: 'fast',
-      settings: {
-        ollamaBaseUrl: '',
-        defaultModelRef: null,
-        defaultPermissionMode: 'accept-edits',
-        disabledBuiltins: [],
-        artifactReviewPolicy: 'request-review',
-        defaultExecutionMode: 'planning',
-        dataPath: '/tmp'
-      },
-      toast: null
-    })
-    useAppStore.getState().setExecutionMode('planning') // optimistic patch lands, IPC pending
-    useAppStore.getState().goHome() // composer resets to the default ('planning')
-    rejectPick(new Error('Execution mode is locked after the first turn'))
-    await vi.waitFor(() =>
-      expect(useAppStore.getState().conversations.c1.executionMode).toBe('fast')
-    )
-    // The composer belongs to Home now -- untouched by the revert.
-    expect(useAppStore.getState().executionMode).toBe('planning')
-    expect(useAppStore.getState().toast).toBe('Execution mode is locked after the first turn')
-  })
-  it('startFromHome persists the picked mode BEFORE the run starts (the pin must find it)', async () => {
-    const order: string[] = []
-    conversations.setExecutionMode.mockImplementation(() => {
-      order.push('setExecutionMode')
-      return Promise.resolve()
-    })
-    run.start.mockImplementation(() => {
-      order.push('start')
-      return Promise.resolve()
-    })
-    useAppStore.setState({
-      view: { kind: 'home' },
-      modelRef: 'anthropic/claude-sonnet-5',
-      workspacePath: null,
-      executionMode: 'fast'
-    })
-    useAppStore.getState().startFromHome('hello')
-    await vi.waitFor(() => expect(order).toContain('start'))
-    expect(conversations.setExecutionMode).toHaveBeenCalledWith('c1', 'fast')
-    expect(order.indexOf('setExecutionMode')).toBeLessThan(order.indexOf('start'))
-  })
-  it('openConvo adopts the conversation mode; goHome resets to the settings default', () => {
-    useAppStore.setState({
-      conversations: { c1: convo({ executionMode: 'fast' }) },
-      executionMode: 'planning',
-      settings: {
-        ollamaBaseUrl: '',
-        defaultModelRef: null,
-        defaultPermissionMode: 'accept-edits',
-        disabledBuiltins: [],
-        artifactReviewPolicy: 'request-review',
-        defaultExecutionMode: 'planning',
-        dataPath: '/tmp'
-      }
-    })
-    useAppStore.getState().openConvo('c1')
-    expect(useAppStore.getState().executionMode).toBe('fast')
-    useAppStore.getState().goHome()
-    expect(useAppStore.getState().executionMode).toBe('planning')
   })
 })
 

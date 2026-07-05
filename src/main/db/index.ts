@@ -12,7 +12,6 @@ import type {
   ArtifactType,
   ConversationMeta,
   Event,
-  ExecutionMode,
   PermissionAction,
   PermissionMode,
   PermissionRule
@@ -94,12 +93,11 @@ function getDb(): Database.Database {
   } catch {
     // column already exists
   }
-  // Additive column for the per-conversation execution mode (Ba3, design 3.2).
-  // Same idempotent-guarded ALTER idiom as permission_mode above. NULL means
-  // "not pinned yet": reads fall back to the CURRENT defaultExecutionMode
-  // (toMeta below) and the first turn pins the effective value
-  // (pinExecutionMode), so a later settings change never silently flips the
-  // mode a locked conversation already ran with.
+  // DEAD COLUMN (unified-mode-picker design §8): execution_mode is no longer
+  // read or written. The unified PermissionMode absorbed the execution axis;
+  // the column is kept only because SQLite column drops are disruptive. The
+  // ALTER remains idempotent-guarded so old and new DBs share one schema, but
+  // nothing in the app touches this column anymore.
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN execution_mode TEXT`)
   } catch {
@@ -170,7 +168,6 @@ interface ConversationRow {
   created_at: number
   updated_at: number
   permission_mode: string | null
-  execution_mode: string | null
   active_rules: string | null
 }
 
@@ -194,7 +191,6 @@ function toMeta(row: ConversationRow, fallbackTitle?: string | null): Conversati
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     permissionMode: (row.permission_mode as PermissionMode) ?? getSettings().defaultPermissionMode,
-    executionMode: (row.execution_mode as ExecutionMode) ?? getSettings().defaultExecutionMode,
     activeRules: parseActiveRules(row.active_rules)
   }
 }
@@ -209,7 +205,6 @@ export function createConversation(projectPath: string | null): ConversationMeta
     created_at: now,
     updated_at: now,
     permission_mode: null,
-    execution_mode: null,
     active_rules: null
   }
   getDb()
@@ -385,45 +380,13 @@ export function setPermissionMode(conversationId: string, mode: PermissionMode):
     .run(mode, Date.now(), conversationId)
 }
 
-// Persist an explicit execution-mode choice for a conversation whose first
-// turn has not run. The LOCK is enforced at the IPC boundary
-// (conversationHasEvents in ipc.ts), not here: this writer stays a dumb
-// column update like setPermissionMode above.
-export function setExecutionMode(conversationId: string, mode: ExecutionMode): void {
-  getDb()
-    .prepare(`UPDATE conversations SET execution_mode = ?, updated_at = ? WHERE id = ?`)
-    .run(mode, Date.now(), conversationId)
-}
-
 // Persist the conversation's pinned Manual rules (D1 Task 5). Same dumb
-// column-update shape as setExecutionMode above; the value is a JSON string[]
+// column-update shape as setPermissionMode above; the value is a JSON string[]
 // of rule names, read back through toMeta's guarded parse.
 export function setActiveRules(conversationId: string, names: string[]): void {
   getDb()
     .prepare(`UPDATE conversations SET active_rules = ?, updated_at = ? WHERE id = ?`)
     .run(JSON.stringify(names), Date.now(), conversationId)
-}
-
-// The lock signal (design 3.2 DOCUMENTED CHOICE): a conversation's first turn
-// "has run" exactly when any event is persisted -- runGraph appends the
-// user_message as its first act, so the events table is the honest,
-// crash-safe record of "a turn started here".
-export function conversationHasEvents(conversationId: string): boolean {
-  const row = getDb()
-    .prepare(`SELECT EXISTS(SELECT 1 FROM events WHERE conversation_id = ?) AS present`)
-    .get(conversationId) as { present: number }
-  return row.present === 1
-}
-
-// Pin the effective execution mode at first-turn start: a NULL column adopts
-// the CURRENT defaultExecutionMode; an explicit renderer-set value is kept.
-// COALESCE makes the pin idempotent in one statement (later turns and
-// re-entrant calls are no-ops). After the pin, the locked control always
-// shows the mode this conversation's prompts actually used.
-export function pinExecutionMode(conversationId: string): void {
-  getDb()
-    .prepare(`UPDATE conversations SET execution_mode = COALESCE(execution_mode, ?) WHERE id = ?`)
-    .run(getSettings().defaultExecutionMode, conversationId)
 }
 
 export interface RuleRow {

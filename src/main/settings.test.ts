@@ -48,16 +48,6 @@ describe('migrateSettings', () => {
     )
     expect(migrateSettings({ artifactReviewPolicy: 7 }).artifactReviewPolicy).toBe('request-review')
   })
-  it("defaults defaultExecutionMode to 'planning'", () => {
-    expect(migrateSettings({}).defaultExecutionMode).toBe('planning')
-  })
-  it("preserves a stored 'fast' default across load (survives restart)", () => {
-    expect(migrateSettings({ defaultExecutionMode: 'fast' }).defaultExecutionMode).toBe('fast')
-  })
-  it('coerces an unknown execution mode to the planning default', () => {
-    expect(migrateSettings({ defaultExecutionMode: 'turbo' }).defaultExecutionMode).toBe('planning')
-    expect(migrateSettings({ defaultExecutionMode: 7 }).defaultExecutionMode).toBe('planning')
-  })
 })
 
 describe('migrateSettings defaultPermissionMode coercion', () => {

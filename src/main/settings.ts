@@ -17,8 +17,7 @@ const DEFAULTS: AppSettings = {
   defaultModelRef: null,
   defaultPermissionMode: 'accept-edits',
   disabledBuiltins: [],
-  artifactReviewPolicy: 'request-review',
-  defaultExecutionMode: 'planning'
+  artifactReviewPolicy: 'request-review'
 }
 
 function settingsPath(): string {
@@ -49,11 +48,6 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   // 'request-review' (design 3.3: Request Review is the recommended default).
   const rawPolicy = (seeded as Record<string, unknown>)['artifactReviewPolicy']
   merged.artifactReviewPolicy = rawPolicy === 'always-proceed' ? 'always-proceed' : 'request-review'
-  // Two-value enum guard, same posture as artifactReviewPolicy above: an
-  // unknown value in settings.json (typo, downgrade from a future version)
-  // collapses to 'planning', the design-3.2 default.
-  const rawExecutionMode = (seeded as Record<string, unknown>)['defaultExecutionMode']
-  merged.defaultExecutionMode = rawExecutionMode === 'fast' ? 'fast' : 'planning'
   // defaultPermissionMode is the single default (design §5). Coerce anything
   // outside the four selectable modes -- including a stray 'bypass' or a typo
   // from a future/downgraded version -- to the safe default.
