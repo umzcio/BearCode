@@ -112,6 +112,12 @@ export interface ArtifactComment {
   sentAt: number | null
 }
 
+// Outcome of a plan-review resolution attempt, so the renderer can show
+// honest failure copy: 'stale' = the card is no longer answerable (unknown,
+// already answered, run stopped, or not a plan card); 'needs-substance' =
+// design 3.6's Review guard (needs a comment or a message).
+export type PlanReviewResolveResult = 'resolved' | 'needs-substance' | 'stale'
+
 export type RunState = 'running' | 'awaiting-approval' | 'done' | 'error' | 'cancelled'
 
 export type Event =

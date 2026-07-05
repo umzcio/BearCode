@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 
 // graph.ts imports ../db and ./checkpointer, which touch electron/sqlite at
 // call time; mock them (same pattern as resume.test.ts) so importing the
@@ -8,7 +8,9 @@ vi.mock('../db', () => ({
   appendOrReplaceEvent: vi.fn(),
   dropDanglingApprovalRows: vi.fn(),
   dropDanglingCancel: vi.fn(),
-  getConversationMeta: vi.fn(() => null)
+  getConversationMeta: vi.fn(() => null),
+  listArtifactComments: vi.fn(() => []),
+  markArtifactCommentsSent: vi.fn()
 }))
 
 vi.mock('./checkpointer', () => ({
@@ -32,8 +34,15 @@ import {
   synthesizedApprovalCard,
   pairedApprovalInput,
   isRehydratableInterrupt,
+  planReviewArtifactIdOf,
+  resolvePlanInterrupt,
+  resolveInterrupt,
+  forgetPendingApproval,
+  __parkForTest,
   type ApprovalItem
 } from './graph'
+import type { PlanReviewResolution } from './tools'
+import type { RunSink } from '../sink'
 
 describe('textOfMessage', () => {
   it('returns a plain-string content as-is', () => {
@@ -544,10 +553,12 @@ describe('approval decision collection (collect-then-resume)', () => {
       const resume = buildResumeMap(items(['c1', item('i1', true)], ['c2', item('i2', false)]))
       expect(resume).toEqual({ i1: { approved: true }, i2: { approved: false } })
       // The resume-payload invariant: values must be truthy objects, never a
-      // bare boolean, or LangGraph treats the resume as absent.
+      // bare boolean, or LangGraph treats the resume as absent. (Cast: the
+      // return type widened to ResumeValue when plan_review resolutions
+      // joined the map; these command items always carry { approved }.)
       for (const value of Object.values(resume)) {
         expect(Boolean(value)).toBe(true)
-        expect(typeof value.approved).toBe('boolean')
+        expect(typeof (value as { approved: boolean }).approved).toBe('boolean')
       }
     })
 
@@ -725,5 +736,210 @@ describe('orderCompletedCallsFirst (segment post-loop ordering)', () => {
     }
     const out = orderCompletedCallsFirst([cand(undefined), cand('a')], hasResult)
     expect(ids(out)).toEqual(['a', undefined])
+  })
+})
+
+describe('plan_review interrupt pairing', () => {
+  const planValue = {
+    kind: 'plan_review',
+    artifactId: 'convo:tc1:abcd1234deadbeef:artifact',
+    title: 'Add dark mode',
+    toolCallId: 'tc1'
+  }
+
+  it('interruptBelongsToToolCall: exact toolCallId match, and only for submit_plan candidates', () => {
+    expect(
+      interruptBelongsToToolCall(planValue, {
+        id: 'tc1',
+        name: 'submit_plan',
+        args: { title: 'Add dark mode' }
+      })
+    ).toBe(true)
+    expect(
+      interruptBelongsToToolCall(planValue, {
+        id: 'tc2',
+        name: 'submit_plan',
+        args: { title: 'Add dark mode' }
+      })
+    ).toBe(false)
+    expect(
+      interruptBelongsToToolCall(planValue, {
+        id: 'tc1',
+        name: 'run_command',
+        args: { command: 'x' }
+      })
+    ).toBe(false)
+  })
+
+  it('id-less payload falls back to the title match (the command-match analog)', () => {
+    const idless = { kind: 'plan_review', artifactId: 'a1', title: 'Add dark mode' }
+    expect(
+      interruptBelongsToToolCall(idless, {
+        id: 'tcX',
+        name: 'submit_plan',
+        args: { title: 'Add dark mode' }
+      })
+    ).toBe(true)
+    expect(
+      interruptBelongsToToolCall(idless, {
+        id: 'tcX',
+        name: 'submit_plan',
+        args: { title: 'Other plan' }
+      })
+    ).toBe(false)
+  })
+
+  it('pairedApprovalInput merges the artifactId into the streamed args (card <-> pane pairing)', () => {
+    expect(pairedApprovalInput(planValue, { title: 'Add dark mode', body: '# Plan' })).toEqual({
+      title: 'Add dark mode',
+      body: '# Plan',
+      artifactId: 'convo:tc1:abcd1234deadbeef:artifact'
+    })
+    // Non-plan payloads pass through untouched (run_command regression).
+    expect(pairedApprovalInput({ kind: 'run_command', command: 'ls' }, { command: 'ls' })).toEqual({
+      command: 'ls'
+    })
+  })
+
+  it('synthesizedApprovalCard builds the plan card from the payload alone (rehydration path)', () => {
+    expect(synthesizedApprovalCard(planValue)).toEqual({
+      tool: 'submit_plan',
+      input: { title: 'Add dark mode', artifactId: 'convo:tc1:abcd1234deadbeef:artifact' },
+      toolCallId: 'tc1'
+    })
+  })
+
+  it('planReviewArtifactIdOf discriminates by kind', () => {
+    expect(planReviewArtifactIdOf(planValue)).toBe('convo:tc1:abcd1234deadbeef:artifact')
+    expect(planReviewArtifactIdOf({ kind: 'run_command', command: 'x' })).toBeUndefined()
+    expect(planReviewArtifactIdOf(null)).toBeUndefined()
+  })
+
+  it('isRehydratableInterrupt accepts plan_review (the pause survives a crash)', () => {
+    expect(isRehydratableInterrupt(planValue)).toBe(true)
+  })
+})
+
+describe('plan_review resume shape (SECURITY: the kind branch)', () => {
+  const planItem = (resolution?: PlanReviewResolution): ApprovalItem => ({
+    interruptId: 'i-plan',
+    tool: 'submit_plan',
+    input: { title: 'T', artifactId: 'a1' },
+    toolCallId: 'tc1',
+    planReview: { artifactId: 'a1', ...(resolution ? { resolution } : {}) }
+  })
+  const cmdItem = (decision?: boolean): ApprovalItem => ({
+    interruptId: 'i-cmd',
+    tool: 'run_command',
+    input: { command: 'ls' },
+    toolCallId: 'tc2',
+    ...(decision === undefined ? {} : { decision })
+  })
+
+  it('allDecided: a plan item is decided only by a resolution, never by `decision`', () => {
+    expect(allDecided(new Map([['c1', planItem()]]))).toBe(false)
+    expect(allDecided(new Map([['c1', planItem({ proceed: true })]]))).toBe(true)
+  })
+
+  it('buildResumeMap branches by kind: plan items resume with their resolution object, commands with { approved }', () => {
+    const items = new Map([
+      ['c1', planItem({ proceed: false, feedback: 'change it' })],
+      ['c2', cmdItem(true)]
+    ])
+    expect(buildResumeMap(items)).toEqual({
+      'i-plan': { proceed: false, feedback: 'change it' },
+      'i-cmd': { approved: true }
+    })
+  })
+
+  it('a plan item NEVER resumes as { approved } and every value is a truthy object', () => {
+    const resume = buildResumeMap(new Map([['c1', planItem({ proceed: true })]]))
+    expect(resume['i-plan']).toEqual({ proceed: true })
+    expect('approved' in (resume['i-plan'] as object)).toBe(false)
+    for (const v of Object.values(resume)) expect(Boolean(v)).toBe(true)
+  })
+
+  it("the undecided-plan fail-safe is design 3.5's deny-all value", () => {
+    expect(buildResumeMap(new Map([['c1', planItem()]]))['i-plan']).toEqual({
+      proceed: false,
+      feedback: 'The user stopped the run.'
+    })
+  })
+
+  it('resolvedToolCallEvents: proceed persists approved, feedback persists denied', () => {
+    const events = resolvedToolCallEvents(
+      new Map([
+        ['c1', planItem({ proceed: true })],
+        ['c2', planItem({ proceed: false, feedback: 'x' })]
+      ])
+    )
+    expect(events[0].approvalState).toBe('approved')
+    expect(events[1].approvalState).toBe('denied')
+  })
+
+  it('deniedReplayPinsOf SKIPS plan items entirely (no pin analog, by design)', () => {
+    const pins = deniedReplayPinsOf(
+      new Map([
+        ['c1', planItem({ proceed: false, feedback: 'x' })],
+        ['c2', planItem()],
+        ['c3', cmdItem(false)]
+      ])
+    )
+    expect(pins).toEqual([{ toolCallId: 'tc2', command: 'ls' }])
+  })
+
+  it("resolvePlanInterrupt returns 'stale' when nothing is parked (stale IPC)", () => {
+    expect(resolvePlanInterrupt('nowhere', 'c1', { proceed: true })).toBe('stale')
+  })
+})
+
+// The `planItem`/`cmdItem` helpers of the resume-shape suite, re-declared at
+// file scope for the seam-parked cross-guard tests below.
+const planItemX = (resolution?: PlanReviewResolution): ApprovalItem => ({
+  interruptId: 'i-plan',
+  tool: 'submit_plan',
+  input: { title: 'T', artifactId: 'a1' },
+  toolCallId: 'tc1',
+  planReview: { artifactId: 'a1', ...(resolution ? { resolution } : {}) }
+})
+const cmdItemX = (decision?: boolean): ApprovalItem => ({
+  interruptId: 'i-cmd',
+  tool: 'run_command',
+  input: { command: 'ls' },
+  toolCallId: 'tc2',
+  ...(decision === undefined ? {} : { decision })
+})
+
+describe('resolution-channel cross-guards (SECURITY, via the __parkForTest seam)', () => {
+  const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
+  afterEach(() => forgetPendingApproval('convo-x'))
+
+  it('resolveInterrupt (the boolean tools.approve wire) can NEVER resolve a parked plan item', () => {
+    const sink = makeSink()
+    __parkForTest('convo-x', new Map([['c1', planItemX()]]), sink, new AbortController().signal)
+    expect(resolveInterrupt('convo-x', 'c1', true)).toBe(false)
+    expect(resolveInterrupt('convo-x', 'c1', false)).toBe(false)
+    // No terminal card emitted, no dispatch: the card is untouched.
+    expect(sink.emit).not.toHaveBeenCalled()
+  })
+
+  it("resolvePlanInterrupt (the artifacts wire) returns 'stale' for a parked command item", () => {
+    const sink = makeSink()
+    __parkForTest('convo-x', new Map([['c1', cmdItemX()]]), sink, new AbortController().signal)
+    expect(resolvePlanInterrupt('convo-x', 'c1', { proceed: true })).toBe('stale')
+    expect(sink.emit).not.toHaveBeenCalled()
+  })
+
+  it("Review-requires-substance: proceed:false with no comments and no message is 'needs-substance' and records nothing", () => {
+    // The file-level '../db' mock's listArtifactComments returns [] (no drafts).
+    const sink = makeSink()
+    const items = new Map([['c1', planItemX()]])
+    __parkForTest('convo-x', items, sink, new AbortController().signal)
+    expect(resolvePlanInterrupt('convo-x', 'c1', { proceed: false })).toBe('needs-substance')
+    expect(resolvePlanInterrupt('convo-x', 'c1', { proceed: false, message: '   ' })).toBe(
+      'needs-substance'
+    )
+    expect(items.get('c1')?.planReview?.resolution).toBeUndefined()
+    expect(sink.emit).not.toHaveBeenCalled()
   })
 })
