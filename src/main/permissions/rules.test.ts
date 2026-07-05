@@ -116,6 +116,10 @@ describe('matchesEditPath', () => {
     expect(matchesEditPath('.env', './.env')).toBe(true)
     expect(matchesEditPath('.git/**', '.git\\config')).toBe(true)
   })
+  it('matches case-insensitively so casing cannot dodge a rule on case-insensitive filesystems', () => {
+    expect(matchesEditPath('.env', '.ENV')).toBe(true)
+    expect(matchesEditPath('.env', '.Env')).toBe(true)
+  })
 })
 
 describe('evaluateEdit', () => {
@@ -143,5 +147,8 @@ describe('evaluateEdit', () => {
       source: 'user'
     }
     expect(evaluateEdit('src/a.ts', [cmd])).toBe('apply')
+  })
+  it('a deny on .env blocks a differently-cased first write like .ENV', () => {
+    expect(evaluateEdit('.ENV', [rule('deny', '.env')])).toBe('block')
   })
 })

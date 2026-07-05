@@ -48,8 +48,14 @@ export function matchesCommand(pattern: string, command: string): boolean {
 // (see matchesCommand's precedent). Matching is on the normalized relative
 // path (forward slashes, no leading './'); outside-workspace paths never
 // reach this function because jailPath blocks them structurally.
+//
+// Both sides are folded to lowercase: on case-insensitive filesystems (macOS
+// APFS, Windows NTFS) a FIRST write to '.ENV' creates the same file a deny on
+// '.env' meant to protect, and realpath cannot canonicalize the casing of a
+// file that does not exist yet. Deny rules prefer over-matching, so we accept
+// the (rare) over-block on case-sensitive filesystems.
 function normalizeRelPath(p: string): string {
-  return p.replace(/\\/g, '/').replace(/^\.\//, '')
+  return p.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase()
 }
 
 // A single path segment (no '/') matches literally except for '*', which
