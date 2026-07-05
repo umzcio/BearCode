@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto'
 import {
+  ATTACHMENT_MIME_TYPES,
   COMMAND_NAME_PATTERN,
+  type AttachmentRef,
   type CommandRef,
   type ConversationMeta,
   type Event,
@@ -244,6 +246,41 @@ export function assertValidMentions(mentions: unknown): MentionRef[] {
     if (typeof path === 'string') ref.path = path
     if (typeof conversationId === 'string') ref.conversationId = conversationId
     return ref
+  })
+}
+
+// Wire-boundary guard for bearcode:run:start's optional `attachments` argument
+// (src/main/ipc.ts). SAME posture as assertValidMentions above, PLUS an id
+// path-safety check that mentions do not need: an AttachmentRef.id is used
+// main-side to build the on-disk read path userData/attachments/<convId>/<id>,
+// so a stale preload or compromised renderer must not be able to smuggle a
+// traversal segment ('..', '/', '\', '.') through it. Bounds shape, count
+// (design's 5-per-message cap), mime allowlist, and id grammar; throws on
+// anything malformed. Returns a clean AttachmentRef[] (unknown fields dropped).
+const ATTACHMENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+export function assertValidAttachments(attachments: unknown): AttachmentRef[] {
+  if (attachments === null || attachments === undefined) return []
+  if (!Array.isArray(attachments)) {
+    throw new Error('run:start: attachments must be an array or null')
+  }
+  if (attachments.length > 5) {
+    throw new Error('run:start: too many attachments (max 5 per message)')
+  }
+  return attachments.map((a) => {
+    if (typeof a !== 'object' || a === null) {
+      throw new Error('run:start: each attachment must be an object')
+    }
+    const { id, name, mime } = a as { id?: unknown; name?: unknown; mime?: unknown }
+    if (typeof id !== 'string' || !ATTACHMENT_ID_PATTERN.test(id)) {
+      throw new Error('run:start: attachment.id must match /^[A-Za-z0-9_-]{1,64}$/')
+    }
+    if (typeof name !== 'string' || name.length === 0 || name.length > 1024) {
+      throw new Error('run:start: attachment.name must be a non-empty string')
+    }
+    if (typeof mime !== 'string' || !(ATTACHMENT_MIME_TYPES as readonly string[]).includes(mime)) {
+      throw new Error('run:start: attachment.mime must be a supported image type')
+    }
+    return { id, name, mime }
   })
 }
 

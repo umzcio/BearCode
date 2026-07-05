@@ -32,6 +32,30 @@ export interface MentionRef {
   conversationId?: string
 }
 
+// A single image attachment carried alongside the turn's text + command +
+// mentions (D4 design 3.3/8/9). Travels structured end to end the SAME
+// additive way CommandRef/MentionRef do (run:start argument, the persisted
+// user_message payload) and is never concatenated into the message text. The
+// bytes are copied main-side at pick time to userData/attachments/<convId>/<id>
+// (id is minted main-side, randomUUID); only this ref travels the wire.
+// SECURITY: `id` is used main-side to build that on-disk path, so the run:start
+// guard (assertValidAttachments) constrains it to a path-safe pattern.
+export interface AttachmentRef {
+  id: string
+  name: string
+  mime: string
+}
+
+// The only image mime types D4 accepts (design 8; png/jpg/webp/gif). PDFs are
+// phase 2. Shared so the byte-sniff (main ingest) and the wire guard
+// (assertValidAttachments) can never drift.
+export const ATTACHMENT_MIME_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif'
+] as const
+
 // The @ menu's Rules read model (D3 design 7): Manual-mode rule name + the
 // first non-empty line of its body, for the menu row. Produced main-side from
 // the live AgentsContent (mentionSuggest.ts manualRuleInfos).
@@ -193,6 +217,10 @@ export type Event =
       // Optional and additive: events persisted before D3 have no `mentions`
       // field and render exactly as before.
       mentions?: MentionRef[]
+      // The image attachments this turn was sent with, if any (D4 design 8/9).
+      // Optional and additive: events persisted before D4 have no `attachments`
+      // field and render exactly as before.
+      attachments?: AttachmentRef[]
     }
   | { type: 'thinking'; id: string; text: string; durationMs: number; agentId?: string }
   | {
@@ -362,6 +390,11 @@ export interface BearcodeApi {
       // this before a run starts (assertValidMentions); anything malformed
       // rejects the promise.
       mentions?: MentionRef[] | null
+      ,
+      // The image attachments this turn was sent with (D4). Main boundary-
+      // validates this before a run starts (assertValidAttachments); anything
+      // malformed rejects the promise.
+      attachments?: AttachmentRef[] | null
     ): Promise<void>
     cancel(conversationId: string): Promise<void>
   }
