@@ -52,7 +52,28 @@ describe('ModePicker', () => {
     render(<ModePicker />)
     expect(screen.getByText('Auto')).toBeTruthy() // compact pill label
     fireEvent.click(screen.getByText('Auto'))
-    expect(screen.getByText('Auto mode')).toBeTruthy() // full row label
+    // Full label appears both in the pinned summary row and in the list.
+    expect(screen.getAllByText('Auto mode').length).toBeGreaterThan(0)
+  })
+
+  it('pins the current mode as a summary row, marking it Default when it is the configured default', () => {
+    useAppStore.setState({
+      permissionMode: 'accept-edits',
+      settings: { defaultPermissionMode: 'accept-edits' } as never
+    })
+    render(<ModePicker />)
+    fireEvent.click(screen.getByText('Accept edits')) // open (pill is the only match while closed)
+    expect(screen.getByText('· Default')).toBeTruthy() // summary row badge
+  })
+
+  it('does not mark the summary row Default when the mode differs from the configured default', () => {
+    useAppStore.setState({
+      permissionMode: 'plan',
+      settings: { defaultPermissionMode: 'accept-edits' } as never
+    })
+    render(<ModePicker />)
+    fireEvent.click(screen.getByText('Plan')) // compact pill label for plan
+    expect(screen.queryByText('· Default')).toBeNull()
   })
 
   it('selecting Bypass opens a confirm and does NOT switch until confirmed', () => {

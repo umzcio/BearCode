@@ -27,6 +27,7 @@ export function ModePicker(): React.JSX.Element {
   const mode = useAppStore((s) => s.permissionMode)
   const setMode = useAppStore((s) => s.setPermissionMode)
   const permMenuTick = useAppStore((s) => s.permMenuTick)
+  const defaultMode = useAppStore((s) => s.settings?.defaultPermissionMode ?? 'accept-edits')
   const [open, setOpen] = useState(false)
   const [confirmingBypass, setConfirmingBypass] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -98,7 +99,11 @@ export function ModePicker(): React.JSX.Element {
     <div className="mode-picker" ref={rootRef}>
       <Hint label="Permission mode" keys="⌘." side="top" disabled={open}>
         <button
-          className={'pill-btn' + (isBypass ? ' bypass-active' : '')}
+          className={
+            'pill-btn' +
+            (isBypass ? ' bypass-active' : '') +
+            (mode === 'auto' ? ' auto-active' : '')
+          }
           onClick={() => setOpen((o) => !o)}
         >
           <span>{current.pillLabel}</span>
@@ -138,6 +143,14 @@ export function ModePicker(): React.JSX.Element {
           ) : (
             <>
               <div className="menu-group-label">Mode</div>
+              <div className="mode-current">
+                <span className="mode-current-label">
+                  {current.label}
+                  {mode === defaultMode ? <span className="mode-default"> · Default</span> : null}
+                </span>
+                <span className="check">✓</span>
+              </div>
+              <div className="mode-sep" />
               {MODES.map((m) => (
                 <div
                   key={m.id}

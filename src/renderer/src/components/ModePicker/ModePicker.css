@@ -42,9 +42,40 @@
   text-align: right;
   font-size: 12px;
 }
+/* Current-mode summary row pinned above a divider (matches Claude Code). */
+.mode-menu .mode-current {
+  display: flex;
+  align-items: center;
+  padding: 3px 10px 6px;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.mode-menu .mode-current .mode-default {
+  color: var(--text-dim);
+}
+.mode-menu .mode-current .check {
+  margin-left: auto;
+  opacity: 1;
+  color: var(--accent);
+  font-size: 12px;
+}
+.mode-menu .mode-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 0 6px 5px;
+}
 .pill-btn.bypass-active {
   color: var(--danger, #ff5c5c);
   border-color: var(--danger, #ff5c5c);
+}
+/* Auto mode gets a distinct amber chip on the composer pill (matches CC). */
+.pill-btn.auto-active {
+  color: var(--amber);
+  background: rgba(224, 181, 104, 0.16);
+}
+.pill-btn.auto-active:hover {
+  background: rgba(224, 181, 104, 0.24);
 }
 .mode-menu .bypass-item .mode-key {
   color: var(--danger, #ff5c5c);
