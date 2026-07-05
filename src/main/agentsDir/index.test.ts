@@ -1,5 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, rmSync } from 'fs'
+import {
+  closeSync,
+  ftruncateSync,
+  mkdtempSync,
+  mkdirSync,
+  openSync,
+  rmSync,
+  utimesSync,
+  writeFileSync
+} from 'fs'
+import { execFileSync } from 'child_process'
 import { tmpdir } from 'os'
 import { join, sep } from 'path'
 import { loadAgentsContent, resolveRuleRefs } from './index'
@@ -206,6 +216,137 @@ describe('loadAgentsContent', () => {
 
     expect(rule?.body).toContain('@shared/missing.md')
     expect(rule?.warnings?.length ?? 0).toBeGreaterThan(0)
+  })
+
+  it('reads at most 64KB from a very large file instead of loading it whole', () => {
+    // A 32MB sparse file: only the read path is exercised, no real disk cost.
+    // The point of this test is the BOUNDED read (stat-gated, fixed buffer):
+    // if the implementation regressed to a whole-file readFileSync followed
+    // by a slice, this still passes functionally, but the fixed-buffer read
+    // is what prevents a multi-GB or /dev/zero-style target from ever being
+    // materialized in memory; the FIFO test below is the behavioral gate for
+    // the never-open-non-regular-files half of that guarantee.
+    mkdirSync(join(projectDir, 'shared'), { recursive: true })
+    const sparsePath = join(projectDir, 'shared', 'huge.md')
+    const fd = openSync(sparsePath, 'w')
+    ftruncateSync(fd, 32 * 1024 * 1024)
+    closeSync(fd)
+    writeRule(projectRulesDir(), 'main', 'See @shared/huge.md for details.')
+
+    const content = loadAgentsContent(projectDir)
+    const rule = content.rules.find((r) => r.name === 'main')
+
+    const inlined = /--- begin @shared\/huge\.md \([^)]*\) ---\n([\s\S]*?)\n--- end/.exec(
+      rule?.body ?? ''
+    )
+    expect(inlined).not.toBeNull()
+    expect((inlined?.[1] ?? '').length).toBeLessThanOrEqual(64 * 1024)
+  })
+
+  it('rejects a reference to a non-regular file (directory) as unresolvable', () => {
+    mkdirSync(join(projectDir, 'shared', 'a-directory'), { recursive: true })
+    writeRule(projectRulesDir(), 'main', 'See @shared/a-directory for details.')
+
+    const content = loadAgentsContent(projectDir)
+    const rule = content.rules.find((r) => r.name === 'main')
+
+    expect(rule?.body).toContain('@shared/a-directory')
+    expect(rule?.body).not.toContain('--- begin')
+    expect(rule?.warnings?.length ?? 0).toBeGreaterThan(0)
+  })
+
+  it('rejects a reference to a FIFO without opening (and thus without blocking on) it', () => {
+    // A FIFO with no writer blocks any reader that OPENS it -- the stat-first
+    // isFile() gate must reject it before any open/read happens. If the gate
+    // regressed to open-then-read, this test would hang and time out.
+    mkdirSync(join(projectDir, 'shared'), { recursive: true })
+    const fifoPath = join(projectDir, 'shared', 'pipe.md')
+    execFileSync('mkfifo', [fifoPath])
+    writeRule(projectRulesDir(), 'main', 'See @shared/pipe.md for details.')
+
+    const content = loadAgentsContent(projectDir)
+    const rule = content.rules.find((r) => r.name === 'main')
+
+    expect(rule?.body).toContain('@shared/pipe.md')
+    expect(rule?.body).not.toContain('--- begin')
+    expect(rule?.warnings?.length ?? 0).toBeGreaterThan(0)
+  })
+
+  it('inlines each file at most once per rule (diamond ref tree) and leaves repeats literal', () => {
+    mkdirSync(join(projectDir, 'shared'), { recursive: true })
+    writeFileSync(join(projectDir, 'shared', 'd.md'), 'D-CONTENT')
+    writeFileSync(join(projectDir, 'shared', 'b.md'), 'B-CONTENT then @shared/d.md')
+    writeFileSync(join(projectDir, 'shared', 'c.md'), 'C-CONTENT then @shared/d.md')
+    writeRule(projectRulesDir(), 'main', 'Top: @shared/b.md and @shared/c.md')
+
+    const content = loadAgentsContent(projectDir)
+    const rule = content.rules.find((r) => r.name === 'main')
+
+    expect(rule?.body).toContain('B-CONTENT')
+    expect(rule?.body).toContain('C-CONTENT')
+    // d.md is inlined exactly once (under b.md); the second occurrence (under
+    // c.md) stays a literal token with a dedupe warning, which is what keeps
+    // total work linear in distinct files instead of k^depth for branching
+    // ref trees.
+    expect((rule?.body.match(/D-CONTENT/g) ?? []).length).toBe(1)
+    expect(rule?.warnings?.some((w) => /already included/i.test(w))).toBe(true)
+  })
+
+  it('caps total inclusions per rule and leaves the remainder literal with a warning', () => {
+    mkdirSync(join(projectDir, 'shared'), { recursive: true })
+    const total = 70
+    const tokens: string[] = []
+    for (let i = 0; i < total; i++) {
+      writeFileSync(join(projectDir, 'shared', `f${i}.md`), `CONTENT-OF-${i}`)
+      tokens.push(`@shared/f${i}.md`)
+    }
+    writeRule(projectRulesDir(), 'main', tokens.join('\n'))
+
+    const content = loadAgentsContent(projectDir)
+    const rule = content.rules.find((r) => r.name === 'main')
+
+    const inlinedCount = (rule?.body.match(/--- begin /g) ?? []).length
+    expect(inlinedCount).toBe(64)
+    expect(rule?.warnings?.some((w) => /inclusion limit/i.test(w))).toBe(true)
+    expect(rule?.warnings?.filter((w) => /inclusion limit/i.test(w)).length).toBe(total - 64)
+  })
+
+  it('truncates an oversized rule file itself and records a warning', () => {
+    writeRule(projectRulesDir(), 'huge-rule', 'y'.repeat(100 * 1024))
+
+    const content = loadAgentsContent(projectDir)
+    const rule = content.rules.find((r) => r.name === 'huge-rule')
+
+    expect(rule).toBeDefined()
+    expect(rule?.body.length).toBeLessThanOrEqual(64 * 1024)
+    expect(rule?.warnings?.some((w) => /truncated/i.test(w))).toBe(true)
+  })
+
+  it('resolves a global rule relative ref per project, not from another project cache entry', () => {
+    // The same global rule file, unchanged on disk, loaded under two
+    // different projectPaths: its relative cross-ref must resolve against
+    // whichever project is current, proving the cache key includes the
+    // projectPath and a stale other-project resolution is never served.
+    writeRule(globalRulesDir(), 'shared-global', 'Ref: @shared/marker.md')
+    mkdirSync(join(projectDir, 'shared'), { recursive: true })
+    writeFileSync(join(projectDir, 'shared', 'marker.md'), 'ALPHA-PROJECT-CONTENT')
+
+    const otherProject = mkdtempSync(join(tmpdir(), 'bearcode-agentsdir-project2-'))
+    try {
+      mkdirSync(join(otherProject, 'shared'), { recursive: true })
+      writeFileSync(join(otherProject, 'shared', 'marker.md'), 'BETA-PROJECT-CONTENT')
+
+      const first = loadAgentsContent(projectDir)
+      const firstRule = first.rules.find((r) => r.name === 'shared-global')
+      expect(firstRule?.body).toContain('ALPHA-PROJECT-CONTENT')
+
+      const second = loadAgentsContent(otherProject)
+      const secondRule = second.rules.find((r) => r.name === 'shared-global')
+      expect(secondRule?.body).toContain('BETA-PROJECT-CONTENT')
+      expect(secondRule?.body).not.toContain('ALPHA-PROJECT-CONTENT')
+    } finally {
+      rmSync(otherProject, { recursive: true, force: true })
+    }
   })
 
   it('bounds a long non-cyclic reference chain with a max-depth guard instead of overflowing', () => {

@@ -4,13 +4,60 @@
 // cross-references inside each rule body. Pure Node builtins only, no new
 // deps. Malformed or missing content never throws (design 11 / Global
 // Constraints): callers always get back an AgentsContent, at worst empty.
-import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
+import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { isAbsolute, join, resolve, sep } from 'path'
 import { parseRuleFile } from './parseRule'
 import type { AgentsContent, Rule } from './types'
 
 const MAX_REF_BYTES = 64 * 1024
+// Rule files themselves get the same cap as cross-refs: a rule is prompt
+// text, so anything past 64KB is pathological, and routing the primary read
+// through readFileCapped means an arbitrarily large .agents/rules/*.md can
+// never be materialized in memory either (security review item 3).
+const MAX_RULE_BYTES = MAX_REF_BYTES
+
+// Bounded, stat-gated file read (security review item 1). Two guarantees:
+// 1. Regular files ONLY: stats.isFile() is checked BEFORE any open. This is
+//    what keeps a target like a FIFO (open blocks forever when no writer
+//    exists), a device node (/dev/zero never ends), or any other non-regular
+//    file from hanging or flooding the synchronous main process -- such
+//    targets return null, which callers treat as unresolvable.
+// 2. The read itself is bounded by a preallocated buffer of at most `cap`
+//    bytes filled via fs.readSync on an fd -- never a whole-file
+//    readFileSync -- so no unbounded read can occur regardless of what stat
+//    reported (a file can grow between stat and read; the buffer bound holds
+//    either way).
+// Returns null on any error (missing, unreadable, non-regular): callers
+// never throw on a bad target. `truncated` reports whether the file held
+// more bytes than `cap`.
+function readFileCapped(path: string, cap: number): { text: string; truncated: boolean } | null {
+  let fd: number
+  let size: number
+  try {
+    const stats = statSync(path)
+    if (!stats.isFile()) return null
+    size = stats.size
+    fd = openSync(path, 'r')
+  } catch {
+    return null
+  }
+  try {
+    const toRead = Math.min(size, cap)
+    const buf = Buffer.alloc(toRead)
+    let offset = 0
+    while (offset < toRead) {
+      const n = readSync(fd, buf, offset, toRead - offset, offset)
+      if (n === 0) break
+      offset += n
+    }
+    return { text: buf.toString('utf8', 0, offset), truncated: size > cap }
+  } catch {
+    return null
+  } finally {
+    closeSync(fd)
+  }
+}
 
 interface CacheEntry {
   mtimeMs: number
@@ -81,22 +128,27 @@ function loadOneRule(
     return cached.rule
   }
 
-  let raw: string
-  try {
-    raw = readFileSync(path, 'utf8')
-  } catch {
-    return null
-  }
+  // Bounded primary read: a rule file that is a non-regular file (would
+  // block or never end) is dropped like an unreadable one, and an oversized
+  // one is truncated at the cap with a warning instead of being read whole.
+  const read = readFileCapped(path, MAX_RULE_BYTES)
+  if (!read) return null
+  const fileWarnings: string[] = read.truncated
+    ? [`Rule file exceeds ${MAX_RULE_BYTES / 1024}KB and was truncated`]
+    : []
 
-  const parsed = parseRuleFile(name, raw, source)
+  const parsed = parseRuleFile(name, read.text, source)
   let rule: Rule = parsed
   if (!parsed.error) {
     // Seed the cycle-detection chain with this file's own absolute path, so
     // a ref chain that loops back to the rule file itself is caught.
     const { body, warnings } = resolveRuleRefs(parsed.body, projectPath, new Set([path]))
-    if (body !== parsed.body || warnings.length > 0) {
-      rule = { ...parsed, body, warnings: warnings.length > 0 ? warnings : undefined }
+    const allWarnings = [...fileWarnings, ...warnings]
+    if (body !== parsed.body || allWarnings.length > 0) {
+      rule = { ...parsed, body, warnings: allWarnings.length > 0 ? allWarnings : undefined }
     }
+  } else if (fileWarnings.length > 0) {
+    rule = { ...parsed, warnings: fileWarnings }
   }
 
   cache.set(key, { mtimeMs, rule })
@@ -154,24 +206,43 @@ export function loadAgentsContent(projectPath: string | null): AgentsContent {
 // literal `@<path>` token in the output and recorded as a warning; this
 // function never throws.
 //
-// `inlinedChain` tracks the set of absolute paths already inlined in the
-// current resolution chain (seeded by the caller with the rule file's own
-// path before the first call) so a cycle (A -> B -> A) is detected instead of
-// recursing forever: a ref that resolves back to a path already in the chain
-// is left literal with a cycle warning rather than being inlined again. The
-// 64KB-per-ref cap plus this chain bound total recursive WORK, but not
-// recursion DEPTH on its own -- a long chain of distinct, non-cyclic files
-// (A -> B -> C -> ...) would still recurse once per link, so `depth` adds a
-// small, generous hard ceiling (MAX_CHAIN_DEPTH) purely to rule out a stack
-// overflow from a pathological chain; no realistic rule setup nests this
-// deep.
+// Work bounds (security review item 2). Three cooperating guards:
+// - `inlinedChain` (per recursion PATH): the set of absolute paths inlined
+//   along the current chain, seeded by the caller with the rule file's own
+//   path, so a cycle (A -> B -> A) is detected and the repeat left literal
+//   with a cycle warning instead of recursing forever.
+// - `visited` (GLOBAL per top-level resolution): every file ever inlined
+//   anywhere during one rule's resolution. Without this, branching ref trees
+//   do k^depth work (a diamond A -> {B, C} -> D inlines D twice; wider trees
+//   explode exponentially) even though no single chain cycles. A file
+//   already inlined once anywhere is not inlined again: literal token +
+//   warning, making total work linear in DISTINCT files.
+// - `inclusions` counter with a hard cap (MAX_INCLUSIONS) and MAX_CHAIN_DEPTH
+//   as belt-and-braces ceilings on total inclusions and recursion depth
+//   respectively; refs past either bound stay literal with a warning.
 const MAX_CHAIN_DEPTH = 40
+const MAX_INCLUSIONS = 64
+
+interface ResolveState {
+  visited: Set<string>
+  inclusions: number
+}
 
 export function resolveRuleRefs(
   body: string,
   projectPath: string | null,
-  inlinedChain: Set<string> = new Set(),
-  depth = 0
+  inlinedChain: Set<string> = new Set()
+): { body: string; warnings: string[] } {
+  const state: ResolveState = { visited: new Set(), inclusions: 0 }
+  return resolveRefsInner(body, projectPath, inlinedChain, 0, state)
+}
+
+function resolveRefsInner(
+  body: string,
+  projectPath: string | null,
+  inlinedChain: Set<string>,
+  depth: number,
+  state: ResolveState
 ): { body: string; warnings: string[] } {
   const warnings: string[] = []
   const tokenPattern = /@(\S+)/g
@@ -191,6 +262,14 @@ export function resolveRuleRefs(
       continue
     }
 
+    if (state.inclusions >= MAX_INCLUSIONS) {
+      result += token
+      warnings.push(
+        `Could not resolve rule reference: @${refPath} (inclusion limit of ${MAX_INCLUSIONS} reached)`
+      )
+      continue
+    }
+
     const resolution = resolveRefPath(refPath, projectPath)
     if (!resolution) {
       result += token
@@ -204,23 +283,33 @@ export function resolveRuleRefs(
       continue
     }
 
-    let contents: string
-    try {
-      contents = readFileSync(resolution, 'utf8')
-    } catch {
+    if (state.visited.has(resolution)) {
+      result += token
+      warnings.push(
+        `Could not resolve rule reference: @${refPath} (already included once in this rule)`
+      )
+      continue
+    }
+
+    // Bounded, non-regular-rejecting read: a missing file, a directory, a
+    // FIFO, a device node, or any read error all degrade to the literal
+    // token + warning, and at most MAX_REF_BYTES are ever read.
+    const read = readFileCapped(resolution, MAX_REF_BYTES)
+    if (!read) {
       result += token
       warnings.push(`Could not resolve rule reference: @${refPath}`)
       continue
     }
 
-    const capped = contents.length > MAX_REF_BYTES ? contents.slice(0, MAX_REF_BYTES) : contents
+    state.visited.add(resolution)
+    state.inclusions += 1
 
     // Recurse into the referenced file's own content so nested refs resolve
     // too, extending the chain with this file's resolved path so a cycle
     // back to it (or to any ancestor in the chain) is caught.
     const nestedChain = new Set(inlinedChain)
     nestedChain.add(resolution)
-    const nested = resolveRuleRefs(capped, projectPath, nestedChain, depth + 1)
+    const nested = resolveRefsInner(read.text, projectPath, nestedChain, depth + 1, state)
     warnings.push(...nested.warnings)
 
     // Read-only text inclusion, never executed: fenced with a header line
