@@ -4,6 +4,8 @@ import type {
   AddRuleInput,
   AppSettings,
   ArtifactComment,
+  CommandEntry,
+  CommandRef,
   ConversationMeta,
   Event,
   ExecutionMode,
@@ -110,6 +112,11 @@ interface AppState {
   // signal to override local browsing.
   auxPaneOpenTick: number
   toast: string | null
+  // The slash menu's read model (D2 design 6.1), re-fetched on menu open.
+  commands: CommandEntry[]
+  // /resume is a pure UI action (D2 design 6.2): it opens this picker rather
+  // than starting a turn.
+  resumePickerOpen: boolean
 
   init(): void
   refreshProviders(): Promise<void>
@@ -118,9 +125,9 @@ interface AppState {
   goHome(): void
   openScheduled(): void
   openConvo(id: string): void
-  startFromHome(text: string): void
+  startFromHome(text: string, command?: CommandRef | null): void
   deleteConvo(id: string): void
-  send(convoId: string, text: string): void
+  send(convoId: string, text: string, command?: CommandRef | null): void
   cancelRun(convoId: string): void
   approveTool(callId: string, approved: boolean): void
   addPermissionRule(input: AddRuleInput): void
@@ -148,6 +155,8 @@ interface AppState {
   resolvePlanReview(callId: string, proceed: boolean, message?: string): Promise<boolean>
   closeReview(): void
   showToast(message: string): void
+  refreshCommands(): void
+  setResumePickerOpen(open: boolean): void
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -253,6 +262,8 @@ export const useAppStore = create<AppState>((set, get) => {
     artifactPaneFocusFeedback: 0,
     auxPaneOpenTick: 0,
     toast: null,
+    commands: [],
+    resumePickerOpen: false,
 
     init: () => {
       if (initialized) return
@@ -376,7 +387,7 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
-    startFromHome: (text) => {
+    startFromHome: (text, command) => {
       const { modelRef, workspacePath } = get()
       if (!modelRef) return
       void (async () => {
@@ -406,7 +417,7 @@ export const useAppStore = create<AppState>((set, get) => {
         // Home pick to beat the settings default. Awaited like setMode above,
         // never fire-and-forget.
         await window.bearcode.conversations.setExecutionMode(meta.id, get().executionMode)
-        await window.bearcode.run.start(meta.id, text, modelRef, workspacePath)
+        await window.bearcode.run.start(meta.id, text, modelRef, workspacePath, command ?? null)
       })()
     },
 
@@ -440,11 +451,17 @@ export const useAppStore = create<AppState>((set, get) => {
       })
     },
 
-    send: (convoId, text) => {
+    send: (convoId, text, command) => {
       const { modelRef, conversations } = get()
       if (!modelRef) return
       patchConvo(convoId, { modelRef })
-      void window.bearcode.run.start(convoId, text, modelRef, conversations[convoId].projectPath)
+      void window.bearcode.run.start(
+        convoId,
+        text,
+        modelRef,
+        conversations[convoId].projectPath,
+        command ?? null
+      )
     },
 
     cancelRun: (convoId) => {
@@ -493,6 +510,9 @@ export const useAppStore = create<AppState>((set, get) => {
       const convo = conversations[convoId]
       const lastUser = [...convo.events].reverse().find((e) => e.type === 'user_message')
       if (!lastUser || lastUser.type !== 'user_message') return
+      // Retry resends WITHOUT a command (D2 Task 4, documented choice):
+      // re-running a workflow on retry would be surprising, so only
+      // lastUser.text is replayed even when the original turn carried one.
       void window.bearcode.run.start(convoId, lastUser.text, modelRef, convo.projectPath)
     },
 
@@ -664,6 +684,19 @@ export const useAppStore = create<AppState>((set, get) => {
       if (toastTimer) clearTimeout(toastTimer)
       set({ toast: message })
       toastTimer = setTimeout(() => set({ toast: null }), 1800)
-    }
+    },
+
+    // Menu-open paced (design 3.1's cache already backs the main-side loader,
+    // so a fresh list per open is cheap). The active project is the open
+    // conversation's, or the Home composer's picked workspace when there is
+    // no conversation yet.
+    refreshCommands: () => {
+      const { view, conversations, workspacePath } = get()
+      const projectPath =
+        view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
+      void window.bearcode.commands.list(projectPath).then((commands) => set({ commands }))
+    },
+
+    setResumePickerOpen: (open) => set({ resumePickerOpen: open })
   }
 })

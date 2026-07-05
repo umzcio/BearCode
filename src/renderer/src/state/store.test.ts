@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { BearcodeApi, ConversationMeta, Event, PermissionRulesInfo } from '@shared/types'
+import type {
+  BearcodeApi,
+  CommandEntry,
+  ConversationMeta,
+  Event,
+  PermissionRulesInfo
+} from '@shared/types'
 import { useAppStore, type Convo } from './store'
 
 const info: PermissionRulesInfo = {
@@ -44,6 +50,18 @@ const conversations = {
 }
 const run = { start: vi.fn(() => Promise.resolve()), cancel: vi.fn(() => Promise.resolve()) }
 
+const commandEntries: CommandEntry[] = [
+  { name: 'goal', description: 'Run until the goal is done.', kind: 'builtin', status: 'live' },
+  {
+    name: 'release-check',
+    description: 'Ship it.',
+    kind: 'workflow',
+    status: 'live',
+    source: 'project'
+  }
+]
+const commands = { list: vi.fn(() => Promise.resolve(commandEntries)) }
+
 const convoMeta: ConversationMeta = {
   id: 'c1',
   projectPath: '/tmp/p',
@@ -74,9 +92,9 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal('window', {
-    bearcode: { permissions, conversations, run } as unknown as BearcodeApi
+    bearcode: { permissions, conversations, run, commands } as unknown as BearcodeApi
   })
-  useAppStore.setState({ permissionRules: null })
+  useAppStore.setState({ permissionRules: null, commands: [], resumePickerOpen: false })
 })
 
 describe('permissions manager store actions', () => {
@@ -378,5 +396,115 @@ describe('auxiliary pane selection (Ba4): one field, deep-link ticks, reset on s
     useAppStore.setState({ auxSelection: { kind: 'diff', diffId: 'd1' } })
     await useAppStore.getState().deleteAllConversations()
     expect(useAppStore.getState().auxSelection).toBeNull()
+  })
+})
+
+describe('D2 commands: registry fetch, send-path command slot, resume picker', () => {
+  const workflowRef = { name: 'release-check', kind: 'workflow' } as const
+
+  it('refreshCommands fetches for the workspace path on Home and populates commands', async () => {
+    useAppStore.setState({ view: { kind: 'home' }, workspacePath: '/tmp/ws' })
+    useAppStore.getState().refreshCommands()
+    await vi.waitFor(() => expect(useAppStore.getState().commands).toEqual(commandEntries))
+    expect(commands.list).toHaveBeenCalledWith('/tmp/ws')
+  })
+
+  it("refreshCommands fetches for the open conversation's project path", async () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo({ projectPath: '/tmp/p' }) },
+      workspacePath: '/tmp/other'
+    })
+    useAppStore.getState().refreshCommands()
+    await vi.waitFor(() => expect(useAppStore.getState().commands).toEqual(commandEntries))
+    expect(commands.list).toHaveBeenCalledWith('/tmp/p')
+  })
+
+  it('startFromHome threads the command through to run.start as the fifth argument', async () => {
+    useAppStore.setState({
+      view: { kind: 'home' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      workspacePath: null
+    })
+    useAppStore.getState().startFromHome('do it', workflowRef)
+    await vi.waitFor(() => expect(run.start).toHaveBeenCalled())
+    expect(run.start).toHaveBeenCalledWith(
+      'c1',
+      'do it',
+      'anthropic/claude-sonnet-5',
+      null,
+      workflowRef
+    )
+  })
+
+  it('startFromHome with no command passes null as the fifth argument', async () => {
+    useAppStore.setState({
+      view: { kind: 'home' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      workspacePath: null
+    })
+    useAppStore.getState().startFromHome('hello')
+    await vi.waitFor(() => expect(run.start).toHaveBeenCalled())
+    expect(run.start).toHaveBeenCalledWith('c1', 'hello', 'anthropic/claude-sonnet-5', null, null)
+  })
+
+  it('send threads the command through to run.start as the fifth argument', () => {
+    useAppStore.setState({
+      modelRef: 'anthropic/claude-sonnet-5',
+      conversations: { c1: convo() }
+    })
+    useAppStore.getState().send('c1', 'do it', workflowRef)
+    expect(run.start).toHaveBeenCalledWith(
+      'c1',
+      'do it',
+      'anthropic/claude-sonnet-5',
+      '/tmp/p',
+      workflowRef
+    )
+  })
+
+  it('send with no command passes null as the fifth argument', () => {
+    useAppStore.setState({
+      modelRef: 'anthropic/claude-sonnet-5',
+      conversations: { c1: convo() }
+    })
+    useAppStore.getState().send('c1', 'hello')
+    expect(run.start).toHaveBeenCalledWith(
+      'c1',
+      'hello',
+      'anthropic/claude-sonnet-5',
+      '/tmp/p',
+      null
+    )
+  })
+
+  it('retryRun resends the last user text WITHOUT a command, even if the turn had one', () => {
+    useAppStore.setState({
+      modelRef: 'anthropic/claude-sonnet-5',
+      conversations: {
+        c1: convo({
+          events: [
+            { type: 'user_message', id: 'u1', text: 'run it', command: workflowRef }
+          ] as Event[]
+        })
+      }
+    })
+    useAppStore.getState().retryRun('c1')
+    expect(run.start).toHaveBeenCalledWith('c1', 'run it', 'anthropic/claude-sonnet-5', '/tmp/p')
+    expect(run.start).not.toHaveBeenCalledWith(
+      'c1',
+      'run it',
+      'anthropic/claude-sonnet-5',
+      '/tmp/p',
+      workflowRef
+    )
+  })
+
+  it('setResumePickerOpen toggles the flag', () => {
+    useAppStore.setState({ resumePickerOpen: false })
+    useAppStore.getState().setResumePickerOpen(true)
+    expect(useAppStore.getState().resumePickerOpen).toBe(true)
+    useAppStore.getState().setResumePickerOpen(false)
+    expect(useAppStore.getState().resumePickerOpen).toBe(false)
   })
 })
