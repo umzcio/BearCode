@@ -108,4 +108,15 @@ describe('ModePicker', () => {
     expect(screen.getByText('Bypass permissions')).toBeTruthy() // mode list is shown
     expect(screen.queryByText(/Disables ALL command and edit safety checks/)).toBeNull()
   })
+
+  it('closing the menu via the pill toggle while confirming Bypass clears the confirm state', () => {
+    render(<ModePicker />)
+    fireEvent.click(screen.getByText('Accept edits')) // open menu
+    fireEvent.click(screen.getByText('Bypass permissions')) // open the confirm panel
+    fireEvent.click(screen.getByText('Accept edits')) // pill toggle closes the menu (no mode change)
+    expect(useAppStore.getState().permissionMode).toBe('accept-edits')
+    fireEvent.click(screen.getByText('Accept edits')) // reopen
+    expect(screen.getByText('Bypass permissions')).toBeTruthy() // mode list, not the confirm
+    expect(screen.queryByText(/Disables ALL command and edit safety checks/)).toBeNull()
+  })
 })

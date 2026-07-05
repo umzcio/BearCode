@@ -44,6 +44,13 @@ export function ModePicker(): React.JSX.Element {
     setOpen((o) => !o)
   }, [permMenuTick])
 
+  // Whenever the menu closes (via the pill toggle, a mode pick, Escape, or an
+  // outside click), drop any pending Bypass confirmation so reopening the menu
+  // always lands on the mode list, never a stale confirm dialog.
+  useEffect(() => {
+    if (!open) setConfirmingBypass(false)
+  }, [open])
+
   useEffect(() => {
     if (!open) return undefined
     const close = (e: MouseEvent): void => {
