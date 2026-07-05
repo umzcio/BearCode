@@ -180,7 +180,9 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                         type="radio"
                         name="artifact-review-policy"
                         checked={settings.artifactReviewPolicy === 'request-review'}
-                        onChange={() => void saveSettings({ artifactReviewPolicy: 'request-review' })}
+                        onChange={() =>
+                          void saveSettings({ artifactReviewPolicy: 'request-review' })
+                        }
                       />
                       <span>Request Review (Recommended)</span>
                     </label>
@@ -189,7 +191,9 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                         type="radio"
                         name="artifact-review-policy"
                         checked={settings.artifactReviewPolicy === 'always-proceed'}
-                        onChange={() => void saveSettings({ artifactReviewPolicy: 'always-proceed' })}
+                        onChange={() =>
+                          void saveSettings({ artifactReviewPolicy: 'always-proceed' })
+                        }
                       />
                       <span>Always Proceed</span>
                     </label>
