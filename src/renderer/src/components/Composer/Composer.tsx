@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CommandEntry, CommandRef, MentionRef } from '@shared/types'
+import type { CommandEntry, CommandRef, MentionRef, PickedAttachmentWire } from '@shared/types'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
 import { refConfigured, useAppStore } from '../../state/store'
 import {
   IconArrowUp,
+  IconAt,
   IconChevronDown,
   IconClose,
+  IconGlobe,
+  IconImage,
   IconMic,
   IconMonitor,
   IconPlus,
+  IconSlash,
   IconStop
 } from '../icons'
 import { SlashMenu } from './SlashMenu'
@@ -31,6 +35,7 @@ interface ComposerProps {
   onStop?(): void
   showEnvRow?: boolean
   autoFocus?: boolean
+  conversationId?: string
 }
 
 export function Composer({
@@ -38,7 +43,8 @@ export function Composer({
   running = false,
   onStop,
   showEnvRow = false,
-  autoFocus = false
+  autoFocus = false,
+  conversationId
 }: ComposerProps): React.JSX.Element {
   const providers = useAppStore((s) => s.providers)
   const modelRef = useAppStore((s) => s.modelRef)
@@ -53,6 +59,8 @@ export function Composer({
   const refreshManualRules = useAppStore((s) => s.refreshManualRules)
   const conversations = useAppStore((s) => s.conversations)
   const convoOrder = useAppStore((s) => s.convoOrder)
+  const pickAttachments = useAppStore((s) => s.pickAttachments)
+  const showToast = useAppStore((s) => s.showToast)
   const [value, setValue] = useState('')
   const [command, setCommand] = useState<CommandRef | null>(null)
   const [mentions, setMentions] = useState<MentionRef[]>([])
@@ -68,8 +76,11 @@ export function Composer({
   const [menuDismissed, setMenuDismissed] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(0)
   const [envOpen, setEnvOpen] = useState(false)
+  const [addMenuOpen, setAddMenuOpen] = useState(false)
+  const [attachments, setAttachments] = useState<PickedAttachmentWire[]>([])
   const taRef = useRef<HTMLTextAreaElement>(null)
   const envRef = useRef<HTMLDivElement>(null)
+  const addMenuRef = useRef<HTMLDivElement>(null)
 
   const modelReady = refConfigured(providers, modelRef)
   const showNotice = providers.length > 0 && !modelReady
@@ -134,6 +145,15 @@ export function Composer({
     return () => document.removeEventListener('click', close)
   }, [envOpen])
 
+  useEffect(() => {
+    if (!addMenuOpen) return undefined
+    const close = (e: MouseEvent): void => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) setAddMenuOpen(false)
+    }
+    document.addEventListener('click', close)
+    return () => document.removeEventListener('click', close)
+  }, [addMenuOpen])
+
   // Re-fetched on menu open only (menu-open paced, matching the loader's own
   // cache design), not on every keystroke while it stays open.
   useEffect(() => {
@@ -191,6 +211,35 @@ export function Composer({
     setCommand({ name: entry.name, kind: entry.kind })
     setValue('')
     setMenuDismissed(false)
+  }
+
+  // + "Add Context" (design 8). Media ingests images for the active
+  // conversation; Mentions opens the @ menu; Actions opens the / menu; Browser
+  // is coming soon. The @/ menus already key off the textarea contents
+  // (mentionQuery / value[0] === '/'), so those two just seed + focus.
+  const onMedia = async (): Promise<void> => {
+    setAddMenuOpen(false)
+    if (!conversationId) return
+    const { picked, errors } = await pickAttachments(attachments.length)
+    if (picked.length > 0) setAttachments((cur) => [...cur, ...picked])
+    if (errors.length > 0) showToast(errors[0])
+  }
+  const onMentions = (): void => {
+    setAddMenuOpen(false)
+    const ta = taRef.current
+    const caret = ta?.selectionStart ?? value.length
+    const next = value.slice(0, caret) + '@' + value.slice(caret)
+    setValue(next)
+    setMentionQuery({ start: caret, query: '' })
+    setMentionIndex(0)
+    setPendingCaret(caret + 1)
+  }
+  const onActions = (): void => {
+    setAddMenuOpen(false)
+    if (command !== null) return // one command per turn; the pill already holds it
+    setValue('/')
+    setMenuDismissed(false)
+    setPendingCaret(1)
   }
 
   const submit = (): void => {
@@ -339,9 +388,40 @@ export function Composer({
         }}
       />
       <div className="composer-controls">
-        <button className="icon-btn" disabled title="Attach: coming soon">
-          <IconPlus />
-        </button>
+        <div className="add-context" ref={addMenuRef}>
+          <button
+            className="icon-btn"
+            title="Add context"
+            onClick={() => setAddMenuOpen((o) => !o)}
+          >
+            <IconPlus />
+          </button>
+          {addMenuOpen ? (
+            <div className="menu add-context-menu">
+              <div
+                className={`menu-item${conversationId ? '' : ' disabled'}`}
+                title={conversationId ? 'Attach images' : 'Open a conversation to attach images'}
+                onClick={conversationId ? () => void onMedia() : undefined}
+              >
+                <IconImage size={16} />
+                <span>Media</span>
+              </div>
+              <div className="menu-item" onClick={onMentions}>
+                <IconAt size={16} />
+                <span>Mentions</span>
+              </div>
+              <div className="menu-item" onClick={onActions}>
+                <IconSlash size={16} />
+                <span>Actions</span>
+              </div>
+              <div className="menu-item disabled" title="Coming soon">
+                <IconGlobe size={16} />
+                <span>Browser</span>
+                <span className="badge">coming soon</span>
+              </div>
+            </div>
+          ) : null}
+        </div>
         <ModelPicker />
         <ModePicker />
         <button className="icon-btn mic-btn" disabled title="Voice input: coming soon">
