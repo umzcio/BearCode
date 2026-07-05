@@ -542,4 +542,41 @@ describe('plan_review interrupt (Ba2 proceed loop)', () => {
     await submitPlanOf(makeSink()).invoke({ title: 'T', body: 'B' })
     expect(evaluateCommandForConversation).not.toHaveBeenCalled()
   })
+
+  // Fail-safe resume handling (binding invariant): ONLY a well-formed
+  // { proceed: true } resolution may reach approval. Every falsy or malformed
+  // resume value -- including the run_command approval shape arriving on the
+  // wrong interrupt -- must fall to the feedback branch with the generic
+  // message: no approvePlanArtifact call, no approved re-emit, artifact stays
+  // pending. Never to approval.
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['false', false],
+    ['an empty object (no proceed key)', {}],
+    ['the run_command shape { approved: true } (wrong kind)', { approved: true }]
+  ])(
+    'fail-safe: a resume of %s takes the feedback branch, never approval',
+    async (_label, resume) => {
+      vi.mocked(createPlanArtifact).mockReturnValue({
+        artifact: pendingArt({ id: 'a' }),
+        policy: 'request-review',
+        superseded: []
+      })
+      vi.mocked(interrupt).mockReturnValue(resume)
+      const sink = makeSink()
+      const out = await submitPlanOf(sink).invoke({ title: 'T', body: 'B' })
+      expect(out).toBe(
+        'The user reviewed the plan and left feedback instead of proceeding:\n\nNo feedback was provided.'
+      )
+      expect(approvePlanArtifact).not.toHaveBeenCalled()
+      // Only the pending emit: no status re-emit to approved, artifact STAYS pending.
+      const artifactEvents = vi
+        .mocked(appendOrReplaceEvent)
+        .mock.calls.map(([, e]) => e as Extract<Event, { type: 'artifact' }>)
+        .filter((e) => e.type === 'artifact')
+      expect(artifactEvents).toHaveLength(1)
+      expect(artifactEvents[0].status).toBe('pending-review')
+    }
+  )
 })
