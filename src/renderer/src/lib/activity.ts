@@ -45,6 +45,15 @@ function inflightLabel(tool: string, input: unknown): string {
 // Only meaningfully called while running/awaiting-approval; safe otherwise.
 export function deriveActivity(runState: ConvoRunState, events: Event[]): Activity {
   if (runState === 'awaiting-approval') {
+    // The FIRST pending tool_call owns the jump anchor and the hotkeys
+    // (ToolStep useIsFirstPendingCard), so the label follows it too: a parked
+    // plan review reads "Waiting for plan review" (design section 7, Ba4);
+    // any other pending approval keeps the Bb copy. Same tone -- the plan
+    // pause is still the user's turn.
+    const firstPending = events.find((e) => e.type === 'tool_call' && e.approvalState === 'pending')
+    if (firstPending?.type === 'tool_call' && firstPending.tool === 'submit_plan') {
+      return { label: 'Waiting for plan review', tone: 'attention' }
+    }
     return { label: 'Waiting for your approval', tone: 'attention' }
   }
   const lastCall = findLast(events, (e) => e.type === 'tool_call')
