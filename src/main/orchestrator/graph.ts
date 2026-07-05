@@ -1667,7 +1667,8 @@ function buildAgentAndContext(
   signal: AbortSignal
 ): { agent: ReturnType<typeof createDeepAgent>; ctx: DriveContext } {
   const { provider: providerId, modelId } = parseModelRef(modelRef)
-  const projectPath = getConversationMeta(conversationId)?.projectPath ?? null
+  const meta = getConversationMeta(conversationId)
+  const projectPath = meta?.projectPath ?? null
   const model = makeModel(modelRef)
   const diffGroupId = randomUUID()
   const backend = projectPath
@@ -1691,7 +1692,10 @@ function buildAgentAndContext(
     : undefined
   const agent = createDeepAgent({
     model,
-    systemPrompt: orchestratorSystemPrompt(projectPath),
+    // meta is null only for a conversation deleted mid-flight (the run is
+    // doomed either way), so the fallback mode is arbitrary; toMeta already
+    // resolved a NULL execution_mode column to the live defaultExecutionMode.
+    systemPrompt: orchestratorSystemPrompt(projectPath, meta?.executionMode ?? 'planning'),
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
     ...(backendFactory
