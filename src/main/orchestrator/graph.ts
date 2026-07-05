@@ -27,7 +27,8 @@ import {
   dropDanglingCancel,
   getConversationMeta,
   listArtifactComments,
-  markArtifactCommentsSent
+  markArtifactCommentsSent,
+  pinExecutionMode
 } from '../db'
 import { parseModelRef } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
@@ -1739,6 +1740,13 @@ export async function runGraph(opts: {
   // submissions; if the old interrupted task replays on this thread, it
   // re-enters its own artifactId slot (tools.ts tryEnterPlanReview).
   clearPlanReviewPending(conversationId)
+  // Pin the execution mode on the conversation's FIRST turn (design 3.2): a
+  // NULL column adopts the current defaultExecutionMode, so a later settings
+  // change never flips a locked conversation's mode. Idempotent (COALESCE):
+  // later turns and explicit renderer-set values pass through untouched.
+  // Ordered before the user_message append so the pin and the lock signal
+  // (any persisted event) can never be observed out of order.
+  pinExecutionMode(conversationId)
   const userEvent: Event = {
     type: 'user_message',
     id: randomUUID(),

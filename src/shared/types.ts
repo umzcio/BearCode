@@ -322,6 +322,10 @@ export interface BearcodeApi {
     delete(id: string): Promise<void>
     clear(): Promise<void>
     setMode(id: string, mode: PermissionMode): Promise<void>
+    // Rejects once the conversation's first turn has run (the design-3.2
+    // lock, enforced main-side); the renderer mirror should prevent the call
+    // from ever being made on a locked conversation.
+    setExecutionMode(id: string, mode: ExecutionMode): Promise<void>
   }
   permissions: {
     addRule(rule: AddRuleInput): Promise<void>
