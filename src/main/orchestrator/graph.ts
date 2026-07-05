@@ -21,6 +21,7 @@ import type { LLMResult } from '@langchain/core/outputs'
 import type {
   CommandRef,
   Event,
+  MentionRef,
   PermissionMode,
   PlanReviewResolveResult,
   ProviderId,
@@ -33,8 +34,10 @@ import {
   dropDanglingApprovalRows,
   dropDanglingCancel,
   getConversationMeta,
+  getEvents,
   listArtifactComments,
   markArtifactCommentsSent,
+  setActiveRules,
   setPermissionMode,
   touchedFilesFor
 } from '../db'
@@ -43,6 +46,10 @@ import type { Workflow } from '../agentsDir/types'
 import {
   assembleCommandAdditions,
   assembleRuleAdditions,
+  assembleUserMentions,
+  mentionedFilePaths,
+  mentionedRuleNames,
+  mergeActiveRules,
   withoutModelRules
 } from './contextAssembly'
 import { parseModelRef } from '../providers/registry'
@@ -1703,13 +1710,29 @@ async function failTurn(ctx: DriveContext, err: unknown): Promise<void> {
 type BuildResult =
   { agent: ReturnType<typeof createDeepAgent>; ctx: DriveContext } | { refusal: string }
 
+// Persist @-mentioned Manual rule names into the conversation's active_rules
+// (D3 design 4.2/7), unioned with whatever is already pinned. Called at the
+// top of runGraph BEFORE buildAgentAndContext so this turn's getConversationMeta
+// read already sees the freshly pinned rule (same-turn activation) AND the pin
+// survives to later turns + crash-resume (which read meta.activeRules). A name
+// that is not a real Manual rule is harmless: assembleRuleAdditions only
+// renders names matching a loaded manual rule. Exported for tests.
+export function persistRuleMentions(conversationId: string, mentions: MentionRef[]): void {
+  const names = mentionedRuleNames(mentions)
+  if (names.length === 0) return
+  const meta = getConversationMeta(conversationId)
+  const merged = mergeActiveRules(meta?.activeRules ?? [], names)
+  setActiveRules(conversationId, merged)
+}
+
 function buildAgentAndContext(
   conversationId: string,
   modelRef: string,
   userText: string,
   command: CommandRef | null,
   sink: RunSink,
-  signal: AbortSignal
+  signal: AbortSignal,
+  mentions: MentionRef[] = []
 ): BuildResult {
   const { provider: providerId, modelId } = parseModelRef(modelRef)
   const meta = getConversationMeta(conversationId)
@@ -1754,7 +1777,7 @@ function buildAgentAndContext(
     const asm = assembleRuleAdditions({
       content: projectPath ? content : withoutModelRules(content),
       pinnedManualRules: meta?.activeRules ?? [],
-      mentionPaths: [], // [] until D3's @ menu ships
+      mentionPaths: mentionedFilePaths(mentions), // D3: file mentions feed glob-on-mention
       touchedFiles: touched
     })
     if (asm.systemAdditions.length > 0) ruleAdditions = '\n\n' + asm.systemAdditions.join('\n\n')
@@ -1773,6 +1796,34 @@ function buildAgentAndContext(
   if (cmd.error) return { refusal: cmd.error }
   const commandAdditions =
     cmd.systemAdditions.length > 0 ? '\n\n' + cmd.systemAdditions.join('\n\n') : ''
+  // @ mention additions (D3 design 7): the Referenced-files block + a block
+  // per referenced conversation (title + final assistant answer). Wrapped in
+  // its own try/catch — a lookup failure degrades the additions, never the
+  // turn (design 11), same policy as the rules block.
+  let mentionAdditions = ''
+  try {
+    const mentionAsm = assembleUserMentions(mentions, {
+      conversationSummary: (id) => {
+        const cm = getConversationMeta(id)
+        if (!cm) return null
+        const events = getEvents(id)
+        let finalAnswer: string | null = null
+        for (let i = events.length - 1; i >= 0; i--) {
+          const e = events[i]
+          if (e.type === 'assistant_text') {
+            finalAnswer = e.text
+            break
+          }
+        }
+        return { title: cm.title ?? 'Untitled conversation', finalAnswer }
+      }
+    })
+    if (mentionAsm.systemAdditions.length > 0) {
+      mentionAdditions = '\n\n' + mentionAsm.systemAdditions.join('\n\n')
+    }
+  } catch (err) {
+    console.warn('[bearcode] @ mention additions skipped:', err)
+  }
   const agent = createDeepAgent({
     model,
     // meta is null only for a conversation deleted mid-flight (the run is
@@ -1783,7 +1834,8 @@ function buildAgentAndContext(
     systemPrompt:
       orchestratorSystemPrompt(projectPath, meta?.permissionMode === 'plan') +
       ruleAdditions +
-      commandAdditions,
+      commandAdditions +
+      mentionAdditions,
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
     ...(backendFactory
@@ -1820,25 +1872,31 @@ export async function runGraph(opts: {
   sink: RunSink
   signal: AbortSignal
   command?: CommandRef | null
+  mentions?: MentionRef[]
 }): Promise<{ paused: boolean }> {
-  const { conversationId, userText, modelRef, sink, signal, command = null } = opts
+  const { conversationId, userText, modelRef, sink, signal, command = null, mentions = [] } = opts
 
   sink.setState(conversationId, 'running')
   // A stale gate slot from a stopped plan pause must never block this turn's
   // submissions; if the old interrupted task replays on this thread, it
   // re-enters its own artifactId slot (tools.ts tryEnterPlanReview).
   clearPlanReviewPending(conversationId)
+  // Pin any @-mentioned Manual rules into active_rules BEFORE building the
+  // agent, so this turn's meta read already includes them (see
+  // persistRuleMentions).
+  persistRuleMentions(conversationId, mentions)
   const userEvent: Event = {
     type: 'user_message',
     id: randomUUID(),
     text: userText,
     createdAt: Date.now(),
-    ...(command ? { command } : {})
+    ...(command ? { command } : {}),
+    ...(mentions.length > 0 ? { mentions } : {})
   }
   sink.emit(conversationId, userEvent)
   appendEvent(conversationId, userEvent)
 
-  const built = buildAgentAndContext(conversationId, modelRef, userText, command, sink, signal)
+  const built = buildAgentAndContext(conversationId, modelRef, userText, command, sink, signal, mentions)
   if ('refusal' in built) {
     // REFUSAL PATH (design 5.3/11, Global Constraints, review finding): the
     // user_message above is ALREADY persisted (transcript honesty), so this

@@ -18,6 +18,28 @@ export interface CommandRef {
   kind: 'builtin' | 'workflow'
 }
 
+// A single @ mention carried alongside the turn's text + command (D3 design
+// 3.1/7). Travels structured end to end the SAME additive way CommandRef does
+// (run:start argument, the persisted user_message payload) and is never
+// concatenated into the message text. `path` is set for kind 'file'
+// (workspace-relative); `conversationId` for kind 'conversation'. Both are
+// used only as prompt text and (for files) a pure glob-match string — never
+// opened at the IPC boundary (see assertValidMentions).
+export interface MentionRef {
+  kind: 'file' | 'rule' | 'conversation'
+  name: string
+  path?: string
+  conversationId?: string
+}
+
+// The @ menu's Rules read model (D3 design 7): Manual-mode rule name + the
+// first non-empty line of its body, for the menu row. Produced main-side from
+// the live AgentsContent (mentionSuggest.ts manualRuleInfos).
+export interface ManualRuleInfo {
+  name: string
+  firstLine: string
+}
+
 // The slash menu's read model (design 6.1/6.2, D2 Task 2). Produced by
 // src/main/orchestrator/commands.ts's listCommands from the live
 // AgentsContent; 'coming-soon' covers both the not-yet-implemented built-ins
@@ -167,6 +189,10 @@ export type Event =
       // Optional and additive: events persisted before D2 have no `command`
       // field and render exactly as before.
       command?: CommandRef
+      // The @ mentions this turn was sent with, if any (D3 design 7/9).
+      // Optional and additive: events persisted before D3 have no `mentions`
+      // field and render exactly as before.
+      mentions?: MentionRef[]
     }
   | { type: 'thinking'; id: string; text: string; durationMs: number; agentId?: string }
   | {
@@ -331,7 +357,11 @@ export interface BearcodeApi {
       // validates this before a run starts (ipc.ts): only `goal`/`grill-me`
       // builtins and a `workflow`-kind name matching COMMAND_NAME_PATTERN
       // cross the wire; anything else rejects the promise.
-      command?: CommandRef | null
+      command?: CommandRef | null,
+      // The @ mentions this turn was sent with (D3). Main boundary-validates
+      // this before a run starts (assertValidMentions); anything malformed
+      // rejects the promise.
+      mentions?: MentionRef[] | null
     ): Promise<void>
     cancel(conversationId: string): Promise<void>
   }
@@ -343,6 +373,13 @@ export interface BearcodeApi {
     // built-ins first, then the project + global workflows for this project
     // (or global-only when projectPath is null).
     list(projectPath: string | null): Promise<CommandEntry[]>
+  }
+  // D3 @ menu read models, re-fetched on menu interaction (mirrors
+  // commands.list): file path suggestions over the gitignore-respecting
+  // workspace listing, and the project + global Manual rules.
+  mentions: {
+    files(projectPath: string | null, query: string): Promise<string[]>
+    rules(projectPath: string | null): Promise<ManualRuleInfo[]>
   }
   diffs: {
     get(diffId: string): Promise<FileDiff>
