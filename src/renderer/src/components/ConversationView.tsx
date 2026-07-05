@@ -5,6 +5,7 @@ import { Composer } from './Composer/Composer'
 import { RunStatusBar } from './RunStatusBar/RunStatusBar'
 import { WorkedGroup } from './events/WorkedGroup'
 import { AssistantText } from './events/AssistantText'
+import { ArtifactCard } from './events/ArtifactCard'
 import { DiffCard } from './events/DiffCard'
 import { ErrorCard } from './events/ErrorCard'
 import { IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
@@ -16,6 +17,7 @@ interface Turn {
   steps: Event[]
   texts: Extract<Event, { type: 'assistant_text' }>[]
   diffs: Extract<Event, { type: 'file_diff' }>[]
+  artifacts: Extract<Event, { type: 'artifact' }>[]
   errors: Extract<Event, { type: 'error' }>[]
   done: boolean
 }
@@ -25,7 +27,15 @@ function groupTurns(events: Event[]): Turn[] {
   let current: Turn | null = null
   for (const ev of events) {
     if (ev.type === 'user_message') {
-      current = { user: ev, steps: [], texts: [], diffs: [], errors: [], done: false }
+      current = {
+        user: ev,
+        steps: [],
+        texts: [],
+        diffs: [],
+        artifacts: [],
+        errors: [],
+        done: false
+      }
       turns.push(current)
     } else if (current) {
       if (ev.type === 'thinking' || ev.type === 'tool_call' || ev.type === 'tool_result') {
@@ -34,6 +44,8 @@ function groupTurns(events: Event[]): Turn[] {
         current.texts.push(ev)
       } else if (ev.type === 'file_diff') {
         current.diffs.push(ev)
+      } else if (ev.type === 'artifact') {
+        current.artifacts.push(ev)
       } else if (ev.type === 'error') {
         current.errors.push(ev)
       } else if (ev.type === 'turn_meta') {
@@ -107,6 +119,9 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                       convoId={convoId}
                     />
                   ) : null}
+                  {turn.artifacts.map((a) => (
+                    <ArtifactCard key={a.id} event={a} />
+                  ))}
                   {turn.texts.map((t) =>
                     t.text.length > 0 ? (
                       <AssistantText

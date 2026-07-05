@@ -564,3 +564,108 @@
   color: var(--text);
   border-color: var(--accent);
 }
+
+/* --- Artifact cards (Ba1) --- */
+.artifact-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  margin: 10px 0;
+  overflow: hidden;
+}
+.artifact-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+.artifact-head:hover {
+  background: var(--bg-hover);
+}
+.artifact-kind {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-mid);
+  flex-shrink: 0;
+}
+.artifact-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artifact-version {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.artifact-status {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.artifact-status.pending-review {
+  color: var(--amber);
+  border: 1px solid rgba(224, 181, 104, 0.35);
+}
+.artifact-status.approved,
+.artifact-status.final {
+  color: var(--green);
+  border: 1px solid rgba(62, 207, 142, 0.35);
+}
+.artifact-status.superseded {
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.artifact-pane-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-mid);
+  font-size: 11.5px;
+  padding: 3px 9px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.artifact-pane-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.artifact-card .chev {
+  color: var(--text-dim);
+  display: flex;
+  transition: transform 0.15s ease;
+}
+.artifact-card.open .chev {
+  transform: rotate(90deg);
+}
+.artifact-body {
+  border-top: 1px solid var(--border-soft);
+  padding: 6px 16px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-mid);
+  user-select: text;
+}
+.artifact-body p,
+.artifact-body ul,
+.artifact-body ol,
+.artifact-body pre,
+.artifact-body h5,
+.artifact-body .md-table-wrap {
+  margin: 8px 0;
+}
+.artifact-body ul,
+.artifact-body ol {
+  padding-left: 20px;
+}

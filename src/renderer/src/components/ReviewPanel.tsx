@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import type { Event, FileDiff, FileDiffFile } from '@shared/types'
 import { useAppStore } from '../state/store'
+import { ArtifactPane } from './ArtifactPane'
 import {
   IconChevronDown,
   IconClose,
@@ -59,6 +60,10 @@ interface ReviewComment {
 
 export function ReviewPanel(): React.JSX.Element | null {
   const diffId = useAppStore((s) => s.reviewDiffId)
+  const artifactId = useAppStore((s) => s.reviewArtifactId)
+  // One side-panel mount, two exclusive occupants until Ba4 unifies them:
+  // the artifacts pane (Ba1, read-only) or the diff review pane.
+  if (artifactId) return <ArtifactPane key={artifactId} artifactId={artifactId} />
   if (!diffId) return null
   // Keyed on diffId so per-diff state starts fresh each time it opens.
   return <ReviewPanelInner key={diffId} diffId={diffId} />
