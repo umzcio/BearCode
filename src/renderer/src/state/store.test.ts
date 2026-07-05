@@ -185,6 +185,38 @@ describe('execution mode (Ba3): pick, mirror-lock, persist-before-run', () => {
     expect(useAppStore.getState().conversations.c1.executionMode).toBe('planning')
     expect(useAppStore.getState().toast).toBe('Execution mode is locked after the first turn')
   })
+  it('a late rejection of an earlier pick does not clobber a newer accepted pick', async () => {
+    // Two rapid picks: A ('fast') is left pending, B ('planning') resolves,
+    // THEN A rejects. A's catch must see that its optimistic value is no
+    // longer current and skip both the revert and the toast -- otherwise B's
+    // persisted value would be clobbered with A's stale prior plus a
+    // misleading locked message.
+    let rejectA: (err: Error) => void = () => {}
+    conversations.setExecutionMode
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_, reject) => {
+            rejectA = reject
+          })
+      )
+      .mockImplementationOnce(() => Promise.resolve())
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo() },
+      executionMode: 'planning',
+      toast: null
+    })
+    useAppStore.getState().setExecutionMode('fast') // pick A, pending
+    useAppStore.getState().setExecutionMode('planning') // pick B, accepted
+    await Promise.resolve() // let B's resolution settle
+    rejectA(new Error('Execution mode is locked after the first turn'))
+    await Promise.resolve()
+    await Promise.resolve() // let A's catch run
+    expect(conversations.setExecutionMode).toHaveBeenCalledTimes(2)
+    expect(useAppStore.getState().executionMode).toBe('planning')
+    expect(useAppStore.getState().conversations.c1.executionMode).toBe('planning')
+    expect(useAppStore.getState().toast).toBeNull()
+  })
   it('startFromHome persists the picked mode BEFORE the run starts (the pin must find it)', async () => {
     const order: string[] = []
     conversations.setExecutionMode.mockImplementation(() => {

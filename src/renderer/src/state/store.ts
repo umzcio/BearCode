@@ -509,16 +509,28 @@ export const useAppStore = create<AppState>((set, get) => {
       const prior = convo.executionMode
       set({ executionMode: mode })
       patchConvo(view.id, { executionMode: mode })
-      window.bearcode.conversations.setExecutionMode(view.id, mode).catch(() => {
+      window.bearcode.conversations.setExecutionMode(view.id, mode).catch((err: unknown) => {
         // The race the mirror cannot see: main appended the first turn's
         // user_message (locking) before the broadcast reached us, so the
         // optimistic patch above described a mode the pinned column never
         // used -- and openConvo re-adopts the patched value, so a stale patch
         // would never self-correct. Revert and say why (the rejected-mutation
         // idiom: deletePermissionRule/setBuiltinDisabled above).
+        //
+        // Guarded revert: only if this call's optimistic value is still
+        // current. Two rapid picks can interleave (A rejects AFTER B was
+        // accepted); an unconditional revert here would clobber B's persisted
+        // value with A's stale prior and show a misleading locked toast.
+        const s = get()
+        if (s.executionMode !== mode || s.conversations[view.id]?.executionMode !== mode) return
         set({ executionMode: prior })
         patchConvo(view.id, { executionMode: prior })
-        get().showToast('Execution mode is locked after the first turn')
+        // Prefer main's own message so the copy cannot silently drift.
+        get().showToast(
+          err instanceof Error && err.message
+            ? err.message
+            : 'Execution mode is locked after the first turn'
+        )
       })
     },
     togglePermMenu: () => set((s) => ({ permMenuTick: s.permMenuTick + 1 })),
