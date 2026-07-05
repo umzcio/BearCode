@@ -5,10 +5,23 @@ import { Hint } from '../Hint'
 import { IconChevronDown } from '../icons'
 import './ModePicker.css'
 
-const MODES: { id: PermissionMode; label: string; key: string }[] = [
-  { id: 'accept-edits', label: 'Accept edits', key: '1' },
-  { id: 'auto', label: 'Auto', key: '2' }
+type ModeOption = {
+  id: PermissionMode
+  label: string
+  pillLabel: string
+  key: string
+  numeric: boolean
+}
+
+const MODES: ModeOption[] = [
+  { id: 'ask', label: 'Ask permissions', pillLabel: 'Ask', key: '1', numeric: true },
+  { id: 'accept-edits', label: 'Accept edits', pillLabel: 'Accept edits', key: '2', numeric: true },
+  { id: 'plan', label: 'Plan mode', pillLabel: 'Plan', key: '3', numeric: true },
+  { id: 'auto', label: 'Auto mode', pillLabel: 'Auto', key: '4', numeric: true },
+  { id: 'bypass', label: 'Bypass permissions', pillLabel: 'Bypass', key: 'Enable', numeric: false }
 ]
+
+const NUMERIC_KEYS = MODES.filter((m) => m.numeric).map((m) => m.key)
 
 export function ModePicker(): React.JSX.Element {
   const mode = useAppStore((s) => s.permissionMode)
@@ -17,7 +30,9 @@ export function ModePicker(): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const lastTick = useRef(permMenuTick)
-  const current = MODES.find((m) => m.id === mode) ?? MODES[0]
+  // Fall back to Accept edits (MODES[1]) — the product default — for an
+  // unrecognized mode, never to MODES[0] (Ask).
+  const current = MODES.find((m) => m.id === mode) ?? MODES[1]
 
   // Cmd+. toggles the menu. Compare against the last seen tick so this only
   // fires on a real tick change, not on mount or StrictMode's double-run.
@@ -37,10 +52,10 @@ export function ModePicker(): React.JSX.Element {
         setOpen(false)
         return
       }
-      if (['1', '2'].includes(e.key)) {
+      if (NUMERIC_KEYS.includes(e.key)) {
         const target = e.target as HTMLElement | null
         if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
-        const picked = MODES.find((m) => m.key === e.key)
+        const picked = MODES.find((m) => m.numeric && m.key === e.key)
         if (picked) {
           setMode(picked.id)
           setOpen(false)
@@ -59,7 +74,7 @@ export function ModePicker(): React.JSX.Element {
     <div className="mode-picker" ref={rootRef}>
       <Hint label="Permission mode" keys="⌘." side="top" disabled={open}>
         <button className="pill-btn" onClick={() => setOpen((o) => !o)}>
-          <span>{current.label}</span>
+          <span>{current.pillLabel}</span>
           <span className="chev">
             <IconChevronDown />
           </span>
