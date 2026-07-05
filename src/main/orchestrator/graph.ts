@@ -1455,7 +1455,7 @@ function buildAgentAndContext(
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
     ...(backendFactory
-      ? { backend: backendFactory, tools: buildTools(projectPath as string, conversationId) }
+      ? { backend: backendFactory, tools: buildTools(projectPath as string, conversationId, sink) }
       : {})
   })
   const ctx: DriveContext = {
