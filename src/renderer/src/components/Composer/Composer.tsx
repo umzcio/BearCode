@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CommandEntry, CommandRef, MentionRef, PickedAttachmentWire } from '@shared/types'
+import type {
+  AttachmentRef,
+  CommandEntry,
+  CommandRef,
+  MentionRef,
+  PickedAttachmentWire
+} from '@shared/types'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
 import { refConfigured, useAppStore } from '../../state/store'
@@ -30,7 +36,12 @@ import {
 import './Composer.css'
 
 interface ComposerProps {
-  onSend(text: string, command: CommandRef | null, mentions: MentionRef[]): void
+  onSend(
+    text: string,
+    command: CommandRef | null,
+    mentions: MentionRef[],
+    attachments: AttachmentRef[]
+  ): void
   running?: boolean
   onStop?(): void
   showEnvRow?: boolean
@@ -86,7 +97,8 @@ export function Composer({
   const showNotice = providers.length > 0 && !modelReady
   // The pill makes trailing text optional (design 5.2): a bare workflow/goal
   // send is valid, only an empty composer with no pill is not.
-  const hasContent = value.trim() !== '' || command !== null || mentions.length > 0
+  const hasContent =
+    value.trim() !== '' || command !== null || mentions.length > 0 || attachments.length > 0
 
   // The menu opens only when the composer is otherwise empty and the very
   // first character typed is '/', and stays open while the text still starts
@@ -247,11 +259,13 @@ export function Composer({
     const text = value.trim()
     const sentCommand = command
     const sentMentions = mentions
+    const sentAttachments = attachments.map((a) => a.ref)
     setValue('')
     setCommand(null)
     setMentions([])
+    setAttachments([])
     setMentionQuery(null)
-    onSend(text, sentCommand, sentMentions)
+    onSend(text, sentCommand, sentMentions, sentAttachments)
   }
 
   return (
@@ -289,6 +303,24 @@ export function Composer({
                 className="pill-x"
                 title="Remove mention"
                 onClick={() => setMentions((cur) => cur.filter((_, idx) => idx !== i))}
+              >
+                <IconClose size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {attachments.length > 0 ? (
+        <div className="attachment-pill-row">
+          {attachments.map((a, i) => (
+            <span className="attachment-pill" key={`${a.ref.id}:${i}`}>
+              <img className="attachment-thumb" src={a.previewDataUrl} alt={a.ref.name} />
+              <span className="attachment-name">{a.ref.name}</span>
+              <button
+                type="button"
+                className="pill-x"
+                title="Remove attachment"
+                onClick={() => setAttachments((cur) => cur.filter((_, idx) => idx !== i))}
               >
                 <IconClose size={11} />
               </button>
@@ -379,6 +411,19 @@ export function Composer({
           ) {
             e.preventDefault()
             setMentions((m) => m.slice(0, -1))
+            return
+          }
+          if (
+            e.key === 'Backspace' &&
+            command === null &&
+            mentions.length === 0 &&
+            attachments.length > 0 &&
+            value === '' &&
+            e.currentTarget.selectionStart === 0 &&
+            e.currentTarget.selectionEnd === 0
+          ) {
+            e.preventDefault()
+            setAttachments((a) => a.slice(0, -1))
             return
           }
           if (e.key === 'Enter' && !e.shiftKey) {
