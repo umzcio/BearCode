@@ -1,6 +1,7 @@
 // The orchestrator's streaming graph: createDeepAgent() is called with a
-// custom filesystem backend (fsBackend.ts, routes writes through
-// src/main/diffs.ts stageFile) and one custom tool (tools.ts,
+// custom filesystem backend factory (fsBackend.ts: per-tool-call
+// GatedDiffFsBackend wrappers around one shared DiffFsBackend that routes
+// writes through src/main/diffs.ts stageFile) and one custom tool (tools.ts,
 // run_command, gated behind a LangGraph interrupt for approval). Deep Agents
 // always injects its own built-ins on top of that (the write_todos planning
 // tool, filesystem tools backed by our custom backend, and a `task` subagent
@@ -32,7 +33,7 @@ import { makeModel } from './models'
 import { orchestratorSystemPrompt } from './systemPrompt'
 import { textDeltaEvent, thinkingDeltaEvent } from './bridge'
 import { getCheckpointer } from './checkpointer'
-import { DiffFsBackend } from './fsBackend'
+import { DiffFsBackend, GatedDiffFsBackend } from './fsBackend'
 import { buildTools, clearDeniedReplayPins, pinDeniedReplays } from './tools'
 
 // The tuple shape yielded by `.stream(..., { streamMode: "messages", subgraphs: true })`
@@ -1330,12 +1331,30 @@ function buildAgentAndContext(
   const backend = projectPath
     ? new DiffFsBackend(conversationId, projectPath, diffGroupId)
     : undefined
+  // createDeepAgent gets a FACTORY (resolved per builtin-tool invocation, so
+  // the Bb3 edit gate sees each call's provider tool-call id) while ctx.backend
+  // below keeps pointing at the ONE shared DiffFsBackend -- the staged-files
+  // post-loop and closeOutTurn read its stagedFiles. The runtime cast is
+  // needed because the published BackendFactory parameter type omits the
+  // toolCall field the tool-time runtime actually carries (verified:
+  // scratchpad bb3-edit-gating-probe.md section 2, probe B).
+  const backendFactory = backend
+    ? (runtime: unknown): GatedDiffFsBackend =>
+        new GatedDiffFsBackend(
+          backend,
+          (runtime as { toolCall?: { id?: string } } | undefined)?.toolCall?.id,
+          conversationId,
+          projectPath as string
+        )
+    : undefined
   const agent = createDeepAgent({
     model,
     systemPrompt: orchestratorSystemPrompt(projectPath),
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
-    ...(backend ? { backend, tools: buildTools(projectPath as string, conversationId) } : {})
+    ...(backendFactory
+      ? { backend: backendFactory, tools: buildTools(projectPath as string, conversationId) }
+      : {})
   })
   const ctx: DriveContext = {
     conversationId,

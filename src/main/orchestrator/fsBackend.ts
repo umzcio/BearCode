@@ -14,7 +14,8 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'fs'
-import { basename, dirname, isAbsolute, resolve, sep } from 'path'
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'path'
+import { interrupt, isGraphInterrupt } from '@langchain/langgraph'
 import { rgPath } from '@vscode/ripgrep'
 import type {
   BackendProtocolV2,
@@ -28,6 +29,7 @@ import type {
 } from 'deepagents'
 import type { FileDiffFile } from '../../shared/types'
 import { stageFile } from '../diffs'
+import { evaluateEditForConversation } from '../permissions'
 
 const execFileAsync = promisify(execFile)
 
@@ -218,5 +220,111 @@ export class DiffFsBackend implements BackendProtocolV2 {
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) }
     }
+  }
+}
+
+// Workspace-relative path (forward slashes) for the edit-rules engine. Always
+// computed from jailPath's RESOLVED absolute path, never the raw agent-supplied
+// string, so a traversal-laden 'a/../.env' evaluates as '.env' and can not
+// dodge a deny rule (Task 1 review carry-forward).
+export function relForGate(projectPath: string, abs: string): string {
+  return relative(projectPath, abs).split(sep).join('/')
+}
+
+// Per-tool-invocation wrapper created by the backend factory (graph.ts).
+// Deep Agents resolves the backend once per builtin-tool call and the
+// runtime it hands the factory carries the provider tool-call id, which the
+// published factory type does not yet declare (hence the cast at the call
+// site). Everything except write/edit delegates straight to the one shared
+// DiffFsBackend so staged-file accumulation and the review pane are
+// untouched. The gate MUST run before shared.write/edit because stageFile
+// inside them is the disk side effect; interrupt() throws on first
+// execution and returns the resume value on the replay, so an unapproved
+// write never reaches disk (probe: planning/probe-bb3-edit-interrupt.mjs).
+export class GatedDiffFsBackend implements BackendProtocolV2 {
+  constructor(
+    private readonly shared: DiffFsBackend,
+    private readonly toolCallId: string | undefined,
+    private readonly conversationId: string,
+    private readonly projectPath: string
+  ) {}
+
+  // Returns {error} when the write must not happen, null when it may proceed
+  // ('apply' decision or an approved interrupt). jailPath runs in its own
+  // try/catch so its outside-workspace throw becomes {error} exactly like the
+  // shared methods classify it; the rules evaluation and interrupt() run
+  // OUTSIDE any try so a GraphInterrupt always propagates as the
+  // pending-approval pause instead of being swallowed into {error}.
+  private gate(filePath: string, tool: 'write_file' | 'edit_file'): { error: string } | null {
+    let rel: string
+    try {
+      const abs = jailPath(this.projectPath, filePath)
+      // Relative to the same realpath'd root jailPath resolved against, so a
+      // symlinked projectPath (e.g. /tmp on macOS) still yields 'src/a.ts'.
+      rel = relForGate(realpathSync(this.projectPath), abs)
+    } catch (err) {
+      // Defense in depth: nothing in this try raises a GraphInterrupt today,
+      // but one must never be classified as a plain {error}.
+      if (isGraphInterrupt(err)) throw err
+      return { error: err instanceof Error ? err.message : String(err) }
+    }
+    const decision = evaluateEditForConversation(rel, this.conversationId, this.projectPath)
+    if (decision === 'block') {
+      return { error: `Editing ${filePath} is blocked by a permission rule.` }
+    }
+    if (decision === 'prompt') {
+      // Resume value is a truthy object, never a bare boolean -- same
+      // EmptyInputError footgun documented on run_command (tools.ts). The
+      // payload contract ({kind, tool, path, toolCallId}) is what Task 4's
+      // pairing and the renderer's approval card consume.
+      const approval = interrupt({
+        kind: 'edit_file',
+        tool,
+        path: filePath,
+        toolCallId: this.toolCallId
+      }) as { approved: boolean }
+      if (!approval.approved) return { error: 'User denied this edit.' }
+    }
+    return null
+  }
+
+  async write(filePath: string, content: string): Promise<WriteResult> {
+    const denied = this.gate(filePath, 'write_file')
+    if (denied) return denied
+    return this.shared.write(filePath, content)
+  }
+
+  async edit(
+    filePath: string,
+    oldString: string,
+    newString: string,
+    replaceAll = false
+  ): Promise<EditResult> {
+    const denied = this.gate(filePath, 'edit_file')
+    if (denied) return denied
+    return this.shared.edit(filePath, oldString, newString, replaceAll)
+  }
+
+  // Every remaining BackendProtocolV2 method DiffFsBackend implements,
+  // delegated 1:1 (read-side, no gate). uploadFiles/downloadFiles are
+  // optional in the protocol and DiffFsBackend does not implement them.
+  ls(path: string): Promise<LsResult> {
+    return this.shared.ls(path)
+  }
+
+  read(filePath: string, offset?: number, limit?: number): Promise<ReadResult> {
+    return this.shared.read(filePath, offset, limit)
+  }
+
+  readRaw(filePath: string): Promise<ReadRawResult> {
+    return this.shared.readRaw(filePath)
+  }
+
+  grep(pattern: string, path?: string | null, glob?: string | null): Promise<GrepResult> {
+    return this.shared.grep(pattern, path, glob)
+  }
+
+  glob(pattern: string, path?: string): Promise<GlobResult> {
+    return this.shared.glob(pattern, path)
   }
 }
