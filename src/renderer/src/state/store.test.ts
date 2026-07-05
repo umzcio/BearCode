@@ -4,7 +4,8 @@ import type {
   CommandEntry,
   ConversationMeta,
   Event,
-  PermissionRulesInfo
+  PermissionRulesInfo,
+  PlanReviewResolveResult
 } from '@shared/types'
 import { useAppStore, type Convo } from './store'
 
@@ -61,6 +62,10 @@ const commandEntries: CommandEntry[] = [
 ]
 const commands = { list: vi.fn(() => Promise.resolve(commandEntries)) }
 
+const artifacts = {
+  resolvePlanReview: vi.fn((): Promise<PlanReviewResolveResult> => Promise.resolve('resolved'))
+}
+
 const convoMeta: ConversationMeta = {
   id: 'c1',
   projectPath: '/tmp/p',
@@ -89,7 +94,7 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal('window', {
-    bearcode: { permissions, conversations, run, commands } as unknown as BearcodeApi
+    bearcode: { permissions, conversations, run, commands, artifacts } as unknown as BearcodeApi
   })
   useAppStore.setState({ permissionRules: null, commands: [], resumePickerOpen: false })
 })
@@ -314,5 +319,84 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
     expect(useAppStore.getState().resumePickerOpen).toBe(true)
     useAppStore.getState().setResumePickerOpen(false)
     expect(useAppStore.getState().resumePickerOpen).toBe(false)
+  })
+})
+
+describe('resolvePlanReview mirrors graph.ts planProceedModeFlip (phase3)', () => {
+  it('Proceed while permissionMode is plan flips the active conversation to accept-edits', async () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo({ permissionMode: 'plan' }) },
+      permissionMode: 'plan'
+    })
+    const ok = await useAppStore.getState().resolvePlanReview('call-1', true)
+    expect(ok).toBe(true)
+    expect(artifacts.resolvePlanReview).toHaveBeenCalledWith('call-1', true, undefined)
+    expect(useAppStore.getState().conversations.c1.permissionMode).toBe('accept-edits')
+    expect(useAppStore.getState().permissionMode).toBe('accept-edits')
+  })
+
+  it('Proceed while permissionMode is NOT plan (e.g. auto) leaves the mode untouched', async () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo({ permissionMode: 'auto' }) },
+      permissionMode: 'auto'
+    })
+    const ok = await useAppStore.getState().resolvePlanReview('call-1', true)
+    expect(ok).toBe(true)
+    expect(useAppStore.getState().conversations.c1.permissionMode).toBe('auto')
+    expect(useAppStore.getState().permissionMode).toBe('auto')
+  })
+
+  it('the Review (proceed:false) path never flips the mode, even from plan', async () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo({ permissionMode: 'plan' }) },
+      permissionMode: 'plan'
+    })
+    const ok = await useAppStore.getState().resolvePlanReview('call-1', false, 'needs work')
+    expect(ok).toBe(true)
+    expect(artifacts.resolvePlanReview).toHaveBeenCalledWith('call-1', false, 'needs work')
+    expect(useAppStore.getState().conversations.c1.permissionMode).toBe('plan')
+    expect(useAppStore.getState().permissionMode).toBe('plan')
+  })
+
+  it('a stale/needs-substance result never flips the mode', async () => {
+    artifacts.resolvePlanReview.mockResolvedValueOnce('stale')
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo({ permissionMode: 'plan' }) },
+      permissionMode: 'plan'
+    })
+    const ok = await useAppStore.getState().resolvePlanReview('call-1', true)
+    expect(ok).toBe(false)
+    expect(useAppStore.getState().conversations.c1.permissionMode).toBe('plan')
+    expect(useAppStore.getState().permissionMode).toBe('plan')
+  })
+
+  it('updates the per-conversation record even if the view has moved on by the time the IPC resolves, but leaves the now-active surface alone', async () => {
+    let resolveIpc: (value: PlanReviewResolveResult) => void = () => {}
+    artifacts.resolvePlanReview.mockReturnValueOnce(
+      new Promise<PlanReviewResolveResult>((resolve) => {
+        resolveIpc = resolve
+      })
+    )
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: {
+        c1: convo({ permissionMode: 'plan' }),
+        c2: convo({ id: 'c2', permissionMode: 'auto' })
+      },
+      permissionMode: 'plan'
+    })
+    const pending = useAppStore.getState().resolvePlanReview('call-1', true)
+    // The user navigates away to a different conversation before the main
+    // process answers.
+    useAppStore.setState({ view: { kind: 'conversation', id: 'c2' }, permissionMode: 'auto' })
+    resolveIpc('resolved')
+    await pending
+    expect(useAppStore.getState().conversations.c1.permissionMode).toBe('accept-edits')
+    // c2's displayed mode must not be clobbered by c1's flip.
+    expect(useAppStore.getState().permissionMode).toBe('auto')
   })
 })
