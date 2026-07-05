@@ -28,11 +28,13 @@ export function ModePicker(): React.JSX.Element {
   const setMode = useAppStore((s) => s.setPermissionMode)
   const permMenuTick = useAppStore((s) => s.permMenuTick)
   const [open, setOpen] = useState(false)
+  const [confirmingBypass, setConfirmingBypass] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const lastTick = useRef(permMenuTick)
   // Fall back to Accept edits (MODES[1]) — the product default — for an
   // unrecognized mode, never to MODES[0] (Ask).
   const current = MODES.find((m) => m.id === mode) ?? MODES[1]
+  const isBypass = mode === 'bypass'
 
   // Cmd+. toggles the menu. Compare against the last seen tick so this only
   // fires on a real tick change, not on mount or StrictMode's double-run.
@@ -45,11 +47,15 @@ export function ModePicker(): React.JSX.Element {
   useEffect(() => {
     if (!open) return undefined
     const close = (e: MouseEvent): void => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false)
+        setConfirmingBypass(false)
+      }
     }
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         setOpen(false)
+        setConfirmingBypass(false)
         return
       }
       if (NUMERIC_KEYS.includes(e.key)) {
@@ -59,6 +65,7 @@ export function ModePicker(): React.JSX.Element {
         if (picked) {
           setMode(picked.id)
           setOpen(false)
+          setConfirmingBypass(false)
         }
       }
     }
@@ -70,10 +77,23 @@ export function ModePicker(): React.JSX.Element {
     }
   }, [open, setMode])
 
+  const pick = (m: ModeOption): void => {
+    if (m.id === 'bypass') {
+      setConfirmingBypass(true) // gate: never switch to bypass without confirm
+      return
+    }
+    setMode(m.id)
+    setOpen(false)
+    setConfirmingBypass(false)
+  }
+
   return (
     <div className="mode-picker" ref={rootRef}>
       <Hint label="Permission mode" keys="⌘." side="top" disabled={open}>
-        <button className="pill-btn" onClick={() => setOpen((o) => !o)}>
+        <button
+          className={'pill-btn' + (isBypass ? ' bypass-active' : '')}
+          onClick={() => setOpen((o) => !o)}
+        >
           <span>{current.pillLabel}</span>
           <span className="chev">
             <IconChevronDown />
@@ -82,21 +102,52 @@ export function ModePicker(): React.JSX.Element {
       </Hint>
       {open ? (
         <div className="menu mode-menu">
-          <div className="menu-group-label">Mode</div>
-          {MODES.map((m) => (
+          {confirmingBypass ? (
             <div
-              key={m.id}
-              className={'menu-item' + (m.id === mode ? ' selected' : '')}
-              onClick={() => {
-                setMode(m.id)
-                setOpen(false)
-              }}
+              className="bypass-confirm"
+              role="alertdialog"
+              aria-label="Enable Bypass permissions"
             >
-              <span className="mode-label">{m.label}</span>
-              <span className="mode-key">{m.key}</span>
-              <span className="check">✓</span>
+              <div className="bypass-confirm-text">
+                Enable Bypass permissions? Disables ALL command and edit safety checks for this
+                conversation, including built-in .git/.env protection.
+              </div>
+              <div className="bypass-confirm-actions">
+                <button className="small-btn" onClick={() => setConfirmingBypass(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="danger-btn"
+                  onClick={() => {
+                    setMode('bypass')
+                    setOpen(false)
+                    setConfirmingBypass(false)
+                  }}
+                >
+                  Enable Bypass
+                </button>
+              </div>
             </div>
-          ))}
+          ) : (
+            <>
+              <div className="menu-group-label">Mode</div>
+              {MODES.map((m) => (
+                <div
+                  key={m.id}
+                  className={
+                    'menu-item' +
+                    (m.id === mode ? ' selected' : '') +
+                    (m.id === 'bypass' ? ' bypass-item' : '')
+                  }
+                  onClick={() => pick(m)}
+                >
+                  <span className="mode-label">{m.label}</span>
+                  <span className="mode-key">{m.key}</span>
+                  <span className="check">✓</span>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       ) : null}
     </div>

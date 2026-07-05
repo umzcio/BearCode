@@ -54,4 +54,58 @@ describe('ModePicker', () => {
     fireEvent.click(screen.getByText('Auto'))
     expect(screen.getByText('Auto mode')).toBeTruthy() // full row label
   })
+
+  it('selecting Bypass opens a confirm and does NOT switch until confirmed', () => {
+    render(<ModePicker />)
+    fireEvent.click(screen.getByText('Accept edits')) // open menu
+    fireEvent.click(screen.getByText('Bypass permissions')) // pick the Bypass row
+    expect(
+      screen.getByText(
+        'Enable Bypass permissions? Disables ALL command and edit safety checks for this conversation, including built-in .git/.env protection.'
+      )
+    ).toBeTruthy()
+    expect(useAppStore.getState().permissionMode).toBe('accept-edits') // unchanged
+  })
+
+  it('confirming Bypass sets the mode to bypass', () => {
+    render(<ModePicker />)
+    fireEvent.click(screen.getByText('Accept edits'))
+    fireEvent.click(screen.getByText('Bypass permissions'))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable Bypass' }))
+    expect(useAppStore.getState().permissionMode).toBe('bypass')
+  })
+
+  it('cancelling Bypass keeps the previous mode', () => {
+    render(<ModePicker />)
+    fireEvent.click(screen.getByText('Accept edits'))
+    fireEvent.click(screen.getByText('Bypass permissions'))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(useAppStore.getState().permissionMode).toBe('accept-edits')
+  })
+
+  it('while Bypass is active the pill shows a warning treatment', () => {
+    useAppStore.setState({ permissionMode: 'bypass' })
+    const { container } = render(<ModePicker />)
+    expect(container.querySelector('.pill-btn.bypass-active')).toBeTruthy()
+  })
+
+  it('from Bypass, picking a safe mode switches immediately with no confirm', () => {
+    useAppStore.setState({ permissionMode: 'bypass' })
+    render(<ModePicker />)
+    fireEvent.click(screen.getByText('Bypass')) // compact pill label while active
+    fireEvent.click(screen.getByText('Auto mode'))
+    expect(useAppStore.getState().permissionMode).toBe('auto')
+  })
+
+  it('picking a mode by number while the Bypass confirm is open clears the confirm state', () => {
+    render(<ModePicker />)
+    fireEvent.click(screen.getByText('Accept edits')) // open menu
+    fireEvent.click(screen.getByText('Bypass permissions')) // open the confirm panel
+    fireEvent.keyDown(document.body, { key: '2' }) // pick Accept edits via numeric shortcut
+    expect(useAppStore.getState().permissionMode).toBe('accept-edits')
+    // Reopen the menu — the confirm panel must NOT still be showing.
+    fireEvent.click(screen.getByText('Accept edits'))
+    expect(screen.getByText('Bypass permissions')).toBeTruthy() // mode list is shown
+    expect(screen.queryByText(/Disables ALL command and edit safety checks/)).toBeNull()
+  })
 })
