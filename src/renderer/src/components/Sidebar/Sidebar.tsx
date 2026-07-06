@@ -4,8 +4,6 @@ import bearMark from '../../assets/bear.svg'
 import { Hint } from '../Hint'
 import { groupConversations } from './grouping'
 import {
-  IconChevronLeft,
-  IconChevronRight,
   IconClock,
   IconClose,
   IconFilter,
@@ -14,6 +12,7 @@ import {
   IconHistory,
   IconPanel,
   IconPlus,
+  IconSearch,
   IconSettings
 } from '../icons'
 import './Sidebar.css'
@@ -29,6 +28,7 @@ export function Sidebar(): React.JSX.Element {
   const openConvo = useAppStore((s) => s.openConvo)
   const deleteConvo = useAppStore((s) => s.deleteConvo)
   const openSettings = useAppStore((s) => s.openSettings)
+  const openSearch = useAppStore((s) => s.openSearch)
   const showToast = useAppStore((s) => s.showToast)
   const projects = useAppStore((s) => s.projects)
   const createProject = useAppStore((s) => s.createProject)
@@ -44,12 +44,11 @@ export function Sidebar(): React.JSX.Element {
             <IconPanel />
           </button>
         </Hint>
-        <button className="chrome-btn" disabled title="Back">
-          <IconChevronLeft />
-        </button>
-        <button className="chrome-btn" disabled title="Forward">
-          <IconChevronRight />
-        </button>
+        <Hint label="Search" keys="⌘K" side="bottom">
+          <button className="chrome-btn" onClick={openSearch}>
+            <IconSearch />
+          </button>
+        </Hint>
         <span className="wordmark">
           <img src={bearMark} alt="" />
           BearCode

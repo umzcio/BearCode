@@ -107,6 +107,7 @@ interface AppState {
   permissionRules: PermissionRulesInfo | null
   workspacePath: string | null
   settingsOpen: boolean
+  searchOpen: boolean
   auxSelection: AuxSelection | null
   // File path the diff viewer should focus when it opens (chip/step clicks).
   reviewFocusPath: string | null
@@ -182,6 +183,9 @@ interface AppState {
   toggleProjectMenu(): void
   openSettings(): void
   closeSettings(): void
+  openSearch(): void
+  closeSearch(): void
+  toggleSearch(): void
   saveKey(provider: ProviderId, key: string): Promise<void>
   saveSettings(patch: Partial<AppSettings>): Promise<void>
   deleteAllConversations(): Promise<void>
@@ -300,6 +304,7 @@ export const useAppStore = create<AppState>((set, get) => {
     permissionRules: null,
     workspacePath: null,
     settingsOpen: false,
+    searchOpen: false,
     auxSelection: null,
     reviewFocusPath: null,
     artifactComments: {},
@@ -662,6 +667,9 @@ export const useAppStore = create<AppState>((set, get) => {
 
     openSettings: () => set({ settingsOpen: true }),
     closeSettings: () => set({ settingsOpen: false }),
+    openSearch: () => set({ searchOpen: true }),
+    closeSearch: () => set({ searchOpen: false }),
+    toggleSearch: () => set((s) => ({ searchOpen: !s.searchOpen })),
 
     saveKey: async (provider, key) => {
       await window.bearcode.keys.set(provider, key)

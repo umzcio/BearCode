@@ -13,6 +13,7 @@ const SHORTCUTS: { label: string; keys: string[] }[] = [
   { label: 'Toggle Model Selector', keys: ['⌘', '/'] },
   { label: 'Toggle Mode Selector', keys: ['⌘', '.'] },
   { label: 'Toggle Sidebar', keys: ['⌘', 'B'] },
+  { label: 'Search Chats & Projects', keys: ['⌘', 'K'] },
   { label: 'Open Settings', keys: ['⌘', ','] },
   { label: 'Send Message', keys: ['⏎'] },
   { label: 'New Line', keys: ['⇧', '⏎'] },
