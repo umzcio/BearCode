@@ -211,6 +211,9 @@ export function registerIpc(): void {
         const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
         return { kind: 'image', dataUrl: `data:${mime};base64,${bytes.toString('base64')}` }
       }
+      if (c.kind === 'html') {
+        return { kind: 'html', html: bytes.toString('utf8') }
+      }
       if (c.kind === 'pdf') {
         const r = await runPdfExtraction(bytes)
         return { kind: 'text', text: r.text || '(no extractable text)', truncated: r.truncated }

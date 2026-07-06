@@ -20,3 +20,14 @@
   height: auto;
   border-radius: 6px;
 }
+.file-preview.html {
+  padding: 0;
+  overflow: hidden;
+}
+.file-preview-frame {
+  width: 100%;
+  height: 60vh;
+  border: 0;
+  background: #fff;
+  border-radius: 6px;
+}
