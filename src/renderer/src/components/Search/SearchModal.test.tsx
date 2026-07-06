@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
-import { useAppStore } from '../../state/store'
+import { useAppStore, type Convo } from '../../state/store'
 import { SearchModal } from './SearchModal'
 
-const convo = (id: string, title: string, projectId: string | null = null) => ({
+const convo = (id: string, title: string, projectId: string | null = null): Convo => ({
   id, title, projectLabel: 'repo', projectId, updatedAt: 1, projectPath: null,
   modelRef: null, permissionMode: 'accept-edits' as const, effort: 'adaptive' as const,
   thinking: true, loaded: true, events: [], runState: 'idle' as const

@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest'
+import type { Project } from '@shared/types'
+import { type Convo } from '../../state/store'
 import { searchEntries } from './searchEntries'
 
-const convo = (id: string, title: string, updatedAt: number) => ({
+const convo = (id: string, title: string, updatedAt: number): Convo => ({
   id, title, projectLabel: 'repo', projectId: null, updatedAt,
   projectPath: null, modelRef: null, permissionMode: 'accept-edits' as const,
   effort: 'adaptive' as const, thinking: true, loaded: true, events: [], runState: 'idle' as const
 })
-const proj = (id: string, name: string, updatedAt: number) => ({
+const proj = (id: string, name: string, updatedAt: number): Project => ({
   id, name, color: null, createdAt: 0, updatedAt
 })
 

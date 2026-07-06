@@ -5,8 +5,16 @@ import { IconSearch, IconFolder, IconClose } from '../icons'
 import { searchEntries, type SearchEntry } from './searchEntries'
 import './SearchModal.css'
 
+// Gate the modal on `searchOpen` so the inner content mounts fresh each time it
+// opens. Mounting-fresh (rather than resetting query/highlighted inside an
+// effect) is what keeps each open starting from a blank, top-highlighted state.
 export function SearchModal(): React.JSX.Element | null {
   const open = useAppStore((s) => s.searchOpen)
+  if (!open) return null
+  return <SearchModalContent />
+}
+
+function SearchModalContent(): React.JSX.Element {
   const close = useAppStore((s) => s.closeSearch)
   const conversations = useAppStore((s) => s.conversations)
   const convoOrder = useAppStore((s) => s.convoOrder)
@@ -22,15 +30,10 @@ export function SearchModal(): React.JSX.Element | null {
   }, [query, conversations, convoOrder, projects])
 
   useEffect(() => {
-    if (open) {
-      setQuery('')
-      setHighlighted(0)
-      // focus after mount
-      const t = setTimeout(() => inputRef.current?.focus(), 0)
-      return () => clearTimeout(t)
-    }
-    return undefined
-  }, [open])
+    // focus after mount
+    const t = setTimeout(() => inputRef.current?.focus(), 0)
+    return () => clearTimeout(t)
+  }, [])
 
   const select = (entry: SearchEntry | undefined): void => {
     if (!entry) return
@@ -49,7 +52,6 @@ export function SearchModal(): React.JSX.Element | null {
   }
 
   useEffect(() => {
-    if (!open) return undefined
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -70,9 +72,7 @@ export function SearchModal(): React.JSX.Element | null {
       clearTimeout(t)
       window.removeEventListener('keydown', onKey)
     }
-  }, [open, results, highlighted])
-
-  if (!open) return null
+  }, [results, highlighted])
 
   return (
     <div className="search-backdrop" onClick={close}>
