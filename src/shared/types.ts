@@ -352,6 +352,16 @@ export interface ProviderModels {
   note?: string
 }
 
+// ---- Projects (E4) ----
+
+export interface Project {
+  id: string
+  name: string
+  color: string | null
+  createdAt: number
+  updatedAt: number
+}
+
 // ---- Conversations ----
 
 export interface ConversationMeta {
@@ -369,6 +379,8 @@ export interface ConversationMeta {
   // effort/thinking columns, falling back to the settings defaults (db toMeta).
   effort: EffortLevel
   thinking: boolean
+  // The project this conversation belongs to (E4), or null when unassigned.
+  projectId: string | null
 }
 
 // ---- Diffs ----
@@ -503,6 +515,13 @@ export interface BearcodeApi {
     setMode(id: string, mode: PermissionMode): Promise<void>
     setEffort(id: string, effort: EffortLevel): Promise<void>
     setThinking(id: string, thinking: boolean): Promise<void>
+    setProject(id: string, projectId: string | null): Promise<void>
+  }
+  projects: {
+    list(): Promise<Project[]>
+    create(name: string, color?: string | null): Promise<Project>
+    rename(id: string, name: string): Promise<void>
+    delete(id: string): Promise<void>
   }
   permissions: {
     addRule(rule: AddRuleInput): Promise<void>
