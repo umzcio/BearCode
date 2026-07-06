@@ -288,6 +288,14 @@ export function registerIpc(): void {
     }
     db.setConversationProject(id, projectId as string | null)
   })
+  ipcMain.handle('bearcode:conversations:set-pinned', (_e, id: string, pinned: unknown) => {
+    if (typeof pinned !== 'boolean') throw new Error(`Invalid pinned: ${String(pinned)}`)
+    db.setPinned(id, pinned)
+  })
+  ipcMain.handle('bearcode:conversations:set-archived', (_e, id: string, archived: unknown) => {
+    if (typeof archived !== 'boolean') throw new Error(`Invalid archived: ${String(archived)}`)
+    db.setArchived(id, archived)
+  })
   ipcMain.handle('bearcode:conversations:clear', () => {
     clearRunsOrchestrator()
     // Prune each conversation's checkpoints before the rows are gone, so

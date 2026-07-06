@@ -93,7 +93,11 @@ const bearcode: BearcodeApi = {
     setThinking: (id: string, thinking: boolean): Promise<void> =>
       ipcRenderer.invoke('bearcode:conversations:set-thinking', id, thinking),
     setProject: (id: string, projectId: string | null): Promise<void> =>
-      ipcRenderer.invoke('bearcode:conversations:set-project', id, projectId)
+      ipcRenderer.invoke('bearcode:conversations:set-project', id, projectId),
+    setPinned: (id: string, pinned: boolean): Promise<void> =>
+      ipcRenderer.invoke('bearcode:conversations:set-pinned', id, pinned),
+    setArchived: (id: string, archived: boolean): Promise<void> =>
+      ipcRenderer.invoke('bearcode:conversations:set-archived', id, archived)
   },
   projects: {
     list: (): Promise<Project[]> => ipcRenderer.invoke('bearcode:projects:list'),

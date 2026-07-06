@@ -141,6 +141,17 @@ function getDb(): Database.Database {
   } catch {
     // column already exists
   }
+  // E7: pin/archive flags (NULL = false). Same idempotent-guarded ALTER idiom.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN pinned INTEGER`)
+  } catch {
+    // column already exists
+  }
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN archived INTEGER`)
+  } catch {
+    // column already exists
+  }
   zombieRunIds = cancelZombieRuns(db)
   return db
 }
@@ -201,6 +212,8 @@ interface ConversationRow {
   effort: string | null
   thinking: number | null
   project_id: string | null
+  pinned: number | null
+  archived: number | null
 }
 
 // A malformed active_rules value (hand-edited DB, partial write) must never
@@ -226,7 +239,9 @@ function toMeta(row: ConversationRow, fallbackTitle?: string | null): Conversati
     activeRules: parseActiveRules(row.active_rules),
     effort: (row.effort as EffortLevel) ?? getSettings().defaultEffort,
     thinking: row.thinking == null ? getSettings().defaultThinking : row.thinking === 1,
-    projectId: row.project_id ?? null
+    projectId: row.project_id ?? null,
+    pinned: row.pinned === 1,
+    archived: row.archived === 1
   }
 }
 
@@ -243,7 +258,9 @@ export function createConversation(projectPath: string | null, id?: string): Con
     active_rules: null,
     effort: null,
     thinking: null,
-    project_id: null
+    project_id: null,
+    pinned: null,
+    archived: null
   }
   getDb()
     .prepare(
@@ -486,6 +503,18 @@ export function setConversationProject(conversationId: string, projectId: string
   getDb()
     .prepare(`UPDATE conversations SET project_id = ?, updated_at = ? WHERE id = ?`)
     .run(projectId, Date.now(), conversationId)
+}
+
+export function setPinned(conversationId: string, pinned: boolean): void {
+  getDb()
+    .prepare(`UPDATE conversations SET pinned = ?, updated_at = ? WHERE id = ?`)
+    .run(pinned ? 1 : 0, Date.now(), conversationId)
+}
+
+export function setArchived(conversationId: string, archived: boolean): void {
+  getDb()
+    .prepare(`UPDATE conversations SET archived = ?, updated_at = ? WHERE id = ?`)
+    .run(archived ? 1 : 0, Date.now(), conversationId)
 }
 
 export interface RuleRow {
