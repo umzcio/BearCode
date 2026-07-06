@@ -24,26 +24,26 @@ interface ProviderRegistryEntry {
   providerOptions?(modelId: string): ProviderOptions | undefined
 }
 
-const ANTHROPIC_MODELS: ModelInfo[] = [
-  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
-  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' }
+export const ANTHROPIC_MODELS: ModelInfo[] = [
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', contextWindow: 1_000_000 },
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', contextWindow: 1_000_000 },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', contextWindow: 200_000 }
 ]
 
 const OPENAI_MODELS: ModelInfo[] = [
-  { id: 'gpt-5.1', label: 'GPT-5.1' },
-  { id: 'gpt-5-mini', label: 'GPT-5 mini' },
-  { id: 'gpt-4.1', label: 'GPT-4.1' }
+  { id: 'gpt-5.1', label: 'GPT-5.1', contextWindow: 400_000 },
+  { id: 'gpt-5-mini', label: 'GPT-5 mini', contextWindow: 400_000 },
+  { id: 'gpt-4.1', label: 'GPT-4.1', contextWindow: 1_000_000 }
 ]
 
-const GOOGLE_MODELS: ModelInfo[] = [
-  { id: 'gemini-3-pro-preview', label: 'Gemini 3 Pro' },
-  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }
+export const GOOGLE_MODELS: ModelInfo[] = [
+  { id: 'gemini-3-pro-preview', label: 'Gemini 3 Pro', contextWindow: 1_000_000 },
+  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', contextWindow: 1_000_000 },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', contextWindow: 1_000_000 }
 ]
 
 // Curated popular subset; live discovery of the full catalog lands in Phase 6.
-const OPENROUTER_MODELS: ModelInfo[] = [
+export const OPENROUTER_MODELS: ModelInfo[] = [
   { id: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
   { id: 'moonshotai/kimi-k2', label: 'Kimi K2' },
   { id: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B' }
