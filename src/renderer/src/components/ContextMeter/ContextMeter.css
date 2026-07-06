@@ -1,0 +1,14 @@
+.context-meter {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 2px 6px;
+  border-radius: 5px;
+  white-space: nowrap;
+  cursor: default;
+}
+.context-meter.near {
+  color: var(--amber);
+}
+.context-meter.over {
+  color: var(--danger, #ff5c5c);
+}

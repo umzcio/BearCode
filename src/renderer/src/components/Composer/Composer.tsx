@@ -9,6 +9,7 @@ import type {
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
 import { EffortPicker } from '../EffortPicker/EffortPicker'
+import { ContextMeter } from '../ContextMeter/ContextMeter'
 import { Hint } from '../Hint'
 import { refConfigured, useAppStore } from '../../state/store'
 import { attachmentBadge } from '../../lib/attachmentBadge'
@@ -525,6 +526,7 @@ export function Composer({
             className={'model-dot' + (modelReady ? ' model-dot-ready' : ' model-dot-missing')}
             title={modelReady ? 'Model ready' : 'No API key for the selected model'}
           />
+          <ContextMeter />
           <ModelPicker />
           <EffortPicker />
           {running ? (

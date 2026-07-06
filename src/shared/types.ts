@@ -335,6 +335,9 @@ export type ProviderId = 'anthropic' | 'openai' | 'google' | 'openrouter' | 'oll
 export interface ModelInfo {
   id: string
   label: string
+  // Approximate context window in tokens (E11). Optional: dynamic/unknown
+  // models (ollama, openrouter) omit it and the context meter stays hidden.
+  contextWindow?: number
 }
 
 // A model reference is "provider/modelId"; the modelId itself may contain
