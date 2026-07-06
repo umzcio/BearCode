@@ -40,27 +40,55 @@ export interface MentionRef {
 // (id is minted main-side, randomUUID); only this ref travels the wire.
 // SECURITY: `id` is used main-side to build that on-disk path, so the run:start
 // guard (assertValidAttachments) constrains it to a path-safe pattern.
+// The lane an attachment rides (D5). Additive: pre-D5 persisted events have no
+// `kind` and default to 'image' (see assertValidAttachments + every reader —
+// always read as `attachment.kind ?? 'image'`, never assume it is present).
+export type AttachmentKind = 'image' | 'text' | 'pdf' | 'office'
+
 export interface AttachmentRef {
   id: string
   name: string
   mime: string
+  // Optional for back-compat with pre-D5 persisted refs (see AttachmentKind
+  // doc above). Every reader must default a missing kind to 'image'.
+  kind?: AttachmentKind
 }
 
-// The only image mime types D4 accepts (design 8; png/jpg/webp/gif). PDFs are
-// phase 2. Shared so the byte-sniff (main ingest) and the wire guard
-// (assertValidAttachments) can never drift.
+// The four byte-sniffed image mimes (D4). Kept under the original name so the
+// image byte-sniff (ingest sniffImageMime) and the wire guard never drift.
 export const ATTACHMENT_MIME_TYPES = [
   'image/png',
   'image/jpeg',
   'image/webp',
   'image/gif'
 ] as const
+// D5 per-lane allowlists. Binary lanes are byte-sniffed; the text lane is
+// routed by extension + a UTF-8-clean gate (never trusts the extension for a
+// path or a binary decode).
+export const IMAGE_MIME_TYPES = ATTACHMENT_MIME_TYPES
+export const PDF_MIME = 'application/pdf'
+export const DOCX_MIME =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+export const XLSX_MIME =
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+export const OFFICE_MIME_TYPES = [DOCX_MIME, XLSX_MIME] as const
+export const TEXT_EXTENSIONS = [
+  'md', 'markdown', 'txt', 'text', 'html', 'htm', 'css', 'js', 'jsx', 'mjs',
+  'cjs', 'ts', 'tsx', 'py', 'json', 'jsonc', 'yaml', 'yml', 'toml', 'ini',
+  'xml', 'csv', 'tsv', 'sh', 'bash', 'zsh', 'rs', 'go', 'java', 'kt', 'c', 'h',
+  'cpp', 'hpp', 'cc', 'rb', 'php', 'sql', 'swift', 'r', 'lua', 'pl'
+] as const
 
-// The pick IPC's per-image result: the ref that will be sent + a data URL the
+// The pick IPC's per-file result: the ref that will be sent + a data URL the
 // composer renders as a thumbnail (never persisted, never sent to the model).
 export interface PickedAttachmentWire {
   ref: AttachmentRef
+  // For images: a data: URL the composer renders as a thumbnail (never
+  // persisted, never sent to the model). Empty string for non-image lanes.
   previewDataUrl: string
+  // Non-image lanes: a short pick-time badge/notice for the pill (e.g.
+  // "PDF · no extractable text", "truncated at 256 KB"). Not persisted.
+  notice?: string | null
 }
 
 // The @ menu's Rules read model (D3 design 7): Manual-mode rule name + the
