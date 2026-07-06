@@ -20,7 +20,9 @@ const DEFAULTS: AppSettings = {
   disabledBuiltins: [],
   artifactReviewPolicy: 'request-review',
   defaultEffort: 'adaptive',
-  defaultThinking: true
+  defaultThinking: true,
+  sidebarGroupBy: 'project',
+  sidebarSort: 'updated'
 }
 
 function settingsPath(): string {
@@ -63,6 +65,10 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   if (!isEffortLevel(merged.defaultEffort)) merged.defaultEffort = 'adaptive'
   merged.defaultThinking =
     (seeded as Record<string, unknown>)['defaultThinking'] === false ? false : true
+  const groupByOk = ['project', 'none']
+  const sortOk = ['updated', 'alpha', 'created']
+  if (!groupByOk.includes(merged.sidebarGroupBy)) merged.sidebarGroupBy = 'project'
+  if (!sortOk.includes(merged.sidebarSort)) merged.sidebarSort = 'updated'
   return merged
 }
 

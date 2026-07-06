@@ -1,20 +1,51 @@
 import type { Project } from '@shared/types'
 
-type ConvoLike = { id: string; projectId: string | null; projectLabel: string; updatedAt: number }
+type ConvoLike = {
+  id: string
+  projectId: string | null
+  projectLabel: string
+  title: string
+  updatedAt: number
+  createdAt: number
+}
 
 export type SidebarGroup = (
   | { kind: 'project'; projectId: string; label: string }
   | { kind: 'folder'; label: string }
+  | { kind: 'all' }
 ) & { convoIds: string[] }
 
-// Project groups first (projects sorted by updatedAt desc, each shown even when
-// empty), then the existing folder-basename grouping for unassigned
-// conversations (preserving convoOrder within each). Feeds E3's "Group By".
+export type GroupOpts = {
+  groupBy: 'project' | 'none'
+  sort: 'updated' | 'alpha' | 'created'
+}
+
+const DEFAULT_OPTS: GroupOpts = { groupBy: 'project', sort: 'updated' }
+
+function sortIds(ids: string[], convos: Record<string, ConvoLike | undefined>, sort: GroupOpts['sort']): string[] {
+  const withConvo = ids.map((id) => convos[id]).filter((c): c is ConvoLike => c != null)
+  const sorted = [...withConvo].sort((a, b) => {
+    if (sort === 'alpha') return a.title.localeCompare(b.title)
+    if (sort === 'created') return b.createdAt - a.createdAt
+    return b.updatedAt - a.updatedAt
+  })
+  return sorted.map((c) => c.id)
+}
+
+// Group + sort conversations for the sidebar. groupBy 'none' → one headerless
+// 'all' group; 'project' → project groups (updatedAt desc, empty shown) then
+// folder-basename groups for unassigned. `sort` orders conversations WITHIN each
+// group. Default opts reproduce the pre-E3 behavior.
 export function groupConversations(
   order: string[],
   convos: Record<string, ConvoLike | undefined>,
-  projects: Project[]
+  projects: Project[],
+  opts: GroupOpts = DEFAULT_OPTS
 ): SidebarGroup[] {
+  if (opts.groupBy === 'none') {
+    const ids = order.filter((id) => convos[id] != null)
+    return [{ kind: 'all', convoIds: sortIds(ids, convos, opts.sort) }]
+  }
   const groups: SidebarGroup[] = []
   const sortedProjects = [...projects].sort((a, b) => b.updatedAt - a.updatedAt)
   const projectGroups = new Map<string, SidebarGroup>()
@@ -31,9 +62,11 @@ export function groupConversations(
       projectGroups.get(convo.projectId)!.convoIds.push(id)
       continue
     }
-    const existing = folderGroups.find((g) => g.label === convo.projectLabel)
+    const existing = folderGroups.find((g) => g.kind === 'folder' && g.label === convo.projectLabel)
     if (existing) existing.convoIds.push(id)
     else folderGroups.push({ kind: 'folder', label: convo.projectLabel, convoIds: [id] })
   }
-  return [...groups, ...folderGroups]
+  const all = [...groups, ...folderGroups]
+  for (const g of all) g.convoIds = sortIds(g.convoIds, convos, opts.sort)
+  return all
 }

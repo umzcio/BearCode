@@ -35,6 +35,7 @@ export interface Convo {
   thinking: boolean
   projectId: string | null
   updatedAt: number
+  createdAt: number
   loaded: boolean
   events: Event[]
   runState: ConvoRunState
@@ -73,6 +74,7 @@ function fromMeta(meta: ConversationMeta): Convo {
     thinking: meta.thinking,
     projectId: meta.projectId,
     updatedAt: meta.updatedAt,
+    createdAt: meta.createdAt,
     loaded: false,
     events: [],
     runState: 'idle'
@@ -169,6 +171,10 @@ interface AppState {
   setBuiltinDisabled(id: string, disabled: boolean): Promise<void>
   retryRun(convoId: string): void
   selectModel(ref: ModelRef): void
+  setSidebarView(patch: {
+    sidebarGroupBy?: AppSettings['sidebarGroupBy']
+    sidebarSort?: AppSettings['sidebarSort']
+  }): Promise<void>
   setPermissionMode(mode: PermissionMode): void
   setEffort(effort: EffortLevel): void
   setThinking(thinking: boolean): void
@@ -594,6 +600,11 @@ export const useAppStore = create<AppState>((set, get) => {
       void window.bearcode.settings.set({ defaultModelRef: ref }).then((settings) => {
         set({ settings })
       })
+    },
+
+    setSidebarView: async (patch) => {
+      const settings = await window.bearcode.settings.set(patch)
+      set({ settings })
     },
 
     setPermissionMode: (mode) => {

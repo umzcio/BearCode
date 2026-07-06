@@ -3,10 +3,10 @@ import { relativeAge } from '../../lib/time'
 import bearMark from '../../assets/bear.svg'
 import { Hint } from '../Hint'
 import { groupConversations } from './grouping'
+import { DisplayOptions } from './DisplayOptions'
 import {
   IconClock,
   IconClose,
-  IconFilter,
   IconFolder,
   IconFolderPlus,
   IconHistory,
@@ -33,8 +33,10 @@ export function Sidebar(): React.JSX.Element {
   const projects = useAppStore((s) => s.projects)
   const createProject = useAppStore((s) => s.createProject)
   const assignConversationProject = useAppStore((s) => s.assignConversationProject)
+  const groupBy = useAppStore((s) => s.settings?.sidebarGroupBy ?? 'project')
+  const sort = useAppStore((s) => s.settings?.sidebarSort ?? 'updated')
 
-  const groups = groupConversations(convoOrder, conversations, projects)
+  const groups = groupConversations(convoOrder, conversations, projects, { groupBy, sort })
 
   return (
     <div className={'sidebar' + (collapsed ? ' collapsed' : '')}>
@@ -76,9 +78,7 @@ export function Sidebar(): React.JSX.Element {
       <div className="projects-head">
         Projects
         <div className="actions">
-          <button className="chrome-btn" title="Filter">
-            <IconFilter />
-          </button>
+          <DisplayOptions />
           <button
             className="chrome-btn"
             title="New project"
@@ -95,11 +95,22 @@ export function Sidebar(): React.JSX.Element {
       <div className="projects-scroll">
         {groups.length === 0 ? <div className="empty-note">No conversations yet</div> : null}
         {groups.map((group) => (
-          <div className="proj-group" key={group.kind === 'project' ? group.projectId : 'folder:' + group.label}>
-            <div className="proj-label">
-              <IconFolder />
-              <span>{group.label}</span>
-            </div>
+          <div
+            className="proj-group"
+            key={
+              group.kind === 'project'
+                ? group.projectId
+                : group.kind === 'all'
+                  ? 'all'
+                  : 'folder:' + group.label
+            }
+          >
+            {group.kind !== 'all' ? (
+              <div className="proj-label">
+                <IconFolder />
+                <span>{group.label}</span>
+              </div>
+            ) : null}
             {group.convoIds.map((id) => {
               const convo = conversations[id]
               if (!convo) return null

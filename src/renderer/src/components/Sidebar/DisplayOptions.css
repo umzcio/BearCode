@@ -1,0 +1,45 @@
+.display-options {
+  position: relative;
+  display: inline-flex;
+}
+.display-menu {
+  top: 28px;
+  right: 0;
+  min-width: 220px;
+  padding: 5px;
+}
+.display-menu .menu-group-label {
+  text-transform: none;
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0;
+  padding: 6px 10px 3px;
+  color: var(--text-dim);
+}
+.display-menu .menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.display-menu .menu-item.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.display-menu .check {
+  color: var(--accent);
+  font-size: 12px;
+}
+.display-menu .badge {
+  font-size: 10px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+.display-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 5px 6px;
+}

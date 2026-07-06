@@ -419,6 +419,9 @@ export interface AppSettings {
   // No Settings UI this phase; present for consistency + future use.
   defaultEffort: EffortLevel
   defaultThinking: boolean
+  // Sidebar Display Options (E3). Persisted per-user.
+  sidebarGroupBy: 'project' | 'none'
+  sidebarSort: 'updated' | 'alpha' | 'created'
 }
 
 export interface SettingsInfo extends AppSettings {
