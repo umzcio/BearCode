@@ -56,3 +56,28 @@ export async function extractOfficeCore(mime: string, bytes: Buffer): Promise<st
   }
   throw new Error(`unsupported office mime: ${mime}`)
 }
+
+// Ideal-preview lane (E9b): docx -> formatted HTML via mammoth.convertToHtml.
+// SECURITY: mammoth does NOT sanitize this HTML (unlike extractRawText above,
+// which sidesteps the issue entirely). Callers MUST render the result only in
+// the sandboxed, opaque-origin `allow-scripts` iframe already used for html
+// previews -- never inject it into the app's own DOM.
+export async function extractOfficeHtml(bytes: Buffer): Promise<string> {
+  const { value } = await mammoth.convertToHtml({ buffer: bytes })
+  return value
+}
+
+// Ideal-preview lane (E9b): xlsx -> first worksheet's rows as string[][], for
+// rendering as an actual <table> (vs. the CSV-text lane above).
+export async function extractXlsxRows(bytes: Buffer): Promise<string[][]> {
+  const wb = new ExcelJS.Workbook()
+  // See the Buffer-typing note on extractOfficeCore above -- same cast reason.
+  await wb.xlsx.load(bytes as unknown as Parameters<typeof wb.xlsx.load>[0])
+  const sheet = wb.worksheets[0]
+  const rows: string[][] = []
+  sheet?.eachRow((row) => {
+    const values = (row.values as unknown[]).slice(1)
+    rows.push(values.map((v) => (v === undefined || v === null ? '' : String(v))))
+  })
+  return rows
+}

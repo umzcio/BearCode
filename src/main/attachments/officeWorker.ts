@@ -9,10 +9,14 @@
 // ingest.ts pulls in at main-process startup -- so none of them load on the
 // main thread.
 import { parentPort, workerData } from 'worker_threads'
-import { extractOfficeCore } from './officeCore'
+import { extractOfficeCore, extractOfficeHtml, extractXlsxRows } from './officeCore'
 import { extractPdfCore } from './extract'
 
-type Job = { kind: 'office'; mime: string; bytes: Buffer } | { kind: 'pdf'; bytes: Buffer }
+type Job =
+  | { kind: 'office'; mime: string; bytes: Buffer }
+  | { kind: 'pdf'; bytes: Buffer }
+  | { kind: 'office-html'; bytes: Buffer }
+  | { kind: 'office-rows'; bytes: Buffer }
 
 async function main(): Promise<void> {
   const job = workerData as Job
@@ -20,6 +24,12 @@ async function main(): Promise<void> {
     if (job.kind === 'pdf') {
       const { text, totalPages } = await extractPdfCore(Buffer.from(job.bytes))
       parentPort?.postMessage({ ok: true, text, totalPages })
+    } else if (job.kind === 'office-html') {
+      const html = await extractOfficeHtml(Buffer.from(job.bytes))
+      parentPort?.postMessage({ ok: true, html })
+    } else if (job.kind === 'office-rows') {
+      const rows = await extractXlsxRows(Buffer.from(job.bytes))
+      parentPort?.postMessage({ ok: true, rows })
     } else {
       const text = await extractOfficeCore(job.mime, Buffer.from(job.bytes))
       parentPort?.postMessage({ ok: true, text })
