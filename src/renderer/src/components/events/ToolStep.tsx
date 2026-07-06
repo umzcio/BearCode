@@ -22,7 +22,11 @@ function inputStr(call: ToolCallEvent, key: string): string | null {
   return null
 }
 
-function summaryFor(call: ToolCallEvent, result?: ToolResultEvent): React.ReactNode {
+function summaryFor(
+  call: ToolCallEvent,
+  result: ToolResultEvent | undefined,
+  openFile: (path: string) => void
+): React.ReactNode {
   switch (call.tool) {
     case 'list_dir': {
       const path = inputStr(call, 'path')
@@ -34,9 +38,25 @@ function summaryFor(call: ToolCallEvent, result?: ToolResultEvent): React.ReactN
     }
     case 'read_file': {
       const path = inputStr(call, 'path') ?? inputStr(call, 'file_path')
+      const name = path ? path.split('/').pop() : null
       return (
         <span>
-          Read <b>{path ? path.split('/').pop() : 'a file'}</b>
+          Read{' '}
+          {path ? (
+            <b
+              className="step-file"
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey) {
+                  e.stopPropagation()
+                  openFile(path)
+                }
+              }}
+            >
+              {name}
+            </b>
+          ) : (
+            <b>a file</b>
+          )}
         </span>
       )
     }
@@ -86,7 +106,22 @@ function summaryFor(call: ToolCallEvent, result?: ToolResultEvent): React.ReactN
         stats?.status === 'created' ? 'Created' : call.tool === 'write_file' ? 'Wrote' : 'Edited'
       return (
         <span>
-          {result ? verb : 'Writing'} <b>{name}</b>
+          {result ? verb : 'Writing'}{' '}
+          {path ? (
+            <b
+              className="step-file"
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey) {
+                  e.stopPropagation()
+                  openFile(path)
+                }
+              }}
+            >
+              {name}
+            </b>
+          ) : (
+            <b>{name}</b>
+          )}
           {stats ? (
             <span className="step-stats">
               <span className="plus">+{stats.additions}</span>
@@ -135,6 +170,7 @@ function useIsFirstPendingCard(convoId: string, callId: string): boolean {
 export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const openReviewForFile = useAppStore((s) => s.openReviewForFile)
+  const openFile = useAppStore((s) => s.openFile)
 
   if (
     (call.tool === 'write_file' || call.tool === 'edit_file') &&
@@ -181,7 +217,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
     return (
       <div className="step">
         <div className="step-row" onClick={() => openReviewForFile(convoId, stats.path)}>
-          {summaryFor(call, result)}
+          {summaryFor(call, result, openFile)}
           <span className="chev">
             <IconChevronRightSmall />
           </span>
@@ -269,7 +305,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
   return (
     <div className={'step' + (open ? ' open' : '')}>
       <div className="step-row" onClick={() => setOpen((o) => !o)}>
-        {summaryFor(call, result)}
+        {summaryFor(call, result, openFile)}
         <span className="chev">
           <IconChevronRightSmall />
         </span>

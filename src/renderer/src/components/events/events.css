@@ -517,6 +517,13 @@
   color: var(--text);
 }
 
+.cmd-held .tok.file,
+.cmd-held .step-file {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 /* --- Subagent attribution --- */
 .agent-attributed {
   display: flex;

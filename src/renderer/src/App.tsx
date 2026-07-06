@@ -9,6 +9,7 @@ import { RoarBear } from './components/brand/RoarBear'
 import { Hint } from './components/Hint'
 import { IconPanel } from './components/icons'
 import { useAppStore } from './state/store'
+import { useCmdHeld } from './lib/useCmdHeld'
 import './App.css'
 
 function ScheduledView(): React.JSX.Element {
@@ -29,6 +30,7 @@ function App(): React.JSX.Element {
   const toast = useAppStore((s) => s.toast)
   const dismissToast = useAppStore((s) => s.dismissToast)
   const init = useAppStore((s) => s.init)
+  const cmdHeld = useCmdHeld()
 
   useEffect(() => {
     init()
@@ -84,7 +86,7 @@ function App(): React.JSX.Element {
   const convo = view.kind === 'conversation' ? conversations[view.id] : null
 
   return (
-    <div className="app">
+    <div className={'app' + (cmdHeld ? ' cmd-held' : '')}>
       <Sidebar />
       <div className={'main' + (collapsed ? ' sidebar-collapsed' : '')}>
         <div className="topbar">
