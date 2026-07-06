@@ -11,6 +11,7 @@ import type {
   ArtifactStatus,
   ArtifactType,
   ConversationMeta,
+  EffortLevel,
   Event,
   PermissionAction,
   PermissionMode,
@@ -112,6 +113,19 @@ function getDb(): Database.Database {
   } catch {
     // column already exists
   }
+  // E6: per-conversation reasoning effort + thinking toggle. Same
+  // idempotent-guarded ALTER idiom as active_rules above. NULL reads resolve to
+  // the settings defaults in toMeta.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN effort TEXT`)
+  } catch {
+    // column already exists
+  }
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN thinking INTEGER`)
+  } catch {
+    // column already exists
+  }
   zombieRunIds = cancelZombieRuns(db)
   return db
 }
@@ -169,6 +183,8 @@ interface ConversationRow {
   updated_at: number
   permission_mode: string | null
   active_rules: string | null
+  effort: string | null
+  thinking: number | null
 }
 
 // A malformed active_rules value (hand-edited DB, partial write) must never
@@ -191,7 +207,9 @@ function toMeta(row: ConversationRow, fallbackTitle?: string | null): Conversati
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     permissionMode: (row.permission_mode as PermissionMode) ?? getSettings().defaultPermissionMode,
-    activeRules: parseActiveRules(row.active_rules)
+    activeRules: parseActiveRules(row.active_rules),
+    effort: (row.effort as EffortLevel) ?? getSettings().defaultEffort,
+    thinking: row.thinking == null ? getSettings().defaultThinking : row.thinking === 1
   }
 }
 
@@ -205,7 +223,9 @@ export function createConversation(projectPath: string | null, id?: string): Con
     created_at: now,
     updated_at: now,
     permission_mode: null,
-    active_rules: null
+    active_rules: null,
+    effort: null,
+    thinking: null
   }
   getDb()
     .prepare(
@@ -378,6 +398,18 @@ export function setPermissionMode(conversationId: string, mode: PermissionMode):
   getDb()
     .prepare(`UPDATE conversations SET permission_mode = ?, updated_at = ? WHERE id = ?`)
     .run(mode, Date.now(), conversationId)
+}
+
+export function setEffort(conversationId: string, effort: EffortLevel): void {
+  getDb()
+    .prepare(`UPDATE conversations SET effort = ?, updated_at = ? WHERE id = ?`)
+    .run(effort, Date.now(), conversationId)
+}
+
+export function setThinking(conversationId: string, thinking: boolean): void {
+  getDb()
+    .prepare(`UPDATE conversations SET thinking = ?, updated_at = ? WHERE id = ?`)
+    .run(thinking ? 1 : 0, Date.now(), conversationId)
 }
 
 // Persist the conversation's pinned Manual rules (D1 Task 5). Same dumb

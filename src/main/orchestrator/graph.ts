@@ -1837,7 +1837,7 @@ function buildAgentAndContext(
   const { provider: providerId, modelId } = parseModelRef(modelRef)
   const meta = getConversationMeta(conversationId)
   const projectPath = meta?.projectPath ?? null
-  const model = makeModel(modelRef)
+  const model = makeModel(modelRef, { effort: meta?.effort, thinking: meta?.thinking })
   const diffGroupId = randomUUID()
   const backend = projectPath
     ? new DiffFsBackend(conversationId, projectPath, diffGroupId)

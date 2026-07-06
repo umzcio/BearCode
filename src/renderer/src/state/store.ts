@@ -7,6 +7,7 @@ import type {
   CommandEntry,
   CommandRef,
   ConversationMeta,
+  EffortLevel,
   Event,
   ManualRuleInfo,
   MentionRef,
@@ -29,6 +30,8 @@ export interface Convo {
   title: string
   modelRef: ModelRef | null
   permissionMode: PermissionMode
+  effort: EffortLevel
+  thinking: boolean
   updatedAt: number
   loaded: boolean
   events: Event[]
@@ -64,6 +67,8 @@ function fromMeta(meta: ConversationMeta): Convo {
     title: meta.title ?? 'New conversation',
     modelRef: meta.modelRef,
     permissionMode: meta.permissionMode,
+    effort: meta.effort,
+    thinking: meta.thinking,
     updatedAt: meta.updatedAt,
     loaded: false,
     events: [],
@@ -91,6 +96,8 @@ interface AppState {
   providers: ProviderModels[]
   modelRef: ModelRef | null
   permissionMode: PermissionMode
+  effort: EffortLevel
+  thinking: boolean
   settings: SettingsInfo | null
   // Permissions manager read model; null until the Settings section first loads it.
   permissionRules: PermissionRulesInfo | null
@@ -158,6 +165,8 @@ interface AppState {
   retryRun(convoId: string): void
   selectModel(ref: ModelRef): void
   setPermissionMode(mode: PermissionMode): void
+  setEffort(effort: EffortLevel): void
+  setThinking(thinking: boolean): void
   togglePermMenu(): void
   pickWorkspace(): Promise<void>
   setWorkspace(path: string | null): void
@@ -275,6 +284,8 @@ export const useAppStore = create<AppState>((set, get) => {
     providers: [],
     modelRef: null,
     permissionMode: 'accept-edits',
+    effort: 'adaptive',
+    thinking: true,
     settings: null,
     permissionRules: null,
     workspacePath: null,
@@ -335,6 +346,10 @@ export const useAppStore = create<AppState>((set, get) => {
         if (settings.defaultPermissionMode && get().permissionMode === 'accept-edits') {
           set({ permissionMode: settings.defaultPermissionMode })
         }
+        // One-time seed of the effort/thinking defaults, only if the user
+        // hasn't diverged from the built-in defaults yet (mirrors the mode seed).
+        if (get().effort === 'adaptive') set({ effort: settings.defaultEffort })
+        if (get().thinking === true) set({ thinking: settings.defaultThinking })
         const metas = await window.bearcode.conversations.list()
         const conversations: Record<string, Convo> = {}
         for (const meta of metas) conversations[meta.id] = fromMeta(meta)
@@ -361,6 +376,8 @@ export const useAppStore = create<AppState>((set, get) => {
       set((s) => ({
         view: { kind: 'home' },
         permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
+        effort: s.settings?.defaultEffort ?? 'adaptive',
+        thinking: s.settings?.defaultThinking ?? true,
         auxSelection: null,
         reviewFocusPath: null,
         // Abandoning Home drops any attachments already picked under the draft
@@ -389,6 +406,7 @@ export const useAppStore = create<AppState>((set, get) => {
         set({ modelRef: convo.modelRef })
       }
       set({ permissionMode: convo.permissionMode })
+      set({ effort: convo.effort, thinking: convo.thinking })
       // Load history from the DB the first time a conversation is opened. A
       // live running conversation is already `loaded` (it was open when it
       // started), so guarding on `!loaded` avoids clobbering in-flight streamed
@@ -429,7 +447,9 @@ export const useAppStore = create<AppState>((set, get) => {
           ...fromMeta(meta),
           title: provisional,
           loaded: true,
-          permissionMode: get().permissionMode
+          permissionMode: get().permissionMode,
+          effort: get().effort,
+          thinking: get().thinking
         }
         set((s) => {
           const conversations = { ...s.conversations, [meta.id]: convo }
@@ -444,6 +464,8 @@ export const useAppStore = create<AppState>((set, get) => {
         // resolves the right mode. Await rather than fire-and-forget: do not rely
         // on IPC ordering for a security-sensitive default.
         await window.bearcode.conversations.setMode(meta.id, get().permissionMode)
+        await window.bearcode.conversations.setEffort(meta.id, get().effort)
+        await window.bearcode.conversations.setThinking(meta.id, get().thinking)
         await window.bearcode.run.start(
           meta.id,
           text,
@@ -474,6 +496,8 @@ export const useAppStore = create<AppState>((set, get) => {
               view.kind === 'home'
                 ? (s.settings?.defaultPermissionMode ?? 'accept-edits')
                 : s.permissionMode,
+            effort: view.kind === 'home' ? (s.settings?.defaultEffort ?? 'adaptive') : s.effort,
+            thinking: view.kind === 'home' ? (s.settings?.defaultThinking ?? true) : s.thinking,
             auxSelection: view.kind === 'home' ? null : s.auxSelection,
             reviewFocusPath: view.kind === 'home' ? null : s.reviewFocusPath
           }
@@ -563,6 +587,26 @@ export const useAppStore = create<AppState>((set, get) => {
       if (id) {
         patchConvo(id, { permissionMode: mode })
         void window.bearcode.conversations.setMode(id, mode).catch(() => {})
+      }
+    },
+
+    setEffort: (effort) => {
+      set({ effort })
+      const view = get().view
+      const id = view.kind === 'conversation' ? view.id : null
+      if (id) {
+        patchConvo(id, { effort })
+        void window.bearcode.conversations.setEffort(id, effort).catch(() => {})
+      }
+    },
+
+    setThinking: (thinking) => {
+      set({ thinking })
+      const view = get().view
+      const id = view.kind === 'conversation' ? view.id : null
+      if (id) {
+        patchConvo(id, { thinking })
+        void window.bearcode.conversations.setThinking(id, thinking).catch(() => {})
       }
     },
 

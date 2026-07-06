@@ -8,6 +8,7 @@ import type {
 } from '@shared/types'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
+import { EffortPicker } from '../EffortPicker/EffortPicker'
 import { Hint } from '../Hint'
 import { refConfigured, useAppStore } from '../../state/store'
 import { attachmentBadge } from '../../lib/attachmentBadge'
@@ -353,6 +354,31 @@ export function Composer({
           })}
         </div>
       ) : null}
+      {showEnvRow ? (
+        <div className="env-row">
+          <div className="env-picker" ref={envRef}>
+            <button className="pill-btn" onClick={() => setEnvOpen((o) => !o)}>
+              <IconMonitor />
+              <span>Local</span>
+              <span className="chev">
+                <IconChevronDown />
+              </span>
+            </button>
+            {envOpen ? (
+              <div className="menu env-menu">
+                <div className="menu-item selected">
+                  <span>Local</span>
+                  <span className="check">✓</span>
+                </div>
+                <div className="menu-item disabled" title="Coming soon">
+                  <span>Remote sandbox</span>
+                  <span className="badge">coming soon</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <textarea
         ref={taRef}
         rows={1}
@@ -458,76 +484,60 @@ export function Composer({
         }}
       />
       <div className="composer-controls">
-        <div className="add-context" ref={addMenuRef}>
-          <button
-            className="icon-btn"
-            title="Add context"
-            onClick={() => setAddMenuOpen((o) => !o)}
-          >
-            <IconPlus />
-          </button>
-          {addMenuOpen ? (
-            <div className="menu add-context-menu">
-              <div className="menu-item" title="Attach images" onClick={() => void onMedia()}>
-                <IconImage size={16} />
-                <span>Media</span>
-              </div>
-              <div className="menu-item" onClick={onMentions}>
-                <IconAt size={16} />
-                <span>Mentions</span>
-              </div>
-              <div className="menu-item" onClick={onActions}>
-                <IconSlash size={16} />
-                <span>Actions</span>
-              </div>
-              <div className="menu-item disabled" title="Coming soon">
-                <IconGlobe size={16} />
-                <span>Browser</span>
-                <span className="badge">coming soon</span>
-              </div>
-            </div>
-          ) : null}
-        </div>
-        <ModelPicker />
-        <ModePicker />
-        <button className="icon-btn mic-btn" disabled title="Voice input: coming soon">
-          <IconMic />
-        </button>
-        {running ? (
-          <button className="icon-btn send-btn stop" title="Stop" onClick={onStop}>
-            <IconStop />
-          </button>
-        ) : hasContent && modelReady ? (
-          <button className="icon-btn send-btn" title="Send" onClick={submit}>
-            <IconArrowUp />
-          </button>
-        ) : null}
-      </div>
-      {showEnvRow ? (
-        <div className="env-row">
-          <div className="env-picker" ref={envRef}>
-            <button className="pill-btn" onClick={() => setEnvOpen((o) => !o)}>
-              <IconMonitor />
-              <span>Local</span>
-              <span className="chev">
-                <IconChevronDown />
-              </span>
+        <div className="controls-left">
+          <div className="add-context" ref={addMenuRef}>
+            <button
+              className="icon-btn"
+              title="Add context"
+              onClick={() => setAddMenuOpen((o) => !o)}
+            >
+              <IconPlus />
             </button>
-            {envOpen ? (
-              <div className="menu env-menu">
-                <div className="menu-item selected">
-                  <span>Local</span>
-                  <span className="check">✓</span>
+            {addMenuOpen ? (
+              <div className="menu add-context-menu">
+                <div className="menu-item" title="Attach images" onClick={() => void onMedia()}>
+                  <IconImage size={16} />
+                  <span>Media</span>
+                </div>
+                <div className="menu-item" onClick={onMentions}>
+                  <IconAt size={16} />
+                  <span>Mentions</span>
+                </div>
+                <div className="menu-item" onClick={onActions}>
+                  <IconSlash size={16} />
+                  <span>Actions</span>
                 </div>
                 <div className="menu-item disabled" title="Coming soon">
-                  <span>Remote sandbox</span>
+                  <IconGlobe size={16} />
+                  <span>Browser</span>
                   <span className="badge">coming soon</span>
                 </div>
               </div>
             ) : null}
           </div>
+          <ModePicker />
+          <button className="icon-btn mic-btn" disabled title="Voice input: coming soon">
+            <IconMic />
+          </button>
         </div>
-      ) : null}
+        <div className="controls-right">
+          <span
+            className={'model-dot' + (modelReady ? ' model-dot-ready' : ' model-dot-missing')}
+            title={modelReady ? 'Model ready' : 'No API key for the selected model'}
+          />
+          <ModelPicker />
+          <EffortPicker />
+          {running ? (
+            <button className="icon-btn send-btn stop" title="Stop" onClick={onStop}>
+              <IconStop />
+            </button>
+          ) : hasContent && modelReady ? (
+            <button className="icon-btn send-btn" title="Send" onClick={submit}>
+              <IconArrowUp />
+            </button>
+          ) : null}
+        </div>
+      </div>
       {menuOpen ? (
         <div className="slash-menu-wrap">
           <SlashMenu
