@@ -8,6 +8,7 @@ import type {
 } from '@shared/types'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
+import { Hint } from '../Hint'
 import { refConfigured, useAppStore } from '../../state/store'
 import { attachmentBadge } from '../../lib/attachmentBadge'
 import {
@@ -323,32 +324,31 @@ export function Composer({
             const truncationNotice =
               a.notice && /truncat/i.test(a.notice) ? a.notice : null
             return (
-              <span
-                className={`attachment-pill${kind === 'image' ? '' : ' attachment-pill-file'}`}
-                key={`${a.ref.id}:${i}`}
-              >
-                {kind === 'image' ? (
-                  <img className="attachment-thumb" src={a.previewDataUrl} alt={a.ref.name} />
-                ) : (
-                  <span className={`attachment-type-badge ${badge.colorClass}`}>
-                    {badge.label}
-                  </span>
-                )}
-                <span className="attachment-name" title={a.ref.name}>
-                  {a.ref.name}
-                </span>
-                {truncationNotice ? (
-                  <span className="attachment-note">{truncationNotice}</span>
-                ) : null}
-                <button
-                  type="button"
-                  className="pill-x"
-                  title="Remove attachment"
-                  onClick={() => setAttachments((cur) => cur.filter((_, idx) => idx !== i))}
+              <Hint label={a.ref.name} side="top" key={`${a.ref.id}:${i}`}>
+                <span
+                  className={`attachment-pill${kind === 'image' ? '' : ' attachment-pill-file'}`}
                 >
-                  <IconClose size={11} />
-                </button>
-              </span>
+                  {kind === 'image' ? (
+                    <img className="attachment-thumb" src={a.previewDataUrl} alt={a.ref.name} />
+                  ) : (
+                    <span className={`attachment-type-badge ${badge.colorClass}`}>
+                      {badge.label}
+                    </span>
+                  )}
+                  <span className="attachment-name">{a.ref.name}</span>
+                  {truncationNotice ? (
+                    <span className="attachment-note">{truncationNotice}</span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="pill-x"
+                    title="Remove attachment"
+                    onClick={() => setAttachments((cur) => cur.filter((_, idx) => idx !== i))}
+                  >
+                    <IconClose size={11} />
+                  </button>
+                </span>
+              </Hint>
             )
           })}
         </div>

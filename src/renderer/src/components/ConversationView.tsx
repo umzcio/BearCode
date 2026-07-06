@@ -9,6 +9,7 @@ import { ArtifactCard } from './events/ArtifactCard'
 import { DiffCard } from './events/DiffCard'
 import { ErrorCard } from './events/ErrorCard'
 import { IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
+import { Hint } from './Hint'
 import { messageTimestamp } from '../lib/time'
 import { attachmentBadge } from '../lib/attachmentBadge'
 import './ConversationView.css'
@@ -88,16 +89,18 @@ function AttachmentPill({
     }
   }, [convoId, attachment.id, isImage])
   return (
-    <span className="msg-command-pill msg-attachment-pill" title={attachment.name}>
-      {isImage ? (
-        src ? (
-          <img className="msg-attachment-thumb" src={src} alt={attachment.name} />
-        ) : null
-      ) : (
-        <span className={`msg-attachment-type-badge ${badge.colorClass}`}>{badge.label}</span>
-      )}
-      <span className="msg-attachment-name">{attachment.name}</span>
-    </span>
+    <Hint label={attachment.name} side="top">
+      <span className="msg-command-pill msg-attachment-pill">
+        {isImage ? (
+          src ? (
+            <img className="msg-attachment-thumb" src={src} alt={attachment.name} />
+          ) : null
+        ) : (
+          <span className={`msg-attachment-type-badge ${badge.colorClass}`}>{badge.label}</span>
+        )}
+        <span className="msg-attachment-name">{attachment.name}</span>
+      </span>
+    </Hint>
   )
 }
 
