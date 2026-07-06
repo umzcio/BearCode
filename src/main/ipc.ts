@@ -203,23 +203,29 @@ export function registerIpc(): void {
       return { kind: 'unsupported', note: 'File not found' }
     }
     if (size > 10 * 1024 * 1024) return { kind: 'unsupported', note: 'File too large to preview' }
-    const bytes = readFileSync(path)
-    const c = previewClassify(path)
-    if (c.kind === 'image') {
-      const ext = (path.split('.').pop() ?? 'png').toLowerCase()
-      const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
-      return { kind: 'image', dataUrl: `data:${mime};base64,${bytes.toString('base64')}` }
+    try {
+      const bytes = readFileSync(path)
+      const c = previewClassify(path)
+      if (c.kind === 'image') {
+        const ext = (path.split('.').pop() ?? 'png').toLowerCase()
+        const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
+        return { kind: 'image', dataUrl: `data:${mime};base64,${bytes.toString('base64')}` }
+      }
+      if (c.kind === 'pdf') {
+        const r = await runPdfExtraction(bytes)
+        return { kind: 'text', text: r.text || '(no extractable text)', truncated: r.truncated }
+      }
+      if (c.kind === 'office') {
+        const r = await runOfficeExtraction(c.mime as string, bytes)
+        return { kind: 'text', text: r.text || '(no extractable text)', truncated: r.truncated }
+      }
+      const r = extractTextLane(bytes)
+      return { kind: 'text', text: r.text, truncated: r.truncated }
+    } catch {
+      // Read/extraction failed after the stat (deleted mid-flight, unreadable) —
+      // return a payload rather than rejecting so the pane never hangs.
+      return { kind: 'unsupported', note: 'Could not read file' }
     }
-    if (c.kind === 'pdf') {
-      const r = await runPdfExtraction(bytes)
-      return { kind: 'text', text: r.text || '(no extractable text)', truncated: r.truncated }
-    }
-    if (c.kind === 'office') {
-      const r = await runOfficeExtraction(c.mime as string, bytes)
-      return { kind: 'text', text: r.text || '(no extractable text)', truncated: r.truncated }
-    }
-    const r = extractTextLane(bytes)
-    return { kind: 'text', text: r.text, truncated: r.truncated }
   })
   // E10: Cmd-click a file reference (DiffCard row / Changes pane tab) to open
   // it in the OS default app. jailPath throws if the resolved path escapes
