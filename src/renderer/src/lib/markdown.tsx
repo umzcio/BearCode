@@ -6,10 +6,15 @@
 
 import type { ReactNode } from 'react'
 
-// Inline code that names a workspace file, e.g. `index.html` or `src/app.ts`.
-const FILE_RE = /^[\w./-]+\.[A-Za-z0-9]{1,8}$/
+// Inline code that names a workspace file, e.g. `index.html`, `src/app.ts`, or
+// an absolute path with spaces. Still requires a trailing .ext so prose isn't matched.
+const FILE_RE = /^[\w ./-]+\.[A-Za-z0-9]{1,8}$/
 
-function renderInline(text: string, onFileClick?: (path: string) => void): ReactNode[] {
+function renderInline(
+  text: string,
+  onFileClick?: (path: string) => void,
+  onFileOpen?: (path: string) => void
+): ReactNode[] {
   const out: ReactNode[] = []
   const re = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g
   let last = 0
@@ -22,7 +27,14 @@ function renderInline(text: string, onFileClick?: (path: string) => void): React
       const inner = tok.slice(1, -1)
       if (onFileClick && FILE_RE.test(inner)) {
         out.push(
-          <code key={key++} className="tok file" onClick={() => onFileClick(inner)}>
+          <code
+            key={key++}
+            className="tok file"
+            onClick={(e) => {
+              if ((e.metaKey || e.ctrlKey) && onFileOpen) onFileOpen(inner)
+              else onFileClick(inner)
+            }}
+          >
             {inner}
           </code>
         )
@@ -152,16 +164,18 @@ function List({
   ordered,
   items,
   tail,
-  onFileClick
+  onFileClick,
+  onFileOpen
 }: {
   ordered: boolean
   items: string[]
   tail: ReactNode
   onFileClick?: (path: string) => void
+  onFileOpen?: (path: string) => void
 }): React.JSX.Element {
   const rows = items.map((item, j) => (
     <li key={j}>
-      {renderInline(item, onFileClick)}
+      {renderInline(item, onFileClick, onFileOpen)}
       {j === items.length - 1 ? tail : null}
     </li>
   ))
@@ -171,11 +185,13 @@ function List({
 export function Markdown({
   text,
   trailing,
-  onFileClick
+  onFileClick,
+  onFileOpen
 }: {
   text: string
   trailing?: ReactNode
   onFileClick?: (path: string) => void
+  onFileOpen?: (path: string) => void
 }): React.JSX.Element {
   const blocks = parseBlocks(text)
   const lastIndex = blocks.length - 1
@@ -183,9 +199,19 @@ export function Markdown({
     <>
       {blocks.map((block, i) => {
         const tail = trailing && i === lastIndex ? trailing : null
-        if (block.kind === 'h5') return <h5 key={i}>{renderInline(block.text, onFileClick)}</h5>
+        if (block.kind === 'h5')
+          return <h5 key={i}>{renderInline(block.text, onFileClick, onFileOpen)}</h5>
         if (block.kind === 'ol')
-          return <List key={i} ordered items={block.items} tail={tail} onFileClick={onFileClick} />
+          return (
+            <List
+              key={i}
+              ordered
+              items={block.items}
+              tail={tail}
+              onFileClick={onFileClick}
+              onFileOpen={onFileOpen}
+            />
+          )
         if (block.kind === 'ul')
           return (
             <List
@@ -194,6 +220,7 @@ export function Markdown({
               items={block.items}
               tail={tail}
               onFileClick={onFileClick}
+              onFileOpen={onFileOpen}
             />
           )
         if (block.kind === 'code')
@@ -210,7 +237,7 @@ export function Markdown({
                 <thead>
                   <tr>
                     {block.headers.map((h, k) => (
-                      <th key={k}>{renderInline(h, onFileClick)}</th>
+                      <th key={k}>{renderInline(h, onFileClick, onFileOpen)}</th>
                     ))}
                   </tr>
                 </thead>
@@ -218,7 +245,7 @@ export function Markdown({
                   {block.rows.map((row, r) => (
                     <tr key={r}>
                       {block.headers.map((_, c) => (
-                        <td key={c}>{renderInline(row[c] ?? '', onFileClick)}</td>
+                        <td key={c}>{renderInline(row[c] ?? '', onFileClick, onFileOpen)}</td>
                       ))}
                     </tr>
                   ))}
@@ -229,7 +256,7 @@ export function Markdown({
           )
         return (
           <p key={i}>
-            {renderInline(block.text, onFileClick)}
+            {renderInline(block.text, onFileClick, onFileOpen)}
             {tail}
           </p>
         )
