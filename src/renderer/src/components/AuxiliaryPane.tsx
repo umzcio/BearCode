@@ -3,6 +3,7 @@ import type { Event, FileDiff, FileDiffFile } from '@shared/types'
 import { useAppStore, type AuxSelection } from '../state/store'
 import { useCmdHeld } from '../lib/useCmdHeld'
 import { ArtifactViewer } from './ArtifactViewer'
+import { FilePreview } from './FilePreview/FilePreview'
 import { deriveRailEntries, versionsOfType, type ArtifactEvent } from '../lib/auxRail'
 import { ARTIFACT_STATUS_LABELS, ARTIFACT_TYPE_LABELS } from './events/ArtifactCard'
 import {
@@ -52,6 +53,11 @@ function dirName(path: string): string {
   const name = baseName(path)
   return path.slice(0, Math.max(0, path.length - name.length - 1))
 }
+
+// Renderer-side classification for the Preview/Diff default -- main isn't
+// importable from the renderer, so this mirrors src/main/preview/classify.ts's
+// binary extensions rather than importing it.
+const isBinaryPreview = (p: string): boolean => /\.(png|jpe?g|gif|webp|bmp|pdf|docx|xlsx)$/i.test(p)
 
 interface ReviewComment {
   id: number
@@ -206,6 +212,7 @@ function DiffViewer({ diffId }: { diffId: string }): React.JSX.Element {
   const [tab, setTab] = useState<string>('review')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [comments, setComments] = useState<ReviewComment[]>([])
+  const [previewMode, setPreviewMode] = useState<Record<string, boolean>>({})
 
   const convoId = view.kind === 'conversation' ? view.id : null
   const convo = convoId ? conversations[convoId] : null
@@ -366,6 +373,7 @@ function DiffViewer({ diffId }: { diffId: string }): React.JSX.Element {
           <div className="review-scroll">
             {files.map((f) => {
               const isCollapsed = collapsed[f.fileId] ?? false
+              const showPreview = previewMode[f.fileId] ?? isBinaryPreview(f.path)
               return (
                 <div className="file-section" key={f.fileId}>
                   <div
@@ -380,6 +388,14 @@ function DiffViewer({ diffId }: { diffId: string }): React.JSX.Element {
                         <span className="file-state reverted">Reverted</span>
                       ) : (
                         <>
+                          <button
+                            className="mini-btn"
+                            onClick={() =>
+                              setPreviewMode((m) => ({ ...m, [f.fileId]: !showPreview }))
+                            }
+                          >
+                            {showPreview ? 'Diff' : 'Preview'}
+                          </button>
                           <button
                             className="mini-btn"
                             onClick={() => void window.bearcode.diffs.open(f.fileId)}
@@ -402,29 +418,33 @@ function DiffViewer({ diffId }: { diffId: string }): React.JSX.Element {
                   </div>
                   {!isCollapsed ? (
                     <div className="file-section-body">
-                      <Suspense fallback={<div className="diff-loading">Loading…</div>}>
-                        {f.status === 'created' ? (
-                          <MonacoCode
-                            key={f.fileId}
-                            value={f.afterText}
-                            language={languageFor(f.path)}
-                            commentedLines={commentedLines(f.path)}
-                            onAddComment={addComment(f.path)}
-                            fitContent
-                            washAdded
-                          />
-                        ) : (
-                          <MonacoDiff
-                            key={f.fileId}
-                            original={f.beforeText}
-                            modified={f.afterText}
-                            language={languageFor(f.path)}
-                            commentedLines={commentedLines(f.path)}
-                            onAddComment={addComment(f.path)}
-                            fitContent
-                          />
-                        )}
-                      </Suspense>
+                      {showPreview ? (
+                        <FilePreview fileId={f.fileId} />
+                      ) : (
+                        <Suspense fallback={<div className="diff-loading">Loading…</div>}>
+                          {f.status === 'created' ? (
+                            <MonacoCode
+                              key={f.fileId}
+                              value={f.afterText}
+                              language={languageFor(f.path)}
+                              commentedLines={commentedLines(f.path)}
+                              onAddComment={addComment(f.path)}
+                              fitContent
+                              washAdded
+                            />
+                          ) : (
+                            <MonacoDiff
+                              key={f.fileId}
+                              original={f.beforeText}
+                              modified={f.afterText}
+                              language={languageFor(f.path)}
+                              commentedLines={commentedLines(f.path)}
+                              onAddComment={addComment(f.path)}
+                              fitContent
+                            />
+                          )}
+                        </Suspense>
+                      )}
                     </div>
                   ) : null}
                 </div>
@@ -435,42 +455,59 @@ function DiffViewer({ diffId }: { diffId: string }): React.JSX.Element {
         </>
       ) : null}
 
-      {fileTab ? (
-        <>
-          <div className="review-crumb">
-            {fileTab.path.split('/').map((part, i, arr) => (
-              <span key={i} className="crumb-part">
-                {i > 0 ? <span className="crumb-sep">›</span> : null}
-                {i === arr.length - 1 ? <span className="code-mark">{'</>'}</span> : null}
-                <span className={i === arr.length - 1 ? 'crumb-file' : ''}>{part}</span>
-              </span>
-            ))}
-            <span className="review-head-icons">
-              <button className="head-icon" title="More actions" onClick={soon}>
-                <IconDots />
-              </button>
-              <button
-                className="head-icon"
-                title="Open file"
-                onClick={() => void window.bearcode.diffs.open(fileTab.fileId)}
-              >
-                <IconFile />
-              </button>
-            </span>
-          </div>
-          <div className="review-code-body">
-            <Suspense fallback={<div className="diff-loading">Loading…</div>}>
-              <MonacoCode
-                key={fileTab.fileId + ':code'}
-                value={fileTab.afterText}
-                language={languageFor(fileTab.path)}
-                commentedLines={commentedLines(fileTab.path)}
-                onAddComment={addComment(fileTab.path)}
-              />
-            </Suspense>
-          </div>
-        </>
-      ) : null}
+      {fileTab
+        ? (() => {
+            const showTabPreview = previewMode[fileTab.fileId] ?? isBinaryPreview(fileTab.path)
+            return (
+              <>
+                <div className="review-crumb">
+                  {fileTab.path.split('/').map((part, i, arr) => (
+                    <span key={i} className="crumb-part">
+                      {i > 0 ? <span className="crumb-sep">›</span> : null}
+                      {i === arr.length - 1 ? <span className="code-mark">{'</>'}</span> : null}
+                      <span className={i === arr.length - 1 ? 'crumb-file' : ''}>{part}</span>
+                    </span>
+                  ))}
+                  <span className="review-head-icons">
+                    <button
+                      className="mini-btn"
+                      onClick={() =>
+                        setPreviewMode((m) => ({ ...m, [fileTab.fileId]: !showTabPreview }))
+                      }
+                    >
+                      {showTabPreview ? 'Diff' : 'Preview'}
+                    </button>
+                    <button className="head-icon" title="More actions" onClick={soon}>
+                      <IconDots />
+                    </button>
+                    <button
+                      className="head-icon"
+                      title="Open file"
+                      onClick={() => void window.bearcode.diffs.open(fileTab.fileId)}
+                    >
+                      <IconFile />
+                    </button>
+                  </span>
+                </div>
+                <div className="review-code-body">
+                  {showTabPreview ? (
+                    <FilePreview fileId={fileTab.fileId} />
+                  ) : (
+                    <Suspense fallback={<div className="diff-loading">Loading…</div>}>
+                      <MonacoCode
+                        key={fileTab.fileId + ':code'}
+                        value={fileTab.afterText}
+                        language={languageFor(fileTab.path)}
+                        commentedLines={commentedLines(fileTab.path)}
+                        onAddComment={addComment(fileTab.path)}
+                      />
+                    </Suspense>
+                  )}
+                </div>
+              </>
+            )
+          })()
+        : null}
 
       {comments.length > 0 ? (
         <>
