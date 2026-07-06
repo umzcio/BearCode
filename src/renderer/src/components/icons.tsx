@@ -166,6 +166,14 @@ export const IconLines = icon(
     <line x1="4" y1="17" x2="14" y2="17" />
   </>
 )
+export const IconPin = icon(<path d="M12 2l3 6 6 .5-4.5 4 1.5 6-6-3.5-6 3.5 1.5-6L3 8.5 9 8z" />)
+export const IconArchive = icon(
+  <>
+    <rect x="3" y="4" width="18" height="4" rx="1" />
+    <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+    <line x1="10" y1="12" x2="14" y2="12" />
+  </>
+)
 export const IconOverview = icon(
   <>
     <rect x="4" y="4" width="16" height="16" rx="2" />
