@@ -408,6 +408,14 @@ export interface FileDiff {
   files: FileDiffFile[]
 }
 
+// E9: read-only rendered preview of a created/modified file's real content
+// (as opposed to a text diff), for binary types (docx/xlsx/pdf/images) whose
+// diff is just a "(binary: …)" marker.
+export type PreviewPayload =
+  | { kind: 'text'; text: string; truncated?: boolean }
+  | { kind: 'image'; dataUrl: string }
+  | { kind: 'unsupported'; note: string }
+
 // ---- Settings ----
 
 export interface AppSettings {
@@ -508,6 +516,7 @@ export interface BearcodeApi {
     get(diffId: string): Promise<FileDiff>
     revert(fileId: string): Promise<void>
     open(fileId: string): Promise<void>
+    previewFile(fileId: string): Promise<PreviewPayload>
   }
   // E10: Cmd-click a file reference (DiffCard row / Changes pane tab) to open
   // it in the OS default app. Jail-validated in main against the
