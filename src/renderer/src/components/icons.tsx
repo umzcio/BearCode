@@ -90,6 +90,27 @@ export const IconFile = icon(
     <polyline points="14 3 14 9 20 9" />
   </>
 )
+export const IconImage = icon(
+  <>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="8.5" cy="8.5" r="1.5" />
+    <path d="M21 15l-5-5L5 21" />
+  </>
+)
+export const IconAt = icon(
+  <>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+  </>
+)
+export const IconSlash = icon(<line x1="15" y1="5" x2="9" y2="19" />)
+export const IconGlobe = icon(
+  <>
+    <circle cx="12" cy="12" r="9" />
+    <line x1="3" y1="12" x2="21" y2="12" />
+    <path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18" />
+  </>
+)
 export const IconCopy = icon(
   <>
     <rect x="9" y="9" width="12" height="12" rx="2" />

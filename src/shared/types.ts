@@ -32,6 +32,65 @@ export interface MentionRef {
   conversationId?: string
 }
 
+// A single image attachment carried alongside the turn's text + command +
+// mentions (D4 design 3.3/8/9). Travels structured end to end the SAME
+// additive way CommandRef/MentionRef do (run:start argument, the persisted
+// user_message payload) and is never concatenated into the message text. The
+// bytes are copied main-side at pick time to userData/attachments/<convId>/<id>
+// (id is minted main-side, randomUUID); only this ref travels the wire.
+// SECURITY: `id` is used main-side to build that on-disk path, so the run:start
+// guard (assertValidAttachments) constrains it to a path-safe pattern.
+// The lane an attachment rides (D5). Additive: pre-D5 persisted events have no
+// `kind` and default to 'image' (see assertValidAttachments + every reader —
+// always read as `attachment.kind ?? 'image'`, never assume it is present).
+export type AttachmentKind = 'image' | 'text' | 'pdf' | 'office'
+
+export interface AttachmentRef {
+  id: string
+  name: string
+  mime: string
+  // Optional for back-compat with pre-D5 persisted refs (see AttachmentKind
+  // doc above). Every reader must default a missing kind to 'image'.
+  kind?: AttachmentKind
+}
+
+// The four byte-sniffed image mimes (D4). Kept under the original name so the
+// image byte-sniff (ingest sniffImageMime) and the wire guard never drift.
+export const ATTACHMENT_MIME_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif'
+] as const
+// D5 per-lane allowlists. Binary lanes are byte-sniffed; the text lane is
+// routed by extension + a UTF-8-clean gate (never trusts the extension for a
+// path or a binary decode).
+export const IMAGE_MIME_TYPES = ATTACHMENT_MIME_TYPES
+export const PDF_MIME = 'application/pdf'
+export const DOCX_MIME =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+export const XLSX_MIME =
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+export const OFFICE_MIME_TYPES = [DOCX_MIME, XLSX_MIME] as const
+export const TEXT_EXTENSIONS = [
+  'md', 'markdown', 'txt', 'text', 'html', 'htm', 'css', 'js', 'jsx', 'mjs',
+  'cjs', 'ts', 'tsx', 'py', 'json', 'jsonc', 'yaml', 'yml', 'toml', 'ini',
+  'xml', 'csv', 'tsv', 'sh', 'bash', 'zsh', 'rs', 'go', 'java', 'kt', 'c', 'h',
+  'cpp', 'hpp', 'cc', 'rb', 'php', 'sql', 'swift', 'r', 'lua', 'pl'
+] as const
+
+// The pick IPC's per-file result: the ref that will be sent + a data URL the
+// composer renders as a thumbnail (never persisted, never sent to the model).
+export interface PickedAttachmentWire {
+  ref: AttachmentRef
+  // For images: a data: URL the composer renders as a thumbnail (never
+  // persisted, never sent to the model). Empty string for non-image lanes.
+  previewDataUrl: string
+  // Non-image lanes: a short pick-time badge/notice for the pill (e.g.
+  // "PDF · no extractable text", "truncated at 256 KB"). Not persisted.
+  notice?: string | null
+}
+
 // The @ menu's Rules read model (D3 design 7): Manual-mode rule name + the
 // first non-empty line of its body, for the menu row. Produced main-side from
 // the live AgentsContent (mentionSuggest.ts manualRuleInfos).
@@ -193,6 +252,10 @@ export type Event =
       // Optional and additive: events persisted before D3 have no `mentions`
       // field and render exactly as before.
       mentions?: MentionRef[]
+      // The image attachments this turn was sent with, if any (D4 design 8/9).
+      // Optional and additive: events persisted before D4 have no `attachments`
+      // field and render exactly as before.
+      attachments?: AttachmentRef[]
     }
   | { type: 'thinking'; id: string; text: string; durationMs: number; agentId?: string }
   | {
@@ -362,6 +425,11 @@ export interface BearcodeApi {
       // this before a run starts (assertValidMentions); anything malformed
       // rejects the promise.
       mentions?: MentionRef[] | null
+      ,
+      // The image attachments this turn was sent with (D4). Main boundary-
+      // validates this before a run starts (assertValidAttachments); anything
+      // malformed rejects the promise.
+      attachments?: AttachmentRef[] | null
     ): Promise<void>
     cancel(conversationId: string): Promise<void>
   }
@@ -380,6 +448,21 @@ export interface BearcodeApi {
   mentions: {
     files(projectPath: string | null, query: string): Promise<string[]>
     rules(projectPath: string | null): Promise<ManualRuleInfo[]>
+  }
+  // D4 Media (design 8): native image picker + main-side ingest, returning the
+  // accepted attachments (ref + a preview data URL for the composer thumbnail)
+  // and a human-readable error per rejected file. `existingCount` is how many
+  // images are already on the composer, so the 5-per-message cap is respected.
+  attachments: {
+    pick(
+      conversationId: string,
+      existingCount: number
+    ): Promise<{ picked: PickedAttachmentWire[]; errors: string[] }>
+    // D4 Media (Task 7): fetch a copied attachment's real bytes as a data:
+    // URL, for a transcript pill's thumbnail. A reloaded transcript only has
+    // the persisted AttachmentRef (id/name/mime), not bytes. Returns null if
+    // the file is gone or not a recognized image.
+    read(conversationId: string, id: string): Promise<string | null>
   }
   diffs: {
     get(diffId: string): Promise<FileDiff>
@@ -400,7 +483,7 @@ export interface BearcodeApi {
   conversations: {
     list(): Promise<ConversationMeta[]>
     get(id: string): Promise<Event[]>
-    create(projectPath: string | null): Promise<ConversationMeta>
+    create(projectPath: string | null, id?: string): Promise<ConversationMeta>
     delete(id: string): Promise<void>
     clear(): Promise<void>
     setMode(id: string, mode: PermissionMode): Promise<void>

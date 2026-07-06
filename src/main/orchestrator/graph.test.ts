@@ -23,6 +23,7 @@ vi.mock('./checkpointer', () => ({
 
 import {
   textOfMessage,
+  buildUserMessageContent,
   shouldEmitBridgedText,
   shouldRetryEmptyFinal,
   interruptBelongsToToolCall,
@@ -48,6 +49,7 @@ import {
 } from './graph'
 import type { PlanReviewResolution } from './tools'
 import type { RunSink } from '../sink'
+import type { AttachmentRef } from '../../shared/types'
 
 describe('textOfMessage', () => {
   it('returns a plain-string content as-is', () => {
@@ -81,6 +83,135 @@ describe('textOfMessage', () => {
 
   it('ignores text blocks whose text field is not a string', () => {
     expect(textOfMessage([{ type: 'text' }, { type: 'text', text: 42 }])).toBe('')
+  })
+})
+
+describe('buildUserMessageContent', () => {
+  const ref = (
+    id: string,
+    kind: 'image' | 'text' | 'pdf' | 'office' = 'image',
+    mime = 'image/png'
+  ): { id: string; name: string; mime: string; kind: typeof kind } => ({
+    id,
+    name: kind === 'pdf' ? `${id}.pdf` : `${id}.png`,
+    mime: kind === 'pdf' ? 'application/pdf' : mime,
+    kind
+  })
+  const noBytes = (): string | null => null
+  const noSide = (): string | null => null
+
+  it('returns the plain string when there are no attachments', () => {
+    expect(buildUserMessageContent('hello', [], noBytes, noSide, { pdfNative: false })).toBe('hello')
+  })
+
+  it('image only -> text block then one image block per resolvable image', () => {
+    const out = buildUserMessageContent(
+      'describe these',
+      [ref('a'), ref('b', 'image', 'image/jpeg')],
+      (a) => (a.id === 'a' ? 'AAAA' : 'BBBB'),
+      noSide,
+      { pdfNative: false }
+    )
+    expect(out).toEqual([
+      { type: 'text', text: 'describe these' },
+      { type: 'image', source_type: 'base64', mime_type: 'image/png', data: 'AAAA' },
+      { type: 'image', source_type: 'base64', mime_type: 'image/jpeg', data: 'BBBB' }
+    ])
+  })
+
+  it('text attachment -> a plain string with a titled section (no blocks)', () => {
+    const out = buildUserMessageContent(
+      'summarise',
+      [{ id: 't1', name: 'a.ts', mime: 'text/plain', kind: 'text' }],
+      noBytes,
+      () => 'const x = 1',
+      { pdfNative: false }
+    )
+    expect(typeof out).toBe('string')
+    expect(out).toContain('summarise')
+    expect(out).toContain('## Attached file: a.ts')
+    expect(out).toContain('const x = 1')
+  })
+
+  it('pdf on a non-capable provider -> inlined sidecar text (string)', () => {
+    const out = buildUserMessageContent(
+      'q',
+      [ref('p', 'pdf')],
+      noBytes,
+      () => 'extracted pdf text',
+      { pdfNative: false }
+    )
+    expect(typeof out).toBe('string')
+    expect(out).toContain('extracted pdf text')
+  })
+
+  it('pdf on a capable provider -> native file block with metadata.filename', () => {
+    const out = buildUserMessageContent(
+      'q',
+      [ref('p', 'pdf')],
+      () => 'PDFB64',
+      () => 'ignored sidecar',
+      { pdfNative: true }
+    )
+    expect(out).toEqual([
+      { type: 'text', text: 'q' },
+      {
+        type: 'file',
+        source_type: 'base64',
+        mime_type: 'application/pdf',
+        data: 'PDFB64',
+        metadata: { filename: 'p.pdf' }
+      }
+    ])
+  })
+
+  it('enforces the aggregate inline budget across attachments', () => {
+    // Three fixtures so the budget is actually exceeded (512 KB total) AND both
+    // notices are reachable: f1 fits whole, f2 crosses the remaining budget
+    // (byte-clipped + "truncated" notice), f3 arrives after the budget is spent
+    // (fully "omitted"). A 2-file fixture can only ever produce the truncated
+    // notice on the crossing file -- never the omitted one.
+    const texts: Record<string, string> = {
+      f1: 'a'.repeat(300 * 1024),
+      f2: 'b'.repeat(300 * 1024),
+      f3: 'c'.repeat(50 * 1024)
+    }
+    const out = buildUserMessageContent(
+      'go',
+      [
+        { id: 'f1', name: 'one.txt', mime: 'text/plain', kind: 'text' },
+        { id: 'f2', name: 'two.txt', mime: 'text/plain', kind: 'text' },
+        { id: 'f3', name: 'three.txt', mime: 'text/plain', kind: 'text' }
+      ],
+      noBytes,
+      (a) => texts[a.id],
+      { pdfNative: false }
+    ) as string
+    expect(out).toContain('one.txt')
+    expect(out).toMatch(/truncated: inlined-content budget reached/)
+    expect(out).toMatch(/omitted: inlined-content budget reached/)
+  })
+
+  it('notes an attachment whose sidecar is gone rather than dropping it silently', () => {
+    const out = buildUserMessageContent(
+      'go',
+      [{ id: 'g', name: 'gone.txt', mime: 'text/plain', kind: 'text' }],
+      noBytes,
+      () => null,
+      { pdfNative: false }
+    ) as string
+    expect(out).toContain('(could not read gone.txt)')
+  })
+
+  it('back-compat: an attachment with no kind is read as image, never silently dropped', () => {
+    const legacy = { id: 'legacy', name: 'legacy.png', mime: 'image/png' } as AttachmentRef
+    const out = buildUserMessageContent('describe', [legacy], () => 'LEGACYB64', noSide, {
+      pdfNative: false
+    })
+    expect(out).toEqual([
+      { type: 'text', text: 'describe' },
+      { type: 'image', source_type: 'base64', mime_type: 'image/png', data: 'LEGACYB64' }
+    ])
   })
 })
 

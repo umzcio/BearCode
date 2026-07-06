@@ -1,15 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CommandEntry, CommandRef, MentionRef } from '@shared/types'
+import type {
+  AttachmentRef,
+  CommandEntry,
+  CommandRef,
+  MentionRef,
+  PickedAttachmentWire
+} from '@shared/types'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
+import { Hint } from '../Hint'
 import { refConfigured, useAppStore } from '../../state/store'
+import { attachmentBadge } from '../../lib/attachmentBadge'
 import {
   IconArrowUp,
+  IconAt,
   IconChevronDown,
   IconClose,
+  IconGlobe,
+  IconImage,
   IconMic,
   IconMonitor,
   IconPlus,
+  IconSlash,
   IconStop
 } from '../icons'
 import { SlashMenu } from './SlashMenu'
@@ -26,11 +38,17 @@ import {
 import './Composer.css'
 
 interface ComposerProps {
-  onSend(text: string, command: CommandRef | null, mentions: MentionRef[]): void
+  onSend(
+    text: string,
+    command: CommandRef | null,
+    mentions: MentionRef[],
+    attachments: AttachmentRef[]
+  ): void
   running?: boolean
   onStop?(): void
   showEnvRow?: boolean
   autoFocus?: boolean
+  conversationId?: string
 }
 
 export function Composer({
@@ -53,6 +71,8 @@ export function Composer({
   const refreshManualRules = useAppStore((s) => s.refreshManualRules)
   const conversations = useAppStore((s) => s.conversations)
   const convoOrder = useAppStore((s) => s.convoOrder)
+  const pickAttachments = useAppStore((s) => s.pickAttachments)
+  const showToast = useAppStore((s) => s.showToast)
   const [value, setValue] = useState('')
   const [command, setCommand] = useState<CommandRef | null>(null)
   const [mentions, setMentions] = useState<MentionRef[]>([])
@@ -68,14 +88,18 @@ export function Composer({
   const [menuDismissed, setMenuDismissed] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(0)
   const [envOpen, setEnvOpen] = useState(false)
+  const [addMenuOpen, setAddMenuOpen] = useState(false)
+  const [attachments, setAttachments] = useState<PickedAttachmentWire[]>([])
   const taRef = useRef<HTMLTextAreaElement>(null)
   const envRef = useRef<HTMLDivElement>(null)
+  const addMenuRef = useRef<HTMLDivElement>(null)
 
   const modelReady = refConfigured(providers, modelRef)
   const showNotice = providers.length > 0 && !modelReady
   // The pill makes trailing text optional (design 5.2): a bare workflow/goal
   // send is valid, only an empty composer with no pill is not.
-  const hasContent = value.trim() !== '' || command !== null || mentions.length > 0
+  const hasContent =
+    value.trim() !== '' || command !== null || mentions.length > 0 || attachments.length > 0
 
   // The menu opens only when the composer is otherwise empty and the very
   // first character typed is '/', and stays open while the text still starts
@@ -133,6 +157,15 @@ export function Composer({
     document.addEventListener('click', close)
     return () => document.removeEventListener('click', close)
   }, [envOpen])
+
+  useEffect(() => {
+    if (!addMenuOpen) return undefined
+    const close = (e: MouseEvent): void => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) setAddMenuOpen(false)
+    }
+    document.addEventListener('click', close)
+    return () => document.removeEventListener('click', close)
+  }, [addMenuOpen])
 
   // Re-fetched on menu open only (menu-open paced, matching the loader's own
   // cache design), not on every keystroke while it stays open.
@@ -193,16 +226,49 @@ export function Composer({
     setMenuDismissed(false)
   }
 
+  // + "Add Context" (design 8). Media ingests images for the active
+  // conversation -- OR, on Home (no conversationId yet), under a lazily-minted
+  // draft conversation id that startFromHome later creates the conversation
+  // as (store.ts ensureDraftConvoId), so Media works before the first send.
+  // Mentions opens the @ menu; Actions opens the / menu; Browser is coming
+  // soon. The @/ menus already key off the textarea contents (mentionQuery /
+  // value[0] === '/'), so those two just seed + focus.
+  const onMedia = async (): Promise<void> => {
+    setAddMenuOpen(false)
+    const { picked, errors } = await pickAttachments(attachments.length)
+    if (picked.length > 0) setAttachments((cur) => [...cur, ...picked])
+    if (errors.length > 0) showToast(errors[0])
+  }
+  const onMentions = (): void => {
+    setAddMenuOpen(false)
+    const ta = taRef.current
+    const caret = ta?.selectionStart ?? value.length
+    const next = value.slice(0, caret) + '@' + value.slice(caret)
+    setValue(next)
+    setMentionQuery({ start: caret, query: '' })
+    setMentionIndex(0)
+    setPendingCaret(caret + 1)
+  }
+  const onActions = (): void => {
+    setAddMenuOpen(false)
+    if (command !== null) return // one command per turn; the pill already holds it
+    setValue('/')
+    setMenuDismissed(false)
+    setPendingCaret(1)
+  }
+
   const submit = (): void => {
     if (!hasContent || running || !modelReady) return
     const text = value.trim()
     const sentCommand = command
     const sentMentions = mentions
+    const sentAttachments = attachments.map((a) => a.ref)
     setValue('')
     setCommand(null)
     setMentions([])
+    setAttachments([])
     setMentionQuery(null)
-    onSend(text, sentCommand, sentMentions)
+    onSend(text, sentCommand, sentMentions, sentAttachments)
   }
 
   return (
@@ -245,6 +311,46 @@ export function Composer({
               </button>
             </span>
           ))}
+        </div>
+      ) : null}
+      {attachments.length > 0 ? (
+        <div className="attachment-pill-row">
+          {attachments.map((a, i) => {
+            const kind = a.ref.kind ?? 'image'
+            const badge = attachmentBadge(a.ref.name, a.ref.mime)
+            // Only a genuine truncation warning survives to the chip face; a
+            // pick-time "<BADGE>[ · reason]" notice is otherwise dropped now
+            // that the colored badge itself conveys the file type.
+            const truncationNotice =
+              a.notice && /truncat/i.test(a.notice) ? a.notice : null
+            return (
+              <Hint label={a.ref.name} side="top" key={`${a.ref.id}:${i}`}>
+                <span
+                  className={`attachment-pill${kind === 'image' ? '' : ' attachment-pill-file'}`}
+                >
+                  {kind === 'image' ? (
+                    <img className="attachment-thumb" src={a.previewDataUrl} alt={a.ref.name} />
+                  ) : (
+                    <span className={`attachment-type-badge ${badge.colorClass}`}>
+                      {badge.label}
+                    </span>
+                  )}
+                  <span className="attachment-name">{a.ref.name}</span>
+                  {truncationNotice ? (
+                    <span className="attachment-note">{truncationNotice}</span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="pill-x"
+                    title="Remove attachment"
+                    onClick={() => setAttachments((cur) => cur.filter((_, idx) => idx !== i))}
+                  >
+                    <IconClose size={11} />
+                  </button>
+                </span>
+              </Hint>
+            )
+          })}
         </div>
       ) : null}
       <textarea
@@ -332,6 +438,19 @@ export function Composer({
             setMentions((m) => m.slice(0, -1))
             return
           }
+          if (
+            e.key === 'Backspace' &&
+            command === null &&
+            mentions.length === 0 &&
+            attachments.length > 0 &&
+            value === '' &&
+            e.currentTarget.selectionStart === 0 &&
+            e.currentTarget.selectionEnd === 0
+          ) {
+            e.preventDefault()
+            setAttachments((a) => a.slice(0, -1))
+            return
+          }
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             submit()
@@ -339,9 +458,36 @@ export function Composer({
         }}
       />
       <div className="composer-controls">
-        <button className="icon-btn" disabled title="Attach: coming soon">
-          <IconPlus />
-        </button>
+        <div className="add-context" ref={addMenuRef}>
+          <button
+            className="icon-btn"
+            title="Add context"
+            onClick={() => setAddMenuOpen((o) => !o)}
+          >
+            <IconPlus />
+          </button>
+          {addMenuOpen ? (
+            <div className="menu add-context-menu">
+              <div className="menu-item" title="Attach images" onClick={() => void onMedia()}>
+                <IconImage size={16} />
+                <span>Media</span>
+              </div>
+              <div className="menu-item" onClick={onMentions}>
+                <IconAt size={16} />
+                <span>Mentions</span>
+              </div>
+              <div className="menu-item" onClick={onActions}>
+                <IconSlash size={16} />
+                <span>Actions</span>
+              </div>
+              <div className="menu-item disabled" title="Coming soon">
+                <IconGlobe size={16} />
+                <span>Browser</span>
+                <span className="badge">coming soon</span>
+              </div>
+            </div>
+          ) : null}
+        </div>
         <ModelPicker />
         <ModePicker />
         <button className="icon-btn mic-btn" disabled title="Voice input: coming soon">

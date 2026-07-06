@@ -38,7 +38,8 @@ describe('preload run.start mentions forwarding', () => {
       'anthropic/claude-sonnet-5',
       '/proj',
       null,
-      mentions
+      mentions,
+      null
     )
   })
 
@@ -58,7 +59,30 @@ describe('preload run.start mentions forwarding', () => {
       'anthropic/claude-sonnet-5',
       '/proj',
       null,
+      null,
       null
+    )
+  })
+
+  it('run.start forwards attachments as the 7th arg', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      run: { start: (...args: unknown[]) => Promise<void> }
+    }
+
+    invoke.mockClear()
+    const attachments = [{ id: 'a1', name: 'x.png', mime: 'image/png' }]
+    await bearcode.run.start('c1', 'hi', 'anthropic/claude-sonnet-5', null, null, null, attachments)
+
+    expect(invoke).toHaveBeenCalledWith(
+      'bearcode:run:start',
+      'c1',
+      'hi',
+      'anthropic/claude-sonnet-5',
+      null,
+      null,
+      null,
+      attachments
     )
   })
 })

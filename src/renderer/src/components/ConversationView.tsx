@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import type { Event } from '@shared/types'
+import { useEffect, useRef, useState } from 'react'
+import type { AttachmentRef, Event } from '@shared/types'
 import { useAppStore, workedSecondsByTurn } from '../state/store'
 import { Composer } from './Composer/Composer'
 import { RunStatusBar } from './RunStatusBar/RunStatusBar'
@@ -9,7 +9,9 @@ import { ArtifactCard } from './events/ArtifactCard'
 import { DiffCard } from './events/DiffCard'
 import { ErrorCard } from './events/ErrorCard'
 import { IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
+import { Hint } from './Hint'
 import { messageTimestamp } from '../lib/time'
+import { attachmentBadge } from '../lib/attachmentBadge'
 import './ConversationView.css'
 
 interface Turn {
@@ -56,6 +58,52 @@ function groupTurns(events: Event[]): Turn[] {
   return turns
 }
 
+// A transcript attachment pill (Task 7). A reloaded transcript only carries
+// the persisted AttachmentRef (id/name/mime) -- never bytes -- so the real
+// thumbnail is fetched lazily over `bearcode:attachments:read`, which reads
+// the bytes back from userData main-side (convId comes from this open
+// conversation's context, never from the ref itself; see ipc.ts). Renders
+// the name-only pill immediately and fills in the thumbnail once the read
+// resolves (or stays name-only if the file is gone).
+function AttachmentPill({
+  convoId,
+  attachment
+}: {
+  convoId: string
+  attachment: AttachmentRef
+}): React.JSX.Element {
+  const [src, setSrc] = useState<string | null>(null)
+  // Back-compat: pre-D5 persisted refs have no `kind` -- default to 'image'
+  // (see AttachmentKind doc in shared/types.ts). Never assume kind is present.
+  const kind = attachment.kind ?? 'image'
+  const isImage = kind === 'image'
+  const badge = attachmentBadge(attachment.name, attachment.mime)
+  useEffect(() => {
+    if (!isImage) return
+    let cancelled = false
+    void window.bearcode.attachments.read(convoId, attachment.id).then((dataUrl) => {
+      if (!cancelled) setSrc(dataUrl)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [convoId, attachment.id, isImage])
+  return (
+    <Hint label={attachment.name} side="top">
+      <span className="msg-command-pill msg-attachment-pill">
+        {isImage ? (
+          src ? (
+            <img className="msg-attachment-thumb" src={src} alt={attachment.name} />
+          ) : null
+        ) : (
+          <span className={`msg-attachment-type-badge ${badge.colorClass}`}>{badge.label}</span>
+        )}
+        <span className="msg-attachment-name">{attachment.name}</span>
+      </span>
+    </Hint>
+  )
+}
+
 export function ConversationView({ convoId }: { convoId: string }): React.JSX.Element {
   const convo = useAppStore((s) => s.conversations[convoId])
   const send = useAppStore((s) => s.send)
@@ -100,6 +148,9 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                       <span className="msg-command-pill" key={`${m.kind}:${m.name}:${i}`}>
                         @{m.name}
                       </span>
+                    ))}
+                    {turn.user.attachments?.map((a, i) => (
+                      <AttachmentPill key={`att:${a.id}:${i}`} convoId={convoId} attachment={a} />
                     ))}
                     {turn.user.text}
                   </div>
@@ -196,7 +247,10 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
       <div className="convo-composer">
         <div className="composer-wrap">
           <Composer
-            onSend={(text, command, mentions) => send(convoId, text, command, mentions)}
+            conversationId={convoId}
+            onSend={(text, command, mentions, attachments) =>
+              send(convoId, text, command, mentions, attachments)
+            }
             running={running}
             onStop={() => cancelRun(convoId)}
           />

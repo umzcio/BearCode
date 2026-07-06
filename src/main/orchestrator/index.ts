@@ -1,6 +1,11 @@
 import { randomUUID } from 'crypto'
 import {
+  ATTACHMENT_MIME_TYPES,
   COMMAND_NAME_PATTERN,
+  OFFICE_MIME_TYPES,
+  PDF_MIME,
+  type AttachmentKind,
+  type AttachmentRef,
   type CommandRef,
   type ConversationMeta,
   type Event,
@@ -62,7 +67,8 @@ export async function startRunOrchestrator(
   modelRef: string,
   sink: RunSink,
   command: CommandRef | null = null,
-  mentions: MentionRef[] = []
+  mentions: MentionRef[] = [],
+  attachments: AttachmentRef[] = []
 ): Promise<void> {
   // Persist the model on the conversation row (mirrors the legacy engine's
   // run.ts). Beyond restoring the picker on reopen, crash-resume (A2) needs it:
@@ -79,7 +85,8 @@ export async function startRunOrchestrator(
       sink,
       signal: controller.signal,
       command,
-      mentions
+      mentions,
+      attachments
     })
     // Paused at a command-approval interrupt (risk 4): the run isn't done,
     // it's parked in graph.ts's pendingApprovals until
@@ -244,6 +251,61 @@ export function assertValidMentions(mentions: unknown): MentionRef[] {
     if (typeof path === 'string') ref.path = path
     if (typeof conversationId === 'string') ref.conversationId = conversationId
     return ref
+  })
+}
+
+// Wire-boundary guard for bearcode:run:start's optional `attachments` argument
+// (src/main/ipc.ts). SAME posture as assertValidMentions above, PLUS an id
+// path-safety check that mentions do not need: an AttachmentRef.id is used
+// main-side to build the on-disk read path userData/attachments/<convId>/<id>,
+// so a stale preload or compromised renderer must not be able to smuggle a
+// traversal segment ('..', '/', '\', '.') through it. Bounds shape, count
+// (design's 5-per-message cap), mime allowlist, and id grammar; throws on
+// anything malformed. Returns a clean AttachmentRef[] (unknown fields dropped).
+const ATTACHMENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+const ATTACHMENT_KINDS: AttachmentKind[] = ['image', 'text', 'pdf', 'office']
+function isSupportedAttachmentMime(mime: string): boolean {
+  return (
+    (ATTACHMENT_MIME_TYPES as readonly string[]).includes(mime) ||
+    mime === PDF_MIME ||
+    (OFFICE_MIME_TYPES as readonly string[]).includes(mime) ||
+    mime.startsWith('text/')
+  )
+}
+export function assertValidAttachments(attachments: unknown): AttachmentRef[] {
+  if (attachments === null || attachments === undefined) return []
+  if (!Array.isArray(attachments)) {
+    throw new Error('run:start: attachments must be an array or null')
+  }
+  if (attachments.length > 5) {
+    throw new Error('run:start: too many attachments (max 5 per message)')
+  }
+  return attachments.map((a) => {
+    if (typeof a !== 'object' || a === null) {
+      throw new Error('run:start: each attachment must be an object')
+    }
+    const { id, name, mime, kind } = a as {
+      id?: unknown
+      name?: unknown
+      mime?: unknown
+      kind?: unknown
+    }
+    if (typeof id !== 'string' || !ATTACHMENT_ID_PATTERN.test(id)) {
+      throw new Error('run:start: attachment.id must match /^[A-Za-z0-9_-]{1,64}$/')
+    }
+    if (typeof name !== 'string' || name.length === 0 || name.length > 1024) {
+      throw new Error('run:start: attachment.name must be a non-empty string')
+    }
+    if (typeof mime !== 'string' || !isSupportedAttachmentMime(mime)) {
+      throw new Error('run:start: attachment.mime is not a supported type')
+    }
+    // Additive back-compat: a pre-D5 persisted ref that gets re-sent has no
+    // kind -> default 'image' (its mime is always an image mime).
+    const resolvedKind: AttachmentKind = kind === undefined ? 'image' : (kind as AttachmentKind)
+    if (!ATTACHMENT_KINDS.includes(resolvedKind)) {
+      throw new Error('run:start: attachment.kind is not a supported kind')
+    }
+    return { id, name, mime, kind: resolvedKind }
   })
 }
 

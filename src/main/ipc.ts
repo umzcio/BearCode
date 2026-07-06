@@ -23,6 +23,12 @@ import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
 import { suggestFiles, manualRuleInfos } from './orchestrator/mentionSuggest'
 import {
+  assertValidConversationId,
+  ingestPickedFiles,
+  readAttachmentDataUrl
+} from './attachments/ingest'
+import {
+  assertValidAttachments,
   assertValidCommand,
   assertValidMentions,
   assertValidPlanReviewResolution,
@@ -82,19 +88,21 @@ export function registerIpc(): void {
       modelRef: string,
       _projectPath: string | null,
       rawCommand?: unknown,
-      rawMentions?: unknown
+      rawMentions?: unknown,
+      rawAttachments?: unknown
     ) => {
       // projectPath is already persisted on the conversation row (set at
       // creation); the orchestrator reads it back from getConversationMeta, so
-      // nothing to stash here. assertValidCommand/assertValidMentions throw on
-      // anything looser than a well-formed CommandRef/MentionRef[] (or
-      // null/undefined), which ipcMain.handle turns into a rejected promise for
-      // the renderer -- BEFORE any DB or model work happens (the
-      // assertValidPlanReviewResolution posture). Fire and forget: progress
-      // flows back over bearcode:event.
+      // nothing to stash here. assertValidCommand/assertValidMentions/
+      // assertValidAttachments throw on anything looser than a well-formed
+      // CommandRef/MentionRef[]/AttachmentRef[] (or null/undefined), which
+      // ipcMain.handle turns into a rejected promise for the renderer -- BEFORE
+      // any DB or model work happens (the assertValidPlanReviewResolution
+      // posture). Fire and forget: progress flows back over bearcode:event.
       const command = assertValidCommand(rawCommand)
       const mentions = assertValidMentions(rawMentions)
-      void startRunOrchestrator(conversationId, userText, modelRef, sink, command, mentions)
+      const attachments = assertValidAttachments(rawAttachments)
+      void startRunOrchestrator(conversationId, userText, modelRef, sink, command, mentions, attachments)
     }
   )
 
@@ -119,6 +127,52 @@ export function registerIpc(): void {
   )
   ipcMain.handle('bearcode:mentions:rules', (_e, projectPath: string | null): ManualRuleInfo[] =>
     manualRuleInfos(loadAgentsContent(projectPath))
+  )
+
+  // D4 Media (design 8): native image picker + main-side ingest. Returns the
+  // accepted attachments (ref + a preview data URL for the composer thumbnail)
+  // and a human-readable error per rejected file. Bytes are copied under
+  // userData; only the ref later crosses run:start. `existingCount` lets the
+  // 5-per-message cap consider images already on the composer.
+  // SECURITY: conversationId is renderer-supplied and used main-side to build
+  // an on-disk path; ingestPickedFiles validates it (path-safe grammar)
+  // BEFORE any mkdir/write/read, so a malformed id rejects this promise
+  // instead of ever touching the filesystem.
+  ipcMain.handle(
+    'bearcode:attachments:pick',
+    async (_e, conversationId: string, existingCount: number) => {
+      const result = await dialog.showOpenDialog({
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+          {
+            name: 'Attachments',
+            extensions: [
+              'png', 'jpg', 'jpeg', 'webp', 'gif',
+              'pdf', 'docx', 'xlsx',
+              'md', 'markdown', 'txt', 'text', 'html', 'htm', 'css', 'js', 'jsx',
+              'mjs', 'cjs', 'ts', 'tsx', 'py', 'json', 'jsonc', 'yaml', 'yml',
+              'toml', 'ini', 'xml', 'csv', 'tsv', 'sh', 'bash', 'zsh', 'rs', 'go',
+              'java', 'kt', 'c', 'h', 'cpp', 'hpp', 'cc', 'rb', 'php', 'sql',
+              'swift', 'r', 'lua', 'pl'
+            ]
+          }
+        ]
+      })
+      if (result.canceled || result.filePaths.length === 0) {
+        return { picked: [], errors: [] }
+      }
+      return ingestPickedFiles(conversationId, result.filePaths, existingCount)
+    }
+  )
+
+  // D4 Media (Task 7): transcript attachment thumbnail. A reloaded transcript
+  // only has the persisted AttachmentRef (id/name/mime), never bytes, so the
+  // pill's real image comes from here. SECURITY: conversationId/id are both
+  // renderer-supplied path segments; readAttachmentDataUrl validates both
+  // against their path-safe grammars BEFORE any read and throws (rejecting
+  // this promise) on a mismatch instead of ever touching the filesystem.
+  ipcMain.handle('bearcode:attachments:read', (_e, conversationId: string, id: string) =>
+    readAttachmentDataUrl(conversationId, id)
   )
 
   ipcMain.handle('bearcode:diffs:get', (_e, diffId: string) => getDiff(diffId))
@@ -176,9 +230,16 @@ export function registerIpc(): void {
 
   ipcMain.handle('bearcode:conversations:list', () => db.listConversations())
   ipcMain.handle('bearcode:conversations:get', (_e, id: string) => db.getEvents(id))
-  ipcMain.handle('bearcode:conversations:create', (_e, projectPath: string | null) =>
-    db.createConversation(projectPath)
-  )
+  // D4 draft-id flow: Home's composer mints a client-side id (crypto.randomUUID(),
+  // which satisfies this grammar) so Media attachments picked before the first
+  // send land under the SAME id the conversation is created with. SECURITY: id
+  // is renderer-supplied and becomes the conversations.id primary key (and, via
+  // the attachments dir, a filesystem path segment) -- validated against the
+  // same grammar attachments:pick enforces BEFORE it ever reaches the DB.
+  ipcMain.handle('bearcode:conversations:create', (_e, projectPath: string | null, id?: string) => {
+    if (id !== undefined) assertValidConversationId(id)
+    return db.createConversation(projectPath, id)
+  })
   ipcMain.handle('bearcode:conversations:delete', (_e, id: string) => {
     forgetRunOrchestrator(id)
     void pruneCheckpoints(id)
