@@ -5,8 +5,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/bearcode-test' } }))
 
 // Drive ingest without touching disk. The path helpers are pure; only the reads
-// and writes are mocked.
+// and writes are mocked. `sizes` lets a test report a statSync size that
+// disagrees with (or exists independent of) `files`, so the size-cap-before-
+// read test below can prove readFileSync is never reached for an oversize
+// path -- if it WERE reached, the mocked readFileSync throws ENOENT for a
+// path absent from `files`, which is a different, distinguishable error.
 const files: Record<string, Buffer> = {}
+const sizes: Record<string, number> = {}
 vi.mock('fs', () => ({
   existsSync: () => true,
   mkdirSync: vi.fn(),
@@ -15,6 +20,11 @@ vi.mock('fs', () => ({
   }),
   readFileSync: vi.fn((p: string) => {
     if (files[p as string]) return files[p as string]
+    throw new Error('ENOENT')
+  }),
+  statSync: vi.fn((p: string) => {
+    if (p in sizes) return { size: sizes[p as string] }
+    if (files[p as string]) return { size: files[p as string].length }
     throw new Error('ENOENT')
   })
 }))
@@ -25,9 +35,16 @@ vi.mock('./office', () => ({
     truncated: false,
     notice: null,
     badge: 'DOCX'
+  })),
+  runPdfExtraction: vi.fn(async () => ({
+    text: 'PDF BODY',
+    truncated: false,
+    notice: null,
+    badge: 'PDF · 1 pp'
   }))
 }))
 
+import { readFileSync as mockedReadFileSync } from 'fs'
 import {
   sniffImageMime,
   attachmentPath,
@@ -143,6 +160,35 @@ describe('ingestPickedFiles lane routing', () => {
     files['/i.png'] = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0])
     const { errors } = await ingestPickedFiles('conv1', ['/i.png'], 5)
     expect(errors[0]).toMatch(/at most 5/)
+  })
+})
+
+describe('size cap enforced BEFORE any read (resource-exhaustion guard)', () => {
+  beforeEach(() => {
+    for (const k of Object.keys(files)) delete files[k]
+    for (const k of Object.keys(sizes)) delete sizes[k]
+    vi.mocked(mockedReadFileSync).mockClear()
+  })
+
+  it('rejects an oversize file via statSync WITHOUT ever calling readFileSync on it', async () => {
+    // Deliberately absent from `files`: if the implementation regressed to
+    // reading before checking the stat-reported size, the mocked
+    // readFileSync would throw ENOENT for this path instead of the cap error
+    // asserted below, so this also proves the ordering, not just the call.
+    sizes['/huge.bin'] = MAX_ATTACHMENT_BYTES + 1
+    const { picked, errors } = await ingestPickedFiles('conv1', ['/huge.bin'], 0)
+    expect(picked).toEqual([])
+    expect(errors[0]).toMatch(/larger than 10 MB/)
+    expect(mockedReadFileSync).not.toHaveBeenCalledWith('/huge.bin')
+  })
+
+  it('still reads and picks a file at/under the cap', async () => {
+    sizes['/ok.png'] = MAX_ATTACHMENT_BYTES
+    files['/ok.png'] = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0])
+    const { picked, errors } = await ingestPickedFiles('conv1', ['/ok.png'], 0)
+    expect(errors).toEqual([])
+    expect(picked[0].ref.kind).toBe('image')
+    expect(mockedReadFileSync).toHaveBeenCalledWith('/ok.png')
   })
 })
 

@@ -4,13 +4,13 @@
 // (design 10). png/jpg/webp/gif only; PDFs are out of scope for D4. Caps:
 // 10 MB per file, 5 attachments per message.
 import { randomUUID } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { basename, join } from 'path'
 import { app } from 'electron'
 import { ATTACHMENT_MIME_TYPES, type AttachmentRef } from '../../shared/types'
 import { classifyPicked } from './classify'
-import { extractTextLane, extractPdf, type ExtractResult } from './extract'
-import { runOfficeExtraction } from './office'
+import { extractTextLane, type ExtractResult } from './extract'
+import { runOfficeExtraction, runPdfExtraction } from './office'
 
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024 // 10 MB
 export const MAX_ATTACHMENTS_PER_MESSAGE = 5
@@ -117,6 +117,26 @@ export async function ingestPickedFiles(
   const errors: string[] = []
   for (const filePath of filePaths) {
     const name = basename(filePath)
+
+    // SECURITY (resource exhaustion): stat the file BEFORE ever reading it
+    // into memory. An over-cap file must be rejected here, not after a full
+    // readFileSync -- classifyPicked below also does a full-buffer
+    // bytes.toString('latin1') for the OOXML zip peek, so refusing to read an
+    // oversize file at all is the only way to keep its bytes out of memory
+    // entirely (both the raw read AND that classify pass).
+    let size: number
+    try {
+      size = statSync(filePath).size
+    } catch {
+      errors.push(`Could not read ${name}.`)
+      continue
+    }
+    const preReadLimitError = checkPickLimits(existingCount + picked.length, size)
+    if (preReadLimitError) {
+      errors.push(`${name}: ${preReadLimitError}`)
+      continue
+    }
+
     let bytes: Buffer
     try {
       bytes = readFileSync(filePath)
@@ -124,14 +144,16 @@ export async function ingestPickedFiles(
       errors.push(`Could not read ${name}.`)
       continue
     }
+    // Defense-in-depth: re-check against the bytes actually read, in case the
+    // file changed on disk between the stat and the read (TOCTOU).
+    const postReadLimitError = checkPickLimits(existingCount + picked.length, bytes.length)
+    if (postReadLimitError) {
+      errors.push(`${name}: ${postReadLimitError}`)
+      continue
+    }
     const classified = classifyPicked(bytes, name)
     if (!classified) {
       errors.push(`${name} is not a supported file (image, text/code, PDF, docx, or xlsx).`)
-      continue
-    }
-    const limitError = checkPickLimits(existingCount + picked.length, bytes.length)
-    if (limitError) {
-      errors.push(`${name}: ${limitError}`)
       continue
     }
     const { kind, mime } = classified
@@ -149,7 +171,7 @@ export async function ingestPickedFiles(
     // Non-image: extract, write the text sidecar, surface the notice.
     let result: ExtractResult
     if (kind === 'text') result = extractTextLane(bytes)
-    else if (kind === 'pdf') result = await extractPdf(bytes)
+    else if (kind === 'pdf') result = await runPdfExtraction(bytes)
     else result = await runOfficeExtraction(mime, bytes)
     writeFileSync(sidecarPath(userData, convId, id), result.text)
     picked.push({

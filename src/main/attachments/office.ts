@@ -1,95 +1,70 @@
-// Office (docx/xlsx) extraction (D5). docx -> mammoth.extractRawText (NOT
-// convertToHtml, so mammoth's "no sanitization" note never applies); xlsx ->
-// per-sheet CSV via exceljs. exceljs is used (not npm `xlsx`, which is frozen
-// at the CVE-vulnerable 0.18.5). extractOfficeCore is the pure-ish unit;
-// runOfficeExtraction wraps it in a killable worker with a wall-clock timeout
-// so a zip-bomb cannot wedge the main process.
+// Killable-worker extraction runner (D5 zip-bomb defence). D4-hardening
+// extends the SAME worker to PDF (see officeWorker.ts / extract.ts) so unpdf
+// gets the same wall-clock terminate() guard Office extraction already had --
+// PDF parsing was previously running unguarded on the main-process event
+// loop. extractOfficeCore/xlsxRowsToCsv (mammoth/exceljs) live in
+// officeCore.ts, imported ONLY by officeWorker.ts: this file just spawns,
+// races, and terminates the worker, so the parser libs never load on the main
+// thread at startup.
 import { join } from 'path'
 import { Worker } from 'worker_threads'
-import mammoth from 'mammoth'
-import ExcelJS from 'exceljs'
 import { DOCX_MIME, XLSX_MIME } from '../../shared/types'
-import { capText, TRUNCATE_NOTICE, type ExtractResult } from './extract'
+import { capText, TRUNCATE_NOTICE, pdfResultFromRaw, type ExtractResult } from './extract'
 
-// PURE CSV row builder with RFC-4180 escaping.
-export function xlsxRowsToCsv(rows: unknown[][]): string {
-  return rows
-    .map((row) =>
-      row
-        .map((cell) => {
-          const s = cell === undefined || cell === null ? '' : String(cell)
-          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-        })
-        .join(',')
-    )
-    .join('\n')
-}
+type ExtractionJob =
+  { kind: 'office'; mime: string; bytes: Buffer } | { kind: 'pdf'; bytes: Buffer }
 
-// Parse the bytes and return plain text. Async (both parsers yield), so a
-// timeout in runOfficeExtraction can fire between steps; the worker guards the
-// synchronous-decompression case.
-export async function extractOfficeCore(mime: string, bytes: Buffer): Promise<string> {
-  if (mime === DOCX_MIME) {
-    const { value } = await mammoth.extractRawText({ buffer: bytes })
-    return value
-  }
-  if (mime === XLSX_MIME) {
-    const wb = new ExcelJS.Workbook()
-    // exceljs's bundled d.ts redeclares a global `Buffer extends ArrayBuffer`
-    // that is missing newer Node Buffer members vs. @types/node, so the
-    // structural check on `load`'s parameter type fails even though a real
-    // Node Buffer is exactly what it expects at runtime.
-    await wb.xlsx.load(bytes as unknown as Parameters<typeof wb.xlsx.load>[0])
-    const parts: string[] = []
-    for (const sheet of wb.worksheets) {
-      const rows: unknown[][] = []
-      sheet.eachRow((row) => {
-        // exceljs row.values is 1-indexed (index 0 is undefined); drop it.
-        const values = (row.values as unknown[]).slice(1)
-        rows.push(values)
-      })
-      parts.push(`## Sheet: ${sheet.name}\n${xlsxRowsToCsv(rows)}`)
-    }
-    return parts.join('\n\n')
-  }
-  throw new Error(`unsupported office mime: ${mime}`)
+// Raw success payload from the worker, before cap/badge/notice post-processing.
+interface WorkerRaw {
+  text: string
+  totalPages?: number
 }
 
 function badgeFor(mime: string): string {
-  return mime === DOCX_MIME ? 'DOCX' : 'XLSX'
+  if (mime === DOCX_MIME) return 'DOCX'
+  if (mime === XLSX_MIME) return 'XLSX'
+  return 'PDF'
 }
 
 // Spawn the worker, race it against a wall-clock timeout, and terminate() on
-// timeout (worker_threads.terminate truly kills CPU-bound work — a Promise.race
-// alone would not, since a synchronous decompress bomb wedges the thread it
-// runs on). Fails soft to { text:'', notice }.
-export async function runOfficeExtraction(
-  mime: string,
-  bytes: Buffer,
-  timeoutMs = 10_000
-): Promise<ExtractResult> {
+// timeout (worker_threads.terminate truly kills CPU-bound work -- a
+// Promise.race alone would not, since a synchronous decompress bomb or a
+// pathological PDF wedges the thread it runs on, not just a microtask queue).
+// Resolves null on timeout, a worker 'error' event, or an { ok:false }
+// message. clearTimeout runs on EVERY settling path (message, error, and the
+// timeout branch itself) so no dangling wall-clock timer survives the call.
+function runInWorker(job: ExtractionJob, timeoutMs: number): Promise<WorkerRaw | null> {
   const workerPath = join(__dirname, 'officeWorker.js')
-  const badge = badgeFor(mime)
-  const raw = await new Promise<string | null>((resolve) => {
-    const worker = new Worker(workerPath, { workerData: { mime, bytes } })
+  return new Promise((resolve) => {
+    const worker = new Worker(workerPath, { workerData: job })
     const timer = setTimeout(() => {
       void worker.terminate()
       resolve(null)
     }, timeoutMs)
-    worker.once('message', (msg: { ok: boolean; text?: string }) => {
+    worker.once('message', (msg: { ok: boolean; text?: string; totalPages?: number }) => {
       clearTimeout(timer)
       void worker.terminate()
-      resolve(msg.ok ? (msg.text ?? '') : null)
+      resolve(msg.ok ? { text: msg.text ?? '', totalPages: msg.totalPages } : null)
     })
     worker.once('error', () => {
       clearTimeout(timer)
       resolve(null)
     })
   })
+}
+
+// Office (docx/xlsx) lane. Fails soft to { text:'', notice }.
+export async function runOfficeExtraction(
+  mime: string,
+  bytes: Buffer,
+  timeoutMs = 10_000
+): Promise<ExtractResult> {
+  const badge = badgeFor(mime)
+  const raw = await runInWorker({ kind: 'office', mime, bytes }, timeoutMs)
   if (raw === null) {
     return { text: '', truncated: false, notice: `${badge} · could not extract`, badge }
   }
-  const { text, truncated } = capText(raw)
+  const { text, truncated } = capText(raw.text)
   const empty = text.trim() === ''
   return {
     text: empty ? '' : text,
@@ -97,4 +72,14 @@ export async function runOfficeExtraction(
     notice: empty ? `${badge} · no extractable text` : truncated ? TRUNCATE_NOTICE : null,
     badge
   }
+}
+
+// PDF lane (D4-hardening). Runs unpdf in the SAME killable worker as Office so
+// a crafted PDF that wedges pdf.js's synchronous parsing cannot freeze the
+// main-process event loop indefinitely -- a plain setTimeout/Promise.race in
+// the main process would not preempt that (see runInWorker doc above). Fails
+// soft to { text:'', notice: 'PDF · could not extract text' }.
+export async function runPdfExtraction(bytes: Buffer, timeoutMs = 10_000): Promise<ExtractResult> {
+  const raw = await runInWorker({ kind: 'pdf', bytes }, timeoutMs)
+  return pdfResultFromRaw(raw === null ? null : { text: raw.text, totalPages: raw.totalPages ?? 0 })
 }

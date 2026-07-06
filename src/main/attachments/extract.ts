@@ -50,26 +50,53 @@ export function extractTextLane(bytes: Buffer): ExtractResult {
   }
 }
 
-// PDF lane: extract text with unpdf, cap, and surface the "no extractable text"
-// case (scanned/image-only PDFs) so the user knows why the model saw nothing.
+// PDF lane, core parse only (no cap/badge/notice): extract text with unpdf.
+// Throws on a bad/unparseable PDF -- callers decide how to fail soft. Split
+// out (D4-hardening) so this can run either directly (extractPdf, below) or
+// inside the killable worker (officeWorker.ts / office.ts's
+// runPdfExtraction), which gives a pathological PDF the same wall-clock
+// terminate() guard Office extraction already had instead of running
+// unguarded on the main-process event loop.
+export async function extractPdfCore(bytes: Buffer): Promise<{ text: string; totalPages: number }> {
+  const pdf = await getDocumentProxy(new Uint8Array(bytes), { isEvalSupported: false })
+  const { totalPages, text } = await unpdfExtractText(pdf, { mergePages: true })
+  const merged = Array.isArray(text) ? text.join('\n\n') : text
+  return { text: merged, totalPages }
+}
+
+// PURE post-processing shared by extractPdf (direct call, below) and
+// office.ts's runPdfExtraction (worker-routed call): caps text and picks the
+// badge/notice, surfacing the "no extractable text" case (scanned/image-only
+// PDFs) so the user knows why the model saw nothing. `raw` is null when the
+// core threw, or (worker path) the wall-clock timeout fired / the worker
+// errored.
+export function pdfResultFromRaw(raw: { text: string; totalPages: number } | null): ExtractResult {
+  if (raw === null) {
+    return { text: '', truncated: false, notice: 'PDF · could not extract text', badge: 'PDF' }
+  }
+  const { text: capped, truncated } = capText(raw.text)
+  const empty = capped.trim() === ''
+  return {
+    text: empty ? '' : capped,
+    truncated,
+    notice: empty
+      ? 'PDF · no extractable text (scanned or image-only)'
+      : truncated
+        ? TRUNCATE_NOTICE
+        : null,
+    badge: `PDF · ${raw.totalPages} pp`
+  }
+}
+
+// Direct (non-worker) PDF extraction. D4-hardening note: production ingest
+// now routes PDFs through office.ts's runPdfExtraction (the SAME killable
+// worker Office extraction uses), so a pathological PDF cannot wedge the main
+// thread; this direct path remains for unit coverage of the cap/notice logic
+// in isolation and for any caller that doesn't need the wall-clock guard.
 export async function extractPdf(bytes: Buffer): Promise<ExtractResult> {
   try {
-    const pdf = await getDocumentProxy(new Uint8Array(bytes), { isEvalSupported: false })
-    const { totalPages, text } = await unpdfExtractText(pdf, { mergePages: true })
-    const merged = Array.isArray(text) ? text.join('\n\n') : text
-    const { text: capped, truncated } = capText(merged)
-    const empty = capped.trim() === ''
-    return {
-      text: empty ? '' : capped,
-      truncated,
-      notice: empty
-        ? 'PDF · no extractable text (scanned or image-only)'
-        : truncated
-          ? TRUNCATE_NOTICE
-          : null,
-      badge: `PDF · ${totalPages} pp`
-    }
+    return pdfResultFromRaw(await extractPdfCore(bytes))
   } catch {
-    return { text: '', truncated: false, notice: 'PDF · could not extract text', badge: 'PDF' }
+    return pdfResultFromRaw(null)
   }
 }
