@@ -14,8 +14,9 @@ vi.mock('../../state/store', () => ({
   modelDisplay: () => 'Claude',
   useAppStore: (sel: (s: unknown) => unknown) =>
     sel({
-      providers: [{ id: 'anthropic', keyConfigured: true }],
+      providers: [{ id: 'anthropic', keyConfigured: true, models: [] }],
       modelRef: 'anthropic/claude',
+      view: { kind: 'home' },
       openSettings: vi.fn(),
       commands: [],
       refreshCommands: vi.fn(),
