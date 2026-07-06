@@ -90,6 +90,8 @@ const artifacts = {
   resolvePlanReview: vi.fn((): Promise<PlanReviewResolveResult> => Promise.resolve('resolved'))
 }
 
+const shell = { openFile: vi.fn(() => Promise.resolve()) }
+
 const convoMeta: ConversationMeta = {
   id: 'c1',
   projectPath: '/tmp/p',
@@ -137,7 +139,8 @@ beforeEach(() => {
       artifacts,
       mentions,
       attachments,
-      projects
+      projects,
+      shell
     } as unknown as BearcodeApi
   })
   useAppStore.setState({
@@ -260,6 +263,19 @@ describe('auxiliary pane selection (Ba4): one field, deep-link ticks, reset on s
     useAppStore.setState({ auxSelection: { kind: 'diff', diffId: 'd1' } })
     await useAppStore.getState().deleteAllConversations()
     expect(useAppStore.getState().auxSelection).toBeNull()
+  })
+})
+
+describe('openFile (E10): Cmd-click a file reference open in the OS default app', () => {
+  it('opens the file via the shell IPC, targeting the active conversation', () => {
+    useAppStore.setState({ view: { kind: 'conversation', id: 'c1' } })
+    useAppStore.getState().openFile('x.docx')
+    expect(window.bearcode.shell.openFile).toHaveBeenCalledWith('c1', 'x.docx')
+  })
+  it('no-ops on Home (no active conversation)', () => {
+    useAppStore.setState({ view: { kind: 'home' } })
+    useAppStore.getState().openFile('x.docx')
+    expect(window.bearcode.shell.openFile).not.toHaveBeenCalled()
   })
 })
 

@@ -206,6 +206,7 @@ interface AppState {
   deleteAllConversations(): Promise<void>
   openReview(diffId: string): void
   openReviewForFile(convoId: string, path: string): void
+  openFile(path: string): void
   openArtifactPane(artifactId: string, focusFeedback?: boolean): void
   loadArtifactComments(artifactId: string): Promise<void>
   addArtifactComment(artifactId: string, quote: string | null, body: string): Promise<void>
@@ -772,6 +773,13 @@ export const useAppStore = create<AppState>((set, get) => {
           return
         }
       }
+    },
+    openFile: (path) => {
+      const view = get().view
+      if (view.kind !== 'conversation') return
+      void window.bearcode.shell
+        .openFile(view.id, path)
+        .catch(() => get().showToast('Could not open that file'))
     },
     openArtifactPane: (artifactId, focusFeedback) =>
       set((s) => ({
