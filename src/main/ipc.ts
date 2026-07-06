@@ -143,7 +143,20 @@ export function registerIpc(): void {
     async (_e, conversationId: string, existingCount: number) => {
       const result = await dialog.showOpenDialog({
         properties: ['openFile', 'multiSelections'],
-        filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }]
+        filters: [
+          {
+            name: 'Attachments',
+            extensions: [
+              'png', 'jpg', 'jpeg', 'webp', 'gif',
+              'pdf', 'docx', 'xlsx',
+              'md', 'markdown', 'txt', 'text', 'html', 'htm', 'css', 'js', 'jsx',
+              'mjs', 'cjs', 'ts', 'tsx', 'py', 'json', 'jsonc', 'yaml', 'yml',
+              'toml', 'ini', 'xml', 'csv', 'tsv', 'sh', 'bash', 'zsh', 'rs', 'go',
+              'java', 'kt', 'c', 'h', 'cpp', 'hpp', 'cc', 'rb', 'php', 'sql',
+              'swift', 'r', 'lua', 'pl'
+            ]
+          }
+        ]
       })
       if (result.canceled || result.filePaths.length === 0) {
         return { picked: [], errors: [] }

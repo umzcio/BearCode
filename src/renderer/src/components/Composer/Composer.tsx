@@ -313,20 +313,31 @@ export function Composer({
       ) : null}
       {attachments.length > 0 ? (
         <div className="attachment-pill-row">
-          {attachments.map((a, i) => (
-            <span className="attachment-pill" key={`${a.ref.id}:${i}`}>
-              <img className="attachment-thumb" src={a.previewDataUrl} alt={a.ref.name} />
-              <span className="attachment-name">{a.ref.name}</span>
-              <button
-                type="button"
-                className="pill-x"
-                title="Remove attachment"
-                onClick={() => setAttachments((cur) => cur.filter((_, idx) => idx !== i))}
+          {attachments.map((a, i) => {
+            const kind = a.ref.kind ?? 'image'
+            return (
+              <span
+                className={`attachment-pill${kind === 'image' ? '' : ' attachment-pill-file'}`}
+                key={`${a.ref.id}:${i}`}
               >
-                <IconClose size={11} />
-              </button>
-            </span>
-          ))}
+                {kind === 'image' ? (
+                  <img className="attachment-thumb" src={a.previewDataUrl} alt={a.ref.name} />
+                ) : (
+                  <span className="attachment-kind-badge">{kind.toUpperCase()}</span>
+                )}
+                <span className="attachment-name">{a.ref.name}</span>
+                {a.notice ? <span className="attachment-note">{a.notice}</span> : null}
+                <button
+                  type="button"
+                  className="pill-x"
+                  title="Remove attachment"
+                  onClick={() => setAttachments((cur) => cur.filter((_, idx) => idx !== i))}
+                >
+                  <IconClose size={11} />
+                </button>
+              </span>
+            )
+          })}
         </div>
       ) : null}
       <textarea

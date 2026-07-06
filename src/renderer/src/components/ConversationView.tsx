@@ -71,7 +71,12 @@ function AttachmentPill({
   attachment: AttachmentRef
 }): React.JSX.Element {
   const [src, setSrc] = useState<string | null>(null)
+  // Back-compat: pre-D5 persisted refs have no `kind` -- default to 'image'
+  // (see AttachmentKind doc in shared/types.ts). Never assume kind is present.
+  const kind = attachment.kind ?? 'image'
+  const isImage = kind === 'image'
   useEffect(() => {
+    if (!isImage) return
     let cancelled = false
     void window.bearcode.attachments.read(convoId, attachment.id).then((dataUrl) => {
       if (!cancelled) setSrc(dataUrl)
@@ -79,10 +84,16 @@ function AttachmentPill({
     return () => {
       cancelled = true
     }
-  }, [convoId, attachment.id])
+  }, [convoId, attachment.id, isImage])
   return (
     <span className="msg-command-pill msg-attachment-pill">
-      {src ? <img className="msg-attachment-thumb" src={src} alt={attachment.name} /> : null}
+      {isImage ? (
+        src ? (
+          <img className="msg-attachment-thumb" src={src} alt={attachment.name} />
+        ) : null
+      ) : (
+        <span className="attachment-kind-badge">{kind.toUpperCase()}</span>
+      )}
       {attachment.name}
     </span>
   )
