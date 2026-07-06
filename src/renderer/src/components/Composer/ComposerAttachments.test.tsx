@@ -83,13 +83,13 @@ describe('Composer attachments', () => {
     expect(screen.queryByText('shot.png')).toBeNull()
   })
 
-  it('renders a non-image attachment as an icon+name pill with its notice and no <img>', async () => {
+  it('renders a non-image attachment as a colored type-badge+name pill and no <img>', async () => {
     pickAttachments.mockResolvedValueOnce({
       picked: [
         {
           ref: { id: 'p1', name: 'report.pdf', mime: 'application/pdf', kind: 'pdf' },
           previewDataUrl: '',
-          notice: 'PDF · 12 pp'
+          notice: 'PDF'
         }
       ],
       errors: []
@@ -100,6 +100,30 @@ describe('Composer attachments', () => {
     await waitFor(() => expect(screen.getByText('report.pdf')).toBeTruthy())
     const pill = screen.getByText('report.pdf').closest('.attachment-pill') as HTMLElement
     expect(pill.querySelector('img')).toBeNull()
-    expect(pill.textContent).toMatch(/PDF · 12 pp/)
+    expect(pill.querySelector('.attachment-type-badge')?.textContent).toBe('PDF')
+    expect(pill.querySelector('.badge-pdf')).toBeTruthy()
+    // A plain type-only pick-time notice is a size/type note, not a
+    // truncation warning, so it must not render on the chip face.
+    expect(pill.querySelector('.attachment-note')).toBeNull()
+  })
+
+  it('shows a genuine truncation notice on the chip but drops a size-only notice', async () => {
+    pickAttachments.mockResolvedValueOnce({
+      picked: [
+        {
+          ref: { id: 't1', name: 'notes.txt', mime: 'text/plain', kind: 'text' },
+          previewDataUrl: '',
+          notice: 'TXT · … (truncated at 256 KB)'
+        }
+      ],
+      errors: []
+    })
+    render(<Composer conversationId="c1" onSend={vi.fn()} />)
+    fireEvent.click(screen.getByTitle('Add context'))
+    fireEvent.click(screen.getByText('Media'))
+    await waitFor(() => expect(screen.getByText('notes.txt')).toBeTruthy())
+    const pill = screen.getByText('notes.txt').closest('.attachment-pill') as HTMLElement
+    expect(pill.textContent).toMatch(/truncated/i)
+    expect(pill.querySelector('.attachment-type-badge')?.textContent).toBe('TXT')
   })
 })

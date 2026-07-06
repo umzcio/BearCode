@@ -8,8 +8,9 @@ import { AssistantText } from './events/AssistantText'
 import { ArtifactCard } from './events/ArtifactCard'
 import { DiffCard } from './events/DiffCard'
 import { ErrorCard } from './events/ErrorCard'
-import { IconCopy, IconFile, IconThumbsDown, IconThumbsUp } from './icons'
+import { IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
 import { messageTimestamp } from '../lib/time'
+import { attachmentBadge } from '../lib/attachmentBadge'
 import './ConversationView.css'
 
 interface Turn {
@@ -75,6 +76,7 @@ function AttachmentPill({
   // (see AttachmentKind doc in shared/types.ts). Never assume kind is present.
   const kind = attachment.kind ?? 'image'
   const isImage = kind === 'image'
+  const badge = attachmentBadge(attachment.name, attachment.mime)
   useEffect(() => {
     if (!isImage) return
     let cancelled = false
@@ -86,19 +88,15 @@ function AttachmentPill({
     }
   }, [convoId, attachment.id, isImage])
   return (
-    <span className="msg-command-pill msg-attachment-pill">
+    <span className="msg-command-pill msg-attachment-pill" title={attachment.name}>
       {isImage ? (
         src ? (
           <img className="msg-attachment-thumb" src={src} alt={attachment.name} />
         ) : null
       ) : (
-        <span className="msg-attachment-file-icon">
-          <IconFile size={12} />
-        </span>
+        <span className={`msg-attachment-type-badge ${badge.colorClass}`}>{badge.label}</span>
       )}
-      <span className="msg-attachment-name" title={attachment.name}>
-        {attachment.name}
-      </span>
+      <span className="msg-attachment-name">{attachment.name}</span>
     </span>
   )
 }

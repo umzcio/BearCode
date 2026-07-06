@@ -149,13 +149,14 @@
   margin-bottom: 6px;
 }
 .attachment-pill {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   background: rgba(255, 255, 255, 0.05);
   color: var(--text-mid);
   font-size: 12.5px;
-  padding: 4px 6px 4px 8px;
+  padding: 4px 8px;
   border-radius: 999px;
   max-width: 260px;
 }
@@ -169,11 +170,34 @@
   border-radius: 4px;
   flex: none;
 }
-.attachment-file-icon {
-  display: flex;
+.attachment-type-badge {
+  display: inline-flex;
   align-items: center;
-  color: var(--text-dim);
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 5px;
   flex: none;
+  white-space: nowrap;
+}
+.badge-pdf {
+  background: rgba(232, 76, 61, 0.18);
+  color: #ef6e5c;
+}
+.badge-docx {
+  background: rgba(76, 141, 255, 0.18);
+  color: #7fadff;
+}
+.badge-xlsx {
+  background: rgba(63, 179, 105, 0.18);
+  color: #5fcf8a;
+}
+.badge-muted {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-dim);
 }
 .attachment-name {
   color: var(--text);
@@ -192,13 +216,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: none;
+  background: var(--bg-raised, #2a2a2e);
   border: none;
   color: inherit;
   cursor: pointer;
   padding: 3px;
   border-radius: 999px;
   flex: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.attachment-pill:hover .pill-x,
+.attachment-pill .pill-x:focus-visible {
+  opacity: 1;
 }
 .attachment-pill .pill-x:hover {
   background: rgba(255, 255, 255, 0.14);

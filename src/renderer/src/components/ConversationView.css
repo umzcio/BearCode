@@ -67,11 +67,34 @@
   vertical-align: middle;
   flex: none;
 }
-.msg-attachment-file-icon {
-  display: flex;
+.msg-attachment-type-badge {
+  display: inline-flex;
   align-items: center;
-  color: #7fadff;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 5px;
   flex: none;
+  white-space: nowrap;
+}
+.msg-attachment-type-badge.badge-pdf {
+  background: rgba(232, 76, 61, 0.18);
+  color: #ef6e5c;
+}
+.msg-attachment-type-badge.badge-docx {
+  background: rgba(76, 141, 255, 0.18);
+  color: #7fadff;
+}
+.msg-attachment-type-badge.badge-xlsx {
+  background: rgba(63, 179, 105, 0.18);
+  color: #5fcf8a;
+}
+.msg-attachment-type-badge.badge-muted {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-dim);
 }
 .msg-attachment-name {
   overflow: hidden;

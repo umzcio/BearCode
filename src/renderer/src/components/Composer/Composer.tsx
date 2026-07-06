@@ -9,12 +9,12 @@ import type {
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
 import { refConfigured, useAppStore } from '../../state/store'
+import { attachmentBadge } from '../../lib/attachmentBadge'
 import {
   IconArrowUp,
   IconAt,
   IconChevronDown,
   IconClose,
-  IconFile,
   IconGlobe,
   IconImage,
   IconMic,
@@ -316,6 +316,12 @@ export function Composer({
         <div className="attachment-pill-row">
           {attachments.map((a, i) => {
             const kind = a.ref.kind ?? 'image'
+            const badge = attachmentBadge(a.ref.name, a.ref.mime)
+            // Only a genuine truncation warning survives to the chip face; a
+            // pick-time "<BADGE>[ · reason]" notice is otherwise dropped now
+            // that the colored badge itself conveys the file type.
+            const truncationNotice =
+              a.notice && /truncat/i.test(a.notice) ? a.notice : null
             return (
               <span
                 className={`attachment-pill${kind === 'image' ? '' : ' attachment-pill-file'}`}
@@ -324,14 +330,16 @@ export function Composer({
                 {kind === 'image' ? (
                   <img className="attachment-thumb" src={a.previewDataUrl} alt={a.ref.name} />
                 ) : (
-                  <span className="attachment-file-icon">
-                    <IconFile size={13} />
+                  <span className={`attachment-type-badge ${badge.colorClass}`}>
+                    {badge.label}
                   </span>
                 )}
                 <span className="attachment-name" title={a.ref.name}>
                   {a.ref.name}
                 </span>
-                {a.notice ? <span className="attachment-note">{a.notice}</span> : null}
+                {truncationNotice ? (
+                  <span className="attachment-note">{truncationNotice}</span>
+                ) : null}
                 <button
                   type="button"
                   className="pill-x"
