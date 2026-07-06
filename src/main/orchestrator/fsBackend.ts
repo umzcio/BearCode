@@ -61,7 +61,7 @@ function realpathExistingPrefix(p: string): string {
   return probe + suffix
 }
 
-function jailPath(projectPath: string, p: string | undefined): string {
+export function jailPath(projectPath: string, p: string | undefined): string {
   const root = realpathSync(projectPath)
   let raw: string
   if (!p || p === '.' || p === '/') {
