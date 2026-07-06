@@ -46,6 +46,8 @@ const permissions = {
 const conversations = {
   create: vi.fn(() => Promise.resolve(convoMeta)),
   setMode: vi.fn(() => Promise.resolve()),
+  setEffort: vi.fn(() => Promise.resolve()),
+  setThinking: vi.fn(() => Promise.resolve()),
   get: vi.fn(() => Promise.resolve([])),
   clear: vi.fn(() => Promise.resolve())
 }
@@ -85,7 +87,9 @@ const convoMeta: ConversationMeta = {
   createdAt: 1,
   updatedAt: 1,
   permissionMode: 'accept-edits',
-  activeRules: []
+  activeRules: [],
+  effort: 'adaptive',
+  thinking: true
 }
 
 const convo = (over: Partial<Convo> = {}): Convo => ({
@@ -99,6 +103,8 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   loaded: true,
   events: [],
   runState: 'idle',
+  effort: 'adaptive',
+  thinking: true,
   ...over
 })
 
@@ -550,5 +556,42 @@ describe('D3 mention read-models + send-path threading', () => {
       null,
       [{ id: 'a1', name: 'x.png', mime: 'image/png' }]
     )
+  })
+})
+
+describe('effort/thinking store actions', () => {
+  it('setEffort in a conversation updates state + persists over IPC', async () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo() }
+    })
+    useAppStore.getState().setEffort('high')
+    expect(useAppStore.getState().effort).toBe('high')
+    expect(useAppStore.getState().conversations.c1.effort).toBe('high')
+    expect(window.bearcode.conversations.setEffort).toHaveBeenCalledWith('c1', 'high')
+  })
+  it('setEffort on Home updates state only (no IPC)', () => {
+    useAppStore.setState({ view: { kind: 'home' } })
+    useAppStore.getState().setEffort('max')
+    expect(useAppStore.getState().effort).toBe('max')
+    expect(window.bearcode.conversations.setEffort).not.toHaveBeenCalled()
+  })
+  it('setThinking persists a boolean', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo() }
+    })
+    useAppStore.getState().setThinking(false)
+    expect(useAppStore.getState().thinking).toBe(false)
+    expect(window.bearcode.conversations.setThinking).toHaveBeenCalledWith('c1', false)
+  })
+  it('opening a conversation hydrates effort/thinking from it', () => {
+    useAppStore.setState({
+      conversations: { c1: convo({ effort: 'low', thinking: false }) },
+      view: { kind: 'home' }
+    })
+    useAppStore.getState().openConvo('c1')
+    expect(useAppStore.getState().effort).toBe('low')
+    expect(useAppStore.getState().thinking).toBe(false)
   })
 })
