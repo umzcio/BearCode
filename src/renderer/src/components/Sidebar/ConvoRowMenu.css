@@ -2,14 +2,15 @@
   position: relative;
   display: inline-flex;
 }
+/* Positioned via inline position:fixed (coords measured off the ⋮ button in
+   ConvoRowMenu.tsx) so it snaps under the button and escapes the sidebar's
+   scroll-clip. */
 .convo-menu-pop {
-  top: 22px;
-  right: 0;
-  min-width: 180px;
-  max-height: 320px;
+  min-width: 190px;
+  max-height: 60vh;
   overflow-y: auto;
   padding: 5px;
-  z-index: 20;
+  z-index: 100;
 }
 .convo-menu-pop .menu-item {
   display: flex;
