@@ -8,6 +8,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { basename, join } from 'path'
 import { app } from 'electron'
 import { ATTACHMENT_MIME_TYPES, type AttachmentRef } from '../../shared/types'
+import { classifyPicked } from './classify'
+import { extractTextLane, extractPdf, type ExtractResult } from './extract'
+import { runOfficeExtraction } from './office'
 
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024 // 10 MB
 export const MAX_ATTACHMENTS_PER_MESSAGE = 5
@@ -46,8 +49,11 @@ export interface PickedAttachment {
   ref: AttachmentRef
   // A data: URL of the copied image, for the composer thumbnail pill only.
   // Not persisted and not sent to the model (the model gets fresh base64 from
-  // the copied file at turn time).
+  // the copied file at turn time). Empty string for non-image lanes.
   previewDataUrl: string
+  // Non-image lanes: a short pick-time notice for the pill (truncation / "no
+  // extractable text"). Not persisted, not sent to the model.
+  notice?: string | null
 }
 
 // Magic-byte sniff. PURE. Returns a supported mime or null. Signatures:
@@ -86,25 +92,26 @@ export function attachmentPath(userDataDir: string, convId: string, id: string):
 // is acceptable to add. `existingCount` is how many are already on the message.
 export function checkPickLimits(existingCount: number, sizeBytes: number): string | null {
   if (existingCount >= MAX_ATTACHMENTS_PER_MESSAGE) {
-    return `You can attach at most ${MAX_ATTACHMENTS_PER_MESSAGE} images per message.`
+    return `You can attach at most ${MAX_ATTACHMENTS_PER_MESSAGE} files per message.`
   }
   if (sizeBytes > MAX_ATTACHMENT_BYTES) {
-    return `Image is larger than ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB.`
+    return `File is larger than ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB.`
   }
   return null
 }
 
-// Read, sniff, cap-check, and copy each picked file. Returns the accepted
-// attachments (with previews) and a human-readable error per rejected file.
-// Enforces the 5-per-message cap against the RUNNING total (existingCount +
-// accepted so far), so a single multi-select pick can't overflow it.
-export function ingestPickedFiles(
+// Read, classify, cap-check, and copy each picked file (D5). Non-image lanes
+// are extracted once here and cached as a <id>.txt sidecar so turn time is a
+// cheap read and the composer gets an honest pick-time notice. Original bytes
+// are kept for every lane. Async because PDF/Office extraction is async.
+export async function ingestPickedFiles(
   convId: string,
   filePaths: string[],
   existingCount: number
-): { picked: PickedAttachment[]; errors: string[] } {
+): Promise<{ picked: PickedAttachment[]; errors: string[] }> {
   assertValidConversationId(convId)
-  const dir = attachmentPath(app.getPath('userData'), convId, '')
+  const userData = app.getPath('userData')
+  const dir = attachmentPath(userData, convId, '')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   const picked: PickedAttachment[] = []
   const errors: string[] = []
@@ -117,9 +124,9 @@ export function ingestPickedFiles(
       errors.push(`Could not read ${name}.`)
       continue
     }
-    const mime = sniffImageMime(bytes)
-    if (!mime) {
-      errors.push(`${name} is not a supported image (png, jpg, webp, gif).`)
+    const classified = classifyPicked(bytes, name)
+    if (!classified) {
+      errors.push(`${name} is not a supported file (image, text/code, PDF, docx, or xlsx).`)
       continue
     }
     const limitError = checkPickLimits(existingCount + picked.length, bytes.length)
@@ -127,11 +134,28 @@ export function ingestPickedFiles(
       errors.push(`${name}: ${limitError}`)
       continue
     }
+    const { kind, mime } = classified
     const id = randomUUID()
-    writeFileSync(attachmentPath(app.getPath('userData'), convId, id), bytes)
+    writeFileSync(attachmentPath(userData, convId, id), bytes)
+
+    if (kind === 'image') {
+      picked.push({
+        ref: { id, name, mime, kind },
+        previewDataUrl: `data:${mime};base64,${bytes.toString('base64')}`
+      })
+      continue
+    }
+
+    // Non-image: extract, write the text sidecar, surface the notice.
+    let result: ExtractResult
+    if (kind === 'text') result = extractTextLane(bytes)
+    else if (kind === 'pdf') result = await extractPdf(bytes)
+    else result = await runOfficeExtraction(mime, bytes)
+    writeFileSync(sidecarPath(userData, convId, id), result.text)
     picked.push({
-      ref: { id, name, mime },
-      previewDataUrl: `data:${mime};base64,${bytes.toString('base64')}`
+      ref: { id, name, mime, kind },
+      previewDataUrl: '',
+      notice: result.badge + (result.notice ? ` · ${result.notice}` : '')
     })
   }
   return { picked, errors }
@@ -145,6 +169,25 @@ export function readAttachmentBase64(convId: string, id: string): string | null 
   const p = attachmentPath(app.getPath('userData'), convId, id)
   try {
     return readFileSync(p).toString('base64')
+  } catch {
+    return null
+  }
+}
+
+// The text sidecar for a non-image attachment: the same validated path
+// segments as the bytes, with a .txt suffix (design 4/8).
+export function sidecarPath(userDataDir: string, convId: string, id: string): string {
+  return attachmentPath(userDataDir, convId, id) + '.txt'
+}
+
+// Read a non-image attachment's cached extracted text for the turn (graph.ts).
+// Returns null if the sidecar is gone. SECURITY: convId is validated exactly as
+// readAttachmentBase64 does before it becomes a path.
+export function readAttachmentSidecar(convId: string, id: string): string | null {
+  assertValidConversationId(convId)
+  const p = sidecarPath(app.getPath('userData'), convId, id)
+  try {
+    return readFileSync(p).toString('utf8')
   } catch {
     return null
   }
