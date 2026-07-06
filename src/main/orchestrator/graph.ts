@@ -349,7 +349,7 @@ type UserContentBlock =
 
 // A single titled, fenced text section for an inlined attachment (D5 §1b/1e).
 function titledSection(a: AttachmentRef, text: string): string {
-  const label = a.kind === 'office' ? 'Attached document' : 'Attached file'
+  const label = (a.kind ?? 'image') === 'office' ? 'Attached document' : 'Attached file'
   return `## ${label}: ${a.name}\n\`\`\`\n${text}\n\`\`\``
 }
 
@@ -373,8 +373,11 @@ export function buildUserMessageContent(
   let budgetHit = false
   const sections: string[] = []
   for (const a of attachments) {
-    const inlineThisPdf = a.kind === 'pdf' && !opts.pdfNative
-    if (a.kind !== 'text' && a.kind !== 'office' && !inlineThisPdf) continue
+    // Back-compat: a pre-D5 persisted ref has no `kind` and MUST read as
+    // 'image' (global correction) -- never branch on a possibly-undefined kind.
+    const kind = a.kind ?? 'image'
+    const inlineThisPdf = kind === 'pdf' && !opts.pdfNative
+    if (kind !== 'text' && kind !== 'office' && !inlineThisPdf) continue
     const text = readSidecarText(a)
     if (text === null) {
       sections.push(`(could not read ${a.name})`)
@@ -403,11 +406,12 @@ export function buildUserMessageContent(
   // 2. Native multimodal blocks: images, and native PDFs on capable providers.
   const mediaBlocks: UserContentBlock[] = []
   for (const a of attachments) {
-    if (a.kind === 'image') {
+    const kind = a.kind ?? 'image'
+    if (kind === 'image') {
       const data = readBytesBase64(a)
       if (data === null) continue
       mediaBlocks.push({ type: 'image', source_type: 'base64', mime_type: a.mime, data })
-    } else if (a.kind === 'pdf' && opts.pdfNative) {
+    } else if (kind === 'pdf' && opts.pdfNative) {
       const data = readBytesBase64(a)
       if (data === null) continue
       mediaBlocks.push({

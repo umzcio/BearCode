@@ -49,6 +49,7 @@ import {
 } from './graph'
 import type { PlanReviewResolution } from './tools'
 import type { RunSink } from '../sink'
+import type { AttachmentRef } from '../../shared/types'
 
 describe('textOfMessage', () => {
   it('returns a plain-string content as-is', () => {
@@ -200,6 +201,17 @@ describe('buildUserMessageContent', () => {
       { pdfNative: false }
     ) as string
     expect(out).toContain('(could not read gone.txt)')
+  })
+
+  it('back-compat: an attachment with no kind is read as image, never silently dropped', () => {
+    const legacy = { id: 'legacy', name: 'legacy.png', mime: 'image/png' } as AttachmentRef
+    const out = buildUserMessageContent('describe', [legacy], () => 'LEGACYB64', noSide, {
+      pdfNative: false
+    })
+    expect(out).toEqual([
+      { type: 'text', text: 'describe' },
+      { type: 'image', source_type: 'base64', mime_type: 'image/png', data: 'LEGACYB64' }
+    ])
   })
 })
 
