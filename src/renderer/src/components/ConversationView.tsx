@@ -8,7 +8,7 @@ import { AssistantText } from './events/AssistantText'
 import { ArtifactCard } from './events/ArtifactCard'
 import { DiffCard } from './events/DiffCard'
 import { ErrorCard } from './events/ErrorCard'
-import { IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
+import { IconCopy, IconFile, IconThumbsDown, IconThumbsUp } from './icons'
 import { messageTimestamp } from '../lib/time'
 import './ConversationView.css'
 
@@ -92,9 +92,13 @@ function AttachmentPill({
           <img className="msg-attachment-thumb" src={src} alt={attachment.name} />
         ) : null
       ) : (
-        <span className="attachment-kind-badge">{kind.toUpperCase()}</span>
+        <span className="msg-attachment-file-icon">
+          <IconFile size={12} />
+        </span>
       )}
-      {attachment.name}
+      <span className="msg-attachment-name" title={attachment.name}>
+        {attachment.name}
+      </span>
     </span>
   )
 }

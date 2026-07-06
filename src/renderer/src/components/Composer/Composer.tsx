@@ -14,6 +14,7 @@ import {
   IconAt,
   IconChevronDown,
   IconClose,
+  IconFile,
   IconGlobe,
   IconImage,
   IconMic,
@@ -323,9 +324,13 @@ export function Composer({
                 {kind === 'image' ? (
                   <img className="attachment-thumb" src={a.previewDataUrl} alt={a.ref.name} />
                 ) : (
-                  <span className="attachment-kind-badge">{kind.toUpperCase()}</span>
+                  <span className="attachment-file-icon">
+                    <IconFile size={13} />
+                  </span>
                 )}
-                <span className="attachment-name">{a.ref.name}</span>
+                <span className="attachment-name" title={a.ref.name}>
+                  {a.ref.name}
+                </span>
                 {a.notice ? <span className="attachment-note">{a.notice}</span> : null}
                 <button
                   type="button"
