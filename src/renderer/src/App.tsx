@@ -27,6 +27,7 @@ function App(): React.JSX.Element {
   const conversations = useAppStore((s) => s.conversations)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const toast = useAppStore((s) => s.toast)
+  const dismissToast = useAppStore((s) => s.dismissToast)
   const init = useAppStore((s) => s.init)
 
   useEffect(() => {
@@ -109,7 +110,27 @@ function App(): React.JSX.Element {
         <SearchModal />
       </div>
       <AuxiliaryPane />
-      {toast ? <div className="toast">{toast}</div> : null}
+      {toast ? (
+        <div className="toast">
+          <span className="toast-msg">{toast.message}</span>
+          {toast.action ? (
+            <span className="toast-actions">
+              <button className="toast-btn" onClick={dismissToast}>
+                Dismiss
+              </button>
+              <button
+                className="toast-btn primary"
+                onClick={() => {
+                  toast.action?.run()
+                  dismissToast()
+                }}
+              >
+                {toast.action.label}
+              </button>
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
