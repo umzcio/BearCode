@@ -54,13 +54,16 @@ function dirName(path: string): string {
   return path.slice(0, Math.max(0, path.length - name.length - 1))
 }
 
-// Renderer-side classification for the Preview/Diff default -- main isn't
-// importable from the renderer, so this mirrors src/main/preview/classify.ts's
-// rendered-preview extensions rather than importing it. Code files keep
-// defaulting to the Diff/Monaco view -- they're already highlighted there;
-// Preview is still reachable via the toggle for them.
+// Which formats DEFAULT to the rendered Preview instead of the Diff/source
+// view. Only genuinely-binary/rich formats belong here: their raw bytes are
+// meaningless as "source", so rendering is the only sensible default. Code and
+// text formats (html, md, csv, json, ...) DEFAULT to the Diff/Monaco view --
+// this is a code-review pane, and reviewing an html/md artifact means reading
+// the source. Preview is still one click away via the per-file toggle for them.
+// (main isn't importable from the renderer, so this lives here rather than
+// importing src/main/preview/classify.ts, which can still *render* every kind.)
 const isBinaryPreview = (p: string): boolean =>
-  /\.(png|jpe?g|gif|webp|bmp|svg|pdf|docx|xlsx|html?|md|markdown|csv|json)$/i.test(p)
+  /\.(png|jpe?g|gif|webp|bmp|svg|pdf|docx|xlsx)$/i.test(p)
 
 interface ReviewComment {
   id: number
