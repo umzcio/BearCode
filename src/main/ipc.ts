@@ -22,7 +22,8 @@ import { setSettings, settingsInfo } from './settings'
 import { listAllModels } from './providers/registry'
 import { filePathFor, getDiff, revertFile } from './diffs'
 import { previewClassify } from './preview/classify'
-import { runPdfExtraction, runOfficeExtraction } from './attachments/office'
+import { runOfficeHtml, runOfficeRows } from './attachments/office'
+import { parseCsv } from './preview/csv'
 import { extractTextLane } from './attachments/extract'
 import * as db from './db'
 import { jailPath } from './orchestrator/fsBackend'
@@ -188,11 +189,16 @@ export function registerIpc(): void {
     const path = filePathFor(fileId)
     if (path) void shell.openPath(path)
   })
-  // E9: read-only rendered preview of a file's real content (path from the DB
-  // via filePathFor -- never a raw renderer path). statSync's size-cap runs
-  // BEFORE readFileSync (D4 OOM lesson). Extraction reuses the EXISTING D4
-  // worker-guarded lanes (runPdfExtraction/runOfficeExtraction/extractTextLane)
-  // -- never re-import mammoth/exceljs/unpdf into the main event loop here.
+  // E9b: read-only IDEAL rendered preview of a file's real content (path from
+  // the DB via filePathFor -- never a raw renderer path). statSync's size-cap
+  // runs BEFORE readFileSync (D4 OOM lesson). previewClassify's kind drives
+  // the format-specific route below; docx/xlsx parsing stays behind the
+  // killable worker (runOfficeHtml/runOfficeRows) -- mammoth/exceljs/unpdf
+  // must never be re-imported into the main event loop here. docx HTML from
+  // mammoth is unsanitized -- it is only ever handed to the renderer as
+  // `{kind:'html'}`, which FilePreview renders in the existing sandboxed
+  // (allow-scripts, opaque-origin) iframe, never dangerouslySetInnerHTML'd
+  // directly into the app's own DOM.
   ipcMain.handle('bearcode:diffs:preview', async (_e, fileId: string): Promise<PreviewPayload> => {
     const path = filePathFor(fileId)
     if (!path) return { kind: 'unsupported', note: 'File not found' }
@@ -211,16 +217,43 @@ export function registerIpc(): void {
         const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
         return { kind: 'image', dataUrl: `data:${mime};base64,${bytes.toString('base64')}` }
       }
-      if (c.kind === 'html') {
-        return { kind: 'html', html: bytes.toString('utf8') }
+      if (c.kind === 'svg') {
+        return { kind: 'image', dataUrl: `data:image/svg+xml;base64,${bytes.toString('base64')}` }
       }
       if (c.kind === 'pdf') {
-        const r = await runPdfExtraction(bytes)
-        return { kind: 'text', text: r.text || '(no extractable text)', truncated: r.truncated }
+        return { kind: 'pdf', dataUrl: `data:application/pdf;base64,${bytes.toString('base64')}` }
       }
-      if (c.kind === 'office') {
-        const r = await runOfficeExtraction(c.mime as string, bytes)
-        return { kind: 'text', text: r.text || '(no extractable text)', truncated: r.truncated }
+      if (c.kind === 'docx') {
+        const html = await runOfficeHtml(bytes)
+        return html ? { kind: 'html', html } : { kind: 'unsupported', note: 'Could not render document' }
+      }
+      if (c.kind === 'xlsx') {
+        const rows = await runOfficeRows(bytes)
+        return rows
+          ? { kind: 'table', rows }
+          : { kind: 'unsupported', note: 'Could not render spreadsheet' }
+      }
+      if (c.kind === 'markdown') {
+        return { kind: 'markdown', text: bytes.toString('utf8') }
+      }
+      if (c.kind === 'csv') {
+        return { kind: 'table', rows: parseCsv(bytes.toString('utf8')) }
+      }
+      if (c.kind === 'json') {
+        const text = bytes.toString('utf8')
+        let pretty = text
+        try {
+          pretty = JSON.stringify(JSON.parse(text), null, 2)
+        } catch {
+          pretty = text
+        }
+        return { kind: 'code', text: pretty, language: 'json' }
+      }
+      if (c.kind === 'code') {
+        return { kind: 'code', text: bytes.toString('utf8'), language: c.language ?? 'plaintext' }
+      }
+      if (c.kind === 'html') {
+        return { kind: 'html', html: bytes.toString('utf8') }
       }
       const r = extractTextLane(bytes)
       return { kind: 'text', text: r.text, truncated: r.truncated }

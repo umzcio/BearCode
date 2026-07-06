@@ -36,6 +36,9 @@ function createWindow(): void {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      // Chromium's built-in PDF viewer (used by the ideal-preview PDF lane's
+      // data: iframe) only renders when plugins are enabled.
+      plugins: true,
       // Live run tickers and streamed text must keep moving while the
       // window is unfocused or minimized.
       backgroundThrottling: false

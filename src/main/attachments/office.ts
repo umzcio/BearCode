@@ -12,12 +12,17 @@ import { DOCX_MIME, XLSX_MIME } from '../../shared/types'
 import { capText, TRUNCATE_NOTICE, pdfResultFromRaw, type ExtractResult } from './extract'
 
 type ExtractionJob =
-  { kind: 'office'; mime: string; bytes: Buffer } | { kind: 'pdf'; bytes: Buffer }
+  | { kind: 'office'; mime: string; bytes: Buffer }
+  | { kind: 'pdf'; bytes: Buffer }
+  | { kind: 'office-html'; bytes: Buffer }
+  | { kind: 'office-rows'; bytes: Buffer }
 
 // Raw success payload from the worker, before cap/badge/notice post-processing.
 interface WorkerRaw {
   text: string
   totalPages?: number
+  html?: string
+  rows?: string[][]
 }
 
 function badgeFor(mime: string): string {
@@ -41,11 +46,18 @@ function runInWorker(job: ExtractionJob, timeoutMs: number): Promise<WorkerRaw |
       void worker.terminate()
       resolve(null)
     }, timeoutMs)
-    worker.once('message', (msg: { ok: boolean; text?: string; totalPages?: number }) => {
-      clearTimeout(timer)
-      void worker.terminate()
-      resolve(msg.ok ? { text: msg.text ?? '', totalPages: msg.totalPages } : null)
-    })
+    worker.once(
+      'message',
+      (msg: { ok: boolean; text?: string; totalPages?: number; html?: string; rows?: string[][] }) => {
+        clearTimeout(timer)
+        void worker.terminate()
+        resolve(
+          msg.ok
+            ? { text: msg.text ?? '', totalPages: msg.totalPages, html: msg.html, rows: msg.rows }
+            : null
+        )
+      }
+    )
     worker.once('error', () => {
       clearTimeout(timer)
       resolve(null)
@@ -82,4 +94,18 @@ export async function runOfficeExtraction(
 export async function runPdfExtraction(bytes: Buffer, timeoutMs = 10_000): Promise<ExtractResult> {
   const raw = await runInWorker({ kind: 'pdf', bytes }, timeoutMs)
   return pdfResultFromRaw(raw === null ? null : { text: raw.text, totalPages: raw.totalPages ?? 0 })
+}
+
+// Ideal-preview lanes (E9b): docx -> HTML, xlsx -> rows, both via the same
+// killable worker as the text-extraction lanes above. Null on worker
+// failure/timeout, mirroring runOfficeExtraction/runPdfExtraction's
+// fail-soft contract (the caller decides the unsupported-preview fallback).
+export async function runOfficeHtml(bytes: Buffer, timeoutMs = 10_000): Promise<string | null> {
+  const raw = await runInWorker({ kind: 'office-html', bytes }, timeoutMs)
+  return raw?.html ?? null
+}
+
+export async function runOfficeRows(bytes: Buffer, timeoutMs = 10_000): Promise<string[][] | null> {
+  const raw = await runInWorker({ kind: 'office-rows', bytes }, timeoutMs)
+  return raw?.rows ?? null
 }
