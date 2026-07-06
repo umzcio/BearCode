@@ -57,7 +57,8 @@ function dirName(path: string): string {
 // Renderer-side classification for the Preview/Diff default -- main isn't
 // importable from the renderer, so this mirrors src/main/preview/classify.ts's
 // binary extensions rather than importing it.
-const isBinaryPreview = (p: string): boolean => /\.(png|jpe?g|gif|webp|bmp|pdf|docx|xlsx)$/i.test(p)
+const isBinaryPreview = (p: string): boolean =>
+  /\.(png|jpe?g|gif|webp|bmp|pdf|docx|xlsx|html?)$/i.test(p)
 
 interface ReviewComment {
   id: number

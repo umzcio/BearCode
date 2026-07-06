@@ -26,6 +26,20 @@ export function FilePreview({ fileId }: { fileId: string }): React.JSX.Element {
   const payload = loaded?.fileId === fileId ? loaded.payload : null
 
   if (!payload) return <div className="file-preview loading">Loading preview…</div>
+  if (payload.kind === 'html')
+    return (
+      <div className="file-preview html">
+        {/* Rendered in a sandboxed, opaque-origin iframe: scripts run isolated
+            (no same-origin, no parent access) so previewing agent-authored
+            HTML is safe. Self-contained pages (inline CSS/JS) render fully. */}
+        <iframe
+          className="file-preview-frame"
+          title="preview"
+          sandbox="allow-scripts"
+          srcDoc={payload.html}
+        />
+      </div>
+    )
   if (payload.kind === 'image')
     return (
       <div className="file-preview image">

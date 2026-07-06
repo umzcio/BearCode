@@ -16,7 +16,7 @@ describe('previewClassify', () => {
     expect(x.mime).toMatch(/sheet/)
   })
   it('everything else is text', () => {
-    expect(previewClassify('/w/index.html').kind).toBe('text')
+    expect(previewClassify('/w/index.html').kind).toBe('html')
     expect(previewClassify('/w/app.ts').kind).toBe('text')
     expect(previewClassify('/w/notes').kind).toBe('text')
   })
