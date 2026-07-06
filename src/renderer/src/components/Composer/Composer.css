@@ -40,18 +40,6 @@
   align-items: center;
   gap: 8px;
 }
-.model-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-}
-.model-dot-ready {
-  background: var(--success, #46c46a);
-}
-.model-dot-missing {
-  background: var(--border);
-}
 
 .mic-btn {
   background: rgba(255, 255, 255, 0.05);
