@@ -20,6 +20,7 @@ import { setSettings, settingsInfo } from './settings'
 import { listAllModels } from './providers/registry'
 import { filePathFor, getDiff, revertFile } from './diffs'
 import * as db from './db'
+import { jailPath } from './orchestrator/fsBackend'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
 import { suggestFiles, manualRuleInfos } from './orchestrator/mentionSuggest'
@@ -181,6 +182,16 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:diffs:open', (_e, fileId: string) => {
     const path = filePathFor(fileId)
     if (path) void shell.openPath(path)
+  })
+  // E10: Cmd-click a file reference (DiffCard row / Changes pane tab) to open
+  // it in the OS default app. jailPath throws if the resolved path escapes
+  // the conversation's workspace root -- NEVER shell.openPath a raw
+  // renderer-supplied path.
+  ipcMain.handle('bearcode:shell:open-file', (_e, conversationId: string, path: string) => {
+    const meta = db.getConversationMeta(conversationId)
+    if (!meta?.projectPath) throw new Error('No workspace folder for this conversation')
+    const abs = jailPath(meta.projectPath, path)
+    void shell.openPath(abs)
   })
   ipcMain.handle('bearcode:tools:approve', (_e, callId: string, approved: boolean) => {
     resolveApprovalOrchestrator(callId, approved)

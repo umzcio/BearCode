@@ -66,6 +66,10 @@ const bearcode: BearcodeApi = {
     revert: (fileId: string) => ipcRenderer.invoke('bearcode:diffs:revert', fileId),
     open: (fileId: string) => ipcRenderer.invoke('bearcode:diffs:open', fileId)
   },
+  shell: {
+    openFile: (conversationId: string, path: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:shell:open-file', conversationId, path)
+  },
   tools: {
     approve: (callId: string, approved: boolean) =>
       ipcRenderer.invoke('bearcode:tools:approve', callId, approved)

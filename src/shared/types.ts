@@ -509,6 +509,12 @@ export interface BearcodeApi {
     revert(fileId: string): Promise<void>
     open(fileId: string): Promise<void>
   }
+  // E10: Cmd-click a file reference (DiffCard row / Changes pane tab) to open
+  // it in the OS default app. Jail-validated in main against the
+  // conversation's workspace root (see ipc.ts's 'bearcode:shell:open-file').
+  shell: {
+    openFile(conversationId: string, path: string): Promise<void>
+  }
   tools: {
     approve(callId: string, approved: boolean): Promise<void>
   }
