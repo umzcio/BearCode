@@ -14,6 +14,7 @@ import type {
   PermissionMode,
   PermissionRulesInfo,
   PlanReviewResolveResult,
+  PreviewPayload,
   Project,
   ProviderId,
   RunState
@@ -64,7 +65,9 @@ const bearcode: BearcodeApi = {
   diffs: {
     get: (diffId: string) => ipcRenderer.invoke('bearcode:diffs:get', diffId),
     revert: (fileId: string) => ipcRenderer.invoke('bearcode:diffs:revert', fileId),
-    open: (fileId: string) => ipcRenderer.invoke('bearcode:diffs:open', fileId)
+    open: (fileId: string) => ipcRenderer.invoke('bearcode:diffs:open', fileId),
+    previewFile: (fileId: string): Promise<PreviewPayload> =>
+      ipcRenderer.invoke('bearcode:diffs:preview', fileId)
   },
   shell: {
     openFile: (conversationId: string, path: string): Promise<void> =>

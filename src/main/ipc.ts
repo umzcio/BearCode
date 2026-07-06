@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { statSync, readFileSync } from 'fs'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
   AddRuleInput,
@@ -9,6 +10,7 @@ import type {
   Event,
   ManualRuleInfo,
   PingResult,
+  PreviewPayload,
   ProviderId,
   RunState
 } from '../shared/types'
@@ -19,6 +21,9 @@ import { addUserRule, deleteUserRule, listRulesInfo, setBuiltinDisabled } from '
 import { setSettings, settingsInfo } from './settings'
 import { listAllModels } from './providers/registry'
 import { filePathFor, getDiff, revertFile } from './diffs'
+import { previewClassify } from './preview/classify'
+import { runPdfExtraction, runOfficeExtraction } from './attachments/office'
+import { extractTextLane } from './attachments/extract'
 import * as db from './db'
 import { jailPath } from './orchestrator/fsBackend'
 import { loadAgentsContent } from './agentsDir'
@@ -182,6 +187,39 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:diffs:open', (_e, fileId: string) => {
     const path = filePathFor(fileId)
     if (path) void shell.openPath(path)
+  })
+  // E9: read-only rendered preview of a file's real content (path from the DB
+  // via filePathFor -- never a raw renderer path). statSync's size-cap runs
+  // BEFORE readFileSync (D4 OOM lesson). Extraction reuses the EXISTING D4
+  // worker-guarded lanes (runPdfExtraction/runOfficeExtraction/extractTextLane)
+  // -- never re-import mammoth/exceljs/unpdf into the main event loop here.
+  ipcMain.handle('bearcode:diffs:preview', async (_e, fileId: string): Promise<PreviewPayload> => {
+    const path = filePathFor(fileId)
+    if (!path) return { kind: 'unsupported', note: 'File not found' }
+    let size = 0
+    try {
+      size = statSync(path).size
+    } catch {
+      return { kind: 'unsupported', note: 'File not found' }
+    }
+    if (size > 10 * 1024 * 1024) return { kind: 'unsupported', note: 'File too large to preview' }
+    const bytes = readFileSync(path)
+    const c = previewClassify(path)
+    if (c.kind === 'image') {
+      const ext = (path.split('.').pop() ?? 'png').toLowerCase()
+      const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
+      return { kind: 'image', dataUrl: `data:${mime};base64,${bytes.toString('base64')}` }
+    }
+    if (c.kind === 'pdf') {
+      const r = await runPdfExtraction(bytes)
+      return { kind: 'text', text: r.text || '(no extractable text)', truncated: r.truncated }
+    }
+    if (c.kind === 'office') {
+      const r = await runOfficeExtraction(c.mime as string, bytes)
+      return { kind: 'text', text: r.text || '(no extractable text)', truncated: r.truncated }
+    }
+    const r = extractTextLane(bytes)
+    return { kind: 'text', text: r.text, truncated: r.truncated }
   })
   // E10: Cmd-click a file reference (DiffCard row / Changes pane tab) to open
   // it in the OS default app. jailPath throws if the resolved path escapes
