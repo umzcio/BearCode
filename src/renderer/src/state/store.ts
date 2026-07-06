@@ -128,7 +128,7 @@ interface AppState {
   // browsing is pane-local state), so an already-open pane needs an explicit
   // signal to override local browsing.
   auxPaneOpenTick: number
-  toast: string | null
+  toast: { message: string; action?: { label: string; run: () => void } } | null
   // The slash menu's read model (D2 design 6.1), re-fetched on menu open.
   commands: CommandEntry[]
   // /resume is a pure UI action (D2 design 6.2): it opens this picker rather
@@ -211,7 +211,8 @@ interface AppState {
   addArtifactComment(artifactId: string, quote: string | null, body: string): Promise<void>
   resolvePlanReview(callId: string, proceed: boolean, message?: string): Promise<boolean>
   closeReview(): void
-  showToast(message: string): void
+  showToast(message: string, action?: { label: string; run: () => void }): void
+  dismissToast(): void
   refreshCommands(): void
   setResumePickerOpen(open: boolean): void
   suggestFiles(query: string): void
@@ -682,6 +683,13 @@ export const useAppStore = create<AppState>((set, get) => {
     setArchived: (id, archived) => {
       patchConvo(id, { archived })
       void window.bearcode.conversations.setArchived(id, archived).catch(() => {})
+      // Archiving is easy to fumble — offer an Undo (Antigravity parity).
+      if (archived) {
+        get().showToast('Conversation archived', {
+          label: 'Undo',
+          run: () => get().setArchived(id, false)
+        })
+      }
     },
     renameConversation: (id, title) => {
       patchConvo(id, { title })
@@ -826,10 +834,16 @@ export const useAppStore = create<AppState>((set, get) => {
 
     closeReview: () => set({ auxSelection: null, reviewFocusPath: null }),
 
-    showToast: (message) => {
+    showToast: (message, action) => {
       if (toastTimer) clearTimeout(toastTimer)
-      set({ toast: message })
-      toastTimer = setTimeout(() => set({ toast: null }), 1800)
+      set({ toast: { message, action } })
+      // Action toasts (e.g. archive Undo) linger so there's time to click;
+      // plain notices auto-dismiss quickly.
+      toastTimer = setTimeout(() => set({ toast: null }), action ? 6000 : 1800)
+    },
+    dismissToast: () => {
+      if (toastTimer) clearTimeout(toastTimer)
+      set({ toast: null })
     },
 
     // Menu-open paced (design 3.1's cache already backs the main-side loader,
