@@ -7,6 +7,8 @@ type ConvoLike = {
   title: string
   updatedAt: number
   createdAt: number
+  pinned: boolean
+  archived: boolean
 }
 
 export type SidebarGroup = (
@@ -25,6 +27,7 @@ const DEFAULT_OPTS: GroupOpts = { groupBy: 'project', sort: 'updated' }
 function sortIds(ids: string[], convos: Record<string, ConvoLike | undefined>, sort: GroupOpts['sort']): string[] {
   const withConvo = ids.map((id) => convos[id]).filter((c): c is ConvoLike => c != null)
   const sorted = [...withConvo].sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
     if (sort === 'alpha') return a.title.localeCompare(b.title)
     if (sort === 'created') return b.createdAt - a.createdAt
     return b.updatedAt - a.updatedAt
@@ -43,7 +46,7 @@ export function groupConversations(
   opts: GroupOpts = DEFAULT_OPTS
 ): SidebarGroup[] {
   if (opts.groupBy === 'none') {
-    const ids = order.filter((id) => convos[id] != null)
+    const ids = order.filter((id) => convos[id] != null && !convos[id]!.archived)
     return [{ kind: 'all', convoIds: sortIds(ids, convos, opts.sort) }]
   }
   const groups: SidebarGroup[] = []
@@ -58,6 +61,7 @@ export function groupConversations(
   for (const id of order) {
     const convo = convos[id]
     if (!convo) continue
+    if (convo.archived) continue
     if (convo.projectId && projectGroups.has(convo.projectId)) {
       projectGroups.get(convo.projectId)!.convoIds.push(id)
       continue
