@@ -146,6 +146,12 @@ export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 // default (see AppSettings.defaultPermissionMode validation in settings.ts).
 export type PermissionMode = 'ask' | 'accept-edits' | 'plan' | 'auto' | 'bypass'
 
+// Per-conversation reasoning effort (E6). 'adaptive' sends NO effort param
+// (model self-paces — today's behavior); the five tiers map to the provider's
+// reasoning knob where supported (Anthropic-native this phase). 'xhigh' shows
+// as "Extra" in the UI. See planning/2026-07-05-e1e6-effort-composer-design.md.
+export type EffortLevel = 'adaptive' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
 export type PermissionRuleEffect = 'allow' | 'deny' | 'ask'
 
 export type PermissionAction = 'command' | 'edit'
@@ -359,6 +365,10 @@ export interface ConversationMeta {
   // Pinned Manual rules (.agents rule names). Always [] until the D3 @ menu
   // ships a way to pin them; persisted per conversation in active_rules.
   activeRules: string[]
+  // Per-conversation reasoning effort + thinking toggle (E6). Resolved from the
+  // effort/thinking columns, falling back to the settings defaults (db toMeta).
+  effort: EffortLevel
+  thinking: boolean
 }
 
 // ---- Diffs ----
@@ -393,6 +403,10 @@ export interface AppSettings {
   // Whether submit_plan holds plans for user review or proceeds immediately
   // (artifacts design 3.3). Read live at each submit call.
   artifactReviewPolicy: ArtifactReviewPolicy
+  // Global defaults new conversations inherit for the E6 effort/thinking control.
+  // No Settings UI this phase; present for consistency + future use.
+  defaultEffort: EffortLevel
+  defaultThinking: boolean
 }
 
 export interface SettingsInfo extends AppSettings {
@@ -487,6 +501,8 @@ export interface BearcodeApi {
     delete(id: string): Promise<void>
     clear(): Promise<void>
     setMode(id: string, mode: PermissionMode): Promise<void>
+    setEffort(id: string, effort: EffortLevel): Promise<void>
+    setThinking(id: string, thinking: boolean): Promise<void>
   }
   permissions: {
     addRule(rule: AddRuleInput): Promise<void>
