@@ -4,6 +4,7 @@ import { Home } from './components/Home'
 import { ConversationView } from './components/ConversationView'
 import { AuxiliaryPane } from './components/AuxiliaryPane'
 import { SettingsModal } from './components/Settings/SettingsModal'
+import { SearchModal } from './components/Search/SearchModal'
 import { RoarBear } from './components/brand/RoarBear'
 import { Hint } from './components/Hint'
 import { IconPanel } from './components/icons'
@@ -63,6 +64,10 @@ function App(): React.JSX.Element {
           e.preventDefault()
           s.toggleProjectMenu()
           break
+        case 'k':
+          e.preventDefault()
+          s.toggleSearch()
+          break
         case 'l': {
           e.preventDefault()
           const ta = document.querySelector<HTMLTextAreaElement>('.composer textarea')
@@ -101,6 +106,7 @@ function App(): React.JSX.Element {
         {view.kind === 'scheduled' ? <ScheduledView /> : null}
         {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}
         <SettingsModal />
+        <SearchModal />
       </div>
       <AuxiliaryPane />
       {toast ? <div className="toast">{toast}</div> : null}
