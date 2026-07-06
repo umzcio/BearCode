@@ -40,8 +40,15 @@ export function EffortPicker(): React.JSX.Element {
 
   return (
     <div className="effort-picker" ref={rootRef}>
-      <Hint label="Reasoning effort" side="top" disabled={open}>
-        <button className="pill-btn" onClick={() => setOpen((o) => !o)}>
+      <Hint
+        label={effortEnabled ? 'Reasoning effort' : 'Effort is not adjustable for this model'}
+        side="top"
+        disabled={open}
+      >
+        <button
+          className={'pill-btn' + (effortEnabled ? '' : ' effort-inert')}
+          onClick={() => setOpen((o) => !o)}
+        >
           <span>{EFFORT_LABELS[effort]}</span>
           <span className="chev">
             <IconChevronDown />
