@@ -191,3 +191,16 @@
   background: var(--bg-active);
   color: var(--red);
 }
+
+.convo .move-proj {
+  display: none;
+  font-size: 11px;
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  max-width: 84px;
+  flex-shrink: 0;
+}
+.convo:hover .move-proj {
+  display: block;
+}

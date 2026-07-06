@@ -2,6 +2,7 @@ import { useAppStore } from '../../state/store'
 import { relativeAge } from '../../lib/time'
 import bearMark from '../../assets/bear.svg'
 import { Hint } from '../Hint'
+import { groupConversations } from './grouping'
 import {
   IconChevronLeft,
   IconChevronRight,
@@ -29,16 +30,11 @@ export function Sidebar(): React.JSX.Element {
   const deleteConvo = useAppStore((s) => s.deleteConvo)
   const openSettings = useAppStore((s) => s.openSettings)
   const showToast = useAppStore((s) => s.showToast)
+  const projects = useAppStore((s) => s.projects)
+  const createProject = useAppStore((s) => s.createProject)
+  const assignConversationProject = useAppStore((s) => s.assignConversationProject)
 
-  // Conversations grouped by project, keeping creation order within groups.
-  const groups: { label: string; convoIds: string[] }[] = []
-  for (const id of convoOrder) {
-    const convo = conversations[id]
-    if (!convo) continue
-    const group = groups.find((g) => g.label === convo.projectLabel)
-    if (group) group.convoIds.push(id)
-    else groups.push({ label: convo.projectLabel, convoIds: [id] })
-  }
+  const groups = groupConversations(convoOrder, conversations, projects)
 
   return (
     <div className={'sidebar' + (collapsed ? ' collapsed' : '')}>
@@ -84,7 +80,14 @@ export function Sidebar(): React.JSX.Element {
           <button className="chrome-btn" title="Filter">
             <IconFilter />
           </button>
-          <button className="chrome-btn" title="New project" onClick={goHome}>
+          <button
+            className="chrome-btn"
+            title="New project"
+            onClick={() => {
+              const name = window.prompt('Project name')?.trim()
+              if (name) void createProject(name)
+            }}
+          >
             <IconFolderPlus />
           </button>
         </div>
@@ -93,21 +96,20 @@ export function Sidebar(): React.JSX.Element {
       <div className="projects-scroll">
         {groups.length === 0 ? <div className="empty-note">No conversations yet</div> : null}
         {groups.map((group) => (
-          <div className="proj-group" key={group.label}>
+          <div className="proj-group" key={group.kind === 'project' ? group.projectId : 'folder:' + group.label}>
             <div className="proj-label">
               <IconFolder />
               <span>{group.label}</span>
             </div>
             {group.convoIds.map((id) => {
               const convo = conversations[id]
+              if (!convo) return null
               const running = convo.runState === 'running' || convo.runState === 'awaiting-approval'
               const selected = view.kind === 'conversation' && view.id === id
               return (
                 <div
                   key={id}
-                  className={
-                    'convo' + (running ? ' active-run' : '') + (selected ? ' selected' : '')
-                  }
+                  className={'convo' + (running ? ' active-run' : '') + (selected ? ' selected' : '')}
                   onClick={() => openConvo(id)}
                 >
                   <span className="name">{convo.title}</span>
@@ -116,6 +118,23 @@ export function Sidebar(): React.JSX.Element {
                   ) : (
                     <>
                       <span className="age">{relativeAge(convo.updatedAt)}</span>
+                      <select
+                        className="move-proj"
+                        title="Move to project"
+                        value={convo.projectId ?? ''}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation()
+                          assignConversationProject(id, e.target.value === '' ? null : e.target.value)
+                        }}
+                      >
+                        <option value="">No project</option>
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
                       <button
                         className="del"
                         title="Delete conversation"
