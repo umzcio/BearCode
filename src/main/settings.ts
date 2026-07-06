@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { AppSettings, PermissionMode, SettingsInfo } from '../shared/types'
+import { isEffortLevel } from '../shared/effort'
 
 // The four selectable default modes (design §5). 'bypass' is per-conversation
 // only and is NEVER a valid default -- coerced away on read, rejected on write.
@@ -17,7 +18,9 @@ const DEFAULTS: AppSettings = {
   defaultModelRef: null,
   defaultPermissionMode: 'accept-edits',
   disabledBuiltins: [],
-  artifactReviewPolicy: 'request-review'
+  artifactReviewPolicy: 'request-review',
+  defaultEffort: 'adaptive',
+  defaultThinking: true
 }
 
 function settingsPath(): string {
@@ -54,6 +57,12 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   if (!SELECTABLE_PERMISSION_MODES.includes(merged.defaultPermissionMode)) {
     merged.defaultPermissionMode = 'accept-edits'
   }
+  // E6 defaults. defaultEffort coerces to 'adaptive' for anything outside the
+  // six levels (typo / downgrade). defaultThinking coerces to a strict boolean,
+  // defaulting on to preserve today's always-thinking behavior.
+  if (!isEffortLevel(merged.defaultEffort)) merged.defaultEffort = 'adaptive'
+  merged.defaultThinking =
+    (seeded as Record<string, unknown>)['defaultThinking'] === false ? false : true
   return merged
 }
 
@@ -81,6 +90,9 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
     throw new Error(
       `Invalid defaultPermissionMode: ${String(patch.defaultPermissionMode)} (not selectable)`
     )
+  }
+  if (patch.defaultEffort !== undefined && !isEffortLevel(patch.defaultEffort)) {
+    throw new Error(`Invalid defaultEffort: ${String(patch.defaultEffort)}`)
   }
   const next = { ...getSettings(), ...patch }
   cache = next
