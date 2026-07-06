@@ -33,4 +33,14 @@ describe('DisplayOptions', () => {
     fireEvent.click(screen.getByText('Environment'))
     expect(settingsSet).not.toHaveBeenCalled()
   })
+  it('shows a Show archived item and persists via settings.set when clicked', () => {
+    useAppStore.setState({
+      settings: { sidebarGroupBy: 'project', sidebarSort: 'updated', sidebarShowArchived: false } as never
+    })
+    render(<DisplayOptions />)
+    fireEvent.click(screen.getByTitle('Display options'))
+    expect(screen.getByText('Show archived')).toBeTruthy()
+    fireEvent.click(screen.getByText('Show archived'))
+    expect(settingsSet).toHaveBeenCalledWith({ sidebarShowArchived: true })
+  })
 })

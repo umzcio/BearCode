@@ -87,6 +87,13 @@ export function DisplayOptions(): React.JSX.Element {
           </div>
           <div className="display-sep" />
           <div className="menu-group-label">Filter</div>
+          <div
+            className={'menu-item' + (settings?.sidebarShowArchived ? ' selected' : '')}
+            onClick={() => void setSidebarView({ sidebarShowArchived: !settings?.sidebarShowArchived })}
+          >
+            <span>Show archived</span>
+            {settings?.sidebarShowArchived ? <span className="check">✓</span> : null}
+          </div>
           <div className="menu-item disabled">
             <span>Scheduled</span>
             <span className="badge">coming soon</span>

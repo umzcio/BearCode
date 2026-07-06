@@ -41,8 +41,9 @@ export function Sidebar(): React.JSX.Element {
   const deleteProject = useAppStore((s) => s.deleteProject)
   const groupBy = useAppStore((s) => s.settings?.sidebarGroupBy ?? 'project')
   const sort = useAppStore((s) => s.settings?.sidebarSort ?? 'updated')
+  const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
 
-  const groups = groupConversations(convoOrder, conversations, projects, { groupBy, sort })
+  const groups = groupConversations(convoOrder, conversations, projects, { groupBy, sort, showArchived })
 
   return (
     <div className={'sidebar' + (collapsed ? ' collapsed' : '')}>
@@ -184,7 +185,7 @@ export function Sidebar(): React.JSX.Element {
                         <IconPin size={13} />
                       </button>
                       <button
-                        className="row-act"
+                        className={'row-act' + (convo.archived ? ' active' : '')}
                         title={convo.archived ? 'Unarchive' : 'Archive'}
                         onClick={(e) => {
                           e.stopPropagation()
