@@ -15,7 +15,8 @@ import type {
   Event,
   PermissionAction,
   PermissionMode,
-  PermissionRule
+  PermissionRule,
+  Project
 } from '../../shared/types'
 import { getSettings } from '../settings'
 
@@ -83,6 +84,13 @@ function getDb(): Database.Database {
       created_at INTEGER NOT NULL,
       sent_at INTEGER            -- NULL until delivered on Proceed/Review (Ba2)
     );
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      color TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_artifacts_convo ON artifacts(conversation_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_events_convo ON events(conversation_id, seq);
   `)
@@ -123,6 +131,13 @@ function getDb(): Database.Database {
   }
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN thinking INTEGER`)
+  } catch {
+    // column already exists
+  }
+  // E4: the project a conversation belongs to (NULL = unassigned). Same
+  // idempotent-guarded ALTER idiom as effort/thinking above.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN project_id TEXT`)
   } catch {
     // column already exists
   }
@@ -185,6 +200,7 @@ interface ConversationRow {
   active_rules: string | null
   effort: string | null
   thinking: number | null
+  project_id: string | null
 }
 
 // A malformed active_rules value (hand-edited DB, partial write) must never
@@ -209,7 +225,8 @@ function toMeta(row: ConversationRow, fallbackTitle?: string | null): Conversati
     permissionMode: (row.permission_mode as PermissionMode) ?? getSettings().defaultPermissionMode,
     activeRules: parseActiveRules(row.active_rules),
     effort: (row.effort as EffortLevel) ?? getSettings().defaultEffort,
-    thinking: row.thinking == null ? getSettings().defaultThinking : row.thinking === 1
+    thinking: row.thinking == null ? getSettings().defaultThinking : row.thinking === 1,
+    projectId: row.project_id ?? null
   }
 }
 
@@ -225,7 +242,8 @@ export function createConversation(projectPath: string | null, id?: string): Con
     permission_mode: null,
     active_rules: null,
     effort: null,
-    thinking: null
+    thinking: null,
+    project_id: null
   }
   getDb()
     .prepare(
@@ -419,6 +437,55 @@ export function setActiveRules(conversationId: string, names: string[]): void {
   getDb()
     .prepare(`UPDATE conversations SET active_rules = ?, updated_at = ? WHERE id = ?`)
     .run(JSON.stringify(names), Date.now(), conversationId)
+}
+
+export function listProjects(): Project[] {
+  const rows = getDb()
+    .prepare(`SELECT * FROM projects ORDER BY updated_at DESC`)
+    .all() as { id: string; name: string; color: string | null; created_at: number; updated_at: number }[]
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    color: r.color ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at
+  }))
+}
+
+export function createProject(name: string, color: string | null = null): Project {
+  const now = Date.now()
+  const project: Project = { id: randomUUID(), name, color, createdAt: now, updatedAt: now }
+  getDb()
+    .prepare(
+      `INSERT INTO projects (id, name, color, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(project.id, project.name, project.color, project.createdAt, project.updatedAt)
+  return project
+}
+
+export function renameProject(id: string, name: string): void {
+  getDb()
+    .prepare(`UPDATE projects SET name = ?, updated_at = ? WHERE id = ?`)
+    .run(name, Date.now(), id)
+}
+
+// Unassign the project's conversations, then delete the project — one
+// transaction so a conversation can never point at a deleted project id.
+export function deleteProject(id: string): void {
+  const database = getDb()
+  database.transaction(() => {
+    database
+      .prepare(`UPDATE conversations SET project_id = NULL, updated_at = ? WHERE project_id = ?`)
+      .run(Date.now(), id)
+    database.prepare(`DELETE FROM projects WHERE id = ?`).run(id)
+  })()
+}
+
+export function setConversationProject(conversationId: string, projectId: string | null): void {
+  getDb()
+    .prepare(`UPDATE conversations SET project_id = ?, updated_at = ? WHERE id = ?`)
+    .run(projectId, Date.now(), conversationId)
 }
 
 export interface RuleRow {
