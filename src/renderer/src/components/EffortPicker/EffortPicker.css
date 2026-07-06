@@ -1,6 +1,11 @@
 .effort-picker {
   position: relative;
 }
+/* On a model whose effort isn't adjustable (non-Anthropic), the pill still
+   shows the stored tier but is muted so it doesn't read as active. */
+.pill-btn.effort-inert {
+  opacity: 0.55;
+}
 .effort-menu {
   bottom: 40px;
   right: 0;
