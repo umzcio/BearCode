@@ -15,6 +15,7 @@ import type {
   PermissionMode,
   PermissionRulesInfo,
   PickedAttachmentWire,
+  Project,
   ProviderId,
   ProviderModels,
   RunState,
@@ -32,6 +33,7 @@ export interface Convo {
   permissionMode: PermissionMode
   effort: EffortLevel
   thinking: boolean
+  projectId: string | null
   updatedAt: number
   loaded: boolean
   events: Event[]
@@ -69,6 +71,7 @@ function fromMeta(meta: ConversationMeta): Convo {
     permissionMode: meta.permissionMode,
     effort: meta.effort,
     thinking: meta.thinking,
+    projectId: meta.projectId,
     updatedAt: meta.updatedAt,
     loaded: false,
     events: [],
@@ -98,6 +101,7 @@ interface AppState {
   permissionMode: PermissionMode
   effort: EffortLevel
   thinking: boolean
+  projects: Project[]
   settings: SettingsInfo | null
   // Permissions manager read model; null until the Settings section first loads it.
   permissionRules: PermissionRulesInfo | null
@@ -167,6 +171,11 @@ interface AppState {
   setPermissionMode(mode: PermissionMode): void
   setEffort(effort: EffortLevel): void
   setThinking(thinking: boolean): void
+  refreshProjects(): Promise<void>
+  createProject(name: string): Promise<void>
+  renameProject(id: string, name: string): Promise<void>
+  deleteProject(id: string): Promise<void>
+  assignConversationProject(convoId: string, projectId: string | null): void
   togglePermMenu(): void
   pickWorkspace(): Promise<void>
   setWorkspace(path: string | null): void
@@ -286,6 +295,7 @@ export const useAppStore = create<AppState>((set, get) => {
     permissionMode: 'accept-edits',
     effort: 'adaptive',
     thinking: true,
+    projects: [],
     settings: null,
     permissionRules: null,
     workspacePath: null,
@@ -354,6 +364,7 @@ export const useAppStore = create<AppState>((set, get) => {
         const conversations: Record<string, Convo> = {}
         for (const meta of metas) conversations[meta.id] = fromMeta(meta)
         set({ conversations, convoOrder: orderByRecency(conversations) })
+        await get().refreshProjects()
         await get().refreshProviders()
       })()
     },
@@ -608,6 +619,36 @@ export const useAppStore = create<AppState>((set, get) => {
         patchConvo(id, { thinking })
         void window.bearcode.conversations.setThinking(id, thinking).catch(() => {})
       }
+    },
+
+    refreshProjects: async () => {
+      const projects = await window.bearcode.projects.list()
+      set({ projects })
+    },
+    createProject: async (name) => {
+      await window.bearcode.projects.create(name)
+      await get().refreshProjects()
+    },
+    renameProject: async (id, name) => {
+      await window.bearcode.projects.rename(id, name)
+      await get().refreshProjects()
+    },
+    deleteProject: async (id) => {
+      await window.bearcode.projects.delete(id)
+      // Locally unassign so the sidebar regroups without waiting on a reload.
+      set((s) => {
+        const conversations = { ...s.conversations }
+        for (const cid of Object.keys(conversations)) {
+          if (conversations[cid].projectId === id) {
+            conversations[cid] = { ...conversations[cid], projectId: null }
+          }
+        }
+        return { conversations, projects: s.projects.filter((p) => p.id !== id) }
+      })
+    },
+    assignConversationProject: (convoId, projectId) => {
+      patchConvo(convoId, { projectId })
+      void window.bearcode.conversations.setProject(convoId, projectId).catch(() => {})
     },
 
     togglePermMenu: () => set((s) => ({ permMenuTick: s.permMenuTick + 1 })),

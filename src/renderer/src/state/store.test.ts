@@ -48,10 +48,18 @@ const conversations = {
   setMode: vi.fn(() => Promise.resolve()),
   setEffort: vi.fn(() => Promise.resolve()),
   setThinking: vi.fn(() => Promise.resolve()),
+  setProject: vi.fn(() => Promise.resolve()),
   get: vi.fn(() => Promise.resolve([])),
   clear: vi.fn(() => Promise.resolve())
 }
 const run = { start: vi.fn(() => Promise.resolve()), cancel: vi.fn(() => Promise.resolve()) }
+
+const projects = {
+  list: vi.fn(() => Promise.resolve([])),
+  create: vi.fn(() => Promise.resolve({ id: 'p1', name: 'A', color: null, createdAt: 1, updatedAt: 1 })),
+  rename: vi.fn(() => Promise.resolve()),
+  delete: vi.fn(() => Promise.resolve())
+}
 
 const attachments = {
   pick: vi.fn(() => Promise.resolve({ picked: [], errors: [] })),
@@ -89,7 +97,8 @@ const convoMeta: ConversationMeta = {
   permissionMode: 'accept-edits',
   activeRules: [],
   effort: 'adaptive',
-  thinking: true
+  thinking: true,
+  projectId: null
 }
 
 const convo = (over: Partial<Convo> = {}): Convo => ({
@@ -105,6 +114,7 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   runState: 'idle',
   effort: 'adaptive',
   thinking: true,
+  projectId: null,
   ...over
 })
 
@@ -118,7 +128,8 @@ beforeEach(() => {
       commands,
       artifacts,
       mentions,
-      attachments
+      attachments,
+      projects
     } as unknown as BearcodeApi
   })
   useAppStore.setState({
@@ -593,5 +604,34 @@ describe('effort/thinking store actions', () => {
     useAppStore.getState().openConvo('c1')
     expect(useAppStore.getState().effort).toBe('low')
     expect(useAppStore.getState().thinking).toBe(false)
+  })
+})
+
+describe('projects store actions', () => {
+  it('refreshProjects populates from IPC', async () => {
+    ;(window.bearcode.projects.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { id: 'p1', name: 'A', color: null, createdAt: 1, updatedAt: 1 }
+    ])
+    await useAppStore.getState().refreshProjects()
+    expect(useAppStore.getState().projects).toHaveLength(1)
+  })
+  it('createProject persists + refreshes', async () => {
+    await useAppStore.getState().createProject('Campus')
+    expect(window.bearcode.projects.create).toHaveBeenCalledWith('Campus')
+  })
+  it('assignConversationProject updates the convo + persists', async () => {
+    useAppStore.setState({ conversations: { c1: convo() } })
+    await useAppStore.getState().assignConversationProject('c1', 'p1')
+    expect(useAppStore.getState().conversations.c1.projectId).toBe('p1')
+    expect(window.bearcode.conversations.setProject).toHaveBeenCalledWith('c1', 'p1')
+  })
+  it('deleteProject unassigns local convos', async () => {
+    useAppStore.setState({
+      projects: [{ id: 'p1', name: 'A', color: null, createdAt: 1, updatedAt: 1 }],
+      conversations: { c1: convo({ projectId: 'p1' }) }
+    })
+    await useAppStore.getState().deleteProject('p1')
+    expect(useAppStore.getState().conversations.c1.projectId).toBe(null)
+    expect(window.bearcode.projects.delete).toHaveBeenCalledWith('p1')
   })
 })
