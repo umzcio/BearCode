@@ -27,6 +27,14 @@
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
 }
+/* Guard: an icon with no explicit size has no intrinsic width in a flex row
+   and would balloon to fill the modal — pin it. */
+.search-input-row svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--text-dim);
+}
 .search-input {
   flex: 1;
   background: transparent;

@@ -78,7 +78,7 @@ function SearchModalContent(): React.JSX.Element {
     <div className="search-backdrop" onClick={close}>
       <div className="search-modal" onClick={(e) => e.stopPropagation()}>
         <div className="search-input-row">
-          <IconSearch />
+          <IconSearch size={16} />
           <input
             ref={inputRef}
             className="search-input"

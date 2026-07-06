@@ -522,10 +522,6 @@ export function Composer({
           </button>
         </div>
         <div className="controls-right">
-          <span
-            className={'model-dot' + (modelReady ? ' model-dot-ready' : ' model-dot-missing')}
-            title={modelReady ? 'Model ready' : 'No API key for the selected model'}
-          />
           <ContextMeter />
           <ModelPicker />
           <EffortPicker />
