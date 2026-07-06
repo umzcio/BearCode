@@ -13,6 +13,7 @@ import type {
   RunState
 } from '../shared/types'
 import { isPermissionMode } from '../shared/permissionMode'
+import { isEffortLevel } from '../shared/effort'
 import { keyStatus, setKey } from './keys'
 import { addUserRule, deleteUserRule, listRulesInfo, setBuiltinDisabled } from './permissions'
 import { setSettings, settingsInfo } from './settings'
@@ -250,6 +251,18 @@ export function registerIpc(): void {
       throw new Error(`Invalid permission mode: ${String(mode)}`)
     }
     db.setPermissionMode(id, mode)
+  })
+  ipcMain.handle('bearcode:conversations:set-effort', (_e, id: string, effort: unknown) => {
+    if (!isEffortLevel(effort)) {
+      throw new Error(`Invalid effort: ${String(effort)}`)
+    }
+    db.setEffort(id, effort)
+  })
+  ipcMain.handle('bearcode:conversations:set-thinking', (_e, id: string, thinking: unknown) => {
+    if (typeof thinking !== 'boolean') {
+      throw new Error(`Invalid thinking: ${String(thinking)}`)
+    }
+    db.setThinking(id, thinking)
   })
   ipcMain.handle('bearcode:conversations:clear', () => {
     clearRunsOrchestrator()

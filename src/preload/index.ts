@@ -7,6 +7,7 @@ import type {
   BearcodeApi,
   CommandRef,
   ConversationMeta,
+  EffortLevel,
   Event,
   MentionRef,
   ModelRef,
@@ -85,7 +86,11 @@ const bearcode: BearcodeApi = {
     delete: (id: string) => ipcRenderer.invoke('bearcode:conversations:delete', id),
     clear: () => ipcRenderer.invoke('bearcode:conversations:clear'),
     setMode: (id: string, mode: PermissionMode): Promise<void> =>
-      ipcRenderer.invoke('bearcode:conversations:set-mode', id, mode)
+      ipcRenderer.invoke('bearcode:conversations:set-mode', id, mode),
+    setEffort: (id: string, effort: EffortLevel): Promise<void> =>
+      ipcRenderer.invoke('bearcode:conversations:set-effort', id, effort),
+    setThinking: (id: string, thinking: boolean): Promise<void> =>
+      ipcRenderer.invoke('bearcode:conversations:set-thinking', id, thinking)
   },
   permissions: {
     addRule: (rule: AddRuleInput): Promise<void> =>
