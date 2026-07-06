@@ -4,9 +4,10 @@ import { groupConversations } from './grouping'
 const proj = (id: string, name: string, updatedAt = 0) => ({
   id, name, color: null, createdAt: 0, updatedAt
 })
-const c = (id: string, projectId: string | null, projectLabel: string, extra: { title?: string; updatedAt?: number; createdAt?: number } = {}) => ({
+const c = (id: string, projectId: string | null, projectLabel: string, extra: { title?: string; updatedAt?: number; createdAt?: number; pinned?: boolean; archived?: boolean } = {}) => ({
   id, projectId, projectLabel,
-  title: extra.title ?? id, updatedAt: extra.updatedAt ?? 0, createdAt: extra.createdAt ?? 0
+  title: extra.title ?? id, updatedAt: extra.updatedAt ?? 0, createdAt: extra.createdAt ?? 0,
+  pinned: extra.pinned ?? false, archived: extra.archived ?? false
 })
 
 describe('groupConversations', () => {
@@ -58,5 +59,21 @@ describe('groupConversations opts', () => {
     const convos = { a: c('a', null, 'repoX') }
     const g = groupConversations(['a'], convos, [])
     expect(g).toEqual([{ kind: 'folder', label: 'repoX', convoIds: ['a'] }])
+  })
+  it('an archived conversation appears in no group', () => {
+    const convos = {
+      a: c('a', null, 'repoX', { archived: true }),
+      b: c('b', 'p1', 'repoX', { archived: true })
+    }
+    const g = groupConversations(['a', 'b'], convos, [proj('p1', 'Alpha')])
+    expect(g).toEqual([{ kind: 'project', projectId: 'p1', label: 'Alpha', convoIds: [] }])
+  })
+  it('a pinned conversation sorts before a more-recently-updated non-pinned one', () => {
+    const convos = {
+      a: c('a', null, 'repoX', { updatedAt: 1, pinned: true }),
+      b: c('b', null, 'repoX', { updatedAt: 2 })
+    }
+    const g = groupConversations(['a', 'b'], convos, [], { groupBy: 'none', sort: 'updated' })
+    expect(g[0].convoIds).toEqual(['a', 'b'])
   })
 })

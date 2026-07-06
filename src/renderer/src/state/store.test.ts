@@ -49,6 +49,8 @@ const conversations = {
   setEffort: vi.fn(() => Promise.resolve()),
   setThinking: vi.fn(() => Promise.resolve()),
   setProject: vi.fn(() => Promise.resolve()),
+  setPinned: vi.fn(() => Promise.resolve()),
+  setArchived: vi.fn(() => Promise.resolve()),
   get: vi.fn(() => Promise.resolve([])),
   clear: vi.fn(() => Promise.resolve())
 }
@@ -98,7 +100,9 @@ const convoMeta: ConversationMeta = {
   activeRules: [],
   effort: 'adaptive',
   thinking: true,
-  projectId: null
+  projectId: null,
+  pinned: false,
+  archived: false
 }
 
 const convo = (over: Partial<Convo> = {}): Convo => ({
@@ -116,6 +120,8 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   effort: 'adaptive',
   thinking: true,
   projectId: null,
+  pinned: false,
+  archived: false,
   ...over
 })
 
@@ -634,5 +640,28 @@ describe('projects store actions', () => {
     await useAppStore.getState().deleteProject('p1')
     expect(useAppStore.getState().conversations.c1.projectId).toBe(null)
     expect(window.bearcode.projects.delete).toHaveBeenCalledWith('p1')
+  })
+})
+
+describe('pin/archive + newConversationInProject store actions', () => {
+  it('setPinned updates the convo + persists', () => {
+    useAppStore.setState({ conversations: { c1: convo() } })
+    useAppStore.getState().setPinned('c1', true)
+    expect(useAppStore.getState().conversations.c1.pinned).toBe(true)
+    expect(window.bearcode.conversations.setPinned).toHaveBeenCalledWith('c1', true)
+  })
+  it('setArchived updates the convo + persists', () => {
+    useAppStore.setState({ conversations: { c1: convo() } })
+    useAppStore.getState().setArchived('c1', true)
+    expect(useAppStore.getState().conversations.c1.archived).toBe(true)
+    expect(window.bearcode.conversations.setArchived).toHaveBeenCalledWith('c1', true)
+  })
+  it('newConversationInProject creates, assigns, and opens the conversation', async () => {
+    useAppStore.setState({ conversations: {}, view: { kind: 'home' } })
+    await useAppStore.getState().newConversationInProject('p1')
+    expect(window.bearcode.conversations.create).toHaveBeenCalledWith(null)
+    expect(window.bearcode.conversations.setProject).toHaveBeenCalledWith('c1', 'p1')
+    expect(useAppStore.getState().conversations.c1.projectId).toBe('p1')
+    expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
   })
 })

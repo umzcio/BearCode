@@ -34,6 +34,8 @@ export interface Convo {
   effort: EffortLevel
   thinking: boolean
   projectId: string | null
+  pinned: boolean
+  archived: boolean
   updatedAt: number
   createdAt: number
   loaded: boolean
@@ -73,6 +75,8 @@ function fromMeta(meta: ConversationMeta): Convo {
     effort: meta.effort,
     thinking: meta.thinking,
     projectId: meta.projectId,
+    pinned: meta.pinned,
+    archived: meta.archived,
     updatedAt: meta.updatedAt,
     createdAt: meta.createdAt,
     loaded: false,
@@ -183,6 +187,9 @@ interface AppState {
   renameProject(id: string, name: string): Promise<void>
   deleteProject(id: string): Promise<void>
   assignConversationProject(convoId: string, projectId: string | null): void
+  setPinned(id: string, pinned: boolean): void
+  setArchived(id: string, archived: boolean): void
+  newConversationInProject(projectId: string): Promise<void>
   togglePermMenu(): void
   pickWorkspace(): Promise<void>
   setWorkspace(path: string | null): void
@@ -665,6 +672,23 @@ export const useAppStore = create<AppState>((set, get) => {
     assignConversationProject: (convoId, projectId) => {
       patchConvo(convoId, { projectId })
       void window.bearcode.conversations.setProject(convoId, projectId).catch(() => {})
+    },
+    setPinned: (id, pinned) => {
+      patchConvo(id, { pinned })
+      void window.bearcode.conversations.setPinned(id, pinned).catch(() => {})
+    },
+    setArchived: (id, archived) => {
+      patchConvo(id, { archived })
+      void window.bearcode.conversations.setArchived(id, archived).catch(() => {})
+    },
+    newConversationInProject: async (projectId) => {
+      const meta = await window.bearcode.conversations.create(null)
+      await window.bearcode.conversations.setProject(meta.id, projectId)
+      const convo = { ...fromMeta(meta), projectId, loaded: true }
+      set((s) => {
+        const conversations = { ...s.conversations, [meta.id]: convo }
+        return { conversations, convoOrder: orderByRecency(conversations), view: { kind: 'conversation', id: meta.id } }
+      })
     },
 
     togglePermMenu: () => set((s) => ({ permMenuTick: s.permMenuTick + 1 })),

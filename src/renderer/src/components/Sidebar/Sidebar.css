@@ -204,3 +204,37 @@
 .convo:hover .move-proj {
   display: block;
 }
+
+.row-act {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  align-items: center;
+}
+.convo:hover .row-act {
+  display: flex;
+}
+.row-act:hover {
+  background: var(--bg-active);
+  color: var(--text);
+}
+.row-act.active {
+  display: flex;
+  color: var(--accent);
+}
+
+.proj-actions {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.proj-group:hover .proj-actions {
+  display: flex;
+}

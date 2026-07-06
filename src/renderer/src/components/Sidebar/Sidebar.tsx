@@ -5,12 +5,14 @@ import { Hint } from '../Hint'
 import { groupConversations } from './grouping'
 import { DisplayOptions } from './DisplayOptions'
 import {
+  IconArchive,
   IconClock,
   IconClose,
   IconFolder,
   IconFolderPlus,
   IconHistory,
   IconPanel,
+  IconPin,
   IconPlus,
   IconSearch,
   IconSettings
@@ -33,6 +35,11 @@ export function Sidebar(): React.JSX.Element {
   const projects = useAppStore((s) => s.projects)
   const createProject = useAppStore((s) => s.createProject)
   const assignConversationProject = useAppStore((s) => s.assignConversationProject)
+  const setPinned = useAppStore((s) => s.setPinned)
+  const setArchived = useAppStore((s) => s.setArchived)
+  const newConversationInProject = useAppStore((s) => s.newConversationInProject)
+  const renameProject = useAppStore((s) => s.renameProject)
+  const deleteProject = useAppStore((s) => s.deleteProject)
   const groupBy = useAppStore((s) => s.settings?.sidebarGroupBy ?? 'project')
   const sort = useAppStore((s) => s.settings?.sidebarSort ?? 'updated')
 
@@ -109,6 +116,43 @@ export function Sidebar(): React.JSX.Element {
               <div className="proj-label">
                 <IconFolder />
                 <span>{group.label}</span>
+                {group.kind === 'project' ? (
+                  <span className="proj-actions">
+                    <button
+                      className="row-act"
+                      title="New conversation in project"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void newConversationInProject(group.projectId)
+                      }}
+                    >
+                      <IconPlus size={13} />
+                    </button>
+                    <button
+                      className="row-act"
+                      title="Rename project"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const n = window.prompt('Rename project', group.label)?.trim()
+                        if (n) void renameProject(group.projectId, n)
+                      }}
+                    >
+                      <IconSettings size={13} />
+                    </button>
+                    <button
+                      className="row-act"
+                      title="Delete project"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (window.confirm(`Delete project "${group.label}"? Conversations are kept.`)) {
+                          void deleteProject(group.projectId)
+                        }
+                      }}
+                    >
+                      <IconClose size={12} />
+                    </button>
+                  </span>
+                ) : null}
               </div>
             ) : null}
             {group.convoIds.map((id) => {
@@ -122,6 +166,7 @@ export function Sidebar(): React.JSX.Element {
                   className={'convo' + (running ? ' active-run' : '') + (selected ? ' selected' : '')}
                   onClick={() => openConvo(id)}
                 >
+                  {convo.pinned ? <IconPin size={11} /> : null}
                   <span className="name">{convo.title}</span>
                   {running ? (
                     <span className="dot" />
@@ -145,6 +190,26 @@ export function Sidebar(): React.JSX.Element {
                           </option>
                         ))}
                       </select>
+                      <button
+                        className={'row-act' + (convo.pinned ? ' active' : '')}
+                        title={convo.pinned ? 'Unpin' : 'Pin'}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setPinned(id, !convo.pinned)
+                        }}
+                      >
+                        <IconPin size={13} />
+                      </button>
+                      <button
+                        className="row-act"
+                        title={convo.archived ? 'Unarchive' : 'Archive'}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setArchived(id, !convo.archived)
+                        }}
+                      >
+                        <IconArchive size={13} />
+                      </button>
                       <button
                         className="del"
                         title="Delete conversation"

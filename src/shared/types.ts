@@ -384,6 +384,10 @@ export interface ConversationMeta {
   thinking: boolean
   // The project this conversation belongs to (E4), or null when unassigned.
   projectId: string | null
+  // Pin/archive flags (E7). Pinned conversations float to the top of their
+  // group; archived conversations are excluded from all sidebar groups.
+  pinned: boolean
+  archived: boolean
 }
 
 // ---- Diffs ----
@@ -522,6 +526,8 @@ export interface BearcodeApi {
     setEffort(id: string, effort: EffortLevel): Promise<void>
     setThinking(id: string, thinking: boolean): Promise<void>
     setProject(id: string, projectId: string | null): Promise<void>
+    setPinned(id: string, pinned: boolean): Promise<void>
+    setArchived(id: string, archived: boolean): Promise<void>
   }
   projects: {
     list(): Promise<Project[]>
