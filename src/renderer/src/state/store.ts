@@ -178,6 +178,7 @@ interface AppState {
   setSidebarView(patch: {
     sidebarGroupBy?: AppSettings['sidebarGroupBy']
     sidebarSort?: AppSettings['sidebarSort']
+    sidebarShowArchived?: AppSettings['sidebarShowArchived']
   }): Promise<void>
   setPermissionMode(mode: PermissionMode): void
   setEffort(effort: EffortLevel): void

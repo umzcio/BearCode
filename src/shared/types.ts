@@ -429,6 +429,10 @@ export interface AppSettings {
   // Sidebar Display Options (E3). Persisted per-user.
   sidebarGroupBy: 'project' | 'none'
   sidebarSort: 'updated' | 'alpha' | 'created'
+  // Show archived conversations in the sidebar (E7c). Default false: archived
+  // conversations are hidden from every group (today's behavior) until the
+  // user opts in via Display Options.
+  sidebarShowArchived: boolean
 }
 
 export interface SettingsInfo extends AppSettings {
