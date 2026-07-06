@@ -528,6 +528,7 @@ export interface BearcodeApi {
     setProject(id: string, projectId: string | null): Promise<void>
     setPinned(id: string, pinned: boolean): Promise<void>
     setArchived(id: string, archived: boolean): Promise<void>
+    rename(id: string, title: string): Promise<void>
   }
   projects: {
     list(): Promise<Project[]>

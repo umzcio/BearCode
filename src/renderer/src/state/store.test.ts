@@ -51,6 +51,7 @@ const conversations = {
   setProject: vi.fn(() => Promise.resolve()),
   setPinned: vi.fn(() => Promise.resolve()),
   setArchived: vi.fn(() => Promise.resolve()),
+  rename: vi.fn(() => Promise.resolve()),
   get: vi.fn(() => Promise.resolve([])),
   clear: vi.fn(() => Promise.resolve())
 }
@@ -655,6 +656,12 @@ describe('pin/archive + newConversationInProject store actions', () => {
     useAppStore.getState().setArchived('c1', true)
     expect(useAppStore.getState().conversations.c1.archived).toBe(true)
     expect(window.bearcode.conversations.setArchived).toHaveBeenCalledWith('c1', true)
+  })
+  it('renameConversation updates the convo + persists', () => {
+    useAppStore.setState({ conversations: { c1: convo() } })
+    useAppStore.getState().renameConversation('c1', 'New')
+    expect(useAppStore.getState().conversations.c1.title).toBe('New')
+    expect(window.bearcode.conversations.rename).toHaveBeenCalledWith('c1', 'New')
   })
   it('newConversationInProject creates, assigns, and opens the conversation', async () => {
     useAppStore.setState({ conversations: {}, view: { kind: 'home' } })

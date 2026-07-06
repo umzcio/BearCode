@@ -296,6 +296,12 @@ export function registerIpc(): void {
     if (typeof archived !== 'boolean') throw new Error(`Invalid archived: ${String(archived)}`)
     db.setArchived(id, archived)
   })
+  ipcMain.handle('bearcode:conversations:rename', (_e, id: string, title: unknown) => {
+    if (typeof title !== 'string' || title.trim().length === 0) {
+      throw new Error(`Invalid conversation title: ${String(title)}`)
+    }
+    db.setTitle(id, title.trim())
+  })
   ipcMain.handle('bearcode:conversations:clear', () => {
     clearRunsOrchestrator()
     // Prune each conversation's checkpoints before the rows are gone, so

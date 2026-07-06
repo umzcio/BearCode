@@ -1,0 +1,40 @@
+.convo-menu {
+  position: relative;
+  display: inline-flex;
+}
+.convo-menu-pop {
+  top: 22px;
+  right: 0;
+  min-width: 180px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 5px;
+  z-index: 20;
+}
+.convo-menu-pop .menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 5px;
+}
+.convo-menu-pop .menu-item.danger {
+  color: var(--danger, #ff5c5c);
+}
+.convo-menu-pop .menu-group-label {
+  text-transform: none;
+  font-weight: 500;
+  font-size: 11px;
+  padding: 6px 10px 3px;
+  color: var(--text-dim);
+}
+.convo-menu-pop .check {
+  color: var(--accent);
+  font-size: 12px;
+}
+.convo-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 5px 6px;
+}

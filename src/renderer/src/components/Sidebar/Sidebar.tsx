@@ -4,6 +4,7 @@ import bearMark from '../../assets/bear.svg'
 import { Hint } from '../Hint'
 import { groupConversations } from './grouping'
 import { DisplayOptions } from './DisplayOptions'
+import { ConvoRowMenu } from './ConvoRowMenu'
 import {
   IconArchive,
   IconClock,
@@ -28,13 +29,11 @@ export function Sidebar(): React.JSX.Element {
   const goHome = useAppStore((s) => s.goHome)
   const openScheduled = useAppStore((s) => s.openScheduled)
   const openConvo = useAppStore((s) => s.openConvo)
-  const deleteConvo = useAppStore((s) => s.deleteConvo)
   const openSettings = useAppStore((s) => s.openSettings)
   const openSearch = useAppStore((s) => s.openSearch)
   const showToast = useAppStore((s) => s.showToast)
   const projects = useAppStore((s) => s.projects)
   const createProject = useAppStore((s) => s.createProject)
-  const assignConversationProject = useAppStore((s) => s.assignConversationProject)
   const setPinned = useAppStore((s) => s.setPinned)
   const setArchived = useAppStore((s) => s.setArchived)
   const newConversationInProject = useAppStore((s) => s.newConversationInProject)
@@ -173,23 +172,7 @@ export function Sidebar(): React.JSX.Element {
                   ) : (
                     <>
                       <span className="age">{relativeAge(convo.updatedAt)}</span>
-                      <select
-                        className="move-proj"
-                        title="Move to project"
-                        value={convo.projectId ?? ''}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          e.stopPropagation()
-                          assignConversationProject(id, e.target.value === '' ? null : e.target.value)
-                        }}
-                      >
-                        <option value="">No project</option>
-                        {projects.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}
-                          </option>
-                        ))}
-                      </select>
+                      <ConvoRowMenu convoId={id} title={convo.title} projectId={convo.projectId} />
                       <button
                         className={'row-act' + (convo.pinned ? ' active' : '')}
                         title={convo.pinned ? 'Unpin' : 'Pin'}
@@ -209,16 +192,6 @@ export function Sidebar(): React.JSX.Element {
                         }}
                       >
                         <IconArchive size={13} />
-                      </button>
-                      <button
-                        className="del"
-                        title="Delete conversation"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (window.confirm(`Delete "${convo.title}"?`)) deleteConvo(id)
-                        }}
-                      >
-                        <IconClose size={12} />
                       </button>
                     </>
                   )}

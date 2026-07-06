@@ -189,6 +189,7 @@ interface AppState {
   assignConversationProject(convoId: string, projectId: string | null): void
   setPinned(id: string, pinned: boolean): void
   setArchived(id: string, archived: boolean): void
+  renameConversation(id: string, title: string): void
   newConversationInProject(projectId: string): Promise<void>
   togglePermMenu(): void
   pickWorkspace(): Promise<void>
@@ -680,6 +681,10 @@ export const useAppStore = create<AppState>((set, get) => {
     setArchived: (id, archived) => {
       patchConvo(id, { archived })
       void window.bearcode.conversations.setArchived(id, archived).catch(() => {})
+    },
+    renameConversation: (id, title) => {
+      patchConvo(id, { title })
+      void window.bearcode.conversations.rename(id, title).catch(() => {})
     },
     newConversationInProject: async (projectId) => {
       const meta = await window.bearcode.conversations.create(null)
