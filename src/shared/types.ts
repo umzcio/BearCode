@@ -413,8 +413,12 @@ export interface FileDiff {
 // diff is just a "(binary: …)" marker.
 export type PreviewPayload =
   | { kind: 'text'; text: string; truncated?: boolean }
+  | { kind: 'markdown'; text: string }
+  | { kind: 'code'; text: string; language: string }
   | { kind: 'html'; html: string }
+  | { kind: 'table'; rows: string[][] }
   | { kind: 'image'; dataUrl: string }
+  | { kind: 'pdf'; dataUrl: string }
   | { kind: 'unsupported'; note: string }
 
 // ---- Settings ----
