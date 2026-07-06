@@ -47,6 +47,10 @@
   width: 14px;
   height: 14px;
 }
+.review-tab.cmd-openable {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .code-mark {
   font-family: var(--mono);
   font-size: 10px;

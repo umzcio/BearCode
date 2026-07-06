@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import type { Event, FileDiff, FileDiffFile } from '@shared/types'
 import { useAppStore, type AuxSelection } from '../state/store'
+import { useCmdHeld } from '../lib/useCmdHeld'
 import { ArtifactViewer } from './ArtifactViewer'
 import { deriveRailEntries, versionsOfType, type ArtifactEvent } from '../lib/auxRail'
 import { ARTIFACT_STATUS_LABELS, ARTIFACT_TYPE_LABELS } from './events/ArtifactCard'
@@ -198,6 +199,8 @@ function DiffViewer({ diffId }: { diffId: string }): React.JSX.Element {
   const conversations = useAppStore((s) => s.conversations)
   const send = useAppStore((s) => s.send)
   const showToast = useAppStore((s) => s.showToast)
+  const openFile = useAppStore((s) => s.openFile)
+  const cmdHeld = useCmdHeld()
   const [diff, setDiff] = useState<FileDiff | null>(null)
   // 'overview' | 'review' | a file path (that file's full-code tab)
   const [tab, setTab] = useState<string>('review')
@@ -295,8 +298,14 @@ function DiffViewer({ diffId }: { diffId: string }): React.JSX.Element {
         {files.map((f) => (
           <button
             key={f.fileId}
-            className={'review-tab' + (tab === f.path ? ' active' : '')}
-            onClick={() => setTab(f.path)}
+            className={
+              'review-tab' + (tab === f.path ? ' active' : '') + (cmdHeld ? ' cmd-openable' : '')
+            }
+            title={cmdHeld ? 'Cmd-click to open' : undefined}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey) openFile(f.path)
+              else setTab(f.path)
+            }}
           >
             <span className="code-mark">{'</>'}</span>
             {baseName(f.path)}

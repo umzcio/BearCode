@@ -277,6 +277,14 @@
   color: var(--red);
   margin-left: 6px;
 }
+.cmd-openable {
+  cursor: pointer;
+}
+.cmd-openable .fname,
+.cmd-openable {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 
 /* --- Error card --- */
 .error-card {
