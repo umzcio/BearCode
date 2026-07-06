@@ -76,4 +76,36 @@ describe('groupConversations opts', () => {
     const g = groupConversations(['a', 'b'], convos, [], { groupBy: 'none', sort: 'updated' })
     expect(g[0].convoIds).toEqual(['a', 'b'])
   })
+  it('showArchived false (default) excludes archived conversations (groupBy none)', () => {
+    const convos = {
+      a: c('a', null, 'repoX'),
+      b: c('b', null, 'repoX', { archived: true })
+    }
+    const g = groupConversations(['a', 'b'], convos, [], { groupBy: 'none', sort: 'updated', showArchived: false })
+    expect(g[0].convoIds).toEqual(['a'])
+  })
+  it('showArchived true includes archived conversations (groupBy none)', () => {
+    const convos = {
+      a: c('a', null, 'repoX'),
+      b: c('b', null, 'repoX', { archived: true })
+    }
+    const g = groupConversations(['a', 'b'], convos, [], { groupBy: 'none', sort: 'updated', showArchived: true })
+    expect(g[0].convoIds.sort()).toEqual(['a', 'b'])
+  })
+  it('showArchived false (default) excludes archived conversations (groupBy project)', () => {
+    const convos = {
+      a: c('a', 'p1', 'repoX'),
+      b: c('b', 'p1', 'repoX', { archived: true })
+    }
+    const g = groupConversations(['a', 'b'], convos, [proj('p1', 'Alpha')], { groupBy: 'project', sort: 'updated', showArchived: false })
+    expect(g[0].convoIds).toEqual(['a'])
+  })
+  it('showArchived true includes archived conversations (groupBy project)', () => {
+    const convos = {
+      a: c('a', 'p1', 'repoX'),
+      b: c('b', 'p1', 'repoX', { archived: true })
+    }
+    const g = groupConversations(['a', 'b'], convos, [proj('p1', 'Alpha')], { groupBy: 'project', sort: 'updated', showArchived: true })
+    expect(g[0].convoIds.sort()).toEqual(['a', 'b'])
+  })
 })

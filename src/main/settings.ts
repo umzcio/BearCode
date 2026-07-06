@@ -22,7 +22,8 @@ const DEFAULTS: AppSettings = {
   defaultEffort: 'adaptive',
   defaultThinking: true,
   sidebarGroupBy: 'project',
-  sidebarSort: 'updated'
+  sidebarSort: 'updated',
+  sidebarShowArchived: false
 }
 
 function settingsPath(): string {
@@ -69,6 +70,7 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   const sortOk = ['updated', 'alpha', 'created']
   if (!groupByOk.includes(merged.sidebarGroupBy)) merged.sidebarGroupBy = 'project'
   if (!sortOk.includes(merged.sidebarSort)) merged.sidebarSort = 'updated'
+  merged.sidebarShowArchived = (seeded as Record<string, unknown>)['sidebarShowArchived'] === true
   return merged
 }
 

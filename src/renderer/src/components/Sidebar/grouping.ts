@@ -20,9 +20,10 @@ export type SidebarGroup = (
 export type GroupOpts = {
   groupBy: 'project' | 'none'
   sort: 'updated' | 'alpha' | 'created'
+  showArchived: boolean
 }
 
-const DEFAULT_OPTS: GroupOpts = { groupBy: 'project', sort: 'updated' }
+const DEFAULT_OPTS: GroupOpts = { groupBy: 'project', sort: 'updated', showArchived: false }
 
 function sortIds(ids: string[], convos: Record<string, ConvoLike | undefined>, sort: GroupOpts['sort']): string[] {
   const withConvo = ids.map((id) => convos[id]).filter((c): c is ConvoLike => c != null)
@@ -46,7 +47,7 @@ export function groupConversations(
   opts: GroupOpts = DEFAULT_OPTS
 ): SidebarGroup[] {
   if (opts.groupBy === 'none') {
-    const ids = order.filter((id) => convos[id] != null && !convos[id]!.archived)
+    const ids = order.filter((id) => convos[id] != null && (opts.showArchived || !convos[id]!.archived))
     return [{ kind: 'all', convoIds: sortIds(ids, convos, opts.sort) }]
   }
   const groups: SidebarGroup[] = []
@@ -61,7 +62,7 @@ export function groupConversations(
   for (const id of order) {
     const convo = convos[id]
     if (!convo) continue
-    if (convo.archived) continue
+    if (!opts.showArchived && convo.archived) continue
     if (convo.projectId && projectGroups.has(convo.projectId)) {
       projectGroups.get(convo.projectId)!.convoIds.push(id)
       continue
