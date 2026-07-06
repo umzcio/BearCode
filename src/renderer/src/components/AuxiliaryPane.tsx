@@ -386,19 +386,20 @@ function DiffViewer({ diffId }: { diffId: string }): React.JSX.Element {
                     <span className="code-mark">{'</>'}</span>
                     <span className="fname">{baseName(f.path)}</span>
                     <span className="fdir">{dirName(f.path)}</span>
+                    <button
+                      className="mini-btn file-toggle"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setPreviewMode((m) => ({ ...m, [f.fileId]: !showPreview }))
+                      }}
+                    >
+                      {showPreview ? 'Diff' : 'Preview'}
+                    </button>
                     <span className="head-actions" onClick={(e) => e.stopPropagation()}>
                       {f.state === 'reverted' ? (
                         <span className="file-state reverted">Reverted</span>
                       ) : (
                         <>
-                          <button
-                            className="mini-btn"
-                            onClick={() =>
-                              setPreviewMode((m) => ({ ...m, [f.fileId]: !showPreview }))
-                            }
-                          >
-                            {showPreview ? 'Diff' : 'Preview'}
-                          </button>
                           <button
                             className="mini-btn"
                             onClick={() => void window.bearcode.diffs.open(f.fileId)}

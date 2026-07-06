@@ -190,8 +190,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.file-section-head .head-actions {
+/* The Preview/Diff toggle is a PRIMARY control — always visible (not
+   hover-gated like Open/Revert), pinned right, so you can always get back to
+   the code from a rendered preview. */
+.file-section-head .file-toggle {
   margin-left: auto;
+  flex-shrink: 0;
+}
+.file-section-head .head-actions {
   display: flex;
   align-items: center;
   gap: 6px;
