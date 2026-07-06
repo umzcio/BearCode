@@ -136,6 +136,16 @@ export function parseModelRef(ref: string): { provider: ProviderId; modelId: str
   return { provider, modelId }
 }
 
+// Whether a provider accepts a native PDF document block (D5 hybrid routing).
+// True for the first-party providers whose LangChain client + endpoint accept
+// a {type:'file'} block; false for OpenAI-*compatible* endpoints (OpenRouter,
+// and any Kimi/other baseURL config, which format like OpenAI but the endpoint
+// rejects file/input_file) and Ollama. Non-capable providers get the
+// extract-to-text sidecar fallback, which is universally accepted.
+export function supportsNativePdf(provider: ProviderId): boolean {
+  return provider === 'anthropic' || provider === 'google' || provider === 'openai'
+}
+
 export async function listAllModels(): Promise<ProviderModels[]> {
   const status = keyStatus()
   return Promise.all(

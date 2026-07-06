@@ -28,6 +28,7 @@ import type {
   ProviderId,
   ToolName
 } from '../../shared/types'
+import { PDF_MIME } from '../../shared/types'
 import type { RunSink } from '../sink'
 import {
   appendEvent,
@@ -42,7 +43,7 @@ import {
   setPermissionMode,
   touchedFilesFor
 } from '../db'
-import { readAttachmentBase64 } from '../attachments/ingest'
+import { readAttachmentBase64, readAttachmentSidecar } from '../attachments/ingest'
 import { loadAgentsContent } from '../agentsDir'
 import type { Workflow } from '../agentsDir/types'
 import {
@@ -54,7 +55,7 @@ import {
   mergeActiveRules,
   withoutModelRules
 } from './contextAssembly'
-import { parseModelRef } from '../providers/registry'
+import { parseModelRef, supportsNativePdf } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
 import { makeModel } from './models'
@@ -330,38 +331,97 @@ export function textOfMessage(content: unknown): string {
   return out
 }
 
-// Build the human-message `content` for one turn (D4 design 8). With no
-// attachments it stays a plain string (unchanged behavior). With attachments it
-// becomes an ordered content-block array: the text block first, then one image
-// block per attachment whose bytes still resolve. The image block is the v0.3
-// standard Base64ContentBlock -- { type:'image', source_type:'base64',
-// mime_type, data } -- which @langchain/core's isDataContentBlock routes through
-// each provider's convertToProviderContentBlock (verified for Anthropic,
-// OpenAI, Google; Global Constraints). An attachment whose file is gone
-// (readBase64 -> null) is silently skipped rather than sending a broken block.
-// PURE: the caller injects readBase64 so this needs no fs/electron. Exported
-// for tests.
+// Per-file 256 KB caps live at ingest (extract.ts); this is the turn-time
+// AGGREGATE budget across ALL inlined sections, so N large attachments can't
+// overflow a small-context model (Haiku 200K / local). Tunable.
+export const MAX_INLINE_TEXT_BYTES_TOTAL = 512 * 1024
+
+type UserContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source_type: 'base64'; mime_type: string; data: string }
+  | {
+      type: 'file'
+      source_type: 'base64'
+      mime_type: string
+      data: string
+      metadata: { filename: string }
+    }
+
+// A single titled, fenced text section for an inlined attachment (D5 §1b/1e).
+function titledSection(a: AttachmentRef, text: string): string {
+  const label = a.kind === 'office' ? 'Attached document' : 'Attached file'
+  return `## ${label}: ${a.name}\n\`\`\`\n${text}\n\`\`\``
+}
+
+// Build the human-message `content` for one turn (D5). Lane-aware but keeps the
+// string-vs-array contract: with no image/native-pdf blocks it returns a plain
+// string (unchanged D4 behaviour for text-only turns). text/office/pdf-fallback
+// attachments are inlined as titled sections (subject to the aggregate budget);
+// images ride native image blocks; PDFs on a capable provider ride a native
+// {type:'file'} document block with metadata.filename (required by OpenAI, and
+// carried harmlessly for Anthropic/Google). PURE: readers are injected.
 export function buildUserMessageContent(
   modelText: string,
   attachments: AttachmentRef[],
-  readBase64: (a: AttachmentRef) => string | null
-):
-  | string
-  | Array<
-      | { type: 'text'; text: string }
-      | { type: 'image'; source_type: 'base64'; mime_type: string; data: string }
-    > {
-  if (attachments.length === 0) return modelText
-  const blocks: Array<
-    | { type: 'text'; text: string }
-    | { type: 'image'; source_type: 'base64'; mime_type: string; data: string }
-  > = [{ type: 'text', text: modelText }]
+  readBytesBase64: (a: AttachmentRef) => string | null,
+  readSidecarText: (a: AttachmentRef) => string | null,
+  opts: { pdfNative: boolean }
+): string | UserContentBlock[] {
+  // 1. Inlined text sections (text, office, and pdf when NOT going native),
+  //    in attach order, capped to the aggregate budget.
+  let usedBytes = 0
+  let budgetHit = false
+  const sections: string[] = []
   for (const a of attachments) {
-    const data = readBase64(a)
-    if (data === null) continue
-    blocks.push({ type: 'image', source_type: 'base64', mime_type: a.mime, data })
+    const inlineThisPdf = a.kind === 'pdf' && !opts.pdfNative
+    if (a.kind !== 'text' && a.kind !== 'office' && !inlineThisPdf) continue
+    const text = readSidecarText(a)
+    if (text === null) {
+      sections.push(`(could not read ${a.name})`)
+      continue
+    }
+    if (budgetHit) {
+      sections.push(`## ${a.name}: … (omitted: inlined-content budget reached)`)
+      continue
+    }
+    const remaining = MAX_INLINE_TEXT_BYTES_TOTAL - usedBytes
+    const bytes = Buffer.byteLength(text, 'utf8')
+    if (bytes > remaining) {
+      const clipped = Buffer.from(text, 'utf8').subarray(0, Math.max(0, remaining)).toString('utf8')
+      sections.push(
+        titledSection(a, clipped) + '\n… (truncated: inlined-content budget reached)'
+      )
+      budgetHit = true
+      usedBytes = MAX_INLINE_TEXT_BYTES_TOTAL
+      continue
+    }
+    sections.push(titledSection(a, text))
+    usedBytes += bytes
   }
-  return blocks
+  const augmentedText = sections.length > 0 ? `${modelText}\n\n${sections.join('\n\n')}` : modelText
+
+  // 2. Native multimodal blocks: images, and native PDFs on capable providers.
+  const mediaBlocks: UserContentBlock[] = []
+  for (const a of attachments) {
+    if (a.kind === 'image') {
+      const data = readBytesBase64(a)
+      if (data === null) continue
+      mediaBlocks.push({ type: 'image', source_type: 'base64', mime_type: a.mime, data })
+    } else if (a.kind === 'pdf' && opts.pdfNative) {
+      const data = readBytesBase64(a)
+      if (data === null) continue
+      mediaBlocks.push({
+        type: 'file',
+        source_type: 'base64',
+        mime_type: PDF_MIME,
+        data,
+        metadata: { filename: a.name }
+      })
+    }
+  }
+
+  if (mediaBlocks.length === 0) return augmentedText
+  return [{ type: 'text', text: augmentedText }, ...mediaBlocks]
 }
 
 // Pure decision for the answer-text bridge: emit only when handleLLMEnd
@@ -1976,8 +2036,13 @@ export async function runGraph(opts: {
         : 'Proceed.'
 
   try {
-    const content = buildUserMessageContent(modelText, attachments, (a) =>
-      readAttachmentBase64(conversationId, a.id)
+    const pdfNative = supportsNativePdf(parseModelRef(modelRef).provider)
+    const content = buildUserMessageContent(
+      modelText,
+      attachments,
+      (a) => readAttachmentBase64(conversationId, a.id),
+      (a) => readAttachmentSidecar(conversationId, a.id),
+      { pdfNative }
     )
     const result = await drive(agent, { messages: [{ role: 'user', content }] }, ctx)
     if (await settleTurn(agent, result, ctx)) return { paused: true }
