@@ -27,9 +27,17 @@ import {
   createPlanArtifact,
   createWalkthroughArtifact
 } from '../artifacts/store'
-import { evaluateCommandForConversation, resolveConversationMode } from '../permissions'
+import {
+  evaluateCommandForConversation,
+  evaluateEditForConversation,
+  resolveConversationMode
+} from '../permissions'
 import { loadAgentsContent } from '../agentsDir'
 import type { RunSink } from '../sink'
+import { jailPath, relForGate } from './fsBackend'
+import { generateDocument, type DocFormat } from '../docgen/generate'
+import { docGenGateMessage } from '../docgen/gate'
+import { recordBinaryCreation } from '../diffs'
 
 const commandSchema = z.object({
   command: z.string().describe('Shell command to run in the workspace folder.'),
@@ -212,10 +220,15 @@ function runCommand(
   })
 }
 
-// buildTools(projectPath, conversationId, sink) returns the LangChain tool array passed to
-// createDeepAgent's `tools` option (in addition to its always-on built-ins).
+// buildTools(projectPath, conversationId, sink, diffGroupId) returns the LangChain tool array
+// passed to createDeepAgent's `tools` option (in addition to its always-on built-ins).
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- Zod-inferred `tool()` return type is not writable by hand without narrowing away the actual generic
-export function buildTools(projectPath: string, conversationId: string, sink: RunSink) {
+export function buildTools(
+  projectPath: string,
+  conversationId: string,
+  sink: RunSink,
+  diffGroupId: string
+) {
   const runCommandTool = tool(
     async (
       { command, timeoutMs }: { command: string; timeoutMs?: number },
@@ -511,5 +524,59 @@ export function buildTools(projectPath: string, conversationId: string, sink: Ru
     }
   )
 
-  return [runCommandTool, submitPlanTool, submitWalkthroughTool, activateRuleTool]
+  const docSchema = z.object({
+    path: z.string().describe('Workspace-relative path for the new file, e.g. "report.docx".'),
+    format: z.enum(['docx', 'xlsx', 'pdf']).describe('Document format to generate.'),
+    content: z
+      .string()
+      .describe(
+        'The document content as markdown-ish text: "# " / "## " become headings; ' +
+          'for xlsx, tab-separated lines become columns.'
+      )
+  })
+  const generateDocumentTool = tool(
+    async ({
+      path,
+      format,
+      content
+    }: {
+      path: string
+      format: DocFormat
+      content: string
+    }): Promise<string> => {
+      if (!projectPath) {
+        return 'No folder is open. Open a folder first so I can create files there.'
+      }
+      const abs = jailPath(projectPath, path)
+      const rel = relForGate(projectPath, abs)
+      const decision = evaluateEditForConversation(rel, conversationId, projectPath)
+      const decline = docGenGateMessage(decision, resolveConversationMode(conversationId))
+      if (decline) return decline
+      let buffer: Buffer
+      try {
+        buffer = await generateDocument(format, content)
+      } catch (err) {
+        return `Failed to generate ${format}: ${err instanceof Error ? err.message : String(err)}`
+      }
+      const marker = `(binary: ${format}, ${buffer.length.toLocaleString()} bytes — preview coming in E9)`
+      recordBinaryCreation(diffGroupId, conversationId, abs, buffer, marker)
+      return `Created ${format} file at ${rel} (${buffer.length.toLocaleString()} bytes).`
+    },
+    {
+      name: 'generate_document',
+      description:
+        'Create a real docx, xlsx, or pdf file in the workspace from text content. Use this ' +
+        'when asked to produce/convert a document (e.g. "make a PDF", "convert this to docx") ' +
+        'instead of writing raw bytes with write_file. Respects the current permission mode.',
+      schema: docSchema
+    }
+  )
+
+  return [
+    runCommandTool,
+    submitPlanTool,
+    submitWalkthroughTool,
+    activateRuleTool,
+    generateDocumentTool
+  ]
 }

@@ -71,7 +71,7 @@ interface InvokableTool {
   invoke: (input: unknown, config?: unknown) => Promise<string>
 }
 const allTools = (sink: RunSink): InvokableTool[] =>
-  buildTools('/tmp', 'convo', sink) as unknown as InvokableTool[]
+  buildTools('/tmp', 'convo', sink, 'group-1') as unknown as InvokableTool[]
 
 beforeEach(() => {
   clearDeniedReplayPins('convo')
@@ -209,7 +209,13 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
 
   it('registers both tools alongside run_command', () => {
     const names = allTools(makeSink()).map((t) => t.name)
-    expect(names).toEqual(['run_command', 'submit_plan', 'submit_walkthrough', 'activate_rule'])
+    expect(names).toEqual([
+      'run_command',
+      'submit_plan',
+      'submit_walkthrough',
+      'activate_rule',
+      'generate_document'
+    ])
   })
 
   it('always-proceed: returns the approval copy and emits+persists one approved artifact event', async () => {

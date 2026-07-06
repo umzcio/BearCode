@@ -69,6 +69,10 @@ export function orchestratorSystemPrompt(projectPath: string | null, isPlan = fa
       '- When the implementation is finished, call submit_walkthrough to summarize what changed.'
     )
   }
+  lines.push(
+    '',
+    '- To create a docx, xlsx, or pdf file, call generate_document (never hand-write binary bytes with write_file). If no folder is open, tell the user to open one first instead of pasting file contents.'
+  )
   lines.push('', 'Keep any visible reasoning concise. Do not use em dashes in your replies.')
   return lines.join('\n')
 }

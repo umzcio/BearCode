@@ -80,6 +80,40 @@ export function stageFile(
   }
 }
 
+// Like stageFile but for a BINARY file (docx/xlsx/pdf from E8's generate_document):
+// writes the raw Buffer to disk and records a diff row whose after_text is a
+// human-readable marker (NOT the bytes) so the text-diff viewer never garbles
+// it. status is always 'created' (generate_document only creates). E9 will add
+// a real binary preview keyed off the row's path.
+export function recordBinaryCreation(
+  groupId: string,
+  conversationId: string,
+  absPath: string,
+  buffer: Buffer,
+  marker: string
+): FileDiffFile {
+  const fileId = randomUUID()
+  mkdirSync(dirname(absPath), { recursive: true })
+  writeFileSync(absPath, buffer)
+  getDb()
+    .prepare(
+      `INSERT INTO diffs (id, conversation_id, path, before_text, after_text, state, group_id)
+       VALUES (?, ?, ?, ?, ?, 'applied', ?)`
+    )
+    .run(fileId, conversationId, absPath, '', marker, groupId)
+  console.log(`[bearcode] file created: ${absPath} (${buffer.length} bytes)`)
+  return {
+    fileId,
+    path: absPath,
+    status: 'created',
+    beforeText: '',
+    afterText: marker,
+    additions: 1,
+    deletions: 0,
+    state: 'applied'
+  }
+}
+
 interface DiffRow {
   id: string
   conversation_id: string

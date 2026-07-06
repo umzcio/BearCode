@@ -391,9 +391,7 @@ export function buildUserMessageContent(
     const bytes = Buffer.byteLength(text, 'utf8')
     if (bytes > remaining) {
       const clipped = Buffer.from(text, 'utf8').subarray(0, Math.max(0, remaining)).toString('utf8')
-      sections.push(
-        titledSection(a, clipped) + '\n… (truncated: inlined-content budget reached)'
-      )
+      sections.push(titledSection(a, clipped) + '\n… (truncated: inlined-content budget reached)')
       budgetHit = true
       usedBytes = MAX_INLINE_TEXT_BYTES_TOTAL
       continue
@@ -1939,7 +1937,10 @@ function buildAgentAndContext(
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT],
     ...(backendFactory
-      ? { backend: backendFactory, tools: buildTools(projectPath as string, conversationId, sink) }
+      ? {
+          backend: backendFactory,
+          tools: buildTools(projectPath as string, conversationId, sink, diffGroupId)
+        }
       : {})
   })
   const ctx: DriveContext = {
@@ -2007,7 +2008,15 @@ export async function runGraph(opts: {
   sink.emit(conversationId, userEvent)
   appendEvent(conversationId, userEvent)
 
-  const built = buildAgentAndContext(conversationId, modelRef, userText, command, sink, signal, mentions)
+  const built = buildAgentAndContext(
+    conversationId,
+    modelRef,
+    userText,
+    command,
+    sink,
+    signal,
+    mentions
+  )
   if ('refusal' in built) {
     // REFUSAL PATH (design 5.3/11, Global Constraints, review finding): the
     // user_message above is ALREADY persisted (transcript honesty), so this
