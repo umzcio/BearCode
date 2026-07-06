@@ -109,6 +109,7 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   modelRef: 'anthropic/claude-sonnet-5',
   permissionMode: 'accept-edits',
   updatedAt: 1,
+  createdAt: 0,
   loaded: true,
   events: [],
   runState: 'idle',

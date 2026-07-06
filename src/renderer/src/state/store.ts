@@ -35,6 +35,7 @@ export interface Convo {
   thinking: boolean
   projectId: string | null
   updatedAt: number
+  createdAt: number
   loaded: boolean
   events: Event[]
   runState: ConvoRunState
@@ -73,6 +74,7 @@ function fromMeta(meta: ConversationMeta): Convo {
     thinking: meta.thinking,
     projectId: meta.projectId,
     updatedAt: meta.updatedAt,
+    createdAt: meta.createdAt,
     loaded: false,
     events: [],
     runState: 'idle'
