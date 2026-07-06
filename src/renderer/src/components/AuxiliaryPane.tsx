@@ -56,9 +56,11 @@ function dirName(path: string): string {
 
 // Renderer-side classification for the Preview/Diff default -- main isn't
 // importable from the renderer, so this mirrors src/main/preview/classify.ts's
-// binary extensions rather than importing it.
+// rendered-preview extensions rather than importing it. Code files keep
+// defaulting to the Diff/Monaco view -- they're already highlighted there;
+// Preview is still reachable via the toggle for them.
 const isBinaryPreview = (p: string): boolean =>
-  /\.(png|jpe?g|gif|webp|bmp|pdf|docx|xlsx|html?)$/i.test(p)
+  /\.(png|jpe?g|gif|webp|bmp|svg|pdf|docx|xlsx|html?|md|markdown|csv|json)$/i.test(p)
 
 interface ReviewComment {
   id: number
