@@ -459,3 +459,73 @@
   border: none;
   border-radius: 4px;
 }
+
+/* --- Model Pricing table (Models page, T6) --- */
+.pricing-intro {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+.pricing-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.pricing-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-dim);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.pricing-table th:not(:first-child),
+.pricing-table td:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pricing-table td {
+  padding: 6px 8px;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.pricing-table tr:last-child td {
+  border-bottom: none;
+}
+.pricing-model {
+  color: var(--text);
+}
+.price-src {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.price-src.synced {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 45%, transparent);
+}
+.price-src.none {
+  border: none;
+}
+.pricing-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+.pricing-actions .pill-btn {
+  border: 1px solid var(--border);
+}
+.pricing-result {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.pricing-result.err {
+  color: var(--red, #e05252);
+}
+.pricing-synced {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
