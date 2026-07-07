@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { PermissionMode, ProviderId, SettingsInfo } from '@shared/types'
+import type { ProviderId, SettingsInfo } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { ProviderIcon } from '../ProviderIcon'
 import { RoarBear } from '../brand/RoarBear'
