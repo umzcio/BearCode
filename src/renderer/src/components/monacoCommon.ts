@@ -75,6 +75,10 @@ const ARROW_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
   '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="6 11 12 5 18 11"/></svg>'
 
+const X_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+  '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>'
+
 // Hover any line for the floating blue Comment button (or click a line
 // number) to open an inline comment composer, Antigravity style. The composer
 // lives INSIDE a Monaco view zone, so it displaces the lines below rather than
@@ -128,8 +132,18 @@ export function attachCommenting(
     send.title = 'Add comment'
     send.innerHTML = ARROW_SVG
     send.disabled = true
-    bar.append(plus, ta, send)
+    const close = document.createElement('button')
+    close.className = 'comment-bar-close'
+    close.title = 'Cancel (Esc)'
+    close.innerHTML = X_SVG
+    bar.append(plus, ta, send, close)
     dom.appendChild(bar)
+
+    // The bar sits inside a Monaco view zone; without this, Monaco's own mouse
+    // handler swallows the mousedown and steals focus, so clicking (back) into
+    // the input does nothing. Stop propagation (not default) so the textarea
+    // still focuses and the caret still lands where you click.
+    bar.addEventListener('mousedown', (e) => e.stopPropagation())
 
     // Keep a reference to mutate heightInPx and re-layout once measured, so the
     // zone hugs the bar exactly (it grows as the input wraps).
@@ -155,6 +169,7 @@ export function attachCommenting(
       closeComposer()
     }
     send.onclick = submit
+    close.onclick = closeComposer
     ta.oninput = (): void => {
       send.disabled = ta.value.trim().length === 0
       send.classList.toggle('ready', ta.value.trim().length > 0)

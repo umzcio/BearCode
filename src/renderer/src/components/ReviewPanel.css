@@ -1089,6 +1089,27 @@
 .comment-bar-send:disabled {
   cursor: default;
 }
+.comment-bar-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.comment-bar-close svg {
+  width: 15px;
+  height: 15px;
+}
+.comment-bar-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
 
 /* --- Auxiliary Pane (Ba4): unified rail + version history --- */
 .artifact-rail-meta {
