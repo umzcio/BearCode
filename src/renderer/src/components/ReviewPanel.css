@@ -40,7 +40,7 @@
   color: var(--text);
 }
 .review-tab.active {
-  background: #2c2c2c;
+  background: var(--border);
   color: var(--text);
 }
 .review-tab svg {
@@ -96,7 +96,7 @@
 .turn-chip {
   display: flex;
   align-items: center;
-  background: #242424;
+  background: var(--border-soft);
   border: 1px solid var(--border-soft);
   border-radius: 9px;
   overflow: hidden;
@@ -105,7 +105,7 @@
 }
 .turn-chip-label {
   padding: 6px 10px;
-  background: #2e2e2e;
+  background: var(--bg-active);
   color: var(--text);
   font-weight: 600;
   flex-shrink: 0;
@@ -176,7 +176,7 @@
   z-index: 5;
 }
 .file-section-head:hover {
-  background: #1b1b1b;
+  background: var(--bg-window);
 }
 .file-section-head .fname {
   font-size: 14px;
@@ -376,7 +376,7 @@
   pointer-events: none;
 }
 .comment-zone {
-  background: #232323;
+  background: var(--bg-raised);
   border: 1px solid var(--border-soft);
   border-radius: 16px;
   padding: 12px;
@@ -388,7 +388,7 @@
   pointer-events: auto;
 }
 .comment-zone textarea {
-  background: #2e2e2e;
+  background: var(--bg-active);
   border: none;
   border-radius: 11px;
   color: var(--text);
@@ -459,7 +459,7 @@
   background: rgba(76, 141, 255, 0.08);
 }
 .comment-glyph {
-  background: #4c8dff;
+  background: var(--accent);
   border-radius: 3px;
   width: 5px !important;
   margin-left: 6px;
@@ -573,7 +573,7 @@
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
 }
 .comment-fab:hover {
-  background: #4c8dff;
+  background: var(--accent);
 }
 .comment-fab svg {
   width: 14px;

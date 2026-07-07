@@ -81,7 +81,7 @@
   color: #fff;
 }
 .send-btn:hover {
-  background: #5c98ff;
+  background: var(--accent-strong);
   color: #fff;
 }
 .send-btn.stop {
