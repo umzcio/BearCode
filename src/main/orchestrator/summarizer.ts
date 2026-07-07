@@ -23,9 +23,18 @@ const DEFAULT_SUMMARY_MW_NAME = 'SummarizationMiddleware'
 const TUNED_SUMMARY_MW_NAME = 'BearcodeSummarizationMiddleware'
 
 // Summaries preserve the load-bearing context and drop the rest.
-const SUMMARY_PROMPT =
+//
+// CRITICAL: the `{conversation}` token is load-bearing. deepagents'
+// createSummarizationMiddleware injects the real message text via
+// `summaryPrompt.replace('{conversation}', conversation)` (verified:
+// dist/langsmith-*.js). Without the token the model gets NO conversation
+// content and confabulates a fictional one to summarize. Keep the token, and
+// keep the "Conversation to summarize:" framing the default prompt uses.
+export const SUMMARY_PROMPT =
   'Summarize the conversation so far, preserving decisions, facts, file paths, ' +
-  'and open tasks; omit chit-chat.'
+  'and open tasks; omit chit-chat.\n\n' +
+  'Only use content from the conversation below — never invent details.\n\n' +
+  'Conversation to summarize:\n{conversation}\n\nSummary:'
 
 // Trigger at 85% of the real window so compaction is a safety net that fires
 // before the provider's hard context-length error. `null` when the window is

@@ -4,8 +4,19 @@ import {
   summaryTrigger,
   summaryKeep,
   cheapModelRef,
-  tunesSummarization
+  tunesSummarization,
+  SUMMARY_PROMPT
 } from './summarizer'
+
+describe('SUMMARY_PROMPT', () => {
+  // deepagents' createSummarizationMiddleware injects the real conversation text
+  // via `summaryPrompt.replace('{conversation}', conversation)`. Without the
+  // literal token the model receives NO conversation content and confabulates a
+  // fictional one. This guards the token that makes summarization actually work.
+  it('contains the {conversation} placeholder deepagents substitutes real messages into', () => {
+    expect(SUMMARY_PROMPT).toContain('{conversation}')
+  })
+})
 
 describe('summaryKeep', () => {
   it('force keeps only the last few messages so a small chat still compacts', () => {
