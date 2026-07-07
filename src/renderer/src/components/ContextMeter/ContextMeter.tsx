@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../state/store'
-import { conversationTokens, contextUsage, contextWindowFor } from '../../lib/contextMeter'
+import {
+  conversationTokens,
+  contextUsage,
+  contextWindowFor,
+  latestUsage
+} from '../../lib/contextMeter'
 import './ContextMeter.css'
 
 const R = 7
@@ -36,7 +41,11 @@ export function ContextMeter(): React.JSX.Element | null {
   const ctxWindow = contextWindowFor(providers, modelRef)
   if (!convo || !ctxWindow) return null
 
-  const tokens = conversationTokens(convo.events)
+  // Prefer the provider's real last-turn prompt size; fall back to the char/4
+  // estimate until any turn reports usage.
+  const measuredTokens = latestUsage(convo.events)?.lastInputTokens ?? null
+  const measured = measuredTokens !== null
+  const tokens = measured ? measuredTokens : conversationTokens(convo.events)
   const { pct, near } = contextUsage(tokens, ctxWindow)
   const state = pct >= 100 ? 'over' : near ? 'near' : ''
   const offset = CIRC * (1 - Math.min(100, pct) / 100)
@@ -46,7 +55,7 @@ export function ContextMeter(): React.JSX.Element | null {
       <button
         className={'context-ring ' + state}
         aria-label={`Context ${pct}% used`}
-        title={`~${pct}% context used`}
+        title={`${measured ? '' : '~'}${pct}% context used`}
         onClick={() => setOpen((o) => !o)}
       >
         <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true">
@@ -75,7 +84,9 @@ export function ContextMeter(): React.JSX.Element | null {
             />
           </div>
           <div className="context-pop-sub">
-            ~{tokens.toLocaleString()} of {ctxWindow.toLocaleString()} tokens (estimated)
+            {measured ? '' : '~'}
+            {tokens.toLocaleString()} of {ctxWindow.toLocaleString()} tokens (
+            {measured ? 'measured' : 'estimated'})
           </div>
         </div>
       ) : null}
