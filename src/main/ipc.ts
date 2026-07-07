@@ -12,7 +12,8 @@ import type {
   PingResult,
   PreviewPayload,
   ProviderId,
-  RunState
+  RunState,
+  TranscribeMeta
 } from '../shared/types'
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
@@ -22,6 +23,7 @@ import { setSettings, settingsInfo } from './settings'
 import { allKnownModelRefs, listAllModels } from './providers/registry'
 import { syncPricing } from './pricing/sync'
 import { filePathFor, getDiff, revertFile } from './diffs'
+import { transcribe } from './voice/transcribe'
 import { previewClassify } from './preview/classify'
 import { inlineHtmlAssets, injectPreviewNavGuard } from './preview/inlineHtml'
 import { runOfficeHtml, runOfficeRows } from './attachments/office'
@@ -496,6 +498,17 @@ export function registerIpc(): void {
       // renderer cannot silently "succeed" at disabling an id that doesn't exist.
       setBuiltinDisabled(id, disabled)
     }
+  )
+
+  // Voice input (E5): the composer records mic audio and hands the ArrayBuffer
+  // here; transcription runs MAIN-side only so the renderer never holds an API
+  // key. `meta.kind` selects the payload/backend: 'webm' (raw container →
+  // OpenAI Whisper) or 'pcm' (renderer-decoded 16 kHz mono float → local
+  // Whisper). `transcribe` hard-routes on that tag.
+  ipcMain.handle(
+    'bearcode:voice:transcribe',
+    async (_e, audio: ArrayBuffer, meta: TranscribeMeta): Promise<{ text: string }> =>
+      transcribe(audio, meta)
   )
 
   ipcMain.handle('bearcode:workspace:pick', async () => {

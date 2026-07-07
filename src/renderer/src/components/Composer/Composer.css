@@ -70,6 +70,44 @@
 .mic-btn {
   background: var(--wash);
 }
+/* Recording: accent-filled with a soft pulse so it's unmistakably live. */
+.mic-btn.recording {
+  background: var(--accent);
+  color: #fff;
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+.mic-btn.recording:hover {
+  background: var(--accent-strong);
+  color: #fff;
+}
+/* Transcribing: disabled + the icon spins to signal work in flight. */
+.mic-btn.transcribing {
+  opacity: 0.7;
+  cursor: default;
+}
+.mic-btn.transcribing svg {
+  animation: mic-spin 0.8s linear infinite;
+}
+@keyframes mic-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 50%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+}
+@keyframes mic-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Non-fatal voice error, mirroring the Settings pricing-sync inline error. */
+.composer-voice-error {
+  padding: 0 14px 10px;
+  font-size: 12px;
+  color: var(--danger, var(--red));
+}
 
 /* Model picker sits on the right with the mic, Perplexity-style. */
 .composer-controls .model-picker {
