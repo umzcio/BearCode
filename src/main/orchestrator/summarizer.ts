@@ -50,6 +50,27 @@ export function summaryTrigger(
   return trigger != null ? { type: 'tokens', value: trigger } : undefined
 }
 
+// The `keep` ContextSize: how much recent history stays verbatim after a
+// summarization. On manual "Compact now" (force) keep only the last few
+// messages, so compaction visibly folds the backlog even on a huge-window
+// model — where half the window exceeds the whole conversation and would leave
+// nothing to summarize. Otherwise keep half the conversation window in absolute
+// tokens (a fraction resolves against the SUMMARY model's window, which is too
+// small), falling back to a fraction only when the window is unknown. Pure.
+export function summaryKeep(
+  modelRef: string,
+  force: boolean
+):
+  | { type: 'messages'; value: number }
+  | { type: 'tokens'; value: number }
+  | { type: 'fraction'; value: number } {
+  if (force) return { type: 'messages', value: 4 }
+  const window = contextWindowFor(modelRef)
+  return window != null
+    ? { type: 'tokens', value: Math.floor(window * 0.5) }
+    : { type: 'fraction', value: 0.5 }
+}
+
 // The cheap fast sibling to summarize with, as a "provider/modelId" ref.
 // Providers with no curated cheap model (Ollama/OpenRouter) reuse the
 // conversation's own model. Pure — mirrors title.ts.
@@ -108,23 +129,13 @@ export function buildTunedSummarization(
   backend: AnyBackendProtocol | BackendFactory,
   force = false
 ): ReturnType<typeof createSummarizationMiddleware> {
-  const window = contextWindowFor(modelRef)
   const trigger = summaryTrigger(modelRef, force)
   const model = buildCheapSummaryModel(modelRef)
   const mw = createSummarizationMiddleware({
     backend,
     ...(model ? { model } : {}),
     ...(trigger != null ? { trigger } : {}),
-    // Keep the recent half of the CONVERSATION window verbatim, expressed in
-    // absolute tokens rather than a fraction: the middleware resolves a
-    // fraction against the SUMMARY model's window, so a small/cheap summarizer
-    // (or one lacking a token profile) would keep far too little — down to
-    // ~nothing. 0.5 * the conversation window matches the "keep recent half"
-    // intent; fall back to the fraction only when the window is unknown.
-    keep:
-      window != null
-        ? { type: 'tokens', value: Math.floor(window * 0.5) }
-        : { type: 'fraction', value: 0.5 },
+    keep: summaryKeep(modelRef, force),
     summaryPrompt: SUMMARY_PROMPT
   })
   mw.name = TUNED_SUMMARY_MW_NAME

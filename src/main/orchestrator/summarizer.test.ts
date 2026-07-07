@@ -2,9 +2,27 @@ import { describe, it, expect } from 'vitest'
 import {
   summaryTriggerTokens,
   summaryTrigger,
+  summaryKeep,
   cheapModelRef,
   tunesSummarization
 } from './summarizer'
+
+describe('summaryKeep', () => {
+  it('force keeps only the last few messages so a small chat still compacts', () => {
+    expect(summaryKeep('anthropic/claude-opus-4-8', true)).toEqual({ type: 'messages', value: 4 })
+    // force keep is window-independent (huge-window models must still compact)
+    expect(summaryKeep('ollama/llama3.2', true)).toEqual({ type: 'messages', value: 4 })
+  })
+  it('non-force keeps half the conversation window in absolute tokens', () => {
+    expect(summaryKeep('anthropic/claude-opus-4-8', false)).toEqual({
+      type: 'tokens',
+      value: 500_000
+    })
+  })
+  it('non-force falls back to a fraction when the window is unknown', () => {
+    expect(summaryKeep('ollama/llama3.2', false)).toEqual({ type: 'fraction', value: 0.5 })
+  })
+})
 
 describe('summaryTriggerTokens', () => {
   it('is 85% of a 1M Anthropic window', () => {
