@@ -93,13 +93,23 @@ export function buildTunedSummarization(
   modelRef: string,
   backend: AnyBackendProtocol | BackendFactory
 ): ReturnType<typeof createSummarizationMiddleware> {
+  const window = contextWindowFor(modelRef)
   const trigger = summaryTriggerTokens(modelRef)
   const model = buildCheapSummaryModel(modelRef)
   const mw = createSummarizationMiddleware({
     backend,
     ...(model ? { model } : {}),
     ...(trigger != null ? { trigger: { type: 'tokens', value: trigger } } : {}),
-    keep: { type: 'fraction', value: 0.5 },
+    // Keep the recent half of the CONVERSATION window verbatim, expressed in
+    // absolute tokens rather than a fraction: the middleware resolves a
+    // fraction against the SUMMARY model's window, so a small/cheap summarizer
+    // (or one lacking a token profile) would keep far too little — down to
+    // ~nothing. 0.5 * the conversation window matches the "keep recent half"
+    // intent; fall back to the fraction only when the window is unknown.
+    keep:
+      window != null
+        ? { type: 'tokens', value: Math.floor(window * 0.5) }
+        : { type: 'fraction', value: 0.5 },
     summaryPrompt: SUMMARY_PROMPT
   })
   mw.name = TUNED_SUMMARY_MW_NAME
