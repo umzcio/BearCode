@@ -44,3 +44,6 @@
   width: max-content;
   max-width: 280px;
 }
+.app-select.compact .app-select-trigger {
+  min-width: 0;
+}

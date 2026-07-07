@@ -14,12 +14,15 @@ export function Select<T extends string>({
   value,
   options,
   onChange,
-  ariaLabel
+  ariaLabel,
+  compact = false
 }: {
   value: T
   options: readonly SelectOption<T>[]
   onChange: (value: T) => void
   ariaLabel?: string
+  // compact: drop the fixed min-width for inline form rows (size to content).
+  compact?: boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -43,7 +46,7 @@ export function Select<T extends string>({
   const current = options.find((o) => o.value === value)
 
   return (
-    <div className="app-select" ref={rootRef}>
+    <div className={'app-select' + (compact ? ' compact' : '')} ref={rootRef}>
       <button
         type="button"
         className="app-select-trigger"

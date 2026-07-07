@@ -209,20 +209,17 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                   title="Default Permission Mode"
                   desc="The permission mode new conversations start in. Bypass is per-conversation only and can never be a default."
                 >
-                  <select
-                    aria-label="Default permission mode"
+                  <Select
+                    ariaLabel="Default permission mode"
                     value={settings.defaultPermissionMode}
-                    onChange={(e) =>
-                      void saveSettings({
-                        defaultPermissionMode: e.target.value as PermissionMode
-                      })
-                    }
-                  >
-                    <option value="ask">Ask permissions</option>
-                    <option value="accept-edits">Accept edits</option>
-                    <option value="plan">Plan mode</option>
-                    <option value="auto">Auto mode</option>
-                  </select>
+                    onChange={(v) => void saveSettings({ defaultPermissionMode: v })}
+                    options={[
+                      { value: 'ask', label: 'Ask permissions' },
+                      { value: 'accept-edits', label: 'Accept edits' },
+                      { value: 'plan', label: 'Plan mode' },
+                      { value: 'auto', label: 'Auto mode' }
+                    ]}
+                  />
                 </Row>
               </div>
               <div className="set-group-title">Agent Settings</div>
@@ -432,17 +429,15 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                   title="Default Model"
                   desc="The model new conversations start with. Last used keeps whatever you picked most recently."
                 >
-                  <select
+                  <Select
+                    ariaLabel="Default model"
                     value={settings.defaultModelRef ?? ''}
-                    onChange={(e) => void saveSettings({ defaultModelRef: e.target.value || null })}
-                  >
-                    <option value="">Last used</option>
-                    {allModels.map((m) => (
-                      <option key={m.ref} value={m.ref}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => void saveSettings({ defaultModelRef: v || null })}
+                    options={[
+                      { value: '', label: 'Last used' },
+                      ...allModels.map((m) => ({ value: m.ref, label: m.label }))
+                    ]}
+                  />
                 </Row>
               </div>
             </>
