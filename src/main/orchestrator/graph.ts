@@ -61,6 +61,7 @@ import { renderPlanFeedback } from '../artifacts/feedback'
 import { makeModel } from './models'
 import { orchestratorSystemPrompt } from './systemPrompt'
 import { textDeltaEvent, thinkingDeltaEvent } from './bridge'
+import { makeTurnUsage, readUsage, type TurnUsageAccumulator } from './usage'
 import { getCheckpointer } from './checkpointer'
 import { DiffFsBackend, GatedDiffFsBackend } from './fsBackend'
 import {
@@ -272,6 +273,10 @@ interface DriveContext {
   // and shared across the pause/resume split so a turn never nudges twice,
   // even if the nudge segment itself pauses on an approval and resumes.
   emptyFinalRetried: { done: boolean }
+  // Accumulates real per-call token usage across the turn (handleLLMEnd). Deduped
+  // by runId; snapshot() lands on turn_meta.usage. Shared by reference across the
+  // pause/resume split like the other boxed accumulators above.
+  turnUsage: TurnUsageAccumulator
 }
 
 // One approval card a paused segment surfaced: callId is the pending
@@ -883,7 +888,8 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
     private readonly sink: RunSink,
     private readonly answerStartedAt: { t: number | null },
     private readonly bridgedToolCalls: Map<string, { id: string; name: string; args: unknown }>,
-    private readonly bridgedAnswerText: { text: string }
+    private readonly bridgedAnswerText: { text: string },
+    private readonly turnUsage: TurnUsageAccumulator
   ) {
     super()
   }
@@ -896,6 +902,8 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
   handleLLMEnd(output: LLMResult, runId: string): void {
     const started = this.startedAt.get(runId) ?? Date.now()
     this.startedAt.delete(runId)
+    const usage = readUsage(output)
+    if (usage) this.turnUsage.add(runId, usage)
     let thinking = ''
     for (const gens of output.generations ?? []) {
       for (const gen of gens) {
@@ -1075,7 +1083,8 @@ async function drive(
         ctx.sink,
         ctx.answerStartedAt,
         ctx.bridgedToolCalls,
-        ctx.bridgedAnswerText
+        ctx.bridgedAnswerText,
+        ctx.turnUsage
       )
     ]
   })
@@ -1961,7 +1970,8 @@ function buildAgentAndContext(
     answerStartedAt: { t: null },
     bridgedToolCalls: new Map(),
     bridgedAnswerText: { text: '' },
-    emptyFinalRetried: { done: false }
+    emptyFinalRetried: { done: false },
+    turnUsage: makeTurnUsage()
   }
   return { agent, ctx }
 }
@@ -2231,13 +2241,15 @@ async function closeOutTurn(ctx: DriveContext): Promise<void> {
     })
   }
 
+  const usageSnapshot = ctx.turnUsage.snapshot()
   const turnMeta: Event = {
     type: 'turn_meta',
     id: randomUUID(),
     provider: ctx.providerId,
     model: ctx.modelId,
     startedAt: ctx.startedAt,
-    endedAt: Date.now()
+    endedAt: Date.now(),
+    ...(usageSnapshot ? { usage: usageSnapshot } : {})
   }
   appendEvent(ctx.conversationId, turnMeta)
   ctx.sink.emit(ctx.conversationId, turnMeta)
