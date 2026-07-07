@@ -684,3 +684,25 @@
 .artifact-body ol {
   padding-left: 20px;
 }
+
+/* Auto-compaction transcript divider: a centered, muted "Compacted N earlier
+   messages" rule marking where the summarizer folded the oldest turns away.
+   Hairline rules either side; no animation (reduce-motion safe). */
+.compaction-marker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0;
+  user-select: none;
+}
+.compaction-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
+}
+.compaction-label {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.01em;
+}

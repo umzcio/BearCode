@@ -8,6 +8,7 @@ import { AssistantText } from './events/AssistantText'
 import { ArtifactCard } from './events/ArtifactCard'
 import { DiffCard } from './events/DiffCard'
 import { ErrorCard } from './events/ErrorCard'
+import { CompactionMarker } from './events/CompactionMarker'
 import { IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
 import { Hint } from './Hint'
 import { messageTimestamp } from '../lib/time'
@@ -24,8 +25,14 @@ interface Turn {
   done: boolean
 }
 
-function groupTurns(events: Event[]): Turn[] {
-  const turns: Turn[] = []
+// A transcript is a stream of turns interleaved with top-level markers. Today
+// the only marker is `compaction` (auto-compaction folded the oldest messages
+// into a summary); it sits between turns in stream order, like a divider.
+type TranscriptItem =
+  { kind: 'turn'; turn: Turn } | { kind: 'compaction'; id: string; summarizedCount: number }
+
+function groupTurns(events: Event[]): TranscriptItem[] {
+  const items: TranscriptItem[] = []
   let current: Turn | null = null
   for (const ev of events) {
     if (ev.type === 'user_message') {
@@ -38,7 +45,12 @@ function groupTurns(events: Event[]): Turn[] {
         errors: [],
         done: false
       }
-      turns.push(current)
+      // Push the live object by reference so later events mutating `current`
+      // (steps/texts/done) are reflected in the rendered item.
+      items.push({ kind: 'turn', turn: current })
+    } else if (ev.type === 'compaction') {
+      // Additive & optional: older streams never carry this, so nothing renders.
+      items.push({ kind: 'compaction', id: ev.id, summarizedCount: ev.summarizedCount })
     } else if (current) {
       if (ev.type === 'thinking' || ev.type === 'tool_call' || ev.type === 'tool_result') {
         current.steps.push(ev)
@@ -55,7 +67,7 @@ function groupTurns(events: Event[]): Turn[] {
       }
     }
   }
-  return turns
+  return items
 }
 
 // A transcript attachment pill (Task 7). A reloaded transcript only carries
@@ -113,7 +125,9 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const running = convo.runState === 'running' || convo.runState === 'awaiting-approval'
-  const turns = groupTurns(convo.events)
+  const items = groupTurns(convo.events)
+  // The last *turn* is the live one; compaction markers never count as "last".
+  const lastTurnIdx = items.reduce((acc, it, idx) => (it.kind === 'turn' ? idx : acc), -1)
 
   const jumpToApproval = (): void => {
     document
@@ -130,8 +144,12 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
     <div className="convo-view">
       <div className="convo-scroll" ref={scrollRef}>
         <div className="convo-inner">
-          {turns.map((turn, i) => {
-            const isLast = i === turns.length - 1
+          {items.map((item, i) => {
+            if (item.kind === 'compaction') {
+              return <CompactionMarker key={item.id} summarizedCount={item.summarizedCount} />
+            }
+            const turn = item.turn
+            const isLast = i === lastTurnIdx
             // Live for the whole active turn (not just until prose starts), so
             // the working indicator + bear persist while the model keeps going.
             const hasText = turn.texts.some((t) => t.text.length > 0)
