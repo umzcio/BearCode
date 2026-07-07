@@ -9,7 +9,7 @@ import { getConversationMeta, setTitle } from './db'
 
 // Cheapest curated model per provider; Ollama and OpenRouter reuse the
 // model already in play rather than assuming what else is available.
-const CHEAP_MODEL: Partial<Record<ProviderId, string>> = {
+export const CHEAP_MODEL: Partial<Record<ProviderId, string>> = {
   anthropic: 'claude-haiku-4-5',
   openai: 'gpt-5-mini',
   google: 'gemini-2.5-flash'

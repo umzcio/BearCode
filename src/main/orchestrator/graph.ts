@@ -60,6 +60,12 @@ import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
 import { makeModel } from './models'
 import { compactionAdvanced } from './compaction'
+import {
+  buildTunedSummarization,
+  defaultStateBackendFactory,
+  excludeDefaultSummarization,
+  tunesSummarization
+} from './summarizer'
 import { orchestratorSystemPrompt } from './systemPrompt'
 import { textDeltaEvent, thinkingDeltaEvent } from './bridge'
 import { makeTurnUsage, readUsage, type TurnUsageAccumulator } from './usage'
@@ -1940,8 +1946,23 @@ function buildAgentAndContext(
   } catch (err) {
     console.warn('[bearcode] @ mention additions skipped:', err)
   }
+  // Auto-compaction tuning (Task C3): replace deepagents' default
+  // summarization middleware with one tuned to THIS model — trigger at ~85% of
+  // the real context window, keep the recent half, summarize with a cheap fast
+  // model. For providers we tune (everything but Ollama, whose model class
+  // resolves to no harness profile) we exclude the default from the main
+  // agent's stack and pass our renamed replacement so exactly one runs. Ollama
+  // has no known window to tune against, so it keeps the default middleware.
+  let summarizationMiddleware: ReturnType<typeof buildTunedSummarization>[] = []
+  if (tunesSummarization(modelRef)) {
+    excludeDefaultSummarization()
+    summarizationMiddleware = [
+      buildTunedSummarization(modelRef, backendFactory ?? defaultStateBackendFactory())
+    ]
+  }
   const agent = createDeepAgent({
     model,
+    middleware: summarizationMiddleware,
     // meta is null only for a conversation deleted mid-flight (the run is
     // doomed either way). The plan-mode frame (mode-picker design §5, phase 2)
     // is keyed on the conversation's live permission mode: assembled per-turn,

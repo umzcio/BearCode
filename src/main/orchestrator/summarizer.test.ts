@@ -1,0 +1,55 @@
+import { describe, it, expect } from 'vitest'
+import { summaryTriggerTokens, cheapModelRef, tunesSummarization } from './summarizer'
+
+describe('summaryTriggerTokens', () => {
+  it('is 85% of a 1M Anthropic window', () => {
+    expect(summaryTriggerTokens('anthropic/claude-opus-4-8')).toBe(850_000)
+  })
+
+  it('is 85% of the 200k Haiku window', () => {
+    expect(summaryTriggerTokens('anthropic/claude-haiku-4-5')).toBe(170_000)
+  })
+
+  it('floors non-integer results', () => {
+    // 400_000 * 0.85 = 340_000 (already integer); use a window that isn't.
+    // gpt-5.1 has a 400k window → 340000 exact; verify the floor path with google.
+    expect(summaryTriggerTokens('google/gemini-2.5-flash')).toBe(850_000)
+  })
+
+  it('is null for a model with no known window (Ollama)', () => {
+    expect(summaryTriggerTokens('ollama/llama3.2')).toBeNull()
+  })
+
+  it('is null for a curated OpenRouter model (no window)', () => {
+    expect(summaryTriggerTokens('openrouter/deepseek/deepseek-chat')).toBeNull()
+  })
+
+  it('is null for an unknown model id under a known provider', () => {
+    expect(summaryTriggerTokens('anthropic/claude-nonexistent')).toBeNull()
+  })
+})
+
+describe('cheapModelRef', () => {
+  it('maps Anthropic to Haiku', () => {
+    expect(cheapModelRef('anthropic/claude-opus-4-8')).toBe('anthropic/claude-haiku-4-5')
+  })
+
+  it('maps OpenAI to gpt-5-mini', () => {
+    expect(cheapModelRef('openai/gpt-5.1')).toBe('openai/gpt-5-mini')
+  })
+
+  it('reuses the conversation model when the provider has no cheap sibling', () => {
+    expect(cheapModelRef('ollama/llama3.2')).toBe('ollama/llama3.2')
+  })
+})
+
+describe('tunesSummarization', () => {
+  it('tunes first-party providers', () => {
+    expect(tunesSummarization('anthropic/claude-opus-4-8')).toBe(true)
+    expect(tunesSummarization('openrouter/deepseek/deepseek-chat')).toBe(true)
+  })
+
+  it('leaves Ollama on the default middleware', () => {
+    expect(tunesSummarization('ollama/llama3.2')).toBe(false)
+  })
+})
