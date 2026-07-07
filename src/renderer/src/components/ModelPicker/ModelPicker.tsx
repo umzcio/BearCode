@@ -52,7 +52,7 @@ export function ModelPicker(): React.JSX.Element {
           ) : (
             <span className="provider-dot" style={{ background: current.color }} />
           )}
-          <span>{current.name}</span>
+          <span className="model-name">{current.name}</span>
           <span className="chev">
             <IconChevronDown />
           </span>
