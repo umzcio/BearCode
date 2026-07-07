@@ -457,6 +457,15 @@ export type PreviewPayload =
 
 // ---- Settings ----
 
+// Speech-to-text backend for voice input (E5). 'openai' uses the hosted Whisper
+// API via the existing OpenAI key (the guaranteed-working default); 'local' runs
+// an offline on-device model (best-effort). Shared so the settings coercion and
+// the main-side transcribe router never drift on the valid set.
+export type SttBackend = 'openai' | 'local'
+export const STT_BACKENDS: readonly SttBackend[] = ['openai', 'local']
+export const isSttBackend = (v: unknown): v is SttBackend =>
+  typeof v === 'string' && (STT_BACKENDS as readonly string[]).includes(v)
+
 export interface AppSettings {
   ollamaBaseUrl: string
   defaultModelRef: ModelRef | null
@@ -494,6 +503,9 @@ export interface AppSettings {
   // before this feature load unchanged (coerced to {} / 0).
   modelPricing?: PricingMap
   modelPricingSyncedAt?: number
+  // Voice input STT backend (E5). Optional & additive: settings persisted before
+  // this feature load unchanged (coerced to 'openai', the guaranteed default).
+  sttBackend?: SttBackend
 }
 
 export interface SettingsInfo extends AppSettings {
