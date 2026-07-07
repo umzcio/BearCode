@@ -465,6 +465,24 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                 </Row>
               </div>
 
+              <div className="set-group-title">Voice input</div>
+              <div className="set-card">
+                <Row
+                  title="Speech-to-text backend"
+                  desc="OpenAI Whisper transcribes in the cloud using your OpenAI key. Local runs on-device, offline, with no key."
+                >
+                  <Select
+                    ariaLabel="Speech-to-text backend"
+                    value={settings.sttBackend ?? 'openai'}
+                    onChange={(v) => void saveSettings({ sttBackend: v })}
+                    options={[
+                      { value: 'openai', label: 'OpenAI Whisper (uses your OpenAI key)' },
+                      { value: 'local', label: 'Local (offline)' }
+                    ]}
+                  />
+                </Row>
+              </div>
+
               <div className="set-group-title">Model Pricing</div>
               <div className="set-card pad">
                 <div className="pricing-intro">
