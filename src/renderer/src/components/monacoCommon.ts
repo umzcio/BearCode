@@ -90,20 +90,34 @@ export function attachCommenting(
   const container = ed.getContainerDomNode()
 
   let zoneId: string | null = null
+  let zone: monaco.editor.IViewZone | null = null
+  let overlay: HTMLElement | null = null
+  let overlayLine = 0
   let activeLine: monaco.editor.IEditorDecorationsCollection | null = null
+
+  // Pin the overlay to the top of the reserved gap (just under the commented
+  // line), tracking scroll.
+  const positionOverlay = (): void => {
+    if (!overlay) return
+    overlay.style.top = `${ed.getBottomForLineNumber(overlayLine) - ed.getScrollTop()}px`
+  }
 
   const closeComposer = (): void => {
     activeLine?.clear()
     activeLine = null
+    overlay?.remove()
+    overlay = null
     if (zoneId) {
       const id = zoneId
       zoneId = null
+      zone = null
       ed.changeViewZones((acc) => acc.removeZone(id))
     }
   }
 
   const openComposer = (line: number): void => {
     closeComposer()
+    overlayLine = line
     // Highlight the line being commented on while the composer is open.
     activeLine = ed.createDecorationsCollection([
       {
@@ -112,12 +126,14 @@ export function attachCommenting(
       }
     ])
 
-    // The composer IS the view zone's content: a single compact input bar
-    // (plus + input + send arrow, Claude-style) that pushes subsequent lines
-    // down. wordWrap:'on' keeps content width == viewport width, so it never
-    // scrolls off the right edge.
-    const dom = document.createElement('div')
-    dom.className = 'comment-zone-inline'
+    // A single compact input bar (plus + input + send arrow + cancel,
+    // Claude-style). Rendered as an OVERLAY on top of the editor: view-zone
+    // content sits BEHIND Monaco's text/cursor layers and goes dead the moment
+    // the editor takes focus, so an empty spacer zone reserves the room and
+    // this overlay -- always on top -- stays interactive. It's styled flat and
+    // sits exactly in the reserved gap, so it still reads as inline.
+    overlay = document.createElement('div')
+    overlay.className = 'comment-zone-inline'
     const bar = document.createElement('div')
     bar.className = 'comment-bar'
     const plus = document.createElement('span')
@@ -137,30 +153,25 @@ export function attachCommenting(
     close.title = 'Cancel (Esc)'
     close.innerHTML = X_SVG
     bar.append(plus, ta, send, close)
-    dom.appendChild(bar)
+    overlay.appendChild(bar)
+    container.appendChild(overlay)
 
-    // The bar sits inside a Monaco view zone; without this, Monaco's own mouse
-    // handler swallows the mousedown and steals focus, so clicking (back) into
-    // the input does nothing. Stop propagation (not default) so the textarea
-    // still focuses and the caret still lands where you click.
-    bar.addEventListener('mousedown', (e) => e.stopPropagation())
-
-    // Keep a reference to mutate heightInPx and re-layout once measured, so the
-    // zone hugs the bar exactly (it grows as the input wraps).
-    const zone: monaco.editor.IViewZone = {
-      afterLineNumber: line,
-      heightInPx: 56,
-      domNode: dom
-    }
+    // Empty spacer view zone reserves the vertical room so code shifts down.
+    const spacer = document.createElement('div')
+    zone = { afterLineNumber: line, heightInPx: 56, domNode: spacer }
     ed.changeViewZones((acc) => {
-      zoneId = acc.addZone(zone)
+      zoneId = acc.addZone(zone as monaco.editor.IViewZone)
     })
+
+    // Grow the input as it wraps and keep the reserved gap matched to the bar.
     const relayout = (): void => {
-      if (!zoneId) return
       ta.style.height = 'auto'
       ta.style.height = `${ta.scrollHeight}px`
-      zone.heightInPx = bar.offsetHeight + 14
-      ed.changeViewZones((acc) => acc.layoutZone(zoneId as string))
+      if (zoneId && zone) {
+        zone.heightInPx = bar.offsetHeight + 12
+        ed.changeViewZones((acc) => acc.layoutZone(zoneId as string))
+      }
+      positionOverlay()
     }
 
     const submit = (): void => {
@@ -184,6 +195,7 @@ export function attachCommenting(
       }
     }
 
+    positionOverlay()
     window.setTimeout(() => {
       ta.focus()
       relayout()
@@ -225,6 +237,7 @@ export function attachCommenting(
   container.addEventListener('mouseleave', leave)
   const scroll = ed.onDidScrollChange(() => {
     hideFab()
+    positionOverlay()
   })
   fab.onclick = (): void => {
     hideFab()

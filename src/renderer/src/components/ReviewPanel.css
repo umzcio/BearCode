@@ -1022,14 +1022,21 @@
   display: flex;
 }
 
-/* --- Inline comment composer (lives inside a Monaco view zone) --- */
+/* --- Inline comment composer. An empty Monaco view zone reserves the gap;
+   this overlay sits on top of it (always interactive, unlike view-zone content
+   which Monaco's layers cover) and is styled flat so it reads as inline. --- */
 .comment-zone-inline {
-  width: 100%;
-  box-sizing: border-box;
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding-top: 4px;
+  pointer-events: none; /* clicks beside the bar fall through to the editor */
 }
 /* Compact single-row composer bar, Claude-style: plus + input + send arrow. */
 .comment-bar {
-  margin: 6px 16px 8px 52px; /* indent past the line-number gutter, under code */
+  pointer-events: auto;
+  margin: 0 16px 0 52px; /* indent past the line-number gutter, under code */
   display: flex;
   align-items: center;
   gap: 10px;
