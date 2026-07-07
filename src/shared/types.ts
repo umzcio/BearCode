@@ -1,13 +1,8 @@
 // The contract shared by main, preload, and renderer.
 // Change deliberately and update all three layers together.
 
-import type {
-  ThemeMode,
-  CustomColors,
-  FontSize,
-  ConversationWidth,
-  ChatFont
-} from './appearance'
+import type { ThemeMode, CustomColors, FontSize, ConversationWidth, ChatFont } from './appearance'
+import type { PricingMap } from './pricing'
 
 // Command-name grammar (D2 design 5.1/6.2), shared so the parse-time check
 // (a workflow's filename, src/main/agentsDir/parseWorkflow.ts) and the
@@ -64,27 +59,58 @@ export interface AttachmentRef {
 
 // The four byte-sniffed image mimes (D4). Kept under the original name so the
 // image byte-sniff (ingest sniffImageMime) and the wire guard never drift.
-export const ATTACHMENT_MIME_TYPES = [
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-  'image/gif'
-] as const
+export const ATTACHMENT_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
 // D5 per-lane allowlists. Binary lanes are byte-sniffed; the text lane is
 // routed by extension + a UTF-8-clean gate (never trusts the extension for a
 // path or a binary decode).
 export const IMAGE_MIME_TYPES = ATTACHMENT_MIME_TYPES
 export const PDF_MIME = 'application/pdf'
-export const DOCX_MIME =
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-export const XLSX_MIME =
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 export const OFFICE_MIME_TYPES = [DOCX_MIME, XLSX_MIME] as const
 export const TEXT_EXTENSIONS = [
-  'md', 'markdown', 'txt', 'text', 'html', 'htm', 'css', 'js', 'jsx', 'mjs',
-  'cjs', 'ts', 'tsx', 'py', 'json', 'jsonc', 'yaml', 'yml', 'toml', 'ini',
-  'xml', 'csv', 'tsv', 'sh', 'bash', 'zsh', 'rs', 'go', 'java', 'kt', 'c', 'h',
-  'cpp', 'hpp', 'cc', 'rb', 'php', 'sql', 'swift', 'r', 'lua', 'pl'
+  'md',
+  'markdown',
+  'txt',
+  'text',
+  'html',
+  'htm',
+  'css',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'ts',
+  'tsx',
+  'py',
+  'json',
+  'jsonc',
+  'yaml',
+  'yml',
+  'toml',
+  'ini',
+  'xml',
+  'csv',
+  'tsv',
+  'sh',
+  'bash',
+  'zsh',
+  'rs',
+  'go',
+  'java',
+  'kt',
+  'c',
+  'h',
+  'cpp',
+  'hpp',
+  'cc',
+  'rb',
+  'php',
+  'sql',
+  'swift',
+  'r',
+  'lua',
+  'pl'
 ] as const
 
 // The pick IPC's per-file result: the ref that will be sent + a data URL the
@@ -332,7 +358,7 @@ export type Event =
       model: string
       startedAt: number
       endedAt: number
-      usage?: { inputTokens: number; outputTokens: number }
+      usage?: { inputTokens: number; outputTokens: number; lastInputTokens: number }
     }
   | { type: 'error'; id: string; message: string; recoverable: boolean }
 
@@ -462,6 +488,12 @@ export interface AppSettings {
   conversationWidth: ConversationWidth
   reduceMotion: boolean
   chatFont: ChatFont
+  // Per-model pricing overrides (USD per 1M tokens), keyed by modelRef. Populated
+  // by the Settings "Sync prices" button from LiteLLM; wins over the bundled
+  // defaults in src/shared/pricing.ts. Optional & additive: settings persisted
+  // before this feature load unchanged (coerced to {} / 0).
+  modelPricing?: PricingMap
+  modelPricingSyncedAt?: number
 }
 
 export interface SettingsInfo extends AppSettings {
@@ -493,8 +525,7 @@ export interface BearcodeApi {
       // The @ mentions this turn was sent with (D3). Main boundary-validates
       // this before a run starts (assertValidMentions); anything malformed
       // rejects the promise.
-      mentions?: MentionRef[] | null
-      ,
+      mentions?: MentionRef[] | null,
       // The image attachments this turn was sent with (D4). Main boundary-
       // validates this before a run starts (assertValidAttachments); anything
       // malformed rejects the promise.
@@ -555,6 +586,9 @@ export interface BearcodeApi {
   settings: {
     get(): Promise<SettingsInfo>
     set(patch: Partial<AppSettings>): Promise<SettingsInfo>
+  }
+  pricing: {
+    sync(): Promise<{ syncedCount: number; unmatched: string[]; syncedAt: number }>
   }
   conversations: {
     list(): Promise<ConversationMeta[]>

@@ -54,7 +54,8 @@ const bearcode: BearcodeApi = {
   mentions: {
     files: (projectPath: string | null, query: string) =>
       ipcRenderer.invoke('bearcode:mentions:files', projectPath, query),
-    rules: (projectPath: string | null) => ipcRenderer.invoke('bearcode:mentions:rules', projectPath)
+    rules: (projectPath: string | null) =>
+      ipcRenderer.invoke('bearcode:mentions:rules', projectPath)
   },
   attachments: {
     pick: (conversationId: string, existingCount: number) =>
@@ -85,6 +86,9 @@ const bearcode: BearcodeApi = {
   settings: {
     get: () => ipcRenderer.invoke('bearcode:settings:get'),
     set: (patch: Partial<AppSettings>) => ipcRenderer.invoke('bearcode:settings:set', patch)
+  },
+  pricing: {
+    sync: () => ipcRenderer.invoke('bearcode:pricing:sync')
   },
   conversations: {
     list: () => ipcRenderer.invoke('bearcode:conversations:list'),

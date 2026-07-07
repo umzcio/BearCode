@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { AppSettings, PermissionMode, SettingsInfo } from '../shared/types'
+import type { PricingMap } from '../shared/pricing'
 import { isEffortLevel } from '../shared/effort'
 import {
   isThemeMode,
@@ -37,7 +38,33 @@ const DEFAULTS: AppSettings = {
   fontSize: 'medium',
   conversationWidth: 'default',
   reduceMotion: false,
-  chatFont: 'sans'
+  chatFont: 'sans',
+  modelPricing: {},
+  modelPricingSyncedAt: 0
+}
+
+// Keep only well-formed pricing entries: an object of modelRef -> { inputPer1M,
+// outputPer1M } where both are finite, >= 0 numbers. Anything else (garbage
+// value, non-numeric or negative price, non-object) is dropped so a malformed
+// settings.json or a bad Sync payload can never poison cost math.
+function coercePricing(raw: unknown): PricingMap {
+  if (raw == null || typeof raw !== 'object') return {}
+  const out: PricingMap = {}
+  for (const [ref, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (val == null || typeof val !== 'object') continue
+    const { inputPer1M, outputPer1M } = val as { inputPer1M?: unknown; outputPer1M?: unknown }
+    if (
+      typeof inputPer1M === 'number' &&
+      typeof outputPer1M === 'number' &&
+      Number.isFinite(inputPer1M) &&
+      Number.isFinite(outputPer1M) &&
+      inputPer1M >= 0 &&
+      outputPer1M >= 0
+    ) {
+      out[ref] = { inputPer1M, outputPer1M }
+    }
+  }
+  return out
 }
 
 function settingsPath(): string {
@@ -94,6 +121,11 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   if (!isConversationWidth(merged.conversationWidth)) merged.conversationWidth = 'default'
   merged.reduceMotion = s['reduceMotion'] === true
   if (!isChatFont(merged.chatFont)) merged.chatFont = 'sans'
+  // Pricing: drop any malformed entries; missing/invalid syncedAt -> 0 (bundled
+  // defaults). Optional & additive -- older settings simply coerce to {} / 0.
+  merged.modelPricing = coercePricing(s['modelPricing'])
+  merged.modelPricingSyncedAt =
+    typeof s['modelPricingSyncedAt'] === 'number' ? s['modelPricingSyncedAt'] : 0
   return merged
 }
 
@@ -141,6 +173,11 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.customColors !== undefined) {
     patch = { ...patch, customColors: coerceCustomColors(patch.customColors) }
+  }
+  // Never persist malformed pricing: coerce the patch before write so a bad
+  // Sync payload drops non-numeric/negative entries instead of poisoning cost.
+  if (patch.modelPricing !== undefined) {
+    patch = { ...patch, modelPricing: coercePricing(patch.modelPricing) }
   }
   const next = { ...getSettings(), ...patch }
   cache = next

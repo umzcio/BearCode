@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { ProviderId, SettingsInfo } from '@shared/types'
+import { resolvePrice } from '@shared/pricing'
 import { useAppStore } from '../../state/store'
+import { relativeAge } from '../../lib/time'
 import { ProviderIcon } from '../ProviderIcon'
 import { RoarBear } from '../brand/RoarBear'
 import { IconClose } from '../icons'
@@ -96,10 +98,29 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
   const saveSettings = useAppStore((s) => s.saveSettings)
   const setAppearance = useAppStore((s) => s.setAppearance)
   const deleteAll = useAppStore((s) => s.deleteAllConversations)
+  const syncPricing = useAppStore((s) => s.syncPricing)
 
   const [page, setPage] = useState('models')
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({})
   const [ollamaUrl, setOllamaUrl] = useState(settings.ollamaBaseUrl)
+  const [pricingSync, setPricingSync] = useState<{
+    status: 'idle' | 'pending' | 'done' | 'error'
+    msg: string
+  }>({ status: 'idle', msg: '' })
+
+  const runPricingSync = (): void => {
+    setPricingSync({ status: 'pending', msg: '' })
+    void syncPricing()
+      .then((r) =>
+        setPricingSync({
+          status: 'done',
+          msg: `${r.syncedCount} synced · ${r.unmatched.length} unmatched`
+        })
+      )
+      .catch((e) =>
+        setPricingSync({ status: 'error', msg: e instanceof Error ? e.message : 'Sync failed' })
+      )
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -260,7 +281,10 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                 </Row>
                 {settings.theme === 'custom' ? (
                   <>
-                    <Row title="Background" desc="Base surface color; panels and borders derive from it.">
+                    <Row
+                      title="Background"
+                      desc="Base surface color; panels and borders derive from it."
+                    >
                       <input
                         type="color"
                         aria-label="Background color"
@@ -439,6 +463,67 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                     ]}
                   />
                 </Row>
+              </div>
+
+              <div className="set-group-title">Model Pricing</div>
+              <div className="set-card pad">
+                <div className="pricing-intro">
+                  USD per 1M tokens. Sync pulls current prices from LiteLLM.
+                </div>
+                <table className="pricing-table">
+                  <thead>
+                    <tr>
+                      <th>Model</th>
+                      <th>Input</th>
+                      <th>Output</th>
+                      <th>Source</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allModels.map((m) => {
+                      const price = resolvePrice(m.ref, settings.modelPricing)
+                      const source = settings.modelPricing?.[m.ref]
+                        ? 'synced'
+                        : price
+                          ? 'default'
+                          : null
+                      return (
+                        <tr key={m.ref}>
+                          <td className="pricing-model">{m.label}</td>
+                          <td>{price ? `$${price.inputPer1M}` : '—'}</td>
+                          <td>{price ? `$${price.outputPer1M}` : '—'}</td>
+                          <td>
+                            {source ? (
+                              <span className={'price-src ' + source}>{source}</span>
+                            ) : (
+                              <span className="price-src none">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                <div className="pricing-actions">
+                  <button
+                    className="pill-btn"
+                    onClick={runPricingSync}
+                    disabled={pricingSync.status === 'pending'}
+                  >
+                    {pricingSync.status === 'pending' ? 'Syncing…' : 'Sync prices'}
+                  </button>
+                  {pricingSync.status === 'done' ? (
+                    <span className="pricing-result">{pricingSync.msg}</span>
+                  ) : null}
+                  {pricingSync.status === 'error' ? (
+                    <span className="pricing-result err">{pricingSync.msg}</span>
+                  ) : null}
+                </div>
+                <div className="pricing-synced">
+                  {settings.modelPricingSyncedAt
+                    ? `Last synced ${relativeAge(settings.modelPricingSyncedAt)}`
+                    : 'Using bundled defaults'}
+                </div>
               </div>
             </>
           ) : null}

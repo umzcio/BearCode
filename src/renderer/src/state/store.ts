@@ -237,6 +237,7 @@ interface AppState {
     sidebarShowArchived?: AppSettings['sidebarShowArchived']
   }): Promise<void>
   setAppearance(patch: Partial<AppSettings>): Promise<void>
+  syncPricing(): Promise<{ syncedCount: number; unmatched: string[]; syncedAt: number }>
   setPermissionMode(mode: PermissionMode): void
   setEffort(effort: EffortLevel): void
   setThinking(thinking: boolean): void
@@ -275,7 +276,9 @@ interface AppState {
   setResumePickerOpen(open: boolean): void
   suggestFiles(query: string): void
   refreshManualRules(): void
-  pickAttachments(existingCount: number): Promise<{ picked: PickedAttachmentWire[]; errors: string[] }>
+  pickAttachments(
+    existingCount: number
+  ): Promise<{ picked: PickedAttachmentWire[]; errors: string[] }>
   ensureDraftConvoId(): string
 }
 
@@ -709,6 +712,15 @@ export const useAppStore = create<AppState>((set, get) => {
       applyAppearance(settings)
     },
 
+    syncPricing: async () => {
+      // Main fetches + persists the prices; re-fetch settings so the freshly
+      // synced modelPricing/modelPricingSyncedAt land in the store.
+      const result = await window.bearcode.pricing.sync()
+      const settings = await window.bearcode.settings.get()
+      set({ settings })
+      return result
+    },
+
     setPermissionMode: (mode) => {
       set({ permissionMode: mode })
       const view = get().view
@@ -793,7 +805,11 @@ export const useAppStore = create<AppState>((set, get) => {
       const convo = { ...fromMeta(meta), projectId, loaded: true }
       set((s) => {
         const conversations = { ...s.conversations, [meta.id]: convo }
-        return { conversations, convoOrder: orderByRecency(conversations), view: { kind: 'conversation', id: meta.id } }
+        return {
+          conversations,
+          convoOrder: orderByRecency(conversations),
+          view: { kind: 'conversation', id: meta.id }
+        }
       })
     },
 
@@ -962,7 +978,9 @@ export const useAppStore = create<AppState>((set, get) => {
       const { view, conversations, workspacePath } = get()
       const projectPath =
         view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
-      void window.bearcode.mentions.files(projectPath, query).then((files) => set({ fileSuggestions: files }))
+      void window.bearcode.mentions
+        .files(projectPath, query)
+        .then((files) => set({ fileSuggestions: files }))
     },
 
     // Fetched once on @ menu open (mirrors refreshCommands' pacing).

@@ -1,7 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../state/store'
-import { conversationTokens, contextUsage, contextWindowFor } from '../../lib/contextMeter'
+import {
+  conversationTokens,
+  contextUsage,
+  contextWindowFor,
+  latestUsage,
+  usageByModel,
+  conversationCost
+} from '../../lib/contextMeter'
+import type { ProviderModels } from '@shared/types'
 import './ContextMeter.css'
+
+// Compact token count for the breakdown rows, e.g. 18200 → "18.2k".
+function fmtK(n: number): string {
+  return `${(n / 1000).toFixed(1)}k`
+}
+
+// A friendly model label from the providers list, falling back to the raw
+// model id when the model isn't (or is no longer) in the provider catalog.
+function labelFor(providers: ProviderModels[], provider: string, model: string): string {
+  return (
+    providers.find((p) => p.id === provider)?.models.find((m) => m.id === model)?.label ?? model
+  )
+}
 
 const R = 7
 const CIRC = 2 * Math.PI * R
@@ -13,6 +34,7 @@ export function ContextMeter(): React.JSX.Element | null {
   const conversations = useAppStore((s) => s.conversations)
   const providers = useAppStore((s) => s.providers)
   const modelRef = useAppStore((s) => s.modelRef)
+  const modelPricing = useAppStore((s) => s.settings?.modelPricing)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -36,17 +58,26 @@ export function ContextMeter(): React.JSX.Element | null {
   const ctxWindow = contextWindowFor(providers, modelRef)
   if (!convo || !ctxWindow) return null
 
-  const tokens = conversationTokens(convo.events)
+  // Prefer the provider's real last-turn prompt size; fall back to the char/4
+  // estimate until any turn reports usage.
+  const measuredTokens = latestUsage(convo.events)?.lastInputTokens ?? null
+  const measured = measuredTokens !== null
+  const tokens = measured ? measuredTokens : conversationTokens(convo.events)
   const { pct, near } = contextUsage(tokens, ctxWindow)
   const state = pct >= 100 ? 'over' : near ? 'near' : ''
   const offset = CIRC * (1 - Math.min(100, pct) / 100)
+
+  // Per-model breakdown + cost — shown only once at least one turn has reported
+  // measured usage (mirrors how the ring gates on a known context window).
+  const byModel = usageByModel(convo.events)
+  const cost = conversationCost(byModel, modelPricing)
 
   return (
     <div className="context-meter-wrap" ref={rootRef}>
       <button
         className={'context-ring ' + state}
         aria-label={`Context ${pct}% used`}
-        title={`~${pct}% context used`}
+        title={`${measured ? '' : '~'}${pct}% context used`}
         onClick={() => setOpen((o) => !o)}
       >
         <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true">
@@ -75,8 +106,40 @@ export function ContextMeter(): React.JSX.Element | null {
             />
           </div>
           <div className="context-pop-sub">
-            ~{tokens.toLocaleString()} of {ctxWindow.toLocaleString()} tokens (estimated)
+            {measured ? '' : '~'}
+            {tokens.toLocaleString()} of {ctxWindow.toLocaleString()} tokens (
+            {measured ? 'measured' : 'estimated'})
           </div>
+          {byModel.length > 0 ? (
+            <>
+              <div className="context-pop-divider" />
+              <div className="context-pop-models">
+                <div className="context-pop-models-head">By model</div>
+                {byModel.map((m) => {
+                  const c = cost.perModel[m.modelRef]
+                  return (
+                    <div className="context-pop-model-row" key={m.modelRef}>
+                      <span className="context-pop-model-name">
+                        {labelFor(providers, m.provider, m.model)}
+                      </span>
+                      <span className="context-pop-model-toks">
+                        {fmtK(m.inputTokens)} in · {fmtK(m.outputTokens)} out
+                      </span>
+                      <span className="context-pop-model-cost">
+                        {c === undefined ? '—' : `$${c.toFixed(2)}`}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="context-pop-divider" />
+              <div className="context-pop-total">
+                <span className="context-pop-label">Total cost</span>
+                <span className="context-pop-total-amt">${cost.total.toFixed(2)}</span>
+              </div>
+              {cost.hasUnknown ? <div className="context-pop-sub">+ unpriced models</div> : null}
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>

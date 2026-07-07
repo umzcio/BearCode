@@ -100,3 +100,59 @@
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
+
+/* Per-model breakdown + cost, appended below the token line once usage exists. */
+.context-pop-divider {
+  height: 1px;
+  background: var(--border-soft, var(--border));
+  margin: 2px 0;
+}
+
+.context-pop-models {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.context-pop-models-head {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.context-pop-model-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-mid);
+  font-variant-numeric: tabular-nums;
+}
+.context-pop-model-name {
+  color: var(--text);
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-pop-model-toks {
+  color: var(--text-dim);
+  margin-left: auto;
+}
+.context-pop-model-cost {
+  color: var(--text-mid);
+  min-width: 44px;
+  text-align: right;
+}
+
+.context-pop-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.context-pop-total-amt {
+  font-size: 13px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}

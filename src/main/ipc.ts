@@ -19,7 +19,8 @@ import { isEffortLevel } from '../shared/effort'
 import { keyStatus, setKey } from './keys'
 import { addUserRule, deleteUserRule, listRulesInfo, setBuiltinDisabled } from './permissions'
 import { setSettings, settingsInfo } from './settings'
-import { listAllModels } from './providers/registry'
+import { allKnownModelRefs, listAllModels } from './providers/registry'
+import { syncPricing } from './pricing/sync'
 import { filePathFor, getDiff, revertFile } from './diffs'
 import { previewClassify } from './preview/classify'
 import { inlineHtmlAssets, injectPreviewNavGuard } from './preview/inlineHtml'
@@ -111,7 +112,15 @@ export function registerIpc(): void {
       const command = assertValidCommand(rawCommand)
       const mentions = assertValidMentions(rawMentions)
       const attachments = assertValidAttachments(rawAttachments)
-      void startRunOrchestrator(conversationId, userText, modelRef, sink, command, mentions, attachments)
+      void startRunOrchestrator(
+        conversationId,
+        userText,
+        modelRef,
+        sink,
+        command,
+        mentions,
+        attachments
+      )
     }
   )
 
@@ -156,13 +165,56 @@ export function registerIpc(): void {
           {
             name: 'Attachments',
             extensions: [
-              'png', 'jpg', 'jpeg', 'webp', 'gif',
-              'pdf', 'docx', 'xlsx',
-              'md', 'markdown', 'txt', 'text', 'html', 'htm', 'css', 'js', 'jsx',
-              'mjs', 'cjs', 'ts', 'tsx', 'py', 'json', 'jsonc', 'yaml', 'yml',
-              'toml', 'ini', 'xml', 'csv', 'tsv', 'sh', 'bash', 'zsh', 'rs', 'go',
-              'java', 'kt', 'c', 'h', 'cpp', 'hpp', 'cc', 'rb', 'php', 'sql',
-              'swift', 'r', 'lua', 'pl'
+              'png',
+              'jpg',
+              'jpeg',
+              'webp',
+              'gif',
+              'pdf',
+              'docx',
+              'xlsx',
+              'md',
+              'markdown',
+              'txt',
+              'text',
+              'html',
+              'htm',
+              'css',
+              'js',
+              'jsx',
+              'mjs',
+              'cjs',
+              'ts',
+              'tsx',
+              'py',
+              'json',
+              'jsonc',
+              'yaml',
+              'yml',
+              'toml',
+              'ini',
+              'xml',
+              'csv',
+              'tsv',
+              'sh',
+              'bash',
+              'zsh',
+              'rs',
+              'go',
+              'java',
+              'kt',
+              'c',
+              'h',
+              'cpp',
+              'hpp',
+              'cc',
+              'rb',
+              'php',
+              'sql',
+              'swift',
+              'r',
+              'lua',
+              'pl'
             ]
           }
         ]
@@ -226,7 +278,9 @@ export function registerIpc(): void {
       }
       if (c.kind === 'docx') {
         const html = await runOfficeHtml(bytes)
-        return html ? { kind: 'html', html } : { kind: 'unsupported', note: 'Could not render document' }
+        return html
+          ? { kind: 'html', html }
+          : { kind: 'unsupported', note: 'Could not render document' }
       }
       if (c.kind === 'xlsx') {
         const rows = await runOfficeRows(bytes)
@@ -325,6 +379,17 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:settings:set', (_e, patch: Partial<AppSettings>) => {
     setSettings(patch)
     return settingsInfo()
+  })
+
+  // User-initiated pricing sync (Settings "Sync prices" button). Runs in main
+  // only -- keeps the LiteLLM fetch off the renderer/CSP surface. Persists the
+  // resolved prices + a syncedAt stamp; throws propagate to the UI.
+  ipcMain.handle('bearcode:pricing:sync', async () => {
+    const refs = allKnownModelRefs()
+    const { prices, unmatched } = await syncPricing(refs)
+    const syncedAt = Date.now()
+    setSettings({ modelPricing: prices, modelPricingSyncedAt: syncedAt })
+    return { syncedCount: Object.keys(prices).length, unmatched, syncedAt }
   })
 
   ipcMain.handle('bearcode:conversations:list', () => db.listConversations())
