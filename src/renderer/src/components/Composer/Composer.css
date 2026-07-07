@@ -9,6 +9,9 @@
   border-radius: 16px;
   position: relative;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  /* Controls respond to the COMPOSER's width (which the Artifacts-pane drag
+     changes), not the window's -- so use a container query, not a media query. */
+  container-type: inline-size;
 }
 .composer textarea {
   width: 100%;
@@ -33,6 +36,29 @@
   justify-content: space-between;
   gap: 8px;
   padding: 4px 10px 10px 12px;
+  /* Let the whole right group drop to a second row when it won't fit beside
+     the left group -- but each group stays on ONE line (no per-item staircase). */
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.controls-left,
+.controls-right {
+  flex-wrap: nowrap;
+}
+.controls-right {
+  justify-content: flex-end;
+}
+/* Keep control labels (e.g. the model name) on one line -- a narrow composer
+   must never stack "Claude Opus 4.8" across three lines. */
+.composer-controls .pill-btn {
+  white-space: nowrap;
+}
+/* When the composer itself is tight, shed the low-value context meter so the
+   model + effort menus stay visible and compact (Claude's compact bar). */
+@container (max-width: 460px) {
+  .composer-controls .context-meter {
+    display: none;
+  }
 }
 .controls-left,
 .controls-right {

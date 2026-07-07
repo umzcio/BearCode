@@ -40,6 +40,26 @@ function App(): React.JSX.Element {
     init()
   }, [init])
 
+  // Responsive collapse (Claude-Code / Antigravity style): auto-collapse the
+  // left nav on a narrow window so the conversation + composer aren't squished.
+  // Edge-triggered on crossing the breakpoint, so a manual toggle still sticks
+  // within a size regime.
+  useEffect(() => {
+    const BP = 820
+    let prevNarrow = window.innerWidth < BP
+    if (prevNarrow && !useAppStore.getState().sidebarCollapsed) {
+      useAppStore.getState().setSidebarCollapsed(true)
+    }
+    const onResize = (): void => {
+      const narrow = window.innerWidth < BP
+      if (narrow === prevNarrow) return
+      prevNarrow = narrow
+      useAppStore.getState().setSidebarCollapsed(narrow)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
   // Global shortcuts: Cmd+N new conversation, Cmd+B sidebar, Cmd+, settings,
   // Cmd+/ model menu, Cmd+. mode menu, Cmd+L focus the composer.
   useEffect(() => {

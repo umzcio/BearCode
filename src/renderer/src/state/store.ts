@@ -201,6 +201,7 @@ interface AppState {
   init(): void
   refreshProviders(): Promise<void>
   toggleSidebar(): void
+  setSidebarCollapsed(collapsed: boolean): void
   setSidebarWidth(w: number): void
   setAuxPaneWidth(w: number): void
   toggleModelMenu(): void
@@ -458,6 +459,7 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+    setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
     setSidebarWidth: (w) => {
       const c = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(w)))
       writeStoredWidth('bearcode.sidebarWidth', c)

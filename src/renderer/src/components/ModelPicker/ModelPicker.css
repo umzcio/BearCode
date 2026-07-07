@@ -1,6 +1,16 @@
 .model-picker {
   position: relative;
 }
+/* Long model names (e.g. an hf.co/... path) truncate instead of sprawling
+   across the composer's control row. */
+.model-name {
+  display: inline-block;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
 
 .model-menu {
   bottom: 40px;
