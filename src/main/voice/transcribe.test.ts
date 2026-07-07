@@ -82,7 +82,7 @@ describe('transcribe dispatch', () => {
   it("throws a clear not-available error for the 'local' backend", async () => {
     mockGetSettings.mockReturnValue({ sttBackend: 'local' } as ReturnType<typeof getSettings>)
     await expect(transcribe(Buffer.from('x'), 'audio/webm')).rejects.toThrow(
-      "Local transcription isn't available yet"
+      "Local transcription isn't available in this build yet"
     )
   })
 
