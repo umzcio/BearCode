@@ -53,13 +53,30 @@ function frameRects(frame: string[], blink: boolean): React.JSX.Element[] {
   return rects
 }
 
-export function PixelBear({ scale = 5 }: { scale?: number }): React.JSX.Element {
+// `settle`: walk for a random 3-5s on mount, then stop on the standing frame
+// (Claude-Code-critter style). The occasional blink keeps going either way.
+export function PixelBear({
+  scale = 5,
+  settle = false
+}: {
+  scale?: number
+  settle?: boolean
+}): React.JSX.Element {
   const [frame, setFrame] = useState(0)
   const [blink, setBlink] = useState(false)
 
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
     const walk = setInterval(() => setFrame((f) => 1 - f), 220)
+    const stopWalk = settle
+      ? setTimeout(
+          () => {
+            clearInterval(walk)
+            setFrame(0)
+          },
+          3000 + Math.random() * 2000
+        )
+      : undefined
     let blinkOff: ReturnType<typeof setTimeout> | undefined
     const blinker = setInterval(
       () => {
@@ -70,10 +87,11 @@ export function PixelBear({ scale = 5 }: { scale?: number }): React.JSX.Element 
     )
     return () => {
       clearInterval(walk)
+      if (stopWalk) clearTimeout(stopWalk)
       clearInterval(blinker)
       if (blinkOff) clearTimeout(blinkOff)
     }
-  }, [])
+  }, [settle])
 
   return (
     <span className="pixel-bear">
