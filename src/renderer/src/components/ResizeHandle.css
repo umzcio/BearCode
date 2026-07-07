@@ -1,0 +1,28 @@
+/* A 6px-wide grab strip that renders a hairline; the accent bar appears on
+   hover/drag. Zero flex footprint beyond its width so it doesn't disturb the
+   layout when idle. */
+.resize-handle {
+  flex: 0 0 6px;
+  align-self: stretch;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 10;
+  -webkit-app-region: no-drag;
+}
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border);
+  transition: background 0.12s, width 0.12s;
+}
+.resize-handle:hover::after,
+.resize-handle:active::after {
+  width: 3px;
+  background: var(--accent);
+}
