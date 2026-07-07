@@ -587,6 +587,9 @@ export interface BearcodeApi {
     get(): Promise<SettingsInfo>
     set(patch: Partial<AppSettings>): Promise<SettingsInfo>
   }
+  pricing: {
+    sync(): Promise<{ syncedCount: number; unmatched: string[]; syncedAt: number }>
+  }
   conversations: {
     list(): Promise<ConversationMeta[]>
     get(id: string): Promise<Event[]>

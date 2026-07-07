@@ -30,7 +30,7 @@ export const ANTHROPIC_MODELS: ModelInfo[] = [
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', contextWindow: 200_000 }
 ]
 
-const OPENAI_MODELS: ModelInfo[] = [
+export const OPENAI_MODELS: ModelInfo[] = [
   { id: 'gpt-5.1', label: 'GPT-5.1', contextWindow: 400_000 },
   { id: 'gpt-5-mini', label: 'GPT-5 mini', contextWindow: 400_000 },
   { id: 'gpt-4.1', label: 'GPT-4.1', contextWindow: 1_000_000 }
@@ -120,6 +120,18 @@ export const REGISTRY: ProviderRegistryEntry[] = [
     listModels: listOllamaModels
   }
 ]
+
+// Every statically-known "providerId/modelId" ref (first-party + the curated
+// OpenRouter subset). Feeds the LiteLLM pricing sync. Ollama is dynamic/local
+// and free, so it is intentionally excluded.
+export function allKnownModelRefs(): string[] {
+  return [
+    ...ANTHROPIC_MODELS.map((m) => `anthropic/${m.id}`),
+    ...OPENAI_MODELS.map((m) => `openai/${m.id}`),
+    ...GOOGLE_MODELS.map((m) => `google/${m.id}`),
+    ...OPENROUTER_MODELS.map((m) => `openrouter/${m.id}`)
+  ]
+}
 
 export function getProvider(id: ProviderId): ProviderRegistryEntry {
   const entry = REGISTRY.find((p) => p.id === id)
