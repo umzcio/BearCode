@@ -93,6 +93,7 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
   const conversations = useAppStore((s) => s.conversations)
   const saveKey = useAppStore((s) => s.saveKey)
   const saveSettings = useAppStore((s) => s.saveSettings)
+  const setAppearance = useAppStore((s) => s.setAppearance)
   const deleteAll = useAppStore((s) => s.deleteAllConversations)
 
   const [page, setPage] = useState('models')
@@ -244,7 +245,122 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
           {page === 'appearance' ? (
             <>
               <PageHead title="Appearance" sub="Theme and display options." />
-              <ComingSoon />
+              <div className="set-group-title">Theme</div>
+              <div className="set-card">
+                <Row title="Theme" desc="Dark, light, follow the system, or a custom palette.">
+                  <select
+                    aria-label="Theme"
+                    value={settings.theme}
+                    onChange={(e) =>
+                      void setAppearance({ theme: e.target.value as AppSettings['theme'] })
+                    }
+                  >
+                    <option value="dark">Dark</option>
+                    <option value="light">Light</option>
+                    <option value="system">System</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </Row>
+                {settings.theme === 'custom' ? (
+                  <>
+                    <Row title="Background" desc="Base surface color; panels and borders derive from it.">
+                      <input
+                        type="color"
+                        aria-label="Background color"
+                        className="color-input"
+                        value={settings.customColors.bg}
+                        onChange={(e) =>
+                          void setAppearance({
+                            customColors: { ...settings.customColors, bg: e.target.value }
+                          })
+                        }
+                      />
+                    </Row>
+                    <Row title="Foreground" desc="Primary text color.">
+                      <input
+                        type="color"
+                        aria-label="Foreground color"
+                        className="color-input"
+                        value={settings.customColors.fg}
+                        onChange={(e) =>
+                          void setAppearance({
+                            customColors: { ...settings.customColors, fg: e.target.value }
+                          })
+                        }
+                      />
+                    </Row>
+                    <Row title="Accent" desc="Buttons, links, and highlights.">
+                      <input
+                        type="color"
+                        aria-label="Accent color"
+                        className="color-input"
+                        value={settings.customColors.accent}
+                        onChange={(e) =>
+                          void setAppearance({
+                            customColors: { ...settings.customColors, accent: e.target.value }
+                          })
+                        }
+                      />
+                    </Row>
+                  </>
+                ) : null}
+              </div>
+
+              <div className="set-group-title">Display</div>
+              <div className="set-card">
+                <Row title="Font size" desc="Scales the interface.">
+                  <select
+                    aria-label="Font size"
+                    value={settings.fontSize}
+                    onChange={(e) =>
+                      void setAppearance({ fontSize: e.target.value as AppSettings['fontSize'] })
+                    }
+                  >
+                    <option value="small">Small</option>
+                    <option value="medium">Medium</option>
+                    <option value="large">Large</option>
+                  </select>
+                </Row>
+                <Row title="Conversation width" desc="Maximum width of the conversation column.">
+                  <select
+                    aria-label="Conversation width"
+                    value={settings.conversationWidth}
+                    onChange={(e) =>
+                      void setAppearance({
+                        conversationWidth: e.target.value as AppSettings['conversationWidth']
+                      })
+                    }
+                  >
+                    <option value="default">Default</option>
+                    <option value="narrow">Narrow</option>
+                    <option value="wide">Wide</option>
+                  </select>
+                </Row>
+                <Row title="Chat font" desc="Font for conversation text.">
+                  <select
+                    aria-label="Chat font"
+                    value={settings.chatFont}
+                    onChange={(e) =>
+                      void setAppearance({ chatFont: e.target.value as AppSettings['chatFont'] })
+                    }
+                  >
+                    <option value="sans">Sans-serif</option>
+                    <option value="serif">Serif</option>
+                  </select>
+                </Row>
+                <Row title="Reduce motion" desc="Minimize animations beyond the system setting.">
+                  <select
+                    aria-label="Reduce motion"
+                    value={settings.reduceMotion ? 'reduced' : 'system'}
+                    onChange={(e) =>
+                      void setAppearance({ reduceMotion: e.target.value === 'reduced' })
+                    }
+                  >
+                    <option value="system">System</option>
+                    <option value="reduced">Reduced</option>
+                  </select>
+                </Row>
+              </div>
             </>
           ) : null}
 

@@ -441,3 +441,21 @@
   margin: 0;
   cursor: pointer;
 }
+
+/* Appearance: custom-theme color swatches. */
+.color-input {
+  width: 46px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: none;
+  cursor: pointer;
+}
+.color-input::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
