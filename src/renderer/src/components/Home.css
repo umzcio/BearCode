@@ -53,3 +53,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The walking pixel bear perched on the top-right edge of the composer,
+   Claude-Code-critter style: feet just overlapping the card's top border. */
+.composer-stage {
+  position: relative;
+}
+.composer-perch {
+  position: absolute;
+  right: 16px;
+  bottom: 100%;
+  margin-bottom: -5px;
+  display: flex;
+  line-height: 0;
+  pointer-events: none;
+}

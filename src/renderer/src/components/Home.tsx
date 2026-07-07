@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Composer } from './Composer/Composer'
+import { PixelBear } from './brand/PixelBear'
 import { useAppStore } from '../state/store'
 import { Hint } from './Hint'
 import { IconChevronDown, IconFolder, IconFolderPlus } from './icons'
@@ -102,7 +103,12 @@ export function Home(): React.JSX.Element {
             </div>
           ) : null}
         </div>
-        <Composer onSend={startFromHome} showEnvRow autoFocus />
+        <div className="composer-stage">
+          <span className="composer-perch" aria-hidden="true">
+            <PixelBear scale={3} settle />
+          </span>
+          <Composer onSend={startFromHome} showEnvRow autoFocus />
+        </div>
       </div>
     </div>
   )
