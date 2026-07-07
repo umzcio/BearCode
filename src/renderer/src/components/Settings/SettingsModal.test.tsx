@@ -47,6 +47,20 @@ describe('SettingsModal default permission mode', () => {
   })
 })
 
+describe('SettingsModal Voice input', () => {
+  it('renders the STT backend picker and saves the pick', () => {
+    render(<SettingsModal />) // 'models' is the default page
+    fireEvent.click(screen.getByLabelText('Speech-to-text backend')) // open the custom dropdown
+    const options = screen.getAllByRole('option').map((o) => o.textContent?.replace('✓', ''))
+    expect(options).toEqual(['OpenAI Whisper (uses your OpenAI key)', 'Local (offline)'])
+    const local = screen
+      .getAllByRole('option')
+      .find((o) => o.textContent?.includes('Local (offline)'))
+    fireEvent.click(local as HTMLElement)
+    expect(setSpy).toHaveBeenCalledWith({ sttBackend: 'local' })
+  })
+})
+
 describe('SettingsModal Model Pricing', () => {
   const providers = [
     {

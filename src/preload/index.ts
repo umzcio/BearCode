@@ -17,7 +17,8 @@ import type {
   PreviewPayload,
   Project,
   ProviderId,
-  RunState
+  RunState,
+  TranscribeMeta
 } from '../shared/types'
 
 // The renderer talks to main only through this typed surface.
@@ -144,6 +145,10 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:artifacts:add-comment', artifactId, quote, body),
     listComments: (artifactId: string): Promise<ArtifactComment[]> =>
       ipcRenderer.invoke('bearcode:artifacts:list-comments', artifactId)
+  },
+  voice: {
+    transcribe: (audio: ArrayBuffer, meta: TranscribeMeta) =>
+      ipcRenderer.invoke('bearcode:voice:transcribe', audio, meta)
   },
   workspace: {
     pick: () => ipcRenderer.invoke('bearcode:workspace:pick')

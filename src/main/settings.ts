@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { AppSettings, PermissionMode, SettingsInfo } from '../shared/types'
+import { isSttBackend } from '../shared/types'
 import type { PricingMap } from '../shared/pricing'
 import { isEffortLevel } from '../shared/effort'
 import {
@@ -40,7 +41,8 @@ const DEFAULTS: AppSettings = {
   reduceMotion: false,
   chatFont: 'sans',
   modelPricing: {},
-  modelPricingSyncedAt: 0
+  modelPricingSyncedAt: 0,
+  sttBackend: 'openai'
 }
 
 // Keep only well-formed pricing entries: an object of modelRef -> { inputPer1M,
@@ -126,6 +128,10 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   merged.modelPricing = coercePricing(s['modelPricing'])
   merged.modelPricingSyncedAt =
     typeof s['modelPricingSyncedAt'] === 'number' ? s['modelPricingSyncedAt'] : 0
+  // Voice STT backend (E5): a two-value enum; anything outside it (missing,
+  // typo, downgrade from a future version) collapses to 'openai', the
+  // guaranteed-working default. Optional & additive.
+  if (!isSttBackend(merged.sttBackend)) merged.sttBackend = 'openai'
   return merged
 }
 
@@ -178,6 +184,11 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   // Sync payload drops non-numeric/negative entries instead of poisoning cost.
   if (patch.modelPricing !== undefined) {
     patch = { ...patch, modelPricing: coercePricing(patch.modelPricing) }
+  }
+  // Reject an unknown STT backend at the boundary (never persist a value the
+  // transcribe router can't dispatch on).
+  if (patch.sttBackend !== undefined && !isSttBackend(patch.sttBackend)) {
+    throw new Error(`Invalid sttBackend: ${String(patch.sttBackend)}`)
   }
   const next = { ...getSettings(), ...patch }
   cache = next

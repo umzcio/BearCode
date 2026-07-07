@@ -457,6 +457,23 @@ export type PreviewPayload =
 
 // ---- Settings ----
 
+// Speech-to-text backend for voice input (E5). 'openai' uses the hosted Whisper
+// API via the existing OpenAI key (the guaranteed-working default); 'local' runs
+// an offline on-device model (best-effort). Shared so the settings coercion and
+// the main-side transcribe router never drift on the valid set.
+export type SttBackend = 'openai' | 'local'
+export const STT_BACKENDS: readonly SttBackend[] = ['openai', 'local']
+export const isSttBackend = (v: unknown): v is SttBackend =>
+  typeof v === 'string' && (STT_BACKENDS as readonly string[]).includes(v)
+
+// Discriminated payload for the voice:transcribe IPC. The OpenAI path sends the
+// recorded container bytes verbatim ('webm'); the local path decodes to raw
+// 16 kHz mono PCM in the RENDERER (Chromium decodes Opus; Node main cannot) and
+// sends the Float32Array's ArrayBuffer ('pcm'). The `kind` tag also hard-routes
+// the backend main-side, so a payload always reaches the engine that can read it.
+export type TranscribeMeta =
+  { kind: 'webm'; mimeType: string } | { kind: 'pcm'; sampleRate: number }
+
 export interface AppSettings {
   ollamaBaseUrl: string
   defaultModelRef: ModelRef | null
@@ -494,6 +511,9 @@ export interface AppSettings {
   // before this feature load unchanged (coerced to {} / 0).
   modelPricing?: PricingMap
   modelPricingSyncedAt?: number
+  // Voice input STT backend (E5). Optional & additive: settings persisted before
+  // this feature load unchanged (coerced to 'openai', the guaranteed default).
+  sttBackend?: SttBackend
 }
 
 export interface SettingsInfo extends AppSettings {
@@ -627,6 +647,14 @@ export interface BearcodeApi {
     ): Promise<PlanReviewResolveResult>
     addComment(artifactId: string, quote: string | null, body: string): Promise<ArtifactComment>
     listComments(artifactId: string): Promise<ArtifactComment[]>
+  }
+  // Voice input (E5): the composer records mic audio and hands the ArrayBuffer
+  // to main, which routes it to the selected STT backend and returns the
+  // transcript text. Transcription runs main-side only (renderer never holds
+  // the API key). `meta` tags the payload: 'webm' (raw container → OpenAI) or
+  // 'pcm' (renderer-decoded 16 kHz mono float → local Whisper).
+  voice: {
+    transcribe(audio: ArrayBuffer, meta: TranscribeMeta): Promise<{ text: string }>
   }
   workspace: {
     pick(): Promise<string | null>
