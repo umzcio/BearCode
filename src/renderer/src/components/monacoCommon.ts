@@ -66,11 +66,6 @@ const FAB_SVG =
   '<path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/>' +
   '<line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>'
 
-const PLUS_SVG =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">' +
-  '<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/>' +
-  '<line x1="8" y1="12" x2="16" y2="12"/></svg>'
-
 const ARROW_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
   '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="6 11 12 5 18 11"/></svg>'
@@ -136,9 +131,6 @@ export function attachCommenting(
     overlay.className = 'comment-zone-inline'
     const bar = document.createElement('div')
     bar.className = 'comment-bar'
-    const plus = document.createElement('span')
-    plus.className = 'comment-bar-plus'
-    plus.innerHTML = PLUS_SVG
     const ta = document.createElement('textarea')
     ta.className = 'comment-bar-input'
     ta.placeholder = 'Tell the agent what to change'
@@ -152,7 +144,7 @@ export function attachCommenting(
     close.className = 'comment-bar-close'
     close.title = 'Cancel (Esc)'
     close.innerHTML = X_SVG
-    bar.append(plus, ta, send, close)
+    bar.append(ta, send, close)
     overlay.appendChild(bar)
     container.appendChild(overlay)
 

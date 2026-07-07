@@ -1043,16 +1043,7 @@
   background: var(--bg-active);
   border: 1px solid var(--border-soft);
   border-radius: 12px;
-  padding: 7px 10px 7px 12px;
-}
-.comment-bar-plus {
-  display: flex;
-  color: var(--text-dim);
-  flex-shrink: 0;
-}
-.comment-bar-plus svg {
-  width: 18px;
-  height: 18px;
+  padding: 7px 10px 7px 14px;
 }
 .comment-bar-input {
   flex: 1;
