@@ -274,7 +274,8 @@ interface DriveContext {
   // even if the nudge segment itself pauses on an approval and resumes.
   emptyFinalRetried: { done: boolean }
   // Accumulates real per-call token usage across the turn (handleLLMEnd). Deduped
-  // by runId; snapshot() lands on turn_meta.usage. Shared by reference across the
+  // by the parent/child runId link (handleLLMEnd double-fires one call under two
+  // runIds); snapshot() lands on turn_meta.usage. Shared by reference across the
   // pause/resume split like the other boxed accumulators above.
   turnUsage: TurnUsageAccumulator
 }
@@ -899,11 +900,13 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
     // thinking time is measured against its own first answer token.
     this.answerStartedAt.t = null
   }
-  handleLLMEnd(output: LLMResult, runId: string): void {
+  handleLLMEnd(output: LLMResult, runId: string, parentRunId?: string): void {
     const started = this.startedAt.get(runId) ?? Date.now()
     this.startedAt.delete(runId)
     const usage = readUsage(output)
-    if (usage) this.turnUsage.add(runId, usage)
+    // Pass parentRunId so the accumulator can collapse the parent/child
+    // double-fire (same usage, different runIds linked by parentRunId).
+    if (usage) this.turnUsage.add(runId, parentRunId, usage)
     let thinking = ''
     for (const gens of output.generations ?? []) {
       for (const gen of gens) {
