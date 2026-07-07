@@ -135,6 +135,15 @@ export function assembleCommandAdditions(
         ]
       }
     }
+    // /compact contributes no system prompt text: the summarizer is forced to
+    // fire for this turn main-side (markForceCompact in runGraph) and the turn's
+    // directive rides as the user message (graph.ts modelText). This branch
+    // exists so a sent /compact is NOT treated as an unknown builtin below and
+    // refused — it flows through the same assembleCommandAdditions path as the
+    // other built-ins, just with an empty contribution.
+    if (command.name === 'compact') {
+      return { systemAdditions: [] }
+    }
     return { systemAdditions: [], error: `Unknown command: /${command.name}` }
   }
 

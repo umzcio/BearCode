@@ -60,7 +60,7 @@ import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
 import { makeModel } from './models'
 import { compactionAdvanced } from './compaction'
-import { consumeForceCompact } from './forceCompact'
+import { commandForcesCompact, consumeForceCompact, markForceCompact } from './forceCompact'
 import {
   buildTunedSummarization,
   defaultStateBackendFactory,
@@ -2010,6 +2010,14 @@ function buildAgentAndContext(
   return { agent, ctx }
 }
 
+// The user message a bare /compact turn (no trailing prose) sends to the
+// agent. By the time the model runs, the forced summarizer has already folded
+// the backlog, so this frames that as done and asks for a one-line ack.
+const COMPACT_ACK_DIRECTIVE =
+  'The earlier conversation history has just been summarized to free up the ' +
+  'context window. Reply with a single short sentence acknowledging this, then ' +
+  'wait for my next message.'
+
 export async function runGraph(opts: {
   conversationId: string
   userText: string
@@ -2052,6 +2060,15 @@ export async function runGraph(opts: {
   sink.emit(conversationId, userEvent)
   appendEvent(conversationId, userEvent)
 
+  // /compact (D2 builtin): force the summarizer to fold the backlog on THIS
+  // turn. markForceCompact sets the one-shot flag that buildAgentAndContext
+  // consumes below (consumeForceCompact) to build an aggressive
+  // trigger+keep, so compaction fires on this model call — before the agent
+  // acks — rather than lowering the trigger for some later turn.
+  if (commandForcesCompact(command)) {
+    markForceCompact(conversationId)
+  }
+
   const built = buildAgentAndContext(
     conversationId,
     modelRef,
@@ -2085,12 +2102,19 @@ export async function runGraph(opts: {
   // transcript), but drive() must never receive an empty user message. This
   // also covers retryRun's edge (store.ts resends lastUser.text, which can be
   // '', dropping the command per Task 4 -- that resend gets 'Proceed.').
+  // Bare /compact (no trailing prose): the backlog was just folded (the forced
+  // summarizer ran above), so instead of a generic 'Proceed.' inject a fixed
+  // directive telling the agent to give a one-line acknowledgement and wait.
+  // Trailing prose after /compact runs verbatim (compaction still happened,
+  // the flag was set before the agent built).
   const modelText =
     userText.trim() !== ''
       ? userText
-      : command?.kind === 'workflow'
-        ? 'Run the workflow.'
-        : 'Proceed.'
+      : command?.kind === 'builtin' && command.name === 'compact'
+        ? COMPACT_ACK_DIRECTIVE
+        : command?.kind === 'workflow'
+          ? 'Run the workflow.'
+          : 'Proceed.'
 
   try {
     const pdfNative = supportsNativePdf(parseModelRef(modelRef).provider)

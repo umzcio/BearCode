@@ -91,9 +91,6 @@ const bearcode: BearcodeApi = {
   pricing: {
     sync: () => ipcRenderer.invoke('bearcode:pricing:sync')
   },
-  compaction: {
-    compactNow: (id: string) => ipcRenderer.invoke('bearcode:compaction:compact-now', id)
-  },
   conversations: {
     list: () => ipcRenderer.invoke('bearcode:conversations:list'),
     get: (id: string) => ipcRenderer.invoke('bearcode:conversations:get', id),

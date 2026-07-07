@@ -35,9 +35,7 @@ export function ContextMeter(): React.JSX.Element | null {
   const providers = useAppStore((s) => s.providers)
   const modelRef = useAppStore((s) => s.modelRef)
   const modelPricing = useAppStore((s) => s.settings?.modelPricing)
-  const compactNow = useAppStore((s) => s.compactNow)
   const [open, setOpen] = useState(false)
-  const [compactHint, setCompactHint] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -81,13 +79,7 @@ export function ContextMeter(): React.JSX.Element | null {
         className={'context-ring ' + state}
         aria-label={`Context ${pct}% used`}
         title={`${measured ? '' : '~'}${pct}% context used`}
-        onClick={() =>
-          setOpen((o) => {
-            // Reset the transient hint each time the popover reopens.
-            if (!o) setCompactHint(false)
-            return !o
-          })
-        }
+        onClick={() => setOpen((o) => !o)}
       >
         <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true">
           <circle className="ring-track" cx="9" cy="9" r={R} />
@@ -149,21 +141,6 @@ export function ContextMeter(): React.JSX.Element | null {
               {cost.hasUnknown ? <div className="context-pop-sub">+ unpriced models</div> : null}
             </>
           ) : null}
-          <div className="context-pop-divider" />
-          <div className="context-pop-footer">
-            <button
-              className="pill-btn context-compact-btn"
-              onClick={() => {
-                void compactNow(convoId)
-                setCompactHint(true)
-              }}
-            >
-              Compact now
-            </button>
-            {compactHint ? (
-              <span className="context-compact-hint">Will compact on your next message.</span>
-            ) : null}
-          </div>
         </div>
       ) : null}
     </div>
