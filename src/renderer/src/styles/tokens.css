@@ -1,5 +1,19 @@
-/* Design tokens from design/bearcode-prototype.html — the pixel-level source of truth. */
+/* Design tokens. Dark is the default/base (the app's original look, unchanged);
+   [data-theme='light'] supplies a light set. The apply module (appearance.ts)
+   sets data-theme on <html> ('dark' | 'light'; 'system' resolves to one of
+   these; 'custom' sets data-theme plus inline --bg/--fg/--accent overrides).
+   Structural tokens (fonts, radius, widths) are theme-independent. */
 :root {
+  /* --- structural (theme-independent) --- */
+  --mono: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+  --serif: 'New York', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+  --radius: 12px;
+  /* Chat text font + conversation column width, overridden by data-* below. */
+  --chat-font: var(--sans);
+  --conversation-max: 820px;
+
+  /* --- dark palette (default) --- */
   --bg: #131313;
   --bg-window: #1b1b1b;
   --bg-sidebar: #171717;
@@ -12,12 +26,48 @@
   --text-mid: #a8a8a8;
   --text-dim: #6f6f6f;
   --accent: #4c8dff;
+  --accent-strong: #5c98ff;
   --green: #3ecf8e;
   --red: #f06a6a;
   --danger: #f06a6a;
   --amber: #e0b568;
-  --mono: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
-  --radius: 12px;
+  /* A translucent wash for subtle raised chrome, tuned per theme so it reads
+     the same over light and dark surfaces. */
+  --wash: rgba(255, 255, 255, 0.04);
+  --wash-strong: rgba(255, 255, 255, 0.09);
+}
+
+:root[data-theme='light'] {
+  --bg: #ebebeb;
+  --bg-window: #ffffff;
+  --bg-sidebar: #f2f2f2;
+  --bg-raised: #ffffff;
+  --bg-hover: #ededed;
+  --bg-active: #e2e2e2;
+  --border: #d7d7d7;
+  --border-soft: #e6e6e6;
+  --text: #1a1a1a;
+  --text-mid: #585858;
+  --text-dim: #8c8c8c;
+  --accent: #2f6fe0;
+  --accent-strong: #2f6fe0;
+  --green: #1a9d63;
+  --red: #d64545;
+  --danger: #d64545;
+  --amber: #b07d18;
+  --wash: rgba(0, 0, 0, 0.04);
+  --wash-strong: rgba(0, 0, 0, 0.08);
+}
+
+/* Chat font + conversation width switches (theme-independent). */
+:root[data-chat-font='serif'] {
+  --chat-font: var(--serif);
+}
+:root[data-width='narrow'] {
+  --conversation-max: 680px;
+}
+:root[data-width='wide'] {
+  --conversation-max: 1080px;
 }
 
 * {
@@ -34,8 +84,19 @@ body,
 
 body {
   background: var(--bg);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+  font-family: var(--sans);
   color: var(--text);
   font-size: 14px;
   user-select: none;
+}
+
+/* Reduce-motion: the setting mirrors the OS media query. Components that must
+   animate opt back in explicitly; this blanket rule kills the rest. */
+:root[data-motion='reduced'] *,
+:root[data-motion='reduced'] *::before,
+:root[data-motion='reduced'] *::after {
+  transition-duration: 0.001ms !important;
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
 }

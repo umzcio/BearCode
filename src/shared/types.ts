@@ -1,6 +1,14 @@
 // The contract shared by main, preload, and renderer.
 // Change deliberately and update all three layers together.
 
+import type {
+  ThemeMode,
+  CustomColors,
+  FontSize,
+  ConversationWidth,
+  ChatFont
+} from './appearance'
+
 // Command-name grammar (D2 design 5.1/6.2), shared so the parse-time check
 // (a workflow's filename, src/main/agentsDir/parseWorkflow.ts) and the
 // wire-time check (the run:start IPC boundary, src/main/ipc.ts) can never
@@ -446,6 +454,14 @@ export interface AppSettings {
   // conversations are hidden from every group (today's behavior) until the
   // user opts in via Display Options.
   sidebarShowArchived: boolean
+  // Appearance (theme + display). Applied live in the renderer by the appearance
+  // apply module; persisted per-user. See src/shared/appearance.ts.
+  theme: ThemeMode
+  customColors: CustomColors // used when theme === 'custom'; surfaces derive from these
+  fontSize: FontSize
+  conversationWidth: ConversationWidth
+  reduceMotion: boolean
+  chatFont: ChatFont
 }
 
 export interface SettingsInfo extends AppSettings {

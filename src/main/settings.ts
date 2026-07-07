@@ -3,6 +3,14 @@ import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { AppSettings, PermissionMode, SettingsInfo } from '../shared/types'
 import { isEffortLevel } from '../shared/effort'
+import {
+  isThemeMode,
+  isFontSize,
+  isConversationWidth,
+  isChatFont,
+  coerceCustomColors,
+  DEFAULT_CUSTOM_COLORS
+} from '../shared/appearance'
 
 // The four selectable default modes (design §5). 'bypass' is per-conversation
 // only and is NEVER a valid default -- coerced away on read, rejected on write.
@@ -23,7 +31,13 @@ const DEFAULTS: AppSettings = {
   defaultThinking: true,
   sidebarGroupBy: 'project',
   sidebarSort: 'updated',
-  sidebarShowArchived: false
+  sidebarShowArchived: false,
+  theme: 'dark',
+  customColors: DEFAULT_CUSTOM_COLORS,
+  fontSize: 'medium',
+  conversationWidth: 'default',
+  reduceMotion: false,
+  chatFont: 'sans'
 }
 
 function settingsPath(): string {
@@ -71,6 +85,15 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   if (!groupByOk.includes(merged.sidebarGroupBy)) merged.sidebarGroupBy = 'project'
   if (!sortOk.includes(merged.sidebarSort)) merged.sidebarSort = 'updated'
   merged.sidebarShowArchived = (seeded as Record<string, unknown>)['sidebarShowArchived'] === true
+  // Appearance: coerce each field to a valid enum/shape, falling back to the
+  // dark defaults so a malformed settings.json can never wedge the theme.
+  const s = seeded as Record<string, unknown>
+  if (!isThemeMode(merged.theme)) merged.theme = 'dark'
+  merged.customColors = coerceCustomColors(s['customColors'])
+  if (!isFontSize(merged.fontSize)) merged.fontSize = 'medium'
+  if (!isConversationWidth(merged.conversationWidth)) merged.conversationWidth = 'default'
+  merged.reduceMotion = s['reduceMotion'] === true
+  if (!isChatFont(merged.chatFont)) merged.chatFont = 'sans'
   return merged
 }
 
@@ -101,6 +124,23 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.defaultEffort !== undefined && !isEffortLevel(patch.defaultEffort)) {
     throw new Error(`Invalid defaultEffort: ${String(patch.defaultEffort)}`)
+  }
+  // Appearance write-validation: reject unknown enum values and malformed custom
+  // colors at the boundary (never persist a value the apply module can't read).
+  if (patch.theme !== undefined && !isThemeMode(patch.theme)) {
+    throw new Error(`Invalid theme: ${String(patch.theme)}`)
+  }
+  if (patch.fontSize !== undefined && !isFontSize(patch.fontSize)) {
+    throw new Error(`Invalid fontSize: ${String(patch.fontSize)}`)
+  }
+  if (patch.conversationWidth !== undefined && !isConversationWidth(patch.conversationWidth)) {
+    throw new Error(`Invalid conversationWidth: ${String(patch.conversationWidth)}`)
+  }
+  if (patch.chatFont !== undefined && !isChatFont(patch.chatFont)) {
+    throw new Error(`Invalid chatFont: ${String(patch.chatFont)}`)
+  }
+  if (patch.customColors !== undefined) {
+    patch = { ...patch, customColors: coerceCustomColors(patch.customColors) }
   }
   const next = { ...getSettings(), ...patch }
   cache = next
