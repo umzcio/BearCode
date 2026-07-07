@@ -54,6 +54,32 @@ export type View = { kind: 'home' } | { kind: 'conversation'; id: string } | { k
 export type AuxSelection =
   { kind: 'artifact'; artifactId: string } | { kind: 'diff'; diffId: string }
 
+// Auto-surface the newest diff group. Returns true when a fresh file_diff
+// arrives for the conversation you're viewing AND the review pane is already
+// open on a *different* diff -- then the pane should follow it to the new
+// change-set rather than leaving you stranded on an older/rejected one
+// (design 2026-07-06). Guarded so it NEVER opens a closed pane and NEVER yanks
+// you off a plan/walkthrough you're reading; only genuinely new events (not
+// re-emits of one already in history) trigger the follow.
+export function shouldFollowNewDiff(
+  s: {
+    view: { kind: string; id?: string }
+    auxSelection: AuxSelection | null
+    conversations: Record<string, { events: { id: string }[] } | undefined>
+  },
+  convoId: string,
+  event: Event
+): boolean {
+  return (
+    event.type === 'file_diff' &&
+    s.view.kind === 'conversation' &&
+    s.view.id === convoId &&
+    s.auxSelection?.kind === 'diff' &&
+    s.auxSelection.diffId !== event.diffId &&
+    !(s.conversations[convoId]?.events.some((e) => e.id === event.id) ?? false)
+  )
+}
+
 // "Worked for Ns" per agent turn, keyed by the turn's user_message event id.
 // The working phase ends when prose starts streaming.
 export const workedSecondsByTurn = new Map<string, number>()
@@ -278,7 +304,11 @@ export const useAppStore = create<AppState>((set, get) => {
       turnStartByConvo.set(convoId, { turnId: event.id, startedAt: Date.now(), frozen: false })
       patchConvo(convoId, { startedAt: Date.now() })
     }
+    // Auto-surface the newest diff group (design 2026-07-06): see
+    // shouldFollowNewDiff. Decided BEFORE upsert so "already seen" is accurate.
+    const follow = shouldFollowNewDiff(get(), convoId, event)
     upsertEvent(convoId, event)
+    if (follow && event.type === 'file_diff') get().openReview(event.diffId)
   }
 
   function ensureDefaultModel(): void {

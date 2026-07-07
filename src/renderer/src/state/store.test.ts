@@ -8,7 +8,7 @@ import type {
   PermissionRulesInfo,
   PlanReviewResolveResult
 } from '@shared/types'
-import { useAppStore, type Convo } from './store'
+import { useAppStore, shouldFollowNewDiff, type Convo } from './store'
 
 const info: PermissionRulesInfo = {
   userRules: [
@@ -209,6 +209,42 @@ describe('auxiliary pane selection (Ba4): one field, deep-link ticks, reset on s
     diffId: 'd1',
     files: [{ path: 'src/a.ts', additions: 3, deletions: 1, status: 'modified' }]
   } as Event
+
+  describe('shouldFollowNewDiff (auto-surface newest diff group)', () => {
+    const newDiff = { type: 'file_diff', id: 'ev-d2', diffId: 'd2', files: [] } as unknown as Event
+    const base = {
+      view: { kind: 'conversation', id: 'c1' } as { kind: string; id?: string },
+      auxSelection: { kind: 'diff', diffId: 'd1' } as ReturnType<typeof useAppStore.getState>['auxSelection'],
+      conversations: { c1: { events: [{ id: 'ev-d1' }] } }
+    }
+
+    it('follows a new diff when the pane is open on a different diff in the active convo', () => {
+      expect(shouldFollowNewDiff(base, 'c1', newDiff)).toBe(true)
+    })
+    it('does NOT open a closed pane', () => {
+      expect(shouldFollowNewDiff({ ...base, auxSelection: null }, 'c1', newDiff)).toBe(false)
+    })
+    it('does NOT yank off an artifact/plan the user is reading', () => {
+      expect(
+        shouldFollowNewDiff({ ...base, auxSelection: { kind: 'artifact', artifactId: 'a1' } }, 'c1', newDiff)
+      ).toBe(false)
+    })
+    it('ignores diffs for a non-active conversation', () => {
+      expect(shouldFollowNewDiff({ ...base, view: { kind: 'conversation', id: 'c2' } }, 'c1', newDiff)).toBe(false)
+    })
+    it('ignores a re-emit of a diff already in history (not a genuinely new event)', () => {
+      const seen = { ...base, conversations: { c1: { events: [{ id: 'ev-d1' }, { id: 'ev-d2' }] } } }
+      expect(shouldFollowNewDiff(seen, 'c1', newDiff)).toBe(false)
+    })
+    it('does not re-follow the diff already selected', () => {
+      const same = { type: 'file_diff', id: 'ev-d1b', diffId: 'd1', files: [] } as unknown as Event
+      expect(shouldFollowNewDiff(base, 'c1', same)).toBe(false)
+    })
+    it('ignores non-file_diff events', () => {
+      const msg = { type: 'assistant_text', id: 'ev-x', text: 'hi' } as unknown as Event
+      expect(shouldFollowNewDiff(base, 'c1', msg)).toBe(false)
+    })
+  })
 
   it('openArtifactPane selects the artifact, clears focusPath, bumps the open tick', () => {
     useAppStore.setState({ auxSelection: null, auxPaneOpenTick: 0, reviewFocusPath: 'stale' })
