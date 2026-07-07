@@ -48,7 +48,7 @@
 }
 .file-preview.table-wrap th,
 .file-preview.table-wrap td {
-  border: 1px solid var(--border, #333);
+  border: 1px solid var(--border, var(--border));
   padding: 4px 8px;
   text-align: left;
   white-space: nowrap;

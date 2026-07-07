@@ -84,7 +84,7 @@
 /* ---------- Dropdown menus ---------- */
 .menu {
   position: absolute;
-  background: #202020;
+  background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 16px 50px rgba(0, 0, 0, 0.55);
@@ -144,7 +144,7 @@
   padding: 2px 6px;
   border-radius: 5px;
   background: rgba(76, 141, 255, 0.14);
-  color: #7fadff;
+  color: var(--accent);
   font-weight: 600;
 }
 .menu-item .badge.local {
@@ -191,7 +191,7 @@ code.tok {
   width: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #333;
+  background: var(--border);
   border-radius: 4px;
 }
 
@@ -201,7 +201,7 @@ code.tok {
   bottom: 26px;
   left: 50%;
   transform: translateX(-50%);
-  background: #202020;
+  background: var(--bg-window);
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 13px;
@@ -228,7 +228,7 @@ code.tok {
   cursor: pointer;
 }
 .toast-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--wash-strong);
 }
 .toast-btn.primary {
   background: var(--accent);

@@ -5,7 +5,7 @@
 .hint-bubble {
   position: fixed;
   z-index: 300;
-  background: #2b2b2b;
+  background: var(--bg-active);
   border: 1px solid var(--border-soft);
   border-radius: 10px;
   padding: 9px 14px;

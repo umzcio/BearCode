@@ -21,7 +21,7 @@
   border-radius: 5px;
 }
 .convo-menu-pop .menu-item.danger {
-  color: var(--danger, #ff5c5c);
+  color: var(--danger, var(--red));
 }
 .convo-menu-pop .menu-group-label {
   text-transform: none;

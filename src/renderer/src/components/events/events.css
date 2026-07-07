@@ -116,7 +116,7 @@
 .step-body.term {
   font-family: var(--mono);
   font-size: 12px;
-  background: #191919;
+  background: var(--bg-window);
   border: 1px solid var(--border-soft);
   border-left: 2px solid var(--border);
   border-radius: 8px;
@@ -214,7 +214,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--wash);
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 13px;
@@ -303,7 +303,7 @@
   flex: 1;
 }
 .retry-btn {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--wash);
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 13px;
@@ -383,7 +383,7 @@
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.6;
-  background: #191919;
+  background: var(--bg-window);
   border: 1px solid var(--border-soft);
   border-radius: 9px;
   padding: 11px 14px;
@@ -414,7 +414,7 @@
   vertical-align: top;
 }
 .md-table th {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--wash);
   font-weight: 600;
   color: var(--text);
   white-space: nowrap;
@@ -423,7 +423,7 @@
   color: var(--text-mid);
 }
 .md-table tr:nth-child(even) td {
-  background: rgba(255, 255, 255, 0.015);
+  background: var(--wash);
 }
 
 /* --- Write/edit step stats --- */
@@ -465,7 +465,7 @@
   font-family: var(--mono);
   font-size: 12.5px;
   color: var(--text);
-  background: #191919;
+  background: var(--bg-window);
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   padding: 9px 12px;
@@ -498,7 +498,7 @@
   width: 20px;
   height: 20px;
   border-radius: 5px;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--wash-strong);
   border: 1px solid var(--border-soft);
   font-size: 11.5px;
   color: var(--text-mid);
@@ -538,7 +538,7 @@
   padding: 2px 6px;
   border-radius: 5px;
   background: rgba(76, 141, 255, 0.14);
-  color: #7fadff;
+  color: var(--accent);
 }
 
 /* One-shot highlight when a command approval card appears / is jumped to. */

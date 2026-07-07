@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import type { PermissionMode, ProviderId, SettingsInfo } from '@shared/types'
+import type { ProviderId, SettingsInfo } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { ProviderIcon } from '../ProviderIcon'
 import { RoarBear } from '../brand/RoarBear'
 import { IconClose } from '../icons'
 import { PermissionRulesSection } from './PermissionRules'
+import { Select } from '../Select'
 import './Settings.css'
 
 const SHORTCUTS: { label: string; keys: string[] }[] = [
@@ -93,6 +94,7 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
   const conversations = useAppStore((s) => s.conversations)
   const saveKey = useAppStore((s) => s.saveKey)
   const saveSettings = useAppStore((s) => s.saveSettings)
+  const setAppearance = useAppStore((s) => s.setAppearance)
   const deleteAll = useAppStore((s) => s.deleteAllConversations)
 
   const [page, setPage] = useState('models')
@@ -207,20 +209,17 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                   title="Default Permission Mode"
                   desc="The permission mode new conversations start in. Bypass is per-conversation only and can never be a default."
                 >
-                  <select
-                    aria-label="Default permission mode"
+                  <Select
+                    ariaLabel="Default permission mode"
                     value={settings.defaultPermissionMode}
-                    onChange={(e) =>
-                      void saveSettings({
-                        defaultPermissionMode: e.target.value as PermissionMode
-                      })
-                    }
-                  >
-                    <option value="ask">Ask permissions</option>
-                    <option value="accept-edits">Accept edits</option>
-                    <option value="plan">Plan mode</option>
-                    <option value="auto">Auto mode</option>
-                  </select>
+                    onChange={(v) => void saveSettings({ defaultPermissionMode: v })}
+                    options={[
+                      { value: 'ask', label: 'Ask permissions' },
+                      { value: 'accept-edits', label: 'Accept edits' },
+                      { value: 'plan', label: 'Plan mode' },
+                      { value: 'auto', label: 'Auto mode' }
+                    ]}
+                  />
                 </Row>
               </div>
               <div className="set-group-title">Agent Settings</div>
@@ -244,7 +243,115 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
           {page === 'appearance' ? (
             <>
               <PageHead title="Appearance" sub="Theme and display options." />
-              <ComingSoon />
+              <div className="set-group-title">Theme</div>
+              <div className="set-card">
+                <Row title="Theme" desc="Dark, light, follow the system, or a custom palette.">
+                  <Select
+                    ariaLabel="Theme"
+                    value={settings.theme}
+                    onChange={(v) => void setAppearance({ theme: v })}
+                    options={[
+                      { value: 'dark', label: 'Dark' },
+                      { value: 'light', label: 'Light' },
+                      { value: 'system', label: 'System' },
+                      { value: 'custom', label: 'Custom' }
+                    ]}
+                  />
+                </Row>
+                {settings.theme === 'custom' ? (
+                  <>
+                    <Row title="Background" desc="Base surface color; panels and borders derive from it.">
+                      <input
+                        type="color"
+                        aria-label="Background color"
+                        className="color-input"
+                        value={settings.customColors.bg}
+                        onChange={(e) =>
+                          void setAppearance({
+                            customColors: { ...settings.customColors, bg: e.target.value }
+                          })
+                        }
+                      />
+                    </Row>
+                    <Row title="Foreground" desc="Primary text color.">
+                      <input
+                        type="color"
+                        aria-label="Foreground color"
+                        className="color-input"
+                        value={settings.customColors.fg}
+                        onChange={(e) =>
+                          void setAppearance({
+                            customColors: { ...settings.customColors, fg: e.target.value }
+                          })
+                        }
+                      />
+                    </Row>
+                    <Row title="Accent" desc="Buttons, links, and highlights.">
+                      <input
+                        type="color"
+                        aria-label="Accent color"
+                        className="color-input"
+                        value={settings.customColors.accent}
+                        onChange={(e) =>
+                          void setAppearance({
+                            customColors: { ...settings.customColors, accent: e.target.value }
+                          })
+                        }
+                      />
+                    </Row>
+                  </>
+                ) : null}
+              </div>
+
+              <div className="set-group-title">Display</div>
+              <div className="set-card">
+                <Row title="Font size" desc="Scales the interface.">
+                  <Select
+                    ariaLabel="Font size"
+                    value={settings.fontSize}
+                    onChange={(v) => void setAppearance({ fontSize: v })}
+                    options={[
+                      { value: 'small', label: 'Small' },
+                      { value: 'medium', label: 'Medium' },
+                      { value: 'large', label: 'Large' }
+                    ]}
+                  />
+                </Row>
+                <Row title="Conversation width" desc="Maximum width of the conversation column.">
+                  <Select
+                    ariaLabel="Conversation width"
+                    value={settings.conversationWidth}
+                    onChange={(v) => void setAppearance({ conversationWidth: v })}
+                    options={[
+                      { value: 'default', label: 'Default' },
+                      { value: 'narrow', label: 'Narrow' },
+                      { value: 'wide', label: 'Wide' }
+                    ]}
+                  />
+                </Row>
+                <Row title="Chat font" desc="Font for conversation text.">
+                  <Select
+                    ariaLabel="Chat font"
+                    value={settings.chatFont}
+                    onChange={(v) => void setAppearance({ chatFont: v })}
+                    options={[
+                      { value: 'sans', label: 'Sans-serif' },
+                      { value: 'serif', label: 'Serif' }
+                    ]}
+                  />
+                </Row>
+                <Row title="Reduce motion" desc="Minimize animations beyond the system setting.">
+                  <Select
+                    ariaLabel="Reduce motion"
+                    value={settings.reduceMotion ? 'reduced' : 'system'}
+                    onChange={(v) => void setAppearance({ reduceMotion: v === 'reduced' })}
+                    options={[
+                      { value: 'system', label: 'System' },
+                      { value: 'reduced', label: 'Reduced' }
+                    ]}
+                  />
+                </Row>
+              </div>
             </>
           ) : null}
 
@@ -322,17 +429,15 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                   title="Default Model"
                   desc="The model new conversations start with. Last used keeps whatever you picked most recently."
                 >
-                  <select
+                  <Select
+                    ariaLabel="Default model"
                     value={settings.defaultModelRef ?? ''}
-                    onChange={(e) => void saveSettings({ defaultModelRef: e.target.value || null })}
-                  >
-                    <option value="">Last used</option>
-                    {allModels.map((m) => (
-                      <option key={m.ref} value={m.ref}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => void saveSettings({ defaultModelRef: v || null })}
+                    options={[
+                      { value: '', label: 'Last used' },
+                      ...allModels.map((m) => ({ value: m.ref, label: m.label }))
+                    ]}
+                  />
                 </Row>
               </div>
             </>

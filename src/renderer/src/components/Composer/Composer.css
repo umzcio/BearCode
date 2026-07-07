@@ -68,7 +68,7 @@
 }
 
 .mic-btn {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--wash);
 }
 
 /* Model picker sits on the right with the mic, Perplexity-style. */
@@ -81,11 +81,11 @@
   color: #fff;
 }
 .send-btn:hover {
-  background: #5c98ff;
+  background: var(--accent-strong);
   color: #fff;
 }
 .send-btn.stop {
-  background: rgba(255, 255, 255, 0.09);
+  background: var(--wash-strong);
   color: var(--text);
 }
 .send-btn.stop:hover {
@@ -94,7 +94,7 @@
 
 .env-row {
   border-top: 1px solid var(--border-soft);
-  background: rgba(255, 255, 255, 0.015);
+  background: var(--wash);
   padding: 6px 10px;
   border-radius: 0 0 16px 16px;
   display: flex;
@@ -124,7 +124,7 @@
   align-items: center;
   gap: 6px;
   background: rgba(76, 141, 255, 0.14);
-  color: #7fadff;
+  color: var(--accent);
   font-size: 13px;
   font-weight: 600;
   padding: 4px 6px 4px 10px;
@@ -142,7 +142,7 @@
   border-radius: 999px;
 }
 .command-pill .pill-x:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--wash-strong);
 }
 
 .composer-notice {
@@ -186,7 +186,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--wash);
   color: var(--text-mid);
   font-size: 12.5px;
   padding: 4px 8px;
@@ -218,18 +218,18 @@
 }
 .badge-pdf {
   background: rgba(232, 76, 61, 0.18);
-  color: #ef6e5c;
+  color: var(--red);
 }
 .badge-docx {
   background: rgba(76, 141, 255, 0.18);
-  color: #7fadff;
+  color: var(--accent);
 }
 .badge-xlsx {
   background: rgba(63, 179, 105, 0.18);
-  color: #5fcf8a;
+  color: var(--green);
 }
 .badge-muted {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--wash-strong);
   color: var(--text-dim);
 }
 .attachment-name {
@@ -249,7 +249,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-raised, #2a2a2e);
+  background: var(--bg-raised, var(--bg-active));
   border: none;
   color: inherit;
   cursor: pointer;
@@ -264,5 +264,5 @@
   opacity: 1;
 }
 .attachment-pill .pill-x:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--wash-strong);
 }

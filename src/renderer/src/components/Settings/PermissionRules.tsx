@@ -7,6 +7,7 @@ import type {
 } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { describeError } from '../../lib/errors'
+import { Select } from '../Select'
 
 function basename(p: string): string {
   const parts = p.replace(/\/$/, '').split('/')
@@ -127,23 +128,27 @@ export function PermissionRulesSection(): React.JSX.Element {
       <div className="set-group-title">Add Rule</div>
       <div className="set-card pad">
         <div className="rule-form">
-          <select
+          <Select
+            compact
+            ariaLabel="What the rule gates"
             value={action}
-            onChange={(e) => setAction(e.target.value as PermissionAction)}
-            title="What the rule gates"
-          >
-            <option value="command">Command</option>
-            <option value="edit">Edit</option>
-          </select>
-          <select
+            onChange={(v) => setAction(v)}
+            options={[
+              { value: 'command', label: 'Command' },
+              { value: 'edit', label: 'Edit' }
+            ]}
+          />
+          <Select
+            compact
+            ariaLabel="What happens on a match"
             value={effect}
-            onChange={(e) => setEffect(e.target.value as PermissionRuleEffect)}
-            title="What happens on a match"
-          >
-            <option value="allow">Allow</option>
-            <option value="deny">Deny</option>
-            <option value="ask">Ask</option>
-          </select>
+            onChange={(v) => setEffect(v)}
+            options={[
+              { value: 'allow', label: 'Allow' },
+              { value: 'deny', label: 'Deny' },
+              { value: 'ask', label: 'Ask' }
+            ]}
+          />
           <input
             value={match}
             placeholder={action === 'command' ? 'e.g. git *' : 'e.g. .env.*'}
@@ -152,14 +157,16 @@ export function PermissionRulesSection(): React.JSX.Element {
               if (e.key === 'Enter') submit()
             }}
           />
-          <select value={scope} onChange={(e) => setScope(e.target.value)} title="Where it applies">
-            <option value="">Everywhere</option>
-            {projectPaths.map((p) => (
-              <option key={p} value={p} title={p}>
-                {basename(p)}
-              </option>
-            ))}
-          </select>
+          <Select
+            compact
+            ariaLabel="Where it applies"
+            value={scope}
+            onChange={(v) => setScope(v)}
+            options={[
+              { value: '', label: 'Everywhere' },
+              ...projectPaths.map((p) => ({ value: p, label: basename(p) }))
+            ]}
+          />
           <button className="small-btn" disabled={!match.trim()} onClick={submit}>
             Add
           </button>

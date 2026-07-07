@@ -40,8 +40,8 @@ describe('ContextMeter', () => {
       conversations: { c1: convo([{ type: 'user_message', id: 'u', text: 'x'.repeat(200) }]) as never }
     })
     render(<ContextMeter />)
-    // 200 chars ≈ 50 tokens / 100 window = 50%
-    expect(screen.getByText(/50% context/i)).toBeTruthy()
+    // 200 chars ≈ 50 tokens / 100 window = 50%; the ring exposes it via aria-label
+    expect(screen.getByLabelText(/50% used/i)).toBeTruthy()
   })
   it('adds the near-limit class past 80%', () => {
     useAppStore.setState({
@@ -49,6 +49,6 @@ describe('ContextMeter', () => {
       conversations: { c1: convo([{ type: 'user_message', id: 'u', text: 'x'.repeat(360) }]) as never }
     })
     const { container } = render(<ContextMeter />)
-    expect(container.querySelector('.context-meter.near')).toBeTruthy()
+    expect(container.querySelector('.context-ring.near')).toBeTruthy()
   })
 })

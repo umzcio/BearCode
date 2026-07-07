@@ -21,6 +21,7 @@ import type {
   RunState,
   SettingsInfo
 } from '@shared/types'
+import { applyAppearance, watchSystemTheme } from '../lib/appearance'
 
 export type ConvoRunState = RunState | 'idle'
 
@@ -235,6 +236,7 @@ interface AppState {
     sidebarSort?: AppSettings['sidebarSort']
     sidebarShowArchived?: AppSettings['sidebarShowArchived']
   }): Promise<void>
+  setAppearance(patch: Partial<AppSettings>): Promise<void>
   setPermissionMode(mode: PermissionMode): void
   setEffort(effort: EffortLevel): void
   setThinking(thinking: boolean): void
@@ -431,6 +433,13 @@ export const useAppStore = create<AppState>((set, get) => {
       void (async () => {
         const settings = await window.bearcode.settings.get()
         set({ settings })
+        // Apply the persisted appearance immediately + follow OS theme changes
+        // while in 'system' mode.
+        applyAppearance(settings)
+        watchSystemTheme(() => {
+          const s = get().settings
+          return s ?? settings
+        })
         // One-time seed: adopt the configured default only if the user hasn't
         // picked a mode yet. This runs exactly once per app session (init is
         // guarded by `initialized`), unlike ensureDefaultModel which fires on
@@ -688,6 +697,16 @@ export const useAppStore = create<AppState>((set, get) => {
     setSidebarView: async (patch) => {
       const settings = await window.bearcode.settings.set(patch)
       set({ settings })
+    },
+
+    setAppearance: async (patch) => {
+      // Apply optimistically for instant feedback, then persist. The persisted
+      // result is authoritative (coerced custom colors etc.).
+      const optimistic = { ...get().settings, ...patch } as SettingsInfo
+      applyAppearance(optimistic)
+      const settings = await window.bearcode.settings.set(patch)
+      set({ settings })
+      applyAppearance(settings)
     },
 
     setPermissionMode: (mode) => {

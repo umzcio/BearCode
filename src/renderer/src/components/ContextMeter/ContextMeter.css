@@ -1,14 +1,102 @@
-.context-meter {
-  font-size: 11px;
-  color: var(--text-dim);
-  padding: 2px 6px;
-  border-radius: 5px;
-  white-space: nowrap;
-  cursor: default;
+/* A small circular usage ring (like the AI providers show next to the model)
+   with a click-to-open details popover, styled to match the app's menus. */
+
+.context-meter-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
 }
-.context-meter.near {
+
+/* The ring button: a bare 16px SVG in a hit target, accent-colored. */
+.context-ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.context-ring:hover {
+  background: var(--wash);
+}
+.context-ring.near {
   color: var(--amber);
 }
-.context-meter.over {
-  color: var(--danger, #ff5c5c);
+.context-ring.over {
+  color: var(--danger, var(--red));
+}
+
+.context-ring .ring-track {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 2.5;
+}
+.context-ring .ring-fill {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.25s ease;
+}
+
+/* Popover: a rounded card anchored above the ring, right-aligned. */
+.context-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  width: 280px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: default;
+}
+
+.context-pop-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.context-pop-label {
+  font-size: 13px;
+  color: var(--text);
+}
+.context-pop-pct {
+  font-size: 13px;
+  color: var(--text-mid);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Thin progress bar. */
+.context-pop-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--wash-strong);
+  overflow: hidden;
+}
+.context-pop-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+.context-pop-bar-fill.near {
+  background: var(--amber);
+}
+.context-pop-bar-fill.over {
+  background: var(--danger, var(--red));
+}
+
+.context-pop-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
 }

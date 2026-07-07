@@ -1,0 +1,49 @@
+.app-select {
+  position: relative;
+  flex-shrink: 0;
+}
+/* Matches the footprint of the native selects it replaces. */
+.app-select-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 170px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.app-select-trigger:hover {
+  border-color: var(--border-strong, var(--text-dim));
+}
+.app-select-value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-select-trigger .chev {
+  display: flex;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.app-select-trigger .chev svg {
+  width: 14px;
+  height: 14px;
+}
+/* Popover uses the shared .menu; just anchor + size it to the trigger. */
+.app-select-menu {
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: 280px;
+}
+.app-select.compact .app-select-trigger {
+  min-width: 0;
+}

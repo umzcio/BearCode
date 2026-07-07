@@ -6,7 +6,7 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #161616;
+  background: var(--bg-window);
   border-left: 1px solid var(--border);
 }
 
@@ -40,7 +40,7 @@
   color: var(--text);
 }
 .review-tab.active {
-  background: #2c2c2c;
+  background: var(--border);
   color: var(--text);
 }
 .review-tab svg {
@@ -96,7 +96,7 @@
 .turn-chip {
   display: flex;
   align-items: center;
-  background: #242424;
+  background: var(--border-soft);
   border: 1px solid var(--border-soft);
   border-radius: 9px;
   overflow: hidden;
@@ -105,7 +105,7 @@
 }
 .turn-chip-label {
   padding: 6px 10px;
-  background: #2e2e2e;
+  background: var(--bg-active);
   color: var(--text);
   font-weight: 600;
   flex-shrink: 0;
@@ -172,11 +172,11 @@
   user-select: none;
   position: sticky;
   top: 0;
-  background: #161616;
+  background: var(--bg-window);
   z-index: 5;
 }
 .file-section-head:hover {
-  background: #1b1b1b;
+  background: var(--bg-window);
 }
 .file-section-head .fname {
   font-size: 14px;
@@ -215,7 +215,7 @@
   border-radius: 7px;
   cursor: pointer;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--wash);
   color: var(--text);
 }
 .mini-btn:hover {
@@ -376,7 +376,7 @@
   pointer-events: none;
 }
 .comment-zone {
-  background: #232323;
+  background: var(--bg-raised);
   border: 1px solid var(--border-soft);
   border-radius: 16px;
   padding: 12px;
@@ -388,7 +388,7 @@
   pointer-events: auto;
 }
 .comment-zone textarea {
-  background: #2e2e2e;
+  background: var(--bg-active);
   border: none;
   border-radius: 11px;
   color: var(--text);
@@ -435,7 +435,7 @@
   color: var(--text);
 }
 .comment-add {
-  background: #3566c9;
+  background: var(--accent);
   border: none;
   border-radius: 10px;
   font-family: inherit;
@@ -446,7 +446,7 @@
   padding: 8px 16px;
 }
 .comment-add:hover {
-  background: #3f74e0;
+  background: var(--accent-strong);
 }
 .comment-add:disabled {
   opacity: 0.45;
@@ -459,7 +459,7 @@
   background: rgba(76, 141, 255, 0.08);
 }
 .comment-glyph {
-  background: #4c8dff;
+  background: var(--accent);
   border-radius: 3px;
   width: 5px !important;
   margin-left: 6px;
@@ -487,7 +487,7 @@
 .comment-loc {
   font-family: var(--mono);
   font-size: 11.5px;
-  color: #9dbcff;
+  color: var(--accent);
   flex-shrink: 0;
 }
 .comment-text {
@@ -537,7 +537,7 @@
   border-radius: 9px;
   cursor: pointer;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--wash);
   color: var(--text);
 }
 .foot-btn:hover {
@@ -553,7 +553,7 @@
 }
 
 .added-wash {
-  background: #31391f66;
+  background: color-mix(in srgb, transparent, var(--green) 14%);
 }
 
 /* Floating hover Comment button, Antigravity style. */
@@ -564,7 +564,7 @@
   height: 24px;
   align-items: center;
   justify-content: center;
-  background: #3b82f6;
+  background: var(--accent);
   border: none;
   border-radius: 6px;
   color: #fff;
@@ -573,7 +573,7 @@
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
 }
 .comment-fab:hover {
-  background: #4c8dff;
+  background: var(--accent);
 }
 .comment-fab svg {
   width: 14px;
@@ -585,7 +585,7 @@
   right: 34px;
   top: 50%;
   transform: translateY(-50%);
-  background: #2b2b2b;
+  background: var(--bg-active);
   border: 1px solid var(--border-soft);
   border-radius: 9px;
   padding: 7px 14px;
