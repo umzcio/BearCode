@@ -13,6 +13,7 @@
 import { randomUUID } from 'crypto'
 import { relative } from 'path'
 import { createDeepAgent } from 'deepagents'
+import { ollamaToolContentMiddleware } from './ollamaCompat'
 import { Command } from '@langchain/langgraph'
 import type { AIMessageChunk, BaseMessageChunk, ToolMessageChunk } from '@langchain/core/messages'
 import { isToolMessageChunk } from '@langchain/core/messages'
@@ -1924,6 +1925,10 @@ function buildAgentAndContext(
   }
   const agent = createDeepAgent({
     model,
+    // Ollama's LangChain integration rejects non-string ToolMessage content
+    // (Deep Agents' file tools return arrays); normalize it to a string on the
+    // Ollama path only. Anthropic/Gemini accept arrays and are left untouched.
+    ...(providerId === 'ollama' ? { extraMiddleware: [ollamaToolContentMiddleware] } : {}),
     // meta is null only for a conversation deleted mid-flight (the run is
     // doomed either way). The plan-mode frame (mode-picker design §5, phase 2)
     // is keyed on the conversation's live permission mode: assembled per-turn,
