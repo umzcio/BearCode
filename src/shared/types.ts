@@ -2,6 +2,7 @@
 // Change deliberately and update all three layers together.
 
 import type { ThemeMode, CustomColors, FontSize, ConversationWidth, ChatFont } from './appearance'
+import type { PricingMap } from './pricing'
 
 // Command-name grammar (D2 design 5.1/6.2), shared so the parse-time check
 // (a workflow's filename, src/main/agentsDir/parseWorkflow.ts) and the
@@ -487,6 +488,12 @@ export interface AppSettings {
   conversationWidth: ConversationWidth
   reduceMotion: boolean
   chatFont: ChatFont
+  // Per-model pricing overrides (USD per 1M tokens), keyed by modelRef. Populated
+  // by the Settings "Sync prices" button from LiteLLM; wins over the bundled
+  // defaults in src/shared/pricing.ts. Optional & additive: settings persisted
+  // before this feature load unchanged (coerced to {} / 0).
+  modelPricing?: PricingMap
+  modelPricingSyncedAt?: number
 }
 
 export interface SettingsInfo extends AppSettings {
