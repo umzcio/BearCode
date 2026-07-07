@@ -84,7 +84,7 @@
 /* ---------- Dropdown menus ---------- */
 .menu {
   position: absolute;
-  background: #202020;
+  background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 16px 50px rgba(0, 0, 0, 0.55);

@@ -5,6 +5,7 @@ import { ProviderIcon } from '../ProviderIcon'
 import { RoarBear } from '../brand/RoarBear'
 import { IconClose } from '../icons'
 import { PermissionRulesSection } from './PermissionRules'
+import { Select } from '../Select'
 import './Settings.css'
 
 const SHORTCUTS: { label: string; keys: string[] }[] = [
@@ -248,18 +249,17 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
               <div className="set-group-title">Theme</div>
               <div className="set-card">
                 <Row title="Theme" desc="Dark, light, follow the system, or a custom palette.">
-                  <select
-                    aria-label="Theme"
+                  <Select
+                    ariaLabel="Theme"
                     value={settings.theme}
-                    onChange={(e) =>
-                      void setAppearance({ theme: e.target.value as AppSettings['theme'] })
-                    }
-                  >
-                    <option value="dark">Dark</option>
-                    <option value="light">Light</option>
-                    <option value="system">System</option>
-                    <option value="custom">Custom</option>
-                  </select>
+                    onChange={(v) => void setAppearance({ theme: v })}
+                    options={[
+                      { value: 'dark', label: 'Dark' },
+                      { value: 'light', label: 'Light' },
+                      { value: 'system', label: 'System' },
+                      { value: 'custom', label: 'Custom' }
+                    ]}
+                  />
                 </Row>
                 {settings.theme === 'custom' ? (
                   <>
@@ -309,56 +309,50 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
               <div className="set-group-title">Display</div>
               <div className="set-card">
                 <Row title="Font size" desc="Scales the interface.">
-                  <select
-                    aria-label="Font size"
+                  <Select
+                    ariaLabel="Font size"
                     value={settings.fontSize}
-                    onChange={(e) =>
-                      void setAppearance({ fontSize: e.target.value as AppSettings['fontSize'] })
-                    }
-                  >
-                    <option value="small">Small</option>
-                    <option value="medium">Medium</option>
-                    <option value="large">Large</option>
-                  </select>
+                    onChange={(v) => void setAppearance({ fontSize: v })}
+                    options={[
+                      { value: 'small', label: 'Small' },
+                      { value: 'medium', label: 'Medium' },
+                      { value: 'large', label: 'Large' }
+                    ]}
+                  />
                 </Row>
                 <Row title="Conversation width" desc="Maximum width of the conversation column.">
-                  <select
-                    aria-label="Conversation width"
+                  <Select
+                    ariaLabel="Conversation width"
                     value={settings.conversationWidth}
-                    onChange={(e) =>
-                      void setAppearance({
-                        conversationWidth: e.target.value as AppSettings['conversationWidth']
-                      })
-                    }
-                  >
-                    <option value="default">Default</option>
-                    <option value="narrow">Narrow</option>
-                    <option value="wide">Wide</option>
-                  </select>
+                    onChange={(v) => void setAppearance({ conversationWidth: v })}
+                    options={[
+                      { value: 'default', label: 'Default' },
+                      { value: 'narrow', label: 'Narrow' },
+                      { value: 'wide', label: 'Wide' }
+                    ]}
+                  />
                 </Row>
                 <Row title="Chat font" desc="Font for conversation text.">
-                  <select
-                    aria-label="Chat font"
+                  <Select
+                    ariaLabel="Chat font"
                     value={settings.chatFont}
-                    onChange={(e) =>
-                      void setAppearance({ chatFont: e.target.value as AppSettings['chatFont'] })
-                    }
-                  >
-                    <option value="sans">Sans-serif</option>
-                    <option value="serif">Serif</option>
-                  </select>
+                    onChange={(v) => void setAppearance({ chatFont: v })}
+                    options={[
+                      { value: 'sans', label: 'Sans-serif' },
+                      { value: 'serif', label: 'Serif' }
+                    ]}
+                  />
                 </Row>
                 <Row title="Reduce motion" desc="Minimize animations beyond the system setting.">
-                  <select
-                    aria-label="Reduce motion"
+                  <Select
+                    ariaLabel="Reduce motion"
                     value={settings.reduceMotion ? 'reduced' : 'system'}
-                    onChange={(e) =>
-                      void setAppearance({ reduceMotion: e.target.value === 'reduced' })
-                    }
-                  >
-                    <option value="system">System</option>
-                    <option value="reduced">Reduced</option>
-                  </select>
+                    onChange={(v) => void setAppearance({ reduceMotion: v === 'reduced' })}
+                    options={[
+                      { value: 'system', label: 'System' },
+                      { value: 'reduced', label: 'Reduced' }
+                    ]}
+                  />
                 </Row>
               </div>
             </>
