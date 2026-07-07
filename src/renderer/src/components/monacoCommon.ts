@@ -66,34 +66,27 @@ const FAB_SVG =
   '<path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/>' +
   '<line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>'
 
+const MIC_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">' +
+  '<rect x="9" y="3" width="6" height="11" rx="3"/>' +
+  '<path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg>'
+
 // Hover any line for the floating blue Comment button (or click a line
-// number) to open an inline comment composer, Antigravity style.
+// number) to open an inline comment composer, Antigravity style. The composer
+// lives INSIDE a Monaco view zone, so it displaces the lines below rather than
+// floating over them -- the code stays readable around it (design 2026-07-06).
 export function attachCommenting(
   ed: monaco.editor.ICodeEditor,
   onAdd: (line: number, text: string) => void
 ): monaco.IDisposable {
   const container = ed.getContainerDomNode()
 
-  // The composer is a view zone (reserves vertical space so code below
-  // shifts down) plus a separate overlay card. The card is pinned to the
-  // container's visible width, NOT the content width, so its action row can
-  // never fall off the right edge in a narrow pane.
-  const ZONE_HEIGHT = 150
   let zoneId: string | null = null
-  let overlay: HTMLElement | null = null
-  let overlayLine = 0
   let activeLine: monaco.editor.IEditorDecorationsCollection | null = null
-
-  const positionOverlay = (): void => {
-    if (!overlay) return
-    overlay.style.top = `${ed.getBottomForLineNumber(overlayLine) - ed.getScrollTop()}px`
-  }
 
   const closeComposer = (): void => {
     activeLine?.clear()
     activeLine = null
-    overlay?.remove()
-    overlay = null
     if (zoneId) {
       const id = zoneId
       zoneId = null
@@ -103,7 +96,6 @@ export function attachCommenting(
 
   const openComposer = (line: number): void => {
     closeComposer()
-    overlayLine = line
     // Highlight the line being commented on while the composer is open.
     activeLine = ed.createDecorationsCollection([
       {
@@ -112,36 +104,51 @@ export function attachCommenting(
       }
     ])
 
-    overlay = document.createElement('div')
-    overlay.className = 'comment-overlay'
+    // The composer IS the view zone's content: an indented card that aligns
+    // under the code and pushes subsequent lines down. wordWrap:'on' keeps the
+    // content width == viewport width, so it never scrolls off the right edge.
+    const dom = document.createElement('div')
+    dom.className = 'comment-zone-inline'
     const card = document.createElement('div')
-    card.className = 'comment-zone'
+    card.className = 'comment-inline-card'
     const ta = document.createElement('textarea')
+    ta.className = 'comment-inline-ta'
     ta.placeholder = 'Leave a comment'
-    ta.rows = 1
-    const actions = document.createElement('div')
-    actions.className = 'comment-actions'
-    const mic = document.createElement('button')
-    mic.className = 'comment-mic'
+    ta.rows = 2
+    const foot = document.createElement('div')
+    foot.className = 'comment-inline-foot'
+    const mic = document.createElement('span')
+    mic.className = 'comment-inline-mic'
     mic.title = 'Voice input: coming soon'
-    mic.disabled = true
-    mic.innerHTML =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">' +
-      '<rect x="9" y="3" width="6" height="11" rx="3"/>' +
-      '<path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg>'
+    mic.innerHTML = MIC_SVG
     const spacer = document.createElement('span')
-    spacer.className = 'comment-spacer'
+    spacer.className = 'cif-spacer'
     const cancel = document.createElement('button')
+    cancel.className = 'comment-inline-cancel'
     cancel.textContent = 'Cancel'
-    cancel.className = 'comment-cancel'
     const add = document.createElement('button')
-    add.textContent = 'Add Comment'
-    add.className = 'comment-add'
+    add.className = 'comment-inline-add'
+    add.textContent = 'Add comment'
     add.disabled = true
-    actions.append(mic, spacer, cancel, add)
-    card.append(ta, actions)
-    overlay.append(card)
-    container.appendChild(overlay)
+    foot.append(mic, spacer, cancel, add)
+    card.append(ta, foot)
+    dom.appendChild(card)
+
+    // Keep a reference to mutate heightInPx and re-layout once measured, so the
+    // zone hugs the card exactly instead of a guessed constant.
+    const zone: monaco.editor.IViewZone = {
+      afterLineNumber: line,
+      heightInPx: 132,
+      domNode: dom
+    }
+    ed.changeViewZones((acc) => {
+      zoneId = acc.addZone(zone)
+    })
+    const relayout = (): void => {
+      if (!zoneId) return
+      zone.heightInPx = card.offsetHeight + 18
+      ed.changeViewZones((acc) => acc.layoutZone(zoneId as string))
+    }
 
     cancel.onclick = closeComposer
     add.onclick = (): void => {
@@ -161,13 +168,10 @@ export function attachCommenting(
       }
     }
 
-    // An empty spacer zone reserves the room; the card overlays it.
-    const spacerZone = document.createElement('div')
-    ed.changeViewZones((acc) => {
-      zoneId = acc.addZone({ afterLineNumber: line, heightInPx: ZONE_HEIGHT, domNode: spacerZone })
-    })
-    positionOverlay()
-    window.setTimeout(() => ta.focus(), 60)
+    window.setTimeout(() => {
+      ta.focus()
+      relayout()
+    }, 30)
   }
 
   const mouse = ed.onMouseDown((e) => {
@@ -205,7 +209,6 @@ export function attachCommenting(
   container.addEventListener('mouseleave', leave)
   const scroll = ed.onDidScrollChange(() => {
     hideFab()
-    positionOverlay()
   })
   fab.onclick = (): void => {
     hideFab()

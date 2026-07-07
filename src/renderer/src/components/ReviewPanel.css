@@ -1022,6 +1022,91 @@
   display: flex;
 }
 
+/* --- Inline comment composer (lives inside a Monaco view zone) --- */
+.comment-zone-inline {
+  width: 100%;
+  box-sizing: border-box;
+}
+.comment-inline-card {
+  margin: 8px 16px 10px 52px; /* indent past the line-number gutter, under code */
+  background: var(--bg-active);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.comment-inline-ta {
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  min-height: 46px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 9px 11px;
+  outline: none;
+}
+.comment-inline-ta::placeholder {
+  color: var(--text-dim);
+}
+.comment-inline-ta:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.comment-inline-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cif-spacer {
+  flex: 1;
+}
+.comment-inline-mic {
+  display: flex;
+  color: var(--text-dim);
+  padding: 2px;
+}
+.comment-inline-mic svg {
+  width: 16px;
+  height: 16px;
+}
+.comment-inline-cancel {
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text-mid);
+  cursor: pointer;
+  padding: 6px 8px;
+}
+.comment-inline-cancel:hover {
+  color: var(--text);
+}
+.comment-inline-add {
+  background: var(--accent);
+  border: none;
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  padding: 7px 16px;
+}
+.comment-inline-add:hover {
+  background: #3f74e0;
+}
+.comment-inline-add:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* --- Auxiliary Pane (Ba4): unified rail + version history --- */
 .artifact-rail-meta {
   color: var(--text-dim);
