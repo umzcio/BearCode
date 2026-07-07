@@ -178,7 +178,11 @@ describe('diffs:preview IPC', () => {
 
     const result = await handlers.get('bearcode:diffs:preview')!({}, 'f11')
 
-    expect(result).toEqual({ kind: 'html', html: '<h1>hi</h1>' })
+    // Asset inlining leaves this markup untouched (no <link>/<script src>), and
+    // the anchor-scroll guard is appended for the blob-URL preview iframe.
+    expect(result.kind).toBe('html')
+    expect((result as { html: string }).html).toContain('<h1>hi</h1>')
+    expect((result as { html: string }).html).toContain('scrollIntoView')
   })
 
   it('an unknown fileId (filePathFor -> null) is unsupported', async () => {

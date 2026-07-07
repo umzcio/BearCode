@@ -22,6 +22,7 @@ import { setSettings, settingsInfo } from './settings'
 import { listAllModels } from './providers/registry'
 import { filePathFor, getDiff, revertFile } from './diffs'
 import { previewClassify } from './preview/classify'
+import { inlineHtmlAssets, injectPreviewNavGuard } from './preview/inlineHtml'
 import { runOfficeHtml, runOfficeRows } from './attachments/office'
 import { parseCsv } from './preview/csv'
 import { extractTextLane } from './attachments/extract'
@@ -253,7 +254,13 @@ export function registerIpc(): void {
         return { kind: 'code', text: bytes.toString('utf8'), language: c.language ?? 'plaintext' }
       }
       if (c.kind === 'html') {
-        return { kind: 'html', html: bytes.toString('utf8') }
+        // Inline local sibling CSS/JS so the blob-URL preview iframe renders
+        // styled, then inject the (CSP-hash-allowed) anchor scroll guard so
+        // in-page "#" links scroll instead of doing nothing.
+        return {
+          kind: 'html',
+          html: injectPreviewNavGuard(inlineHtmlAssets(bytes.toString('utf8'), path))
+        }
       }
       const r = extractTextLane(bytes)
       return { kind: 'text', text: r.text, truncated: r.truncated }

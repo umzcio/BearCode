@@ -999,9 +999,19 @@
 .ap-body .file-preview {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   max-height: none;
 }
-.ap-body .file-preview-frame {
+/* HTML/PDF previews fill the whole pane height instead of a fixed 60/70vh, so
+   there's no dead gray space below the iframe (matches Claude's full-height
+   artifact preview). */
+.ap-body .file-preview.html {
+  display: flex;
+}
+.ap-body .file-preview.html .file-preview-frame,
+.ap-body > .file-preview-frame.pdf {
+  flex: 1;
+  height: auto;
   max-width: 100%;
 }
 

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import type { PreviewPayload } from '@shared/types'
 import { Markdown } from '../../lib/markdown'
 import './FilePreview.css'
@@ -6,6 +6,25 @@ import './FilePreview.css'
 // Match AuxiliaryPane's lazy import: full Monaco stays out of the eager
 // bundle since most previews never need the read-only code view.
 const MonacoCode = lazy(() => import('../MonacoCode'))
+
+// HTML renders from a blob: URL (not srcDoc). A blob gives the iframe a real
+// document URL, so in-page "#anchor" links scroll natively instead of blanking
+// the frame (srcDoc's about:srcdoc URL blanks on fragment nav in a sandboxed
+// opaque frame, and CSP script-src 'self' blocks any JS guard we'd inject).
+// Still sandboxed allow-scripts, opaque origin -- no same-origin, no parent
+// access -- so previewing agent-authored HTML stays safe.
+function HtmlPreview({ html }: { html: string }): React.JSX.Element {
+  // Create the blob URL during render (not via setState-in-effect); the effect
+  // only revokes it -- React runs the cleanup for the previous url before the
+  // next, and on unmount, so no leak.
+  const url = useMemo(() => URL.createObjectURL(new Blob([html], { type: 'text/html' })), [html])
+  useEffect(() => () => URL.revokeObjectURL(url), [url])
+  return (
+    <div className="file-preview html">
+      <iframe className="file-preview-frame" title="preview" sandbox="allow-scripts" src={url} />
+    </div>
+  )
+}
 
 export function FilePreview({ fileId }: { fileId: string }): React.JSX.Element {
   const [loaded, setLoaded] = useState<{ fileId: string; payload: PreviewPayload } | null>(null)
@@ -31,20 +50,7 @@ export function FilePreview({ fileId }: { fileId: string }): React.JSX.Element {
   const payload = loaded?.fileId === fileId ? loaded.payload : null
 
   if (!payload) return <div className="file-preview loading">Loading preview…</div>
-  if (payload.kind === 'html')
-    return (
-      <div className="file-preview html">
-        {/* Rendered in a sandboxed, opaque-origin iframe: scripts run isolated
-            (no same-origin, no parent access) so previewing agent-authored
-            HTML is safe. Self-contained pages (inline CSS/JS) render fully. */}
-        <iframe
-          className="file-preview-frame"
-          title="preview"
-          sandbox="allow-scripts"
-          srcDoc={payload.html}
-        />
-      </div>
-    )
+  if (payload.kind === 'html') return <HtmlPreview html={payload.html} />
   if (payload.kind === 'image')
     return (
       <div className="file-preview image">
