@@ -29,6 +29,7 @@ import {
 import { SlashMenu } from './SlashMenu'
 import { MentionMenu } from './MentionMenu'
 import { ResumePicker } from './ResumePicker'
+import { useVoiceRecorder } from './useVoiceRecorder'
 import { filterSlashCommands } from './slashFilter'
 import {
   activeMentionQuery,
@@ -95,6 +96,7 @@ export function Composer({
   const taRef = useRef<HTMLTextAreaElement>(null)
   const envRef = useRef<HTMLDivElement>(null)
   const addMenuRef = useRef<HTMLDivElement>(null)
+  const voice = useVoiceRecorder()
 
   const modelReady = refConfigured(providers, modelRef)
   const showNotice = providers.length > 0 && !modelReady
@@ -163,7 +165,8 @@ export function Composer({
   useEffect(() => {
     if (!addMenuOpen) return undefined
     const close = (e: MouseEvent): void => {
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) setAddMenuOpen(false)
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node))
+        setAddMenuOpen(false)
     }
     document.addEventListener('click', close)
     return () => document.removeEventListener('click', close)
@@ -210,7 +213,9 @@ export function Composer({
     // Item pick: drop the "@kind:query" trigger text; the pill row shows it.
     const ref = row.suggestion.ref
     setValue(before + after)
-    setMentions((m) => (m.some((x) => x.kind === ref.kind && x.name === ref.name) ? m : [...m, ref]))
+    setMentions((m) =>
+      m.some((x) => x.kind === ref.kind && x.name === ref.name) ? m : [...m, ref]
+    )
     setMentionQuery(null)
     setMentionIndex(0)
   }
@@ -257,6 +262,33 @@ export function Composer({
     setValue('/')
     setMenuDismissed(false)
     setPendingCaret(1)
+  }
+
+  // Splice a voice transcript into the composer at the caret, reusing the
+  // pendingCaret mechanism to park the caret just past the inserted text once
+  // the controlled value re-renders. Read from taRef.current.value so a stale
+  // closure over `value` can't clobber text typed while recording.
+  const insertTranscript = (text: string): void => {
+    const ta = taRef.current
+    const cur = ta ? ta.value : value
+    const caret = ta?.selectionStart ?? cur.length
+    const next = cur.slice(0, caret) + text + cur.slice(caret)
+    setValue(next)
+    setMenuDismissed(false)
+    setPendingCaret(caret + text.length)
+  }
+
+  // ⌃M / mic click toggles capture: idle → record, recording → stop+transcribe.
+  // Ignored mid-transcription so a stray press can't double-fire.
+  const toggleRecord = (): void => {
+    if (voice.status === 'transcribing') return
+    if (voice.status === 'recording') {
+      void voice.stop().then((text) => {
+        if (text && text.trim() !== '') insertTranscript(text)
+      })
+    } else {
+      void voice.start()
+    }
   }
 
   const submit = (): void => {
@@ -323,8 +355,7 @@ export function Composer({
             // Only a genuine truncation warning survives to the chip face; a
             // pick-time "<BADGE>[ · reason]" notice is otherwise dropped now
             // that the colored badge itself conveys the file type.
-            const truncationNotice =
-              a.notice && /truncat/i.test(a.notice) ? a.notice : null
+            const truncationNotice = a.notice && /truncat/i.test(a.notice) ? a.notice : null
             return (
               <Hint label={a.ref.name} side="top" key={`${a.ref.id}:${i}`}>
                 <span
@@ -394,6 +425,11 @@ export function Composer({
           setMentionIndex(0)
         }}
         onKeyDown={(e) => {
+          if (e.ctrlKey && (e.key === 'm' || e.key === 'M')) {
+            e.preventDefault()
+            toggleRecord()
+            return
+          }
           if (mentionOpen) {
             if (e.key === 'ArrowDown') {
               e.preventDefault()
@@ -517,7 +553,14 @@ export function Composer({
             ) : null}
           </div>
           <ModePicker />
-          <button className="icon-btn mic-btn" disabled title="Voice input: coming soon">
+          <button
+            className={`icon-btn mic-btn${voice.status === 'recording' ? ' recording' : ''}${
+              voice.status === 'transcribing' ? ' transcribing' : ''
+            }`}
+            disabled={voice.status === 'transcribing'}
+            title={voice.status === 'recording' ? 'Stop recording (⌃M)' : 'Voice input (⌃M)'}
+            onClick={toggleRecord}
+          >
             <IconMic />
           </button>
         </div>
@@ -536,6 +579,7 @@ export function Composer({
           ) : null}
         </div>
       </div>
+      {voice.error ? <div className="composer-voice-error">{voice.error}</div> : null}
       {menuOpen ? (
         <div className="slash-menu-wrap">
           <SlashMenu
