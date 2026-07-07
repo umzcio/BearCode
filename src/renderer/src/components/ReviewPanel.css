@@ -1027,83 +1027,66 @@
   width: 100%;
   box-sizing: border-box;
 }
-.comment-inline-card {
-  margin: 8px 16px 10px 52px; /* indent past the line-number gutter, under code */
+/* Compact single-row composer bar, Claude-style: plus + input + send arrow. */
+.comment-bar {
+  margin: 6px 16px 8px 52px; /* indent past the line-number gutter, under code */
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: var(--bg-active);
   border: 1px solid var(--border-soft);
   border-radius: 12px;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  padding: 7px 10px 7px 12px;
 }
-.comment-inline-ta {
-  width: 100%;
-  box-sizing: border-box;
+.comment-bar-plus {
+  display: flex;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.comment-bar-plus svg {
+  width: 18px;
+  height: 18px;
+}
+.comment-bar-input {
+  flex: 1;
+  min-width: 0;
   resize: none;
-  min-height: 46px;
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  overflow-y: auto;
+  max-height: 140px;
+  background: none;
+  border: none;
+  outline: none;
   color: var(--text);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
   line-height: 1.45;
-  padding: 9px 11px;
-  outline: none;
+  padding: 3px 0;
 }
-.comment-inline-ta::placeholder {
+.comment-bar-input::placeholder {
   color: var(--text-dim);
 }
-.comment-inline-ta:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
-}
-.comment-inline-foot {
+.comment-bar-send {
   display: flex;
   align-items: center;
-  gap: 12px;
-}
-.cif-spacer {
-  flex: 1;
-}
-.comment-inline-mic {
-  display: flex;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: none;
+  border: none;
   color: var(--text-dim);
-  padding: 2px;
+  cursor: pointer;
+  flex-shrink: 0;
 }
-.comment-inline-mic svg {
+.comment-bar-send svg {
   width: 16px;
   height: 16px;
 }
-.comment-inline-cancel {
-  background: none;
-  border: none;
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--text-mid);
-  cursor: pointer;
-  padding: 6px 8px;
-}
-.comment-inline-cancel:hover {
-  color: var(--text);
-}
-.comment-inline-add {
+.comment-bar-send.ready {
   background: var(--accent);
-  border: none;
-  border-radius: 9px;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
   color: #fff;
-  cursor: pointer;
-  padding: 7px 16px;
 }
-.comment-inline-add:hover {
-  background: #3f74e0;
-}
-.comment-inline-add:disabled {
-  opacity: 0.45;
+.comment-bar-send:disabled {
   cursor: default;
 }
 

@@ -66,10 +66,14 @@ const FAB_SVG =
   '<path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/>' +
   '<line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>'
 
-const MIC_SVG =
+const PLUS_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">' +
-  '<rect x="9" y="3" width="6" height="11" rx="3"/>' +
-  '<path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg>'
+  '<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/>' +
+  '<line x1="8" y1="12" x2="16" y2="12"/></svg>'
+
+const ARROW_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+  '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="6 11 12 5 18 11"/></svg>'
 
 // Hover any line for the floating blue Comment button (or click a line
 // number) to open an inline comment composer, Antigravity style. The composer
@@ -104,41 +108,34 @@ export function attachCommenting(
       }
     ])
 
-    // The composer IS the view zone's content: an indented card that aligns
-    // under the code and pushes subsequent lines down. wordWrap:'on' keeps the
-    // content width == viewport width, so it never scrolls off the right edge.
+    // The composer IS the view zone's content: a single compact input bar
+    // (plus + input + send arrow, Claude-style) that pushes subsequent lines
+    // down. wordWrap:'on' keeps content width == viewport width, so it never
+    // scrolls off the right edge.
     const dom = document.createElement('div')
     dom.className = 'comment-zone-inline'
-    const card = document.createElement('div')
-    card.className = 'comment-inline-card'
+    const bar = document.createElement('div')
+    bar.className = 'comment-bar'
+    const plus = document.createElement('span')
+    plus.className = 'comment-bar-plus'
+    plus.innerHTML = PLUS_SVG
     const ta = document.createElement('textarea')
-    ta.className = 'comment-inline-ta'
-    ta.placeholder = 'Leave a comment'
-    ta.rows = 2
-    const foot = document.createElement('div')
-    foot.className = 'comment-inline-foot'
-    const mic = document.createElement('span')
-    mic.className = 'comment-inline-mic'
-    mic.title = 'Voice input: coming soon'
-    mic.innerHTML = MIC_SVG
-    const spacer = document.createElement('span')
-    spacer.className = 'cif-spacer'
-    const cancel = document.createElement('button')
-    cancel.className = 'comment-inline-cancel'
-    cancel.textContent = 'Cancel'
-    const add = document.createElement('button')
-    add.className = 'comment-inline-add'
-    add.textContent = 'Add comment'
-    add.disabled = true
-    foot.append(mic, spacer, cancel, add)
-    card.append(ta, foot)
-    dom.appendChild(card)
+    ta.className = 'comment-bar-input'
+    ta.placeholder = 'Tell the agent what to change'
+    ta.rows = 1
+    const send = document.createElement('button')
+    send.className = 'comment-bar-send'
+    send.title = 'Add comment'
+    send.innerHTML = ARROW_SVG
+    send.disabled = true
+    bar.append(plus, ta, send)
+    dom.appendChild(bar)
 
     // Keep a reference to mutate heightInPx and re-layout once measured, so the
-    // zone hugs the card exactly instead of a guessed constant.
+    // zone hugs the bar exactly (it grows as the input wraps).
     const zone: monaco.editor.IViewZone = {
       afterLineNumber: line,
-      heightInPx: 132,
+      heightInPx: 56,
       domNode: dom
     }
     ed.changeViewZones((acc) => {
@@ -146,25 +143,29 @@ export function attachCommenting(
     })
     const relayout = (): void => {
       if (!zoneId) return
-      zone.heightInPx = card.offsetHeight + 18
+      ta.style.height = 'auto'
+      ta.style.height = `${ta.scrollHeight}px`
+      zone.heightInPx = bar.offsetHeight + 14
       ed.changeViewZones((acc) => acc.layoutZone(zoneId as string))
     }
 
-    cancel.onclick = closeComposer
-    add.onclick = (): void => {
+    const submit = (): void => {
       const value = ta.value.trim()
       if (value) onAdd(line, value)
       closeComposer()
     }
+    send.onclick = submit
     ta.oninput = (): void => {
-      add.disabled = ta.value.trim().length === 0
+      send.disabled = ta.value.trim().length === 0
+      send.classList.toggle('ready', ta.value.trim().length > 0)
+      relayout()
     }
     ta.onkeydown = (e): void => {
       e.stopPropagation()
       if (e.key === 'Escape') closeComposer()
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
-        add.click()
+        if (!send.disabled) submit()
       }
     }
 
