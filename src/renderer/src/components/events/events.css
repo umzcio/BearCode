@@ -116,7 +116,7 @@
 .step-body.term {
   font-family: var(--mono);
   font-size: 12px;
-  background: #191919;
+  background: var(--bg-window);
   border: 1px solid var(--border-soft);
   border-left: 2px solid var(--border);
   border-radius: 8px;
@@ -383,7 +383,7 @@
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.6;
-  background: #191919;
+  background: var(--bg-window);
   border: 1px solid var(--border-soft);
   border-radius: 9px;
   padding: 11px 14px;
@@ -465,7 +465,7 @@
   font-family: var(--mono);
   font-size: 12.5px;
   color: var(--text);
-  background: #191919;
+  background: var(--bg-window);
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   padding: 9px 12px;
@@ -538,7 +538,7 @@
   padding: 2px 6px;
   border-radius: 5px;
   background: rgba(76, 141, 255, 0.14);
-  color: #7fadff;
+  color: var(--accent);
 }
 
 /* One-shot highlight when a command approval card appears / is jumped to. */

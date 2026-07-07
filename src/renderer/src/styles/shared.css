@@ -144,7 +144,7 @@
   padding: 2px 6px;
   border-radius: 5px;
   background: rgba(76, 141, 255, 0.14);
-  color: #7fadff;
+  color: var(--accent);
   font-weight: 600;
 }
 .menu-item .badge.local {
@@ -191,7 +191,7 @@ code.tok {
   width: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #333;
+  background: var(--border);
   border-radius: 4px;
 }
 
@@ -201,7 +201,7 @@ code.tok {
   bottom: 26px;
   left: 50%;
   transform: translateX(-50%);
-  background: #202020;
+  background: var(--bg-window);
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 13px;

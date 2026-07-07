@@ -12,7 +12,7 @@
 .settings-panel {
   width: min(1120px, calc(100% - 56px));
   height: min(780px, calc(100% - 56px));
-  background: #1c1c1c;
+  background: var(--bg-window);
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.7);
@@ -219,7 +219,7 @@
   outline: none;
 }
 .key-row input:focus {
-  border-color: #3d3d3d;
+  border-color: var(--border);
 }
 .key-row input::placeholder {
   color: var(--text-dim);
@@ -230,7 +230,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #3a3a3a;
+  background: var(--border);
   flex-shrink: 0;
 }
 .status-dot.ok {
@@ -413,7 +413,7 @@
   outline: none;
 }
 .rule-form input:focus {
-  border-color: #3d3d3d;
+  border-color: var(--border);
 }
 .rule-form input::placeholder {
   color: var(--text-dim);

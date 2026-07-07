@@ -10,5 +10,5 @@
   color: var(--amber);
 }
 .context-meter.over {
-  color: var(--danger, #ff5c5c);
+  color: var(--danger, var(--red));
 }

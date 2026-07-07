@@ -46,7 +46,7 @@
 .msg-command-pill {
   display: inline-block;
   background: rgba(76, 141, 255, 0.14);
-  color: #7fadff;
+  color: var(--accent);
   font-size: 12.5px;
   font-weight: 600;
   padding: 2px 8px;
@@ -84,15 +84,15 @@
 }
 .msg-attachment-type-badge.badge-pdf {
   background: rgba(232, 76, 61, 0.18);
-  color: #ef6e5c;
+  color: var(--red);
 }
 .msg-attachment-type-badge.badge-docx {
   background: rgba(76, 141, 255, 0.18);
-  color: #7fadff;
+  color: var(--accent);
 }
 .msg-attachment-type-badge.badge-xlsx {
   background: rgba(63, 179, 105, 0.18);
-  color: #5fcf8a;
+  color: var(--green);
 }
 .msg-attachment-type-badge.badge-muted {
   background: rgba(255, 255, 255, 0.1);

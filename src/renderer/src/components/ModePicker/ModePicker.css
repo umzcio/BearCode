@@ -66,8 +66,8 @@
   margin: 0 6px 5px;
 }
 .pill-btn.bypass-active {
-  color: var(--danger, #ff5c5c);
-  border-color: var(--danger, #ff5c5c);
+  color: var(--danger, var(--red));
+  border-color: var(--danger, var(--red));
 }
 /* Auto mode gets a distinct amber chip on the composer pill (matches CC). */
 .pill-btn.auto-active {
@@ -78,7 +78,7 @@
   background: rgba(224, 181, 104, 0.24);
 }
 .mode-menu .bypass-item .mode-key {
-  color: var(--danger, #ff5c5c);
+  color: var(--danger, var(--red));
 }
 .bypass-confirm {
   padding: 12px;

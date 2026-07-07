@@ -124,7 +124,7 @@
   align-items: center;
   gap: 6px;
   background: rgba(76, 141, 255, 0.14);
-  color: #7fadff;
+  color: var(--accent);
   font-size: 13px;
   font-weight: 600;
   padding: 4px 6px 4px 10px;
@@ -218,15 +218,15 @@
 }
 .badge-pdf {
   background: rgba(232, 76, 61, 0.18);
-  color: #ef6e5c;
+  color: var(--red);
 }
 .badge-docx {
   background: rgba(76, 141, 255, 0.18);
-  color: #7fadff;
+  color: var(--accent);
 }
 .badge-xlsx {
   background: rgba(63, 179, 105, 0.18);
-  color: #5fcf8a;
+  color: var(--green);
 }
 .badge-muted {
   background: rgba(255, 255, 255, 0.1);
@@ -249,7 +249,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-raised, #2a2a2e);
+  background: var(--bg-raised, var(--bg-active));
   border: none;
   color: inherit;
   cursor: pointer;
