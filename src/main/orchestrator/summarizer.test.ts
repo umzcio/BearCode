@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { summaryTriggerTokens, cheapModelRef, tunesSummarization } from './summarizer'
+import {
+  summaryTriggerTokens,
+  summaryTrigger,
+  cheapModelRef,
+  tunesSummarization
+} from './summarizer'
 
 describe('summaryTriggerTokens', () => {
   it('is 85% of a 1M Anthropic window', () => {
@@ -26,6 +31,27 @@ describe('summaryTriggerTokens', () => {
 
   it('is null for an unknown model id under a known provider', () => {
     expect(summaryTriggerTokens('anthropic/claude-nonexistent')).toBeNull()
+  })
+})
+
+describe('summaryTrigger', () => {
+  it('forces a 1-token trigger so it fires on the next model call', () => {
+    expect(summaryTrigger('anthropic/claude-opus-4-8', true)).toEqual({ type: 'tokens', value: 1 })
+  })
+
+  it('forces even when the window is unknown (Ollama)', () => {
+    expect(summaryTrigger('ollama/llama3.2', true)).toEqual({ type: 'tokens', value: 1 })
+  })
+
+  it('uses the 85% window trigger when not forced', () => {
+    expect(summaryTrigger('anthropic/claude-opus-4-8', false)).toEqual({
+      type: 'tokens',
+      value: 850_000
+    })
+  })
+
+  it('is undefined when not forced and the window is unknown', () => {
+    expect(summaryTrigger('ollama/llama3.2', false)).toBeUndefined()
   })
 })
 

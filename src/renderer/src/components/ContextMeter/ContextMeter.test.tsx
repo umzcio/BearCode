@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { useAppStore } from '../../state/store'
 import { ContextMeter } from './ContextMeter'
@@ -122,6 +122,26 @@ describe('ContextMeter', () => {
     // measured, not estimated
     expect(screen.queryByText(/estimated/i)).toBeNull()
     expect(screen.getByText(/measured/i)).toBeTruthy()
+  })
+
+  it('renders "Compact now" and clicking it calls compactNow, then shows the hint', () => {
+    const compactNow = vi.fn(async () => {})
+    useAppStore.setState({
+      settings: null,
+      compactNow,
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: {
+        c1: convo([{ type: 'user_message', id: 'u', text: 'x'.repeat(200) }]) as never
+      }
+    } as never)
+    render(<ContextMeter />)
+    fireEvent.click(screen.getByLabelText(/context/i))
+    const btn = screen.getByText(/compact now/i)
+    expect(btn).toBeTruthy()
+    expect(screen.queryByText(/will compact on your next message/i)).toBeNull()
+    fireEvent.click(btn)
+    expect(compactNow).toHaveBeenCalledWith('c1')
+    expect(screen.getByText(/will compact on your next message/i)).toBeTruthy()
   })
 
   it('shows only the estimated ring line when no usage exists', () => {

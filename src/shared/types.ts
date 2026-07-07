@@ -594,6 +594,9 @@ export interface BearcodeApi {
   pricing: {
     sync(): Promise<{ syncedCount: number; unmatched: string[]; syncedAt: number }>
   }
+  compaction: {
+    compactNow(id: string): Promise<void>
+  }
   conversations: {
     list(): Promise<ConversationMeta[]>
     get(id: string): Promise<Event[]>

@@ -36,6 +36,20 @@ export function summaryTriggerTokens(modelRef: string): number | null {
   return Math.floor(0.85 * window)
 }
 
+// The `trigger` ContextSize to hand the summarization middleware. When `force`
+// is set (manual "Compact now"), use a 1-token trigger so compaction fires on
+// the very next model call regardless of window size. Otherwise it's the 85%
+// window trigger, or `undefined` when the window is unknown (the middleware
+// keeps its own default). Pure — unit-tested.
+export function summaryTrigger(
+  modelRef: string,
+  force: boolean
+): { type: 'tokens'; value: number } | undefined {
+  if (force) return { type: 'tokens', value: 1 }
+  const trigger = summaryTriggerTokens(modelRef)
+  return trigger != null ? { type: 'tokens', value: trigger } : undefined
+}
+
 // The cheap fast sibling to summarize with, as a "provider/modelId" ref.
 // Providers with no curated cheap model (Ollama/OpenRouter) reuse the
 // conversation's own model. Pure — mirrors title.ts.
@@ -91,15 +105,16 @@ export function excludeDefaultSummarization(): void {
 // (which matches DEFAULT_SUMMARY_MW_NAME) leaves it in place.
 export function buildTunedSummarization(
   modelRef: string,
-  backend: AnyBackendProtocol | BackendFactory
+  backend: AnyBackendProtocol | BackendFactory,
+  force = false
 ): ReturnType<typeof createSummarizationMiddleware> {
   const window = contextWindowFor(modelRef)
-  const trigger = summaryTriggerTokens(modelRef)
+  const trigger = summaryTrigger(modelRef, force)
   const model = buildCheapSummaryModel(modelRef)
   const mw = createSummarizationMiddleware({
     backend,
     ...(model ? { model } : {}),
-    ...(trigger != null ? { trigger: { type: 'tokens', value: trigger } } : {}),
+    ...(trigger != null ? { trigger } : {}),
     // Keep the recent half of the CONVERSATION window verbatim, expressed in
     // absolute tokens rather than a fraction: the middleware resolves a
     // fraction against the SUMMARY model's window, so a small/cheap summarizer

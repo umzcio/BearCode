@@ -35,7 +35,9 @@ export function ContextMeter(): React.JSX.Element | null {
   const providers = useAppStore((s) => s.providers)
   const modelRef = useAppStore((s) => s.modelRef)
   const modelPricing = useAppStore((s) => s.settings?.modelPricing)
+  const compactNow = useAppStore((s) => s.compactNow)
   const [open, setOpen] = useState(false)
+  const [compactHint, setCompactHint] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -54,9 +56,10 @@ export function ContextMeter(): React.JSX.Element | null {
     }
   }, [open])
 
-  const convo = view.kind === 'conversation' ? conversations[view.id] : null
+  const convoId = view.kind === 'conversation' ? view.id : null
+  const convo = convoId ? conversations[convoId] : null
   const ctxWindow = contextWindowFor(providers, modelRef)
-  if (!convo || !ctxWindow) return null
+  if (!convo || !convoId || !ctxWindow) return null
 
   // Prefer the provider's real last-turn prompt size; fall back to the char/4
   // estimate until any turn reports usage.
@@ -78,7 +81,13 @@ export function ContextMeter(): React.JSX.Element | null {
         className={'context-ring ' + state}
         aria-label={`Context ${pct}% used`}
         title={`${measured ? '' : '~'}${pct}% context used`}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() =>
+          setOpen((o) => {
+            // Reset the transient hint each time the popover reopens.
+            if (!o) setCompactHint(false)
+            return !o
+          })
+        }
       >
         <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true">
           <circle className="ring-track" cx="9" cy="9" r={R} />
@@ -140,6 +149,21 @@ export function ContextMeter(): React.JSX.Element | null {
               {cost.hasUnknown ? <div className="context-pop-sub">+ unpriced models</div> : null}
             </>
           ) : null}
+          <div className="context-pop-divider" />
+          <div className="context-pop-footer">
+            <button
+              className="pill-btn context-compact-btn"
+              onClick={() => {
+                void compactNow(convoId)
+                setCompactHint(true)
+              }}
+            >
+              Compact now
+            </button>
+            {compactHint ? (
+              <span className="context-compact-hint">Will compact on your next message.</span>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>

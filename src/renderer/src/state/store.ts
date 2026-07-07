@@ -238,6 +238,7 @@ interface AppState {
   }): Promise<void>
   setAppearance(patch: Partial<AppSettings>): Promise<void>
   syncPricing(): Promise<{ syncedCount: number; unmatched: string[]; syncedAt: number }>
+  compactNow(id: string): Promise<void>
   setPermissionMode(mode: PermissionMode): void
   setEffort(effort: EffortLevel): void
   setThinking(thinking: boolean): void
@@ -719,6 +720,13 @@ export const useAppStore = create<AppState>((set, get) => {
       const settings = await window.bearcode.settings.get()
       set({ settings })
       return result
+    },
+
+    compactNow: async (id) => {
+      // One-shot: main marks the conversation to force compaction on its next
+      // model call (the summarizer runs inside the turn, so it can't compact
+      // between turns). No local state to update.
+      await window.bearcode.compaction.compactNow(id)
     },
 
     setPermissionMode: (mode) => {

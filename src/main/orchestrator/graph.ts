@@ -60,6 +60,7 @@ import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
 import { makeModel } from './models'
 import { compactionAdvanced } from './compaction'
+import { consumeForceCompact } from './forceCompact'
 import {
   buildTunedSummarization,
   defaultStateBackendFactory,
@@ -1953,11 +1954,14 @@ function buildAgentAndContext(
   // resolves to no harness profile) we exclude the default from the main
   // agent's stack and pass our renamed replacement so exactly one runs. Ollama
   // has no known window to tune against, so it keeps the default middleware.
+  // Manual "Compact now" (one-shot): if the user requested it, force this one
+  // turn's summarizer to fire on the next model call by consuming the flag here.
+  const force = consumeForceCompact(conversationId)
   let summarizationMiddleware: ReturnType<typeof buildTunedSummarization>[] = []
   if (tunesSummarization(modelRef)) {
     excludeDefaultSummarization()
     summarizationMiddleware = [
-      buildTunedSummarization(modelRef, backendFactory ?? defaultStateBackendFactory())
+      buildTunedSummarization(modelRef, backendFactory ?? defaultStateBackendFactory(), force)
     ]
   }
   const agent = createDeepAgent({

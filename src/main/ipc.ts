@@ -31,6 +31,7 @@ import * as db from './db'
 import { jailPath } from './orchestrator/fsBackend'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
+import { markForceCompact } from './orchestrator/forceCompact'
 import { suggestFiles, manualRuleInfos } from './orchestrator/mentionSuggest'
 import {
   assertValidConversationId,
@@ -390,6 +391,13 @@ export function registerIpc(): void {
     const syncedAt = Date.now()
     setSettings({ modelPricing: prices, modelPricingSyncedAt: syncedAt })
     return { syncedCount: Object.keys(prices).length, unmatched, syncedAt }
+  })
+
+  // Manual "Compact now" (context-ring popover). One-shot: marks the
+  // conversation so the summarizer forces compaction on the NEXT model call —
+  // it does not compact immediately (the summarizer runs inside the turn).
+  ipcMain.handle('bearcode:compaction:compact-now', (_e, conversationId: string) => {
+    markForceCompact(conversationId)
   })
 
   ipcMain.handle('bearcode:conversations:list', () => db.listConversations())
