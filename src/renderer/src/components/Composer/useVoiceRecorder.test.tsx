@@ -62,8 +62,9 @@ describe('useVoiceRecorder', () => {
     })
     expect(text).toBe('hello world')
     expect(transcribe).toHaveBeenCalledTimes(1)
-    // audio buffer + mime type forwarded to main
-    expect(transcribe.mock.calls[0][1]).toBe('audio/webm')
+    // No sttBackend set (settings null) → OpenAI path: raw webm bytes tagged
+    // with the 'webm' meta so main routes to OpenAI.
+    expect(transcribe.mock.calls[0][1]).toEqual({ kind: 'webm', mimeType: 'audio/webm' })
     expect(result.current.status).toBe('idle')
     expect(trackStop).toHaveBeenCalled()
   })

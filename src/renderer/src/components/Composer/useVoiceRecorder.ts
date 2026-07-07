@@ -1,10 +1,14 @@
 import { useCallback, useRef, useState } from 'react'
+import { useAppStore } from '../../state/store'
+import { webmBlobToPcm16k } from './audioToPcm'
 
 // Composer voice input (E5). Captures mic audio in the renderer via getUserMedia
-// + MediaRecorder (webm/opus), then hands the recorded Blob to main over
-// window.bearcode.voice.transcribe, which routes it to the selected STT backend
-// and returns the transcript text. Every failure is non-fatal: it lands in
-// `error` and the hook resets to 'idle' so the composer never gets stuck.
+// + MediaRecorder (webm/opus), then hands the audio to main over
+// window.bearcode.voice.transcribe, which returns the transcript text. The
+// payload depends on the selected STT backend: OpenAI gets the webm bytes
+// verbatim; Local gets renderer-decoded 16 kHz mono PCM (Node main can't decode
+// Opus, so we decode here via Web Audio). Every failure is non-fatal: it lands
+// in `error` and the hook resets to 'idle' so the composer never gets stuck.
 export type VoiceStatus = 'idle' | 'recording' | 'transcribing'
 
 export interface UseVoiceRecorder {
@@ -72,8 +76,24 @@ export function useVoiceRecorder(): UseVoiceRecorder {
       recorderRef.current = null
     }
     try {
-      const buf = await blob.arrayBuffer()
-      const { text } = await window.bearcode.voice.transcribe(buf, blob.type)
+      const backend = useAppStore.getState().settings?.sttBackend
+      let text: string
+      if (backend === 'local') {
+        // Decode webm/opus → 16 kHz mono float here; Node main cannot decode it.
+        const pcm = await webmBlobToPcm16k(blob)
+        const res = await window.bearcode.voice.transcribe(
+          pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength) as ArrayBuffer,
+          { kind: 'pcm', sampleRate: 16000 }
+        )
+        text = res.text
+      } else {
+        const buf = await blob.arrayBuffer()
+        const res = await window.bearcode.voice.transcribe(buf, {
+          kind: 'webm',
+          mimeType: blob.type
+        })
+        text = res.text
+      }
       setStatus('idle')
       return text
     } catch (err) {

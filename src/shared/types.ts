@@ -466,6 +466,14 @@ export const STT_BACKENDS: readonly SttBackend[] = ['openai', 'local']
 export const isSttBackend = (v: unknown): v is SttBackend =>
   typeof v === 'string' && (STT_BACKENDS as readonly string[]).includes(v)
 
+// Discriminated payload for the voice:transcribe IPC. The OpenAI path sends the
+// recorded container bytes verbatim ('webm'); the local path decodes to raw
+// 16 kHz mono PCM in the RENDERER (Chromium decodes Opus; Node main cannot) and
+// sends the Float32Array's ArrayBuffer ('pcm'). The `kind` tag also hard-routes
+// the backend main-side, so a payload always reaches the engine that can read it.
+export type TranscribeMeta =
+  { kind: 'webm'; mimeType: string } | { kind: 'pcm'; sampleRate: number }
+
 export interface AppSettings {
   ollamaBaseUrl: string
   defaultModelRef: ModelRef | null
@@ -643,9 +651,10 @@ export interface BearcodeApi {
   // Voice input (E5): the composer records mic audio and hands the ArrayBuffer
   // to main, which routes it to the selected STT backend and returns the
   // transcript text. Transcription runs main-side only (renderer never holds
-  // the API key). `mimeType` is the recorded Blob's type (e.g. 'audio/webm').
+  // the API key). `meta` tags the payload: 'webm' (raw container → OpenAI) or
+  // 'pcm' (renderer-decoded 16 kHz mono float → local Whisper).
   voice: {
-    transcribe(audio: ArrayBuffer, mimeType: string): Promise<{ text: string }>
+    transcribe(audio: ArrayBuffer, meta: TranscribeMeta): Promise<{ text: string }>
   }
   workspace: {
     pick(): Promise<string | null>

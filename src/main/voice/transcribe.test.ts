@@ -1,20 +1,33 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('../keys', () => ({ getKey: vi.fn() }))
-vi.mock('../settings', () => ({ getSettings: vi.fn() }))
+
+// The local backend loads a ~150 MB model at runtime — NEVER in a test. Mock
+// the transformers pipeline (and electron's userData path it caches under) so
+// transcribeLocal resolves synchronously to a canned transcript. vi.hoisted so
+// the mocks exist when the hoisted vi.mock factory runs.
+const { mockTranscriber, mockPipeline } = vi.hoisted(() => {
+  const transcriber = vi.fn(async () => ({ text: '  local transcript  ' }))
+  return { mockTranscriber: transcriber, mockPipeline: vi.fn(async () => transcriber) }
+})
+vi.mock('@xenova/transformers', () => ({
+  pipeline: mockPipeline,
+  env: {}
+}))
+vi.mock('electron', () => ({ app: { getPath: () => '/tmp/whisper-test' } }))
 
 import { transcribe, transcribeOpenAI } from './transcribe'
 import { getKey } from '../keys'
-import { getSettings } from '../settings'
 
 const mockGetKey = vi.mocked(getKey)
-const mockGetSettings = vi.mocked(getSettings)
+
+// A tiny PCM ArrayBuffer standing in for renderer-decoded 16 kHz mono audio.
+const pcmBuffer = (): ArrayBuffer => new Float32Array([0, 0.1, -0.1]).buffer
 
 describe('transcribeOpenAI', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     mockGetKey.mockReset()
-    mockGetSettings.mockReset()
   })
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -69,25 +82,31 @@ describe('transcribeOpenAI', () => {
   })
 })
 
-describe('transcribe dispatch', () => {
+describe('transcribe dispatch (routes on meta.kind)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     mockGetKey.mockReset()
-    mockGetSettings.mockReset()
+    mockPipeline.mockClear()
+    mockTranscriber.mockClear()
   })
   afterEach(() => {
     vi.unstubAllGlobals()
   })
 
-  it("throws a clear not-available error for the 'local' backend", async () => {
-    mockGetSettings.mockReturnValue({ sttBackend: 'local' } as ReturnType<typeof getSettings>)
-    await expect(transcribe(Buffer.from('x'), 'audio/webm')).rejects.toThrow(
-      "Local transcription isn't available in this build yet"
-    )
+  it("routes a 'pcm' payload to the local (mocked) Whisper pipeline, not fetch", async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await transcribe(pcmBuffer(), { kind: 'pcm', sampleRate: 16000 })
+
+    expect(result).toEqual({ text: 'local transcript' }) // trimmed
+    expect(mockPipeline).toHaveBeenCalledWith('automatic-speech-recognition', 'Xenova/whisper-base')
+    expect(mockTranscriber).toHaveBeenCalledTimes(1)
+    expect(mockTranscriber.mock.calls[0][0]).toBeInstanceOf(Float32Array)
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it("routes to OpenAI for the 'openai' backend", async () => {
-    mockGetSettings.mockReturnValue({ sttBackend: 'openai' } as ReturnType<typeof getSettings>)
+  it("routes a 'webm' payload to OpenAI (mocked fetch), not the local pipeline", async () => {
     mockGetKey.mockReturnValue('sk-test-123')
     const fetchSpy = vi.fn(async () => ({
       ok: true,
@@ -96,8 +115,10 @@ describe('transcribe dispatch', () => {
     }))
     vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
 
-    const result = await transcribe(Buffer.from('x'), 'audio/webm')
+    const result = await transcribe(new ArrayBuffer(4), { kind: 'webm', mimeType: 'audio/webm' })
+
     expect(result).toEqual({ text: 'routed' })
     expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(mockTranscriber).not.toHaveBeenCalled()
   })
 })
