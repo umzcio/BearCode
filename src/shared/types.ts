@@ -361,6 +361,10 @@ export type Event =
       usage?: { inputTokens: number; outputTokens: number; lastInputTokens: number }
     }
   | { type: 'error'; id: string; message: string; recoverable: boolean }
+  // Optional & additive marker emitted when the summarization middleware folds
+  // the oldest `summarizedCount` messages into a summary (auto-compaction).
+  // Older event streams simply lack it; renderers must handle its absence.
+  | { type: 'compaction'; id: string; summarizedCount: number; createdAt?: number }
 
 // ---- Provider layer ----
 

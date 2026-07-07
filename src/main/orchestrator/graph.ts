@@ -59,6 +59,7 @@ import { parseModelRef, supportsNativePdf } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
 import { makeModel } from './models'
+import { compactionAdvanced } from './compaction'
 import { orchestratorSystemPrompt } from './systemPrompt'
 import { textDeltaEvent, thinkingDeltaEvent } from './bridge'
 import { makeTurnUsage, readUsage, type TurnUsageAccumulator } from './usage'
@@ -171,7 +172,12 @@ function reasoningTextOf(block: { type: string; reasoning?: string; value?: unkn
 // This cast is the documented workaround for calling it anyway.
 interface StateSnapshotLike {
   tasks: ReadonlyArray<{ interrupts: ReadonlyArray<{ id?: string; value?: unknown }> }>
-  values?: { messages?: ReadonlyArray<unknown> }
+  values?: {
+    messages?: ReadonlyArray<unknown>
+    // Set by the deepagents summarization middleware via Command.update when it
+    // folds the oldest `cutoffIndex` messages into a summary (auto-compaction).
+    _summarizationEvent?: { cutoffIndex?: number }
+  }
 }
 type GetStateCapable = { getState(config: unknown): Promise<StateSnapshotLike> }
 
@@ -1748,7 +1754,7 @@ async function settleTurn(
       recoverable: true
     })
   }
-  await closeOutTurn(ctx)
+  await closeOutTurn(agent, ctx)
   return false
 }
 
@@ -2229,7 +2235,42 @@ export async function rehydratePausedRun(
   return true
 }
 
-async function closeOutTurn(ctx: DriveContext): Promise<void> {
+async function closeOutTurn(
+  agent: ReturnType<typeof createDeepAgent>,
+  ctx: DriveContext
+): Promise<void> {
+  // Auto-compaction marker: the summarization middleware records how many of
+  // the oldest messages it folded into a summary in state._summarizationEvent.
+  // If that cutoff advanced past the last marker we surfaced, emit a fresh
+  // `compaction` event. Fully guarded — any read failure or an
+  // absent/unchanged cutoff emits nothing and never disturbs the turn.
+  try {
+    const snapshot = await (agent as GetStateCapable).getState({
+      configurable: { thread_id: ctx.conversationId }
+    })
+    const prevCutoff = getEvents(ctx.conversationId).reduce<number | null>(
+      (acc, ev) => (ev.type === 'compaction' ? ev.summarizedCount : acc),
+      null
+    )
+    const { advanced, summarizedCount } = compactionAdvanced(
+      prevCutoff,
+      snapshot.values?._summarizationEvent
+    )
+    if (advanced) {
+      const compaction: Event = {
+        type: 'compaction',
+        id: randomUUID(),
+        summarizedCount,
+        createdAt: Date.now()
+      }
+      appendEvent(ctx.conversationId, compaction)
+      ctx.sink.emit(ctx.conversationId, compaction)
+    }
+  } catch {
+    // getState can throw on some provider/graph states; the marker is a
+    // best-effort surface, never load-bearing for the turn.
+  }
+
   if (ctx.backend.stagedFiles.length > 0) {
     emitAndPersist(ctx.conversationId, ctx.sink, {
       type: 'file_diff',
