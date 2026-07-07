@@ -89,6 +89,7 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
   const conversations = useAppStore((s) => s.conversations)
   const closeReview = useAppStore((s) => s.closeReview)
   const openTick = useAppStore((s) => s.auxPaneOpenTick)
+  const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
 
   // Local rail selection, overridden by every deep-link (tick bump).
   const [sel, setSel] = useState<AuxSelection>(target)
@@ -186,7 +187,7 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
   }
   if (selectedArtifact) {
     return (
-      <div className="ap-panel">
+      <div className="ap-panel" style={{ flexBasis: auxPaneWidth }}>
         <div className="ap-row ap-row-top">
           <ApBrand />
           <div className="ap-spacer" />
@@ -209,7 +210,7 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
     )
   }
   return (
-    <div className="ap-panel">
+    <div className="ap-panel" style={{ flexBasis: auxPaneWidth }}>
       <div className="ap-row ap-row-top">
         <ApBrand />
         <div className="ap-spacer" />
@@ -234,6 +235,7 @@ function DiffPanel({
   const focusPath = useAppStore((s) => s.reviewFocusPath)
   const view = useAppStore((s) => s.view)
   const conversations = useAppStore((s) => s.conversations)
+  const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
   const send = useAppStore((s) => s.send)
   const showToast = useAppStore((s) => s.showToast)
   const openFile = useAppStore((s) => s.openFile)
@@ -329,7 +331,7 @@ function DiffPanel({
   const body = activeFile ? viewFor(activeFile) : 'diff'
 
   return (
-    <div className="ap-panel">
+    <div className="ap-panel" style={{ flexBasis: auxPaneWidth }}>
       {/* Row 1: brand + Overview/Diff mode toggle + actions */}
       <div className="ap-row ap-row-top">
         <ApBrand />

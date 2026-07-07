@@ -22,6 +22,7 @@ import './Sidebar.css'
 
 export function Sidebar(): React.JSX.Element {
   const collapsed = useAppStore((s) => s.sidebarCollapsed)
+  const sidebarWidth = useAppStore((s) => s.sidebarWidth)
   const view = useAppStore((s) => s.view)
   const convoOrder = useAppStore((s) => s.convoOrder)
   const conversations = useAppStore((s) => s.conversations)
@@ -46,7 +47,14 @@ export function Sidebar(): React.JSX.Element {
   const groups = groupConversations(convoOrder, conversations, projects, { groupBy, sort, showArchived })
 
   return (
-    <div className={'sidebar' + (collapsed ? ' collapsed' : '')}>
+    <div
+      className={'sidebar' + (collapsed ? ' collapsed' : '')}
+      style={{
+        width: sidebarWidth,
+        minWidth: sidebarWidth,
+        marginLeft: collapsed ? -(sidebarWidth + 1) : undefined
+      }}
+    >
       <div className="chrome">
         <Hint label="Toggle Sidebar" keys="⌘B" side="bottom">
           <button className="chrome-btn" onClick={toggleSidebar}>

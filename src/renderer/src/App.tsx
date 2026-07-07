@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar/Sidebar'
 import { Home } from './components/Home'
 import { ConversationView } from './components/ConversationView'
 import { AuxiliaryPane } from './components/AuxiliaryPane'
+import { ResizeHandle } from './components/ResizeHandle'
 import { SettingsModal } from './components/Settings/SettingsModal'
 import { SearchModal } from './components/Search/SearchModal'
 import { RoarBear } from './components/brand/RoarBear'
@@ -27,6 +28,9 @@ function App(): React.JSX.Element {
   const view = useAppStore((s) => s.view)
   const conversations = useAppStore((s) => s.conversations)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
+  const auxSelection = useAppStore((s) => s.auxSelection)
+  const setSidebarWidth = useAppStore((s) => s.setSidebarWidth)
+  const setAuxPaneWidth = useAppStore((s) => s.setAuxPaneWidth)
   const toast = useAppStore((s) => s.toast)
   const dismissToast = useAppStore((s) => s.dismissToast)
   const init = useAppStore((s) => s.init)
@@ -88,6 +92,11 @@ function App(): React.JSX.Element {
   return (
     <div className={'app' + (cmdHeld ? ' cmd-held' : '')}>
       <Sidebar />
+      {!collapsed ? (
+        <ResizeHandle
+          onDrag={(dx) => setSidebarWidth(useAppStore.getState().sidebarWidth + dx)}
+        />
+      ) : null}
       <div className={'main' + (collapsed ? ' sidebar-collapsed' : '')}>
         <div className="topbar">
           {collapsed ? (
@@ -111,6 +120,11 @@ function App(): React.JSX.Element {
         <SettingsModal />
         <SearchModal />
       </div>
+      {auxSelection ? (
+        <ResizeHandle
+          onDrag={(dx) => setAuxPaneWidth(useAppStore.getState().auxPaneWidth - dx)}
+        />
+      ) : null}
       <AuxiliaryPane />
       {toast ? (
         <div className="toast">

@@ -80,6 +80,30 @@ export function shouldFollowNewDiff(
   )
 }
 
+// Resizable pane bounds (px). Drag handles clamp to these; persisted widths
+// are re-clamped on read so a stored out-of-range value can't wedge a pane.
+export const SIDEBAR_MIN = 220
+export const SIDEBAR_MAX = 520
+export const AUX_MIN = 380
+export const AUX_MAX = 980
+
+function readStoredWidth(key: string, fallback: number, min: number, max: number): number {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null
+    const n = raw ? parseInt(raw, 10) : NaN
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback
+  } catch {
+    return fallback
+  }
+}
+function writeStoredWidth(key: string, w: number): void {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(key, String(w))
+  } catch {
+    // No localStorage (e.g. test env) -- width just isn't persisted this session.
+  }
+}
+
 // "Worked for Ns" per agent turn, keyed by the turn's user_message event id.
 // The working phase ends when prose starts streaming.
 export const workedSecondsByTurn = new Map<string, number>()
@@ -119,6 +143,8 @@ function orderByRecency(conversations: Record<string, Convo>): string[] {
 
 interface AppState {
   sidebarCollapsed: boolean
+  sidebarWidth: number
+  auxPaneWidth: number
   // Incremented by the Cmd+/ shortcut; the mounted ModelPicker toggles on change.
   modelMenuTick: number
   // Incremented by the Cmd+; shortcut; the Home project menu toggles on change.
@@ -175,6 +201,8 @@ interface AppState {
   init(): void
   refreshProviders(): Promise<void>
   toggleSidebar(): void
+  setSidebarWidth(w: number): void
+  setAuxPaneWidth(w: number): void
   toggleModelMenu(): void
   goHome(): void
   openScheduled(): void
@@ -335,6 +363,8 @@ export const useAppStore = create<AppState>((set, get) => {
 
   return {
     sidebarCollapsed: false,
+    sidebarWidth: readStoredWidth('bearcode.sidebarWidth', 300, SIDEBAR_MIN, SIDEBAR_MAX),
+    auxPaneWidth: readStoredWidth('bearcode.auxPaneWidth', 560, AUX_MIN, AUX_MAX),
     modelMenuTick: 0,
     projectMenuTick: 0,
     permMenuTick: 0,
@@ -428,6 +458,16 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+    setSidebarWidth: (w) => {
+      const c = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(w)))
+      writeStoredWidth('bearcode.sidebarWidth', c)
+      set({ sidebarWidth: c })
+    },
+    setAuxPaneWidth: (w) => {
+      const c = Math.min(AUX_MAX, Math.max(AUX_MIN, Math.round(w)))
+      writeStoredWidth('bearcode.auxPaneWidth', c)
+      set({ auxPaneWidth: c })
+    },
     toggleModelMenu: () => set((s) => ({ modelMenuTick: s.modelMenuTick + 1 })),
     goHome: () =>
       // New conversations start in the configured default (design section 3).
