@@ -215,7 +215,7 @@
   border-radius: 7px;
   cursor: pointer;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--wash);
   color: var(--text);
 }
 .mini-btn:hover {
@@ -537,7 +537,7 @@
   border-radius: 9px;
   cursor: pointer;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--wash);
   color: var(--text);
 }
 .foot-btn:hover {

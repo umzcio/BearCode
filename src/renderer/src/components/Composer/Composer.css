@@ -68,7 +68,7 @@
 }
 
 .mic-btn {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--wash);
 }
 
 /* Model picker sits on the right with the mic, Perplexity-style. */
@@ -85,7 +85,7 @@
   color: #fff;
 }
 .send-btn.stop {
-  background: rgba(255, 255, 255, 0.09);
+  background: var(--wash-strong);
   color: var(--text);
 }
 .send-btn.stop:hover {
@@ -94,7 +94,7 @@
 
 .env-row {
   border-top: 1px solid var(--border-soft);
-  background: rgba(255, 255, 255, 0.015);
+  background: var(--wash);
   padding: 6px 10px;
   border-radius: 0 0 16px 16px;
   display: flex;
@@ -142,7 +142,7 @@
   border-radius: 999px;
 }
 .command-pill .pill-x:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--wash-strong);
 }
 
 .composer-notice {
@@ -186,7 +186,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--wash);
   color: var(--text-mid);
   font-size: 12.5px;
   padding: 4px 8px;
@@ -229,7 +229,7 @@
   color: var(--green);
 }
 .badge-muted {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--wash-strong);
   color: var(--text-dim);
 }
 .attachment-name {
@@ -264,5 +264,5 @@
   opacity: 1;
 }
 .attachment-pill .pill-x:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--wash-strong);
 }

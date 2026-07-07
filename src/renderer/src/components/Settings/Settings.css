@@ -120,7 +120,7 @@
 .set-card {
   border: 1px solid var(--border-soft);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.015);
+  background: var(--wash);
   overflow: hidden;
 }
 .set-card.pad {
@@ -246,7 +246,7 @@
   border-radius: 8px;
   cursor: pointer;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--wash);
   color: var(--text);
   flex-shrink: 0;
 }
@@ -258,7 +258,7 @@
   cursor: default;
 }
 .small-btn:disabled:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--wash);
 }
 
 .danger-btn {
@@ -301,7 +301,7 @@
   min-width: 26px;
   height: 26px;
   padding: 0 7px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--wash);
   border: 1px solid var(--border-soft);
   border-radius: 7px;
   font-family: inherit;

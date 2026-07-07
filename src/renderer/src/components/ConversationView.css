@@ -95,7 +95,7 @@
   color: var(--green);
 }
 .msg-attachment-type-badge.badge-muted {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--wash-strong);
   color: var(--text-dim);
 }
 .msg-attachment-name {

@@ -56,7 +56,7 @@
   cursor: pointer;
 }
 .search-item.highlighted {
-  background: var(--hover, rgba(255, 255, 255, 0.06));
+  background: var(--hover, var(--wash));
 }
 .search-kind {
   display: flex;

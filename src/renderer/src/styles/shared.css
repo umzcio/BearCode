@@ -228,7 +228,7 @@ code.tok {
   cursor: pointer;
 }
 .toast-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--wash-strong);
 }
 .toast-btn.primary {
   background: var(--accent);
