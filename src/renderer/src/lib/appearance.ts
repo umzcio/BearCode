@@ -90,6 +90,8 @@ export function applyAppearance(a: Appearance): void {
   root.style.setProperty('zoom', String(ZOOM[a.fontSize] ?? 1))
   if (a.theme === 'custom') applyCustom(root, a.customColors)
   else clearCustomVars(root)
+  // Notify Monaco (lazy-loaded) to re-theme its editors to match.
+  window.dispatchEvent(new Event('bearcode:appearance'))
 }
 
 // Re-apply on OS theme change while in 'system' mode. Returns an unsubscribe.

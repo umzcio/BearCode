@@ -42,6 +42,48 @@ monaco.editor.defineTheme('bearcode-dark', {
   }
 })
 
+// Light counterpart, used when the app theme resolves to light. Base 'vs'
+// gives sensible light default syntax; a few overrides keep it readable, with
+// green/red diff washes tuned for a white background.
+monaco.editor.defineTheme('bearcode-light', {
+  base: 'vs',
+  inherit: true,
+  rules: [
+    { token: 'tag', foreground: 'c41a16' },
+    { token: 'metatag', foreground: 'c41a16' },
+    { token: 'keyword', foreground: 'c41a16' },
+    { token: 'string', foreground: '1a7f37' },
+    { token: 'number', foreground: '6f42c1' },
+    { token: 'comment', foreground: '8a8a8a' },
+    { token: 'attribute.name', foreground: '116329' },
+    { token: 'attribute.value', foreground: '0a3069' }
+  ],
+  colors: {
+    'editor.background': '#ffffff',
+    'editor.foreground': '#1a1a1a',
+    'diffEditor.insertedTextBackground': '#00000000',
+    'diffEditor.insertedLineBackground': '#1a9d6320',
+    'diffEditor.removedTextBackground': '#d6454518',
+    'diffEditor.removedLineBackground': '#d6454510',
+    'editorLineNumber.foreground': '#b4b4b4',
+    'editorGutter.background': '#ffffff',
+    'scrollbarSlider.background': '#00000022',
+    'scrollbarSlider.hoverBackground': '#00000033'
+  }
+})
+
+// The Monaco theme matching the app's resolved theme (data-theme on <html>).
+export function currentMonacoTheme(): string {
+  return document.documentElement.getAttribute('data-theme') === 'light'
+    ? 'bearcode-light'
+    : 'bearcode-dark'
+}
+
+// Monaco themes are global; apply the right one now (when this lazy module first
+// loads) and whenever the appearance changes (event dispatched by applyAppearance).
+monaco.editor.setTheme(currentMonacoTheme())
+window.addEventListener('bearcode:appearance', () => monaco.editor.setTheme(currentMonacoTheme()))
+
 export const EDITOR_OPTIONS = {
   theme: 'bearcode-dark',
   readOnly: true,

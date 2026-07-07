@@ -553,7 +553,7 @@
 }
 
 .added-wash {
-  background: #31391f66;
+  background: color-mix(in srgb, transparent, var(--green) 14%);
 }
 
 /* Floating hover Comment button, Antigravity style. */
