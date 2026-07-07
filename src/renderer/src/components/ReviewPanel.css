@@ -765,6 +765,263 @@
   margin-top: 6px;
 }
 
+/* ===================================================================
+   Artifact Panel redesign (2026-07-06): two-row header + amber/blue
+   theme from ~/Downloads/ArtifactPanel, wired to app tokens. Scoped
+   under .ap-panel so it composes with the existing Monaco/comment/
+   preview machinery without leaking. Dark-only (the app is dark).
+   =================================================================== */
+.ap-panel {
+  /* Reference tokens pointed at the app theme (one place to retune). */
+  --ap-surface-0: var(--bg);
+  --ap-surface-1: var(--bg-window);
+  --ap-surface-2: var(--bg-active);
+  --ap-border: var(--border-soft);
+  --ap-border-strong: var(--border);
+  --ap-text-primary: var(--text);
+  --ap-text-secondary: var(--text-mid);
+  --ap-text-muted: var(--text-dim);
+  --ap-accent-amber: var(--amber);
+  --ap-accent-blue: var(--accent);
+  --ap-success: var(--green);
+  --ap-danger: var(--red);
+  --ap-radius-sm: 6px;
+  --ap-radius-md: 10px;
+
+  /* Top-level pane: same footprint the old .review-side flex item had. */
+  flex: 0 0 clamp(500px, 46%, 960px);
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--ap-surface-1);
+  border-left: 1px solid var(--border);
+  color: var(--ap-text-primary);
+  overflow: hidden;
+}
+
+/* --- Header rows --- */
+.ap-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  flex-shrink: 0;
+}
+.ap-row-top {
+  border-bottom: 1px solid var(--ap-border);
+}
+.ap-row-tabs {
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--ap-border);
+  padding-bottom: 0;
+  overflow: hidden;
+}
+.ap-paw {
+  display: flex;
+  color: var(--ap-accent-amber);
+  flex-shrink: 0;
+}
+.ap-paw svg {
+  width: 15px;
+  height: 15px;
+}
+.ap-title {
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.ap-spacer {
+  flex: 1;
+}
+
+/* --- Segmented toggles (Overview/Diff, Diff/Code/Preview) --- */
+.ap-segmented {
+  display: flex;
+  border: 1px solid var(--ap-border-strong);
+  border-radius: var(--ap-radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.ap-segmented button {
+  border: none;
+  background: transparent;
+  color: var(--ap-text-secondary);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.ap-segmented button:hover {
+  color: var(--ap-text-primary);
+}
+.ap-segmented button.active {
+  background: var(--ap-surface-2);
+  color: var(--ap-text-primary);
+}
+
+/* --- Action cluster --- */
+.ap-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--ap-text-muted);
+  flex-shrink: 0;
+}
+.ap-actions button {
+  background: none;
+  border: none;
+  color: inherit;
+  display: flex;
+  cursor: pointer;
+  padding: 0;
+}
+.ap-actions button:hover {
+  color: var(--ap-text-primary);
+}
+.ap-actions svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* --- Deliverable rail (Plan / Walkthrough / Changes picker) --- */
+.ap-rail {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--ap-border);
+  flex-shrink: 0;
+}
+.ap-rail:empty {
+  display: none;
+}
+.ap-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--ap-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ap-rail-item:hover {
+  background: var(--bg-hover);
+  color: var(--ap-text-primary);
+}
+.ap-rail-item.selected {
+  background: var(--ap-surface-2);
+  border-color: var(--ap-border-strong);
+  color: var(--ap-text-primary);
+}
+.ap-rail-meta {
+  color: var(--ap-text-muted);
+  font-size: 11px;
+}
+
+/* --- File tabs (row 2) --- */
+.ap-tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  min-width: 0;
+}
+.ap-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 8px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  color: var(--ap-text-muted);
+  cursor: pointer;
+}
+.ap-tab:hover {
+  color: var(--ap-text-secondary);
+}
+.ap-tab.active {
+  color: var(--ap-text-primary);
+}
+.ap-tab .code-mark {
+  font-size: 9px;
+}
+.ap-tab.cmd-openable span:not(.ap-diffstat):not(.code-mark) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ap-diffstat {
+  font-size: 10.5px;
+}
+.ap-diffstat .add {
+  color: var(--ap-success);
+}
+.ap-diffstat .rem {
+  color: var(--ap-danger);
+  margin-left: 4px;
+}
+.ap-diffstat .reverted {
+  color: var(--ap-danger);
+  font-weight: 600;
+}
+.ap-clawmark {
+  position: absolute;
+  left: 8px;
+  bottom: 3px;
+  stroke: var(--ap-accent-amber);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  fill: none;
+}
+
+/* --- Body: Monaco (diff/code) or FilePreview --- */
+.ap-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+.ap-body .monaco-host {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+.ap-body .file-preview {
+  flex: 1;
+  min-width: 0;
+  max-height: none;
+}
+.ap-body .file-preview-frame {
+  max-width: 100%;
+}
+
+/* --- Overview mode (For-Turn context + file list) --- */
+.ap-overview {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px;
+  font-size: 13px;
+}
+
+/* --- Artifact (plan/walkthrough) body under the shared header. Lets the
+   inner .review-scroll own the scroll, so there's one scroller not two. --- */
+.ap-artifact-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
 /* --- Auxiliary Pane (Ba4): unified rail + version history --- */
 .artifact-rail-meta {
   color: var(--text-dim);
