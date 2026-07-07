@@ -22,6 +22,7 @@ import { setSettings, settingsInfo } from './settings'
 import { allKnownModelRefs, listAllModels } from './providers/registry'
 import { syncPricing } from './pricing/sync'
 import { filePathFor, getDiff, revertFile } from './diffs'
+import { transcribe } from './voice/transcribe'
 import { previewClassify } from './preview/classify'
 import { inlineHtmlAssets, injectPreviewNavGuard } from './preview/inlineHtml'
 import { runOfficeHtml, runOfficeRows } from './attachments/office'
@@ -488,6 +489,16 @@ export function registerIpc(): void {
       // renderer cannot silently "succeed" at disabling an id that doesn't exist.
       setBuiltinDisabled(id, disabled)
     }
+  )
+
+  // Voice input (E5): the composer records mic audio (webm/opus) and hands the
+  // ArrayBuffer here; transcription runs MAIN-side only so the renderer never
+  // holds an API key. V2 wires the channel to a stub that throws; V3 implements
+  // the real OpenAI Whisper backend behind `transcribe`.
+  ipcMain.handle(
+    'bearcode:voice:transcribe',
+    async (_e, audio: ArrayBuffer, mimeType: string): Promise<{ text: string }> =>
+      transcribe(Buffer.from(audio), mimeType)
   )
 
   ipcMain.handle('bearcode:workspace:pick', async () => {

@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, session, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { bootResumeInterruptedRuns, registerIpc } from './ipc'
@@ -82,6 +82,14 @@ app.whenReady().then(() => {
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
+
+  // Voice input (E5): the composer mic uses getUserMedia, which Electron denies
+  // unless main explicitly grants the 'media' permission. No 'media' permission
+  // is configured elsewhere, so scope both handlers to 'media' only.
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) =>
+    cb(permission === 'media')
+  )
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media')
 
   registerIpc()
   createWindow()

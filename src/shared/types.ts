@@ -640,6 +640,13 @@ export interface BearcodeApi {
     addComment(artifactId: string, quote: string | null, body: string): Promise<ArtifactComment>
     listComments(artifactId: string): Promise<ArtifactComment[]>
   }
+  // Voice input (E5): the composer records mic audio and hands the ArrayBuffer
+  // to main, which routes it to the selected STT backend and returns the
+  // transcript text. Transcription runs main-side only (renderer never holds
+  // the API key). `mimeType` is the recorded Blob's type (e.g. 'audio/webm').
+  voice: {
+    transcribe(audio: ArrayBuffer, mimeType: string): Promise<{ text: string }>
+  }
   workspace: {
     pick(): Promise<string | null>
   }

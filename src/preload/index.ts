@@ -145,6 +145,10 @@ const bearcode: BearcodeApi = {
     listComments: (artifactId: string): Promise<ArtifactComment[]> =>
       ipcRenderer.invoke('bearcode:artifacts:list-comments', artifactId)
   },
+  voice: {
+    transcribe: (audio: ArrayBuffer, mimeType: string) =>
+      ipcRenderer.invoke('bearcode:voice:transcribe', audio, mimeType)
+  },
   workspace: {
     pick: () => ipcRenderer.invoke('bearcode:workspace:pick')
   },
