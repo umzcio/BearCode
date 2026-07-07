@@ -66,24 +66,32 @@ const FAB_SVG =
   '<path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/>' +
   '<line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>'
 
+const ARROW_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+  '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="6 11 12 5 18 11"/></svg>'
+
+const X_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+  '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>'
+
 // Hover any line for the floating blue Comment button (or click a line
-// number) to open an inline comment composer, Antigravity style.
+// number) to open an inline comment composer, Antigravity style. The composer
+// lives INSIDE a Monaco view zone, so it displaces the lines below rather than
+// floating over them -- the code stays readable around it (design 2026-07-06).
 export function attachCommenting(
   ed: monaco.editor.ICodeEditor,
   onAdd: (line: number, text: string) => void
 ): monaco.IDisposable {
   const container = ed.getContainerDomNode()
 
-  // The composer is a view zone (reserves vertical space so code below
-  // shifts down) plus a separate overlay card. The card is pinned to the
-  // container's visible width, NOT the content width, so its action row can
-  // never fall off the right edge in a narrow pane.
-  const ZONE_HEIGHT = 150
   let zoneId: string | null = null
+  let zone: monaco.editor.IViewZone | null = null
   let overlay: HTMLElement | null = null
   let overlayLine = 0
   let activeLine: monaco.editor.IEditorDecorationsCollection | null = null
 
+  // Pin the overlay to the top of the reserved gap (just under the commented
+  // line), tracking scroll.
   const positionOverlay = (): void => {
     if (!overlay) return
     overlay.style.top = `${ed.getBottomForLineNumber(overlayLine) - ed.getScrollTop()}px`
@@ -97,6 +105,7 @@ export function attachCommenting(
     if (zoneId) {
       const id = zoneId
       zoneId = null
+      zone = null
       ed.changeViewZones((acc) => acc.removeZone(id))
     }
   }
@@ -112,62 +121,77 @@ export function attachCommenting(
       }
     ])
 
+    // A single compact input bar (plus + input + send arrow + cancel,
+    // Claude-style). Rendered as an OVERLAY on top of the editor: view-zone
+    // content sits BEHIND Monaco's text/cursor layers and goes dead the moment
+    // the editor takes focus, so an empty spacer zone reserves the room and
+    // this overlay -- always on top -- stays interactive. It's styled flat and
+    // sits exactly in the reserved gap, so it still reads as inline.
     overlay = document.createElement('div')
-    overlay.className = 'comment-overlay'
-    const card = document.createElement('div')
-    card.className = 'comment-zone'
+    overlay.className = 'comment-zone-inline'
+    const bar = document.createElement('div')
+    bar.className = 'comment-bar'
     const ta = document.createElement('textarea')
-    ta.placeholder = 'Leave a comment'
+    ta.className = 'comment-bar-input'
+    ta.placeholder = 'Tell the agent what to change'
     ta.rows = 1
-    const actions = document.createElement('div')
-    actions.className = 'comment-actions'
-    const mic = document.createElement('button')
-    mic.className = 'comment-mic'
-    mic.title = 'Voice input: coming soon'
-    mic.disabled = true
-    mic.innerHTML =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">' +
-      '<rect x="9" y="3" width="6" height="11" rx="3"/>' +
-      '<path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg>'
-    const spacer = document.createElement('span')
-    spacer.className = 'comment-spacer'
-    const cancel = document.createElement('button')
-    cancel.textContent = 'Cancel'
-    cancel.className = 'comment-cancel'
-    const add = document.createElement('button')
-    add.textContent = 'Add Comment'
-    add.className = 'comment-add'
-    add.disabled = true
-    actions.append(mic, spacer, cancel, add)
-    card.append(ta, actions)
-    overlay.append(card)
+    const send = document.createElement('button')
+    send.className = 'comment-bar-send'
+    send.title = 'Add comment'
+    send.innerHTML = ARROW_SVG
+    send.disabled = true
+    const close = document.createElement('button')
+    close.className = 'comment-bar-close'
+    close.title = 'Cancel (Esc)'
+    close.innerHTML = X_SVG
+    bar.append(ta, send, close)
+    overlay.appendChild(bar)
     container.appendChild(overlay)
 
-    cancel.onclick = closeComposer
-    add.onclick = (): void => {
+    // Empty spacer view zone reserves the vertical room so code shifts down.
+    const spacer = document.createElement('div')
+    zone = { afterLineNumber: line, heightInPx: 56, domNode: spacer }
+    ed.changeViewZones((acc) => {
+      zoneId = acc.addZone(zone as monaco.editor.IViewZone)
+    })
+
+    // Grow the input as it wraps and keep the reserved gap matched to the bar.
+    const relayout = (): void => {
+      ta.style.height = 'auto'
+      ta.style.height = `${ta.scrollHeight}px`
+      if (zoneId && zone) {
+        zone.heightInPx = bar.offsetHeight + 12
+        ed.changeViewZones((acc) => acc.layoutZone(zoneId as string))
+      }
+      positionOverlay()
+    }
+
+    const submit = (): void => {
       const value = ta.value.trim()
       if (value) onAdd(line, value)
       closeComposer()
     }
+    send.onclick = submit
+    close.onclick = closeComposer
     ta.oninput = (): void => {
-      add.disabled = ta.value.trim().length === 0
+      send.disabled = ta.value.trim().length === 0
+      send.classList.toggle('ready', ta.value.trim().length > 0)
+      relayout()
     }
     ta.onkeydown = (e): void => {
       e.stopPropagation()
       if (e.key === 'Escape') closeComposer()
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
-        add.click()
+        if (!send.disabled) submit()
       }
     }
 
-    // An empty spacer zone reserves the room; the card overlays it.
-    const spacerZone = document.createElement('div')
-    ed.changeViewZones((acc) => {
-      zoneId = acc.addZone({ afterLineNumber: line, heightInPx: ZONE_HEIGHT, domNode: spacerZone })
-    })
     positionOverlay()
-    window.setTimeout(() => ta.focus(), 60)
+    window.setTimeout(() => {
+      ta.focus()
+      relayout()
+    }, 30)
   }
 
   const mouse = ed.onMouseDown((e) => {

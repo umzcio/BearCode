@@ -187,3 +187,42 @@ export const IconOverview = icon(
     <line x1="8" y1="17" x2="12" y2="17" />
   </>
 )
+export const IconDownload = icon(
+  <>
+    <path d="M12 4v11" />
+    <polyline points="7 10 12 15 17 10" />
+    <path d="M5 19h14" />
+  </>
+)
+export const IconExpand = icon(
+  <>
+    <polyline points="9 4 4 4 4 9" />
+    <polyline points="15 4 20 4 20 9" />
+    <polyline points="15 20 20 20 20 15" />
+    <polyline points="9 20 4 20 4 15" />
+  </>
+)
+export const IconRevert = icon(
+  <>
+    <path d="M4 9h10a5 5 0 0 1 0 10H9" />
+    <polyline points="7 6 4 9 7 12" />
+  </>
+)
+export function IconPaw({ size }: IconProps): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" style={size ? { width: size, height: size } : undefined}>
+      <ellipse cx="12" cy="16.5" rx="4.6" ry="4" />
+      <circle cx="6.4" cy="11" r="1.9" />
+      <circle cx="10" cy="7.6" r="1.9" />
+      <circle cx="14" cy="7.6" r="1.9" />
+      <circle cx="17.6" cy="11" r="1.9" />
+    </svg>
+  )
+}
+export const IconComment = icon(
+  <>
+    <path d="M4 5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-4 4z" />
+    <line x1="12" y1="8" x2="12" y2="12" />
+    <line x1="10" y1="10" x2="14" y2="10" />
+  </>
+)
