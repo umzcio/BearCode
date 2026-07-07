@@ -5,11 +5,17 @@
 // for any ToolMessage whose `content` is not a plain string. Deep Agents'
 // built-in file tools return content as an array (e.g. file lines), and its
 // large-content middleware emits structured blocks -- so on the Ollama backend
-// those tool results crash the whole turn. Anthropic (and Gemini) accept array
-// content, so this normalization is scoped to Ollama and never touches those
-// paths.
-import { createMiddleware } from 'langchain'
-import { ToolMessage, isToolMessage } from '@langchain/core/messages'
+// those tool results crash the turn. Anthropic and Gemini accept array content,
+// so this normalization is scoped to the Ollama model and never touches them.
+//
+// We normalize at the MODEL instance (not a single agent middleware) because
+// convertToOllamaMessages runs on EVERY call path -- the main agent loop,
+// subagents, summarization, and title generation all invoke the same model.
+// ChatOllama.convertToOllamaMessages is reached from _streamResponseChunks
+// (which _generate also delegates to) and _streamChatModelEvents; overriding
+// both to pre-flatten tool content covers every path.
+import { ChatOllama } from '@langchain/ollama'
+import { ToolMessage, isToolMessage, type BaseMessage } from '@langchain/core/messages'
 
 // Flatten any tool-result content shape to a single string: arrays of lines or
 // content blocks join with newlines (block.text when present, else JSON), and
@@ -33,27 +39,45 @@ export function stringifyToolContent(content: unknown): string {
   return JSON.stringify(content)
 }
 
-// Rewrites every ToolMessage with non-string content to a string, right before
-// the model call. Added to createDeepAgent's extraMiddleware ONLY when the
-// provider is Ollama.
-export const ollamaToolContentMiddleware = createMiddleware({
-  name: 'BearcodeOllamaToolContent',
-  wrapModelCall: (request, handler) => {
-    let changed = false
-    const messages = request.messages.map((m) => {
-      if (isToolMessage(m) && typeof m.content !== 'string') {
-        changed = true
-        return new ToolMessage({
-          content: stringifyToolContent(m.content),
-          tool_call_id: m.tool_call_id,
-          name: m.name,
-          id: m.id,
-          status: m.status,
-          artifact: m.artifact
-        })
-      }
-      return m
-    })
-    return handler(changed ? { ...request, messages } : request)
+// Rewrite every ToolMessage with non-string content to a string-content clone,
+// preserving the identity fields the graph pairs on (tool_call_id above all).
+export function normalizeToolMessages(messages: BaseMessage[]): BaseMessage[] {
+  let changed = false
+  const out = messages.map((m) => {
+    if (isToolMessage(m) && typeof m.content !== 'string') {
+      changed = true
+      return new ToolMessage({
+        content: stringifyToolContent(m.content),
+        tool_call_id: m.tool_call_id,
+        name: m.name,
+        id: m.id,
+        status: m.status,
+        artifact: m.artifact
+      })
+    }
+    return m
+  })
+  return changed ? out : messages
+}
+
+// ChatOllama that stringifies non-string tool-message content on the way to the
+// wire. NOTE: overrides internal streaming methods -- if @langchain/ollama
+// renames them the normalization silently no-ops (the original crash returns),
+// so this pairs with the ollamaCompat tests as the tripwire.
+export class BearcodeChatOllama extends ChatOllama {
+  override _streamResponseChunks(
+    messages: BaseMessage[],
+    options: Parameters<ChatOllama['_streamResponseChunks']>[1],
+    runManager?: Parameters<ChatOllama['_streamResponseChunks']>[2]
+  ): ReturnType<ChatOllama['_streamResponseChunks']> {
+    return super._streamResponseChunks(normalizeToolMessages(messages), options, runManager)
   }
-})
+
+  override _streamChatModelEvents(
+    messages: BaseMessage[],
+    options: Parameters<ChatOllama['_streamChatModelEvents']>[1],
+    runManager?: Parameters<ChatOllama['_streamChatModelEvents']>[2]
+  ): ReturnType<ChatOllama['_streamChatModelEvents']> {
+    return super._streamChatModelEvents(normalizeToolMessages(messages), options, runManager)
+  }
+}

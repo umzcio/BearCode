@@ -5,7 +5,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { ChatAnthropic } from '@langchain/anthropic'
 import { ChatOpenAI } from '@langchain/openai'
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
-import { ChatOllama } from '@langchain/ollama'
+import { BearcodeChatOllama } from './ollamaCompat'
 import { getKey } from '../keys'
 import { getSettings } from '../settings'
 import { parseModelRef } from '../providers/registry'
@@ -84,7 +84,9 @@ export function makeModel(
         ...extras
       })
     case 'ollama':
-      return new ChatOllama({ baseUrl: getSettings().ollamaBaseUrl, model: modelId, ...extras })
+      // BearcodeChatOllama stringifies non-string tool-message content that
+      // upstream ChatOllama rejects (see ollamaCompat.ts).
+      return new BearcodeChatOllama({ baseUrl: getSettings().ollamaBaseUrl, model: modelId, ...extras })
     default:
       throw new Error(`Unknown provider: ${provider as string}`)
   }
