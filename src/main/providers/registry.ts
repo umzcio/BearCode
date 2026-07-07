@@ -37,7 +37,7 @@ export const OPENAI_MODELS: ModelInfo[] = [
 ]
 
 export const GOOGLE_MODELS: ModelInfo[] = [
-  { id: 'gemini-3-pro-preview', label: 'Gemini 3 Pro', contextWindow: 1_000_000 },
+  { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', contextWindow: 1_000_000 },
   { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', contextWindow: 1_000_000 },
   { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', contextWindow: 1_000_000 }
 ]
