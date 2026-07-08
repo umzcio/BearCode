@@ -28,7 +28,7 @@ vi.mock('./permissions', () => ({
   setBuiltinDisabled: vi.fn()
 }))
 vi.mock('./settings', () => ({ setSettings: vi.fn(), settingsInfo: vi.fn() }))
-vi.mock('./providers/registry', () => ({ listAllModels: vi.fn() }))
+vi.mock('./providers/registry', () => ({ listAllModels: vi.fn(), listManageableModels: vi.fn() }))
 vi.mock('./diffs', () => ({ filePathFor: vi.fn(), getDiff: vi.fn(), revertFile: vi.fn() }))
 
 vi.mock('./db', () => ({

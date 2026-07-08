@@ -30,7 +30,10 @@ vi.mock('./permissions', () => ({
   setBuiltinDisabled: vi.fn()
 }))
 vi.mock('./settings', () => ({ setSettings: vi.fn(), settingsInfo: vi.fn() }))
-vi.mock('./providers/registry', () => ({ listAllModels: vi.fn() }))
+vi.mock('./providers/registry', () => ({
+  listAllModels: vi.fn(),
+  listManageableModels: vi.fn(() => [{ id: 'anthropic', displayName: 'Anthropic', color: '#d97757', models: [] }])
+}))
 vi.mock('./diffs', () => ({ filePathFor: vi.fn(), getDiff: vi.fn(), revertFile: vi.fn() }))
 vi.mock('./db', () => ({
   createConversation: vi.fn((projectPath: string | null, id?: string) => ({
@@ -95,5 +98,14 @@ describe('conversations:create optional draft id (D4)', () => {
     const handler = handlers.get('bearcode:conversations:create')!
     handler(null, '/tmp/proj')
     expect(db.createConversation).toHaveBeenCalledWith('/tmp/proj', undefined)
+  })
+
+  it('models:manageable returns the manageable provider list (F7)', () => {
+    const handler = handlers.get('bearcode:models:manageable')!
+    expect(handler).toBeTypeOf('function')
+    const result = handler(null) as { id: string }[]
+    expect(result).toEqual([
+      { id: 'anthropic', displayName: 'Anthropic', color: '#d97757', models: [] }
+    ])
   })
 })
