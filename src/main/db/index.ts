@@ -16,9 +16,11 @@ import type {
   PermissionAction,
   PermissionMode,
   PermissionRule,
+  HistoryHit,
   Project
 } from '../../shared/types'
 import { getSettings } from '../settings'
+import { extractSearchText } from './searchText'
 
 let db: Database.Database | null = null
 
@@ -93,6 +95,7 @@ function getDb(): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_artifacts_convo ON artifacts(conversation_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_events_convo ON events(conversation_id, seq);
+    CREATE VIRTUAL TABLE IF NOT EXISTS event_fts USING fts5(text, event_id UNINDEXED, conversation_id UNINDEXED, kind UNINDEXED);
   `)
   // Additive column for the per-conversation permission mode (Bb1). SQLite
   // ALTER ADD COLUMN is idempotent-guarded by catching the "duplicate column"
@@ -152,8 +155,73 @@ function getDb(): Database.Database {
   } catch {
     // column already exists
   }
+  backfillEventFts(db)
   zombieRunIds = cancelZombieRuns(db)
   return db
+}
+
+// Full-text index row insert -- shared by the live-index path (appendEvent /
+// appendOrReplaceEvent) and the one-time backfill. Inserts only when the event
+// contributes searchable text (extractSearchText decides scope; thinking etc.
+// return null and are never indexed).
+function indexEvent(database: Database.Database, conversationId: string, event: Event): void {
+  const txt = extractSearchText(event)
+  if (txt == null) return
+  database
+    .prepare(`INSERT INTO event_fts (text, event_id, conversation_id, kind) VALUES (?, ?, ?, ?)`)
+    .run(txt, event.id, conversationId, event.type)
+}
+
+// One-time, idempotent backfill of the FTS index for history that predates the
+// live index (F1): if event_fts is empty while events is not, walk every event
+// once and index it. Guarded so it runs at most once (later opens see a
+// populated event_fts and return immediately); wrapped in a transaction; errors
+// are logged and swallowed -- a failed backfill must never block app boot, it
+// only degrades search over old messages until the next indexed write.
+function backfillEventFts(database: Database.Database): void {
+  try {
+    const ftsCount = (
+      database.prepare(`SELECT COUNT(*) AS n FROM event_fts`).get() as { n: number }
+    ).n
+    if (ftsCount > 0) return
+    const evCount = (database.prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number }).n
+    if (evCount === 0) return
+    const rows = database.prepare(`SELECT conversation_id, payload FROM events`).all() as {
+      conversation_id: string
+      payload: string
+    }[]
+    database.transaction(() => {
+      for (const row of rows) {
+        try {
+          const event = JSON.parse(row.payload) as Event
+          indexEvent(database, row.conversation_id, event)
+        } catch {
+          // malformed payload -- skip this row, keep backfilling the rest
+        }
+      }
+    })()
+  } catch (e) {
+    console.error('[bearcode] db: event_fts backfill failed (non-fatal)', e)
+  }
+}
+
+// Last path segment for a conversation's project label, matching the renderer's
+// convention (store.ts): the folder basename, or 'No folder' when unassigned.
+function projectLabelFor(projectPath: string | null): string {
+  if (!projectPath) return 'No folder'
+  const parts = projectPath.replace(/\/$/, '').split('/')
+  return parts[parts.length - 1] || projectPath
+}
+
+// Sanitize free-text into a safe FTS5 MATCH expression: keep only word tokens
+// (letters/digits/underscore) and wrap each in double quotes so FTS operators
+// and stray punctuation ('fox()', 'a AND b', 'foo:bar') can never be parsed as
+// query syntax and throw. Multiple tokens are ANDed (implicit). Returns null
+// when nothing searchable remains, so searchHistory short-circuits to [].
+function toFtsQuery(query: string): string | null {
+  const tokens = query.match(/[\p{L}\p{N}_]+/gu)
+  if (!tokens || tokens.length === 0) return null
+  return tokens.map((t) => `"${t}"`).join(' ')
 }
 
 // A conversation whose last event is not turn_meta or error was mid-run when
@@ -227,7 +295,11 @@ function parseActiveRules(raw: string | null): string[] {
   }
 }
 
-function toMeta(row: ConversationRow, fallbackTitle?: string | null): ConversationMeta {
+function toMeta(
+  row: ConversationRow,
+  fallbackTitle?: string | null,
+  preview?: string | null
+): ConversationMeta {
   return {
     id: row.id,
     projectPath: row.project_path || null,
@@ -241,7 +313,8 @@ function toMeta(row: ConversationRow, fallbackTitle?: string | null): Conversati
     thinking: row.thinking == null ? getSettings().defaultThinking : row.thinking === 1,
     projectId: row.project_id ?? null,
     pinned: row.pinned === 1,
-    archived: row.archived === 1
+    archived: row.archived === 1,
+    preview: preview ?? null
   }
 }
 
@@ -275,21 +348,40 @@ export function listConversations(): ConversationMeta[] {
   const rows = getDb()
     .prepare(`SELECT * FROM conversations ORDER BY updated_at DESC`)
     .all() as ConversationRow[]
-  // Fall back to the first user message when no generated title exists yet.
+  // The first user message serves two browse-list needs: a fallback title when
+  // none was generated, and a preview snippet. Sourcing the preview here (from
+  // the DB) means the History browse list can show it even for conversations
+  // never opened this session, whose in-memory events array is empty.
   const firstMsg = getDb().prepare(
     `SELECT payload FROM events WHERE conversation_id = ? AND type = 'user_message'
      ORDER BY seq ASC LIMIT 1`
   )
   return rows.map((row) => {
-    let fallback: string | null = null
-    if (!row.title) {
-      const msg = firstMsg.get(row.id) as { payload: string } | undefined
-      if (msg) {
-        const text = (JSON.parse(msg.payload) as { text: string }).text
-        fallback = text.length > 42 ? text.slice(0, 42) + '…' : text
+    const msg = firstMsg.get(row.id) as { payload: string } | undefined
+    let firstText: string | null = null
+    if (msg) {
+      try {
+        firstText = (JSON.parse(msg.payload) as { text: string }).text
+      } catch {
+        // A single corrupt payload row must not break the entire conversation
+        // list at boot -- degrade to no preview/fallback for this row instead
+        // (mirrors the guarded per-row parse in backfillEventFts).
+        firstText = null
       }
     }
-    return toMeta(row, fallback)
+    const fallback =
+      !row.title && firstText != null
+        ? firstText.length > 42
+          ? firstText.slice(0, 42) + '…'
+          : firstText
+        : null
+    const preview =
+      firstText != null
+        ? firstText.length > 120
+          ? firstText.slice(0, 120) + '…'
+          : firstText
+        : null
+    return toMeta(row, fallback, preview)
   })
 }
 
@@ -325,6 +417,7 @@ export function appendEvent(conversationId: string, event: Event): void {
        VALUES (?, ?, ?, ?, ?, ?)`
     )
     .run(event.id, conversationId, next.seq, event.type, JSON.stringify(event), Date.now())
+  indexEvent(database, conversationId, event)
   database
     .prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`)
     .run(Date.now(), conversationId)
@@ -345,6 +438,10 @@ export function appendOrReplaceEvent(conversationId: string, event: Event): void
     database
       .prepare(`UPDATE events SET type = ?, payload = ? WHERE id = ?`)
       .run(event.type, JSON.stringify(event), event.id)
+    // Keep the FTS index in step with the replaced payload: drop the old row
+    // (if any) and re-index the new event under the same id.
+    database.prepare(`DELETE FROM event_fts WHERE event_id = ?`).run(event.id)
+    indexEvent(database, conversationId, event)
     database
       .prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`)
       .run(Date.now(), conversationId)
@@ -402,6 +499,10 @@ export function dropDanglingApprovalRows(conversationId: string): void {
     }
   }
   const del = database.prepare(`DELETE FROM events WHERE id = ?`)
+  // tool_call events ARE FTS-indexed at append (extractSearchText), so deleting
+  // the event row alone would leave a ghost search hit pointing at a row that no
+  // longer exists. Drop the matching event_fts row in lockstep.
+  const delFts = database.prepare(`DELETE FROM event_fts WHERE event_id = ?`)
   for (const row of rows) {
     let ev: Event
     try {
@@ -416,6 +517,7 @@ export function dropDanglingApprovalRows(conversationId: string): void {
         !resultCallIds.has(ev.id))
     if (!stale) break
     del.run(row.id)
+    delFts.run(row.id)
   }
 }
 
@@ -457,9 +559,13 @@ export function setActiveRules(conversationId: string, names: string[]): void {
 }
 
 export function listProjects(): Project[] {
-  const rows = getDb()
-    .prepare(`SELECT * FROM projects ORDER BY updated_at DESC`)
-    .all() as { id: string; name: string; color: string | null; created_at: number; updated_at: number }[]
+  const rows = getDb().prepare(`SELECT * FROM projects ORDER BY updated_at DESC`).all() as {
+    id: string
+    name: string
+    color: string | null
+    created_at: number
+    updated_at: number
+  }[]
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
@@ -809,14 +915,59 @@ export function updateArtifactStatus(
 }
 
 export function deleteConversation(id: string): void {
-  getDb().prepare(`DELETE FROM conversations WHERE id = ?`).run(id)
+  const database = getDb()
+  // event_fts has no FK to conversations, so the ON DELETE CASCADE that clears
+  // the events rows never touches it -- clear it explicitly first.
+  database.prepare(`DELETE FROM event_fts WHERE conversation_id = ?`).run(id)
+  database.prepare(`DELETE FROM conversations WHERE id = ?`).run(id)
 }
 
 export function clearAll(): void {
   const database = getDb()
   database.prepare(`DELETE FROM artifact_comments`).run()
   database.prepare(`DELETE FROM artifacts`).run()
+  database.prepare(`DELETE FROM event_fts`).run()
   database.prepare(`DELETE FROM events`).run()
   database.prepare(`DELETE FROM diffs`).run()
   database.prepare(`DELETE FROM conversations`).run()
+}
+
+// Ranked full-text search across all conversations' indexed message content
+// (F1). Sanitizes the query into a safe FTS5 expression (toFtsQuery), runs a
+// bm25-ordered MATCH with a highlighted snippet, then joins each hit to its
+// conversation's display meta -- dropping any hit whose conversation no longer
+// exists (defense in depth beside deleteConversation's FTS cleanup). Thinking
+// text is never in the index (extractSearchText), so it can never surface here.
+export function searchHistory(query: string, limit = 50): HistoryHit[] {
+  const term = toFtsQuery(query)
+  if (term == null) return []
+  const database = getDb()
+  const rows = database
+    .prepare(
+      `SELECT f.event_id AS eventId, f.conversation_id AS conversationId, f.kind AS kind,
+              snippet(event_fts, 0, '‹mark›', '‹/mark›', '…', 12) AS snippet
+       FROM event_fts f WHERE event_fts MATCH ? ORDER BY bm25(event_fts) LIMIT ?`
+    )
+    .all(term, limit) as {
+    eventId: string
+    conversationId: string
+    kind: string
+    snippet: string
+  }[]
+  const metaStmt = database.prepare(`SELECT * FROM conversations WHERE id = ?`)
+  const hits: HistoryHit[] = []
+  for (const r of rows) {
+    const convo = metaStmt.get(r.conversationId) as ConversationRow | undefined
+    if (!convo) continue
+    hits.push({
+      conversationId: r.conversationId,
+      eventId: r.eventId,
+      kind: r.kind as Event['type'],
+      snippet: r.snippet,
+      title: convo.title,
+      projectLabel: projectLabelFor(convo.project_path),
+      updatedAt: convo.updated_at
+    })
+  }
+  return hits
 }

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Sidebar } from './components/Sidebar/Sidebar'
 import { Home } from './components/Home'
+import { HistoryView } from './components/History/HistoryView'
 import { ConversationView } from './components/ConversationView'
 import { AuxiliaryPane } from './components/AuxiliaryPane'
 import { ResizeHandle } from './components/ResizeHandle'
@@ -113,9 +114,7 @@ function App(): React.JSX.Element {
     <div className={'app' + (cmdHeld ? ' cmd-held' : '')}>
       <Sidebar />
       {!collapsed ? (
-        <ResizeHandle
-          onDrag={(dx) => setSidebarWidth(useAppStore.getState().sidebarWidth + dx)}
-        />
+        <ResizeHandle onDrag={(dx) => setSidebarWidth(useAppStore.getState().sidebarWidth + dx)} />
       ) : null}
       <div className={'main' + (collapsed ? ' sidebar-collapsed' : '')}>
         <div className="topbar">
@@ -136,14 +135,13 @@ function App(): React.JSX.Element {
         </div>
         {view.kind === 'home' ? <Home /> : null}
         {view.kind === 'scheduled' ? <ScheduledView /> : null}
+        {view.kind === 'history' ? <HistoryView /> : null}
         {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}
         <SettingsModal />
         <SearchModal />
       </div>
       {auxSelection ? (
-        <ResizeHandle
-          onDrag={(dx) => setAuxPaneWidth(useAppStore.getState().auxPaneWidth - dx)}
-        />
+        <ResizeHandle onDrag={(dx) => setAuxPaneWidth(useAppStore.getState().auxPaneWidth - dx)} />
       ) : null}
       <AuxiliaryPane />
       {toast ? (

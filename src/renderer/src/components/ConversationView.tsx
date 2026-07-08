@@ -122,7 +122,20 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const cancelRun = useAppStore((s) => s.cancelRun)
   const retryRun = useAppStore((s) => s.retryRun)
   const showToast = useAppStore((s) => s.showToast)
+  // F1 jump-to-match: the event a content-search hit wants to land on, the full
+  // match set for the next/prev navigator, and the actions to walk/clear it.
+  const focusEventId = useAppStore((s) => s.focusEventId)
+  const focusMatches = useAppStore((s) => s.focusMatches)
+  const clearFocusEvent = useAppStore((s) => s.clearFocusEvent)
+  const stepFocus = useAppStore((s) => s.stepFocus)
+  const setFocusMatches = useAppStore((s) => s.setFocusMatches)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // Records the focusEventId whose jump has already fired, so the effect below
+  // scrolls+highlights each id exactly ONCE. Without this, the effect (which
+  // depends on convo.events so it can catch the async-load case) would re-fire
+  // on every streamed event of a follow-up turn, re-pinning the transcript to
+  // the old match and re-flashing the highlight.
+  const consumedFocusRef = useRef<string | null>(null)
 
   const running = convo.runState === 'running' || convo.runState === 'awaiting-approval'
   const items = groupTurns(convo.events)
@@ -140,8 +153,103 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
     if (el) el.scrollTop = el.scrollHeight
   }, [convo.events])
 
+  // F1: when a content-search hit points here, scroll the matching event into
+  // view and flash a transient highlight. The class is toggled imperatively on
+  // the DOM node (never via React state) so it survives streaming re-renders --
+  // the row's JSX className is constant, so React won't clobber the added class.
+  // Runs after the auto-scroll-to-bottom effect above so it wins on open.
+  //
+  // The common history-search path opens a conversation that is NOT yet loaded:
+  // `conversations.get(id)` resolves asynchronously, so on the first render the
+  // transcript is empty and the target anchor does not exist yet. We must NOT
+  // clear focus then -- that would permanently abort the jump. Instead we gate
+  // on `convo.loaded` and depend on `convo.events`, so the effect re-runs once
+  // the events arrive and only clears when the target is genuinely absent from
+  // a loaded transcript (e.g. compacted away).
+  useEffect(() => {
+    if (!focusEventId) {
+      // No pending jump -- forget the last consumed id so a future jump to the
+      // SAME event id (e.g. re-running the same search) fires again.
+      consumedFocusRef.current = null
+      return
+    }
+    // Events haven't loaded yet; wait for them (this effect re-runs when
+    // convo.events / convo.loaded change). Clearing now would kill the jump.
+    if (!convo.loaded) return
+    // Already jumped for this id: do NOT re-scroll/re-highlight when convo.events
+    // changes for the same focusEventId (streamed events on a follow-up turn).
+    if (consumedFocusRef.current === focusEventId) return
+    // Scan by dataset rather than an attribute selector so arbitrary event ids
+    // never need escaping. A single anchor may advertise more than one id
+    // (space-joined) -- e.g. a paired tool_call+tool_result ToolStep -- so match
+    // against the whole set. Event ids never contain spaces.
+    const el = Array.from(scrollRef.current?.querySelectorAll('[data-event-id]') ?? []).find((n) =>
+      ((n as HTMLElement).dataset.eventId ?? '').split(' ').includes(focusEventId)
+    )
+    if (!el) {
+      // Loaded, but the target isn't in the rendered transcript (e.g. compacted
+      // away). Abort the jump so it can't fire spuriously later; never throw.
+      clearFocusEvent()
+      return
+    }
+    // Mark this id consumed before firing so a re-run (from a subsequent
+    // convo.events change) for the same id short-circuits above.
+    consumedFocusRef.current = focusEventId
+    el.scrollIntoView({ block: 'center' })
+    el.classList.add('event-focus-highlight')
+    // Respect reduce-motion: skip the timed fade (the CSS also drops the
+    // animation), leaving a static highlight until focus moves away.
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    const timer = reduce
+      ? undefined
+      : window.setTimeout(() => el.classList.remove('event-focus-highlight'), 1600)
+    return () => {
+      if (timer) window.clearTimeout(timer)
+      el.classList.remove('event-focus-highlight')
+    }
+  }, [focusEventId, convo.loaded, convo.events, clearFocusEvent])
+
+  // F1: searchHistory ranks matches by bm25, but the next/prev navigator should
+  // walk them in transcript order so "N of M" advances monotonically down the
+  // conversation. Once events are loaded, reorder focusMatches into document
+  // order. Guarded to a single write: after sorting, the order matches and no
+  // further set fires, so this settles without looping.
+  useEffect(() => {
+    if (focusMatches.length < 2 || !convo.loaded) return
+    const pos = new Map(convo.events.map((e, i) => [e.id, i] as const))
+    const ordered = [...focusMatches].sort(
+      (a, b) => (pos.get(a) ?? Infinity) - (pos.get(b) ?? Infinity)
+    )
+    if (ordered.some((id, i) => id !== focusMatches[i])) setFocusMatches(ordered)
+  }, [focusMatches, convo.loaded, convo.events, setFocusMatches])
+
+  const focusIdx = focusEventId ? focusMatches.indexOf(focusEventId) : -1
+
   return (
     <div className="convo-view">
+      {focusMatches.length > 1 ? (
+        <div className="focus-nav" role="status" aria-label="Search match navigator">
+          <button
+            className="icon-btn"
+            title="Previous match"
+            onClick={() => stepFocus(-1)}
+            disabled={focusIdx <= 0}
+          >
+            ‹
+          </button>
+          <span className="focus-nav-count">
+            {Math.max(0, focusIdx) + 1} of {focusMatches.length}
+          </span>
+          <button
+            className="icon-btn"
+            title="Next match"
+            onClick={() => stepFocus(1)}
+            disabled={focusIdx >= focusMatches.length - 1}
+          >
+            ›
+          </button>
+        </div>
+      ) : null}
       <div className="convo-scroll" ref={scrollRef}>
         <div className="convo-inner">
           {items.map((item, i) => {
@@ -157,7 +265,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
             const streaming = isLast && running && hasText
             return (
               <div key={turn.user.id} className="turn-pair">
-                <div className="msg-user-wrap">
+                <div className="msg-user-wrap" data-event-id={turn.user.id}>
                   <div className="msg-user">
                     {turn.user.command ? (
                       <span className="msg-command-pill">/{turn.user.command.name}</span>
@@ -203,12 +311,9 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                   ))}
                   {turn.texts.map((t) =>
                     t.text.length > 0 ? (
-                      <AssistantText
-                        key={t.id}
-                        text={t.text}
-                        streaming={streaming}
-                        convoId={convoId}
-                      />
+                      <div key={t.id} data-event-id={t.id}>
+                        <AssistantText text={t.text} streaming={streaming} convoId={convoId} />
+                      </div>
                     ) : null
                   )}
                   {turn.diffs.map((d) => (

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
 import type { BearcodeApi } from '@shared/types'
 import { useAppStore } from '../state/store'
 import { ConversationView } from './ConversationView'
@@ -154,5 +154,191 @@ describe('ConversationView compaction marker', () => {
     const { container } = render(<ConversationView convoId="c1" />)
     expect(screen.queryByText(/Compacted .* earlier message/)).toBeNull()
     expect(container.querySelector('.compaction-marker')).toBeNull()
+  })
+})
+
+// F1 Task 7: jump-to-match. ConversationView consumes the transient
+// `focusEventId` set by a content-search hit -- it scrolls the matching event
+// into view, flashes a highlight, and (with more than one match) shows a
+// next/prev navigator that advances `focusEventId` through `focusMatches`.
+describe('ConversationView jump-to-match (F1)', () => {
+  const focusConvo = {
+    id: 'c1',
+    projectPath: '/p',
+    title: 'T',
+    modelRef: 'anthropic/claude-sonnet-5',
+    permissionMode: 'accept-edits',
+    updatedAt: 1,
+    loaded: true,
+    runState: 'idle',
+    events: [
+      { type: 'user_message', id: 'u1', text: 'fox chicken grain' },
+      { type: 'assistant_text', id: 'a1', text: 'the farmer crosses the river' },
+      { type: 'turn_meta', id: 'm1', provider: 'anthropic', model: 'x', startedAt: 1, endedAt: 2 }
+    ]
+  }
+
+  beforeEach(() => {
+    // jsdom implements neither scrollIntoView nor matchMedia.
+    Element.prototype.scrollIntoView = vi.fn()
+    ;(window as unknown as { matchMedia: unknown }).matchMedia = vi
+      .fn()
+      .mockReturnValue({ matches: false })
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      providers: [],
+      conversations: { c1: focusConvo },
+      convoOrder: ['c1'],
+      focusEventId: null,
+      focusMatches: []
+    } as never)
+  })
+
+  it('scrolls to and highlights the focused event', async () => {
+    useAppStore.setState({ focusEventId: 'u1', focusMatches: ['u1'] } as never)
+    render(<ConversationView convoId="c1" />)
+    const row = document.querySelector('[data-event-id="u1"]') as HTMLElement
+    expect(row).toBeTruthy()
+    await waitFor(() => expect(row.classList.contains('event-focus-highlight')).toBe(true))
+    expect(row.scrollIntoView).toHaveBeenCalled()
+  })
+
+  it('does not crash and clears focus when the focused event is not rendered', async () => {
+    const clearFocusEvent = vi.fn()
+    useAppStore.setState({
+      focusEventId: 'gone',
+      focusMatches: ['gone'],
+      clearFocusEvent
+    } as never)
+    render(<ConversationView convoId="c1" />)
+    await waitFor(() => expect(clearFocusEvent).toHaveBeenCalled())
+    expect(document.querySelector('.event-focus-highlight')).toBeNull()
+  })
+
+  it('jumps to a tool_call or tool_result hit rendered inside a WorkedGroup', async () => {
+    // tool_call + tool_result render as one paired ToolStep inside WorkedGroup.
+    // Both event kinds are FTS-indexed, so a content-search hit can land on
+    // either id -- the anchor must cover both.
+    const toolConvo = {
+      ...focusConvo,
+      events: [
+        { type: 'user_message', id: 'u1', text: 'edit the registry' },
+        {
+          type: 'tool_call',
+          id: 'tc1',
+          tool: 'edit_file',
+          input: { path: 'src/registry.ts' },
+          approvalState: 'approved'
+        },
+        {
+          type: 'tool_result',
+          id: 'tr1',
+          callId: 'tc1',
+          output: 'wrote src/registry.ts',
+          durationMs: 1,
+          truncated: false
+        },
+        { type: 'turn_meta', id: 'm1', provider: 'anthropic', model: 'x', startedAt: 1, endedAt: 2 }
+      ]
+    }
+    useAppStore.setState({
+      conversations: { c1: toolConvo },
+      focusEventId: 'tr1',
+      focusMatches: ['tc1', 'tr1']
+    } as never)
+    render(<ConversationView convoId="c1" />)
+    const anchor = document.querySelector('[data-event-id~="tr1"]') as HTMLElement
+    expect(anchor).toBeTruthy()
+    await waitFor(() => expect(anchor.classList.contains('event-focus-highlight')).toBe(true))
+    expect(anchor.scrollIntoView).toHaveBeenCalled()
+  })
+
+  it('jumps once events arrive for a not-yet-loaded conversation (async open)', async () => {
+    // The main history-search path: openConvo sets focus while the conversation
+    // is still loaded:false with empty events (conversations.get is in flight).
+    // The focus effect must NOT clear focus on that first render -- it has to
+    // wait for the events, then highlight. (Regression: the old effect ran once
+    // on mount, found no anchor, cleared focus, and never re-ran.)
+    useAppStore.setState({
+      conversations: { c1: { ...focusConvo, loaded: false, events: [] } },
+      focusEventId: 'u1',
+      focusMatches: ['u1']
+    } as never)
+    render(<ConversationView convoId="c1" />)
+    // Nothing to highlight yet, and focus survives (not cleared).
+    expect(document.querySelector('.event-focus-highlight')).toBeNull()
+    expect(useAppStore.getState().focusEventId).toBe('u1')
+
+    // conversations.get resolves: events land and loaded flips true.
+    useAppStore.setState({ conversations: { c1: { ...focusConvo, loaded: true } } } as never)
+
+    await waitFor(() => {
+      const row = document.querySelector('[data-event-id="u1"]') as HTMLElement | null
+      expect(row?.classList.contains('event-focus-highlight')).toBe(true)
+    })
+    const row = document.querySelector('[data-event-id="u1"]') as HTMLElement
+    expect(row.scrollIntoView).toHaveBeenCalled()
+  })
+
+  it('reorders bm25-ranked matches into transcript (document) order', async () => {
+    // Hits arrive ranked by bm25 (a1 ahead of u1), but u1 precedes a1 in the
+    // transcript. Once loaded, the navigator set is sorted to document order so
+    // next/prev steps monotonically top-to-bottom.
+    useAppStore.setState({ focusEventId: 'u1', focusMatches: ['a1', 'u1'] } as never)
+    render(<ConversationView convoId="c1" />)
+    await waitFor(() => expect(useAppStore.getState().focusMatches).toEqual(['u1', 'a1']))
+  })
+
+  it('fires the jump exactly once: new streamed events do not re-scroll or re-highlight', async () => {
+    // Regression: the focus effect depends on convo.events (so it can catch the
+    // async-load case), but it must fire for a given focusEventId only ONCE.
+    // Otherwise every streamed event of a follow-up turn re-runs scrollIntoView
+    // on the old match and re-flashes the highlight, pinning the transcript.
+    useAppStore.setState({ focusEventId: 'u1', focusMatches: ['u1'] } as never)
+    render(<ConversationView convoId="c1" />)
+    const row = document.querySelector('[data-event-id="u1"]') as HTMLElement
+    await waitFor(() => expect(row.classList.contains('event-focus-highlight')).toBe(true))
+    const scrollMock = row.scrollIntoView as unknown as { mock: { calls: unknown[] } }
+    const callsAfterJump = scrollMock.mock.calls.length
+
+    // Remove the highlight so a spurious re-fire would be observable, then append
+    // a new event (as a live turn would) WITHOUT clearing focus.
+    row.classList.remove('event-focus-highlight')
+    await act(async () => {
+      useAppStore.setState({
+        conversations: {
+          c1: {
+            ...focusConvo,
+            events: [...focusConvo.events, { type: 'user_message', id: 'u2', text: 'follow up' }]
+          }
+        }
+      } as never)
+    })
+
+    const rowAfter = document.querySelector('[data-event-id="u1"]') as HTMLElement
+    // No second scroll, and the highlight is not re-applied for the same id.
+    expect(scrollMock.mock.calls.length).toBe(callsAfterJump)
+    expect(rowAfter.classList.contains('event-focus-highlight')).toBe(false)
+  })
+
+  it('renders an "N of M" navigator and stepFocus advances the highlight', async () => {
+    useAppStore.setState({ focusEventId: 'u1', focusMatches: ['u1', 'a1'] } as never)
+    render(<ConversationView convoId="c1" />)
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-event-id="u1"]')?.classList.contains('event-focus-highlight')
+      ).toBe(true)
+    )
+    expect(screen.getByText(/1 of 2/i)).toBeTruthy()
+
+    fireEvent.click(screen.getByTitle(/next match/i))
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-event-id="a1"]')?.classList.contains('event-focus-highlight')
+      ).toBe(true)
+    )
+    expect(screen.getByText(/2 of 2/i)).toBeTruthy()
   })
 })

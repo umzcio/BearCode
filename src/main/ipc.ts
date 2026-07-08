@@ -8,6 +8,7 @@ import type {
   CommandEntry,
   ConversationMeta,
   Event,
+  HistoryHit,
   ManualRuleInfo,
   PingResult,
   PreviewPayload,
@@ -131,6 +132,10 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('bearcode:models:list', () => listAllModels())
+
+  ipcMain.handle('bearcode:history:search', (_e, query: string): HistoryHit[] =>
+    db.searchHistory(query)
+  )
 
   // The slash menu's live read model (design 6.1/3.1), re-fetched on menu
   // open: loadAgentsContent is the same mtime-cached loader the turn-time

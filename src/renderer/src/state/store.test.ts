@@ -59,7 +59,9 @@ const run = { start: vi.fn(() => Promise.resolve()), cancel: vi.fn(() => Promise
 
 const projects = {
   list: vi.fn(() => Promise.resolve([])),
-  create: vi.fn(() => Promise.resolve({ id: 'p1', name: 'A', color: null, createdAt: 1, updatedAt: 1 })),
+  create: vi.fn(() =>
+    Promise.resolve({ id: 'p1', name: 'A', color: null, createdAt: 1, updatedAt: 1 })
+  ),
   rename: vi.fn(() => Promise.resolve()),
   delete: vi.fn(() => Promise.resolve())
 }
@@ -214,7 +216,9 @@ describe('auxiliary pane selection (Ba4): one field, deep-link ticks, reset on s
     const newDiff = { type: 'file_diff', id: 'ev-d2', diffId: 'd2', files: [] } as unknown as Event
     const base = {
       view: { kind: 'conversation', id: 'c1' } as { kind: string; id?: string },
-      auxSelection: { kind: 'diff', diffId: 'd1' } as ReturnType<typeof useAppStore.getState>['auxSelection'],
+      auxSelection: { kind: 'diff', diffId: 'd1' } as ReturnType<
+        typeof useAppStore.getState
+      >['auxSelection'],
       conversations: { c1: { events: [{ id: 'ev-d1' }] } }
     }
 
@@ -226,14 +230,23 @@ describe('auxiliary pane selection (Ba4): one field, deep-link ticks, reset on s
     })
     it('does NOT yank off an artifact/plan the user is reading', () => {
       expect(
-        shouldFollowNewDiff({ ...base, auxSelection: { kind: 'artifact', artifactId: 'a1' } }, 'c1', newDiff)
+        shouldFollowNewDiff(
+          { ...base, auxSelection: { kind: 'artifact', artifactId: 'a1' } },
+          'c1',
+          newDiff
+        )
       ).toBe(false)
     })
     it('ignores diffs for a non-active conversation', () => {
-      expect(shouldFollowNewDiff({ ...base, view: { kind: 'conversation', id: 'c2' } }, 'c1', newDiff)).toBe(false)
+      expect(
+        shouldFollowNewDiff({ ...base, view: { kind: 'conversation', id: 'c2' } }, 'c1', newDiff)
+      ).toBe(false)
     })
     it('ignores a re-emit of a diff already in history (not a genuinely new event)', () => {
-      const seen = { ...base, conversations: { c1: { events: [{ id: 'ev-d1' }, { id: 'ev-d2' }] } } }
+      const seen = {
+        ...base,
+        conversations: { c1: { events: [{ id: 'ev-d1' }, { id: 'ev-d2' }] } }
+      }
       expect(shouldFollowNewDiff(seen, 'c1', newDiff)).toBe(false)
     })
     it('does not re-follow the diff already selected', () => {
@@ -722,5 +735,73 @@ describe('pin/archive + newConversationInProject store actions', () => {
     expect(window.bearcode.conversations.setProject).toHaveBeenCalledWith('c1', 'p1')
     expect(useAppStore.getState().conversations.c1.projectId).toBe('p1')
     expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
+  })
+})
+
+describe('F1 history: openHistory + openConvo focusEventId (jump-to-match)', () => {
+  it('openHistory switches to the history view and clears the pane', () => {
+    useAppStore.setState({
+      view: { kind: 'home' },
+      auxSelection: { kind: 'diff', diffId: 'd1' },
+      reviewFocusPath: 'src/a.ts'
+    })
+    useAppStore.getState().openHistory()
+    expect(useAppStore.getState().view).toEqual({ kind: 'history' })
+    expect(useAppStore.getState().auxSelection).toBeNull()
+    expect(useAppStore.getState().reviewFocusPath).toBeNull()
+  })
+
+  it('openConvo with a focusEventId opens the conversation and stores it transiently', () => {
+    useAppStore.setState({
+      view: { kind: 'history' },
+      conversations: { c1: convo() },
+      focusEventId: null
+    })
+    useAppStore.getState().openConvo('c1', { focusEventId: 'e9' })
+    expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
+    expect(useAppStore.getState().focusEventId).toBe('e9')
+  })
+
+  it('openConvo with no opts leaves focusEventId null (and clears any prior one)', () => {
+    useAppStore.setState({
+      view: { kind: 'history' },
+      conversations: { c1: convo() },
+      focusEventId: 'stale'
+    })
+    useAppStore.getState().openConvo('c1')
+    expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
+    expect(useAppStore.getState().focusEventId).toBeNull()
+  })
+
+  it('clearFocusEvent nulls the transient focus and match set', () => {
+    useAppStore.setState({ focusEventId: 'e9', focusMatches: ['e9', 'e10'] })
+    useAppStore.getState().clearFocusEvent()
+    expect(useAppStore.getState().focusEventId).toBeNull()
+    expect(useAppStore.getState().focusMatches).toEqual([])
+  })
+
+  it('openConvo with focusMatches keeps the full match set for the navigator', () => {
+    useAppStore.setState({ view: { kind: 'history' }, conversations: { c1: convo() } })
+    useAppStore.getState().openConvo('c1', { focusEventId: 'e2', focusMatches: ['e1', 'e2', 'e3'] })
+    expect(useAppStore.getState().focusEventId).toBe('e2')
+    expect(useAppStore.getState().focusMatches).toEqual(['e1', 'e2', 'e3'])
+  })
+
+  it('openConvo with only focusEventId defaults focusMatches to that single event', () => {
+    useAppStore.setState({ view: { kind: 'history' }, conversations: { c1: convo() } })
+    useAppStore.getState().openConvo('c1', { focusEventId: 'e2' })
+    expect(useAppStore.getState().focusMatches).toEqual(['e2'])
+  })
+
+  it('stepFocus walks the match set and clamps at the ends', () => {
+    useAppStore.setState({ focusEventId: 'e1', focusMatches: ['e1', 'e2', 'e3'] })
+    useAppStore.getState().stepFocus(1)
+    expect(useAppStore.getState().focusEventId).toBe('e2')
+    useAppStore.getState().stepFocus(1)
+    expect(useAppStore.getState().focusEventId).toBe('e3')
+    useAppStore.getState().stepFocus(1) // clamped at the last match
+    expect(useAppStore.getState().focusEventId).toBe('e3')
+    useAppStore.getState().stepFocus(-1)
+    expect(useAppStore.getState().focusEventId).toBe('e2')
   })
 })

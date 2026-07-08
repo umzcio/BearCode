@@ -426,6 +426,27 @@ export interface ConversationMeta {
   // group; archived conversations are excluded from all sidebar groups.
   pinned: boolean
   archived: boolean
+  // A short snippet of the first user message (F1 History browse), sourced from
+  // the DB so the browse list shows a preview even for conversations that were
+  // never opened this session (their in-memory events are empty). null when the
+  // conversation has no user message yet, or when the meta wasn't built with a
+  // preview (e.g. single-conversation reads that don't need it).
+  preview?: string | null
+}
+
+// ---- Conversation history search (F1) ----
+
+// One ranked full-text hit from searchHistory: the matched event, its host
+// conversation's display meta, and a snippet with the matched term wrapped in
+// the ‹mark›…‹/mark› sentinels the renderer parses into <mark> nodes.
+export interface HistoryHit {
+  conversationId: string
+  eventId: string
+  kind: Event['type']
+  snippet: string
+  title: string | null
+  projectLabel: string
+  updatedAt: number
 }
 
 // ---- Diffs ----
@@ -559,6 +580,9 @@ export interface BearcodeApi {
   }
   models: {
     list(): Promise<ProviderModels[]>
+  }
+  history: {
+    search(query: string): Promise<HistoryHit[]>
   }
   commands: {
     // The slash menu's live read model (design 6.1), re-fetched on menu open:
