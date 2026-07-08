@@ -6,6 +6,7 @@ import { relativeAge } from '../../lib/time'
 import { RoarBear } from '../brand/RoarBear'
 import { IconClose } from '../icons'
 import { PermissionRulesSection } from './PermissionRules'
+import { GeneralPage } from './pages/GeneralPage'
 import { Select } from '../Select'
 import './Settings.css'
 
@@ -88,7 +89,6 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
   const conversations = useAppStore((s) => s.conversations)
   const saveSettings = useAppStore((s) => s.saveSettings)
   const setAppearance = useAppStore((s) => s.setAppearance)
-  const deleteAll = useAppStore((s) => s.deleteAllConversations)
   const syncPricing = useAppStore((s) => s.syncPricing)
 
   const [page, setPage] = useState('models')
@@ -484,32 +484,7 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
             </>
           ) : null}
 
-          {page === 'app' ? (
-            <>
-              <PageHead title="App" sub="Application data and housekeeping." />
-              <div className="set-group-title">Data</div>
-              <div className="set-card">
-                <Row title="Location" desc={settings.dataPath}>
-                  <span />
-                </Row>
-                <Row
-                  title="Delete All Conversations"
-                  desc="Removes every conversation and staged diff. This cannot be undone."
-                >
-                  <button
-                    className="danger-btn"
-                    onClick={() => {
-                      if (window.confirm('Delete all conversations? This cannot be undone.')) {
-                        void deleteAll()
-                      }
-                    }}
-                  >
-                    Delete
-                  </button>
-                </Row>
-              </div>
-            </>
-          ) : null}
+          {page === 'app' ? <GeneralPage /> : null}
 
           {page.startsWith('project:') ? (
             <>

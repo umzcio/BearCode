@@ -4,6 +4,7 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { useAppStore } from '../../state/store'
 import { SettingsModal } from './SettingsModal'
 import { ProvidersPage } from './pages/ProvidersPage'
+import { GeneralPage } from './pages/GeneralPage'
 
 const settings = {
   ollamaBaseUrl: 'http://localhost:11434',
@@ -17,6 +18,10 @@ const settings = {
 const setSpy = vi.fn((patch: Record<string, unknown>) => Promise.resolve({ ...settings, ...patch }))
 
 beforeEach(() => {
+  // jsdom does not implement matchMedia; RoarBear (in the General placeholder) reads it.
+  ;(window as unknown as { matchMedia: unknown }).matchMedia = vi
+    .fn()
+    .mockReturnValue({ matches: false })
   ;(window as unknown as { bearcode: unknown }).bearcode = {
     settings: { set: setSpy },
     permissions: { list: vi.fn(() => Promise.resolve({ userRules: [], builtins: [] })) }
@@ -60,6 +65,18 @@ describe('SettingsModal Providers split', () => {
   it('Models page no longer shows the API-key inputs', () => {
     render(<SettingsModal />) // 'models' is the default page
     expect(screen.queryByPlaceholderText('sk-ant-…')).toBeNull()
+  })
+})
+
+describe('SettingsModal General page', () => {
+  it('shows the data Location, a Delete-all control, and the profile placeholder', () => {
+    render(<GeneralPage />)
+    // Data card: the storage location (from settings.dataPath)
+    expect(screen.getByText('/tmp/data')).toBeTruthy()
+    // Delete All conversations control
+    expect(screen.getByRole('button', { name: /delete/i })).toBeTruthy()
+    // Intentional WIP placeholder for the account/profile content
+    expect(screen.getByText('Profile & Custom Instructions')).toBeTruthy()
   })
 })
 
