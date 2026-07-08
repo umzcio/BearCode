@@ -17,9 +17,9 @@ describe('migrateSettings: disabledModels', () => {
     expect(migrateSettings({}).disabledModels).toEqual([])
   })
   it('keeps a string[] and drops non-strings', () => {
-    expect(
-      migrateSettings({ disabledModels: ['openai/gpt-4.1', 3, null] }).disabledModels
-    ).toEqual(['openai/gpt-4.1'])
+    expect(migrateSettings({ disabledModels: ['openai/gpt-4.1', 3, null] }).disabledModels).toEqual(
+      ['openai/gpt-4.1']
+    )
   })
   it('collapses a non-array to []', () => {
     expect(migrateSettings({ disabledModels: 'nope' }).disabledModels).toEqual([])

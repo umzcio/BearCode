@@ -56,13 +56,7 @@ const DEFAULTS: AppSettings = {
   customModels: []
 }
 
-const PROVIDER_IDS = new Set<ProviderId>([
-  'anthropic',
-  'openai',
-  'google',
-  'openrouter',
-  'ollama'
-])
+const PROVIDER_IDS = new Set<ProviderId>(['anthropic', 'openai', 'google', 'openrouter', 'ollama'])
 
 // Keep only well-formed custom models: a valid provider id, a non-empty id and
 // label, and a finite positive contextWindow. Anything else (bad provider,
