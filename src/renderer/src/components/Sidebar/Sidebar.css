@@ -111,6 +111,8 @@
   overflow: hidden;
 }
 .proj-label span {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -229,12 +231,16 @@
 }
 
 .proj-actions {
-  display: none;
+  display: flex;
   align-items: center;
   gap: 2px;
   margin-left: auto;
   flex-shrink: 0;
+  /* Dimmed until you hover the group, but ALWAYS present (not display:none) so
+     the project-settings gear is discoverable without a precise header hover. */
+  opacity: 0.5;
+  transition: opacity 120ms ease;
 }
 .proj-group:hover .proj-actions {
-  display: flex;
+  opacity: 1;
 }
