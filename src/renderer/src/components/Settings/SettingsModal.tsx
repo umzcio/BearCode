@@ -3,10 +3,27 @@ import type { SettingsInfo } from '@shared/types'
 import { resolvePrice } from '@shared/pricing'
 import { useAppStore } from '../../state/store'
 import { relativeAge } from '../../lib/time'
-import { RoarBear } from '../brand/RoarBear'
-import { IconClose } from '../icons'
+import {
+  IconClose,
+  IconGear,
+  IconShield,
+  IconPalette,
+  IconPlug,
+  IconGrid,
+  IconScroll,
+  IconBlocks,
+  IconBrain,
+  IconLink,
+  IconGlobe,
+  IconKeyboard,
+  IconChat
+} from '../icons'
 import { PermissionRulesSection } from './PermissionRules'
 import { GeneralPage } from './pages/GeneralPage'
+import { ProvidersPage } from './pages/ProvidersPage'
+import { SettingPlaceholder } from './SettingPlaceholder'
+import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
+import type { SettingsPageId } from './SettingsNav'
 import { Select } from '../Select'
 import './Settings.css'
 
@@ -23,15 +40,48 @@ const SHORTCUTS: { label: string; keys: string[] }[] = [
   { label: 'Close Modal or Menu', keys: ['esc'] }
 ]
 
-const GENERAL_PAGES: { id: string; label: string }[] = [
-  { id: 'account', label: 'Account' },
-  { id: 'permissions', label: 'Permissions' },
-  { id: 'appearance', label: 'Appearance' },
-  { id: 'models', label: 'Models' },
-  { id: 'customizations', label: 'Customizations' },
-  { id: 'browser', label: 'Browser' },
-  { id: 'app', label: 'App' }
-]
+// Resolves a SETTINGS_NAV item's icon name to its component.
+const NAV_ICONS: Record<string, (props: { size?: number }) => React.JSX.Element> = {
+  IconGear,
+  IconShield,
+  IconPalette,
+  IconPlug,
+  IconGrid,
+  IconScroll,
+  IconBlocks,
+  IconBrain,
+  IconLink,
+  IconGlobe,
+  IconKeyboard,
+  IconChat
+}
+
+// Intentional WIP panels for the Customize group (not "coming soon" badges).
+const PLACEHOLDERS: Record<string, { title: string; description: string }> = {
+  skills: {
+    title: 'Skills',
+    description:
+      'Teach the agent reusable workflows and domain knowledge — arriving in a future update.'
+  },
+  connectors: {
+    title: 'Connectors',
+    description:
+      'Connect MCP servers and external tools the agent can call — arriving in a future update.'
+  },
+  memory: {
+    title: 'Memory',
+    description:
+      'Persistent memory the agent carries across conversations — arriving in a future update.'
+  },
+  integrations: {
+    title: 'Integrations',
+    description: 'Link BearCode to the services you already use — arriving in a future update.'
+  },
+  browser: {
+    title: 'Browser',
+    description: 'Give the agent controlled access to a real browser — arriving in a future update.'
+  }
+}
 
 export function SettingsModal(): React.JSX.Element | null {
   const open = useAppStore((s) => s.settingsOpen)
@@ -39,19 +89,6 @@ export function SettingsModal(): React.JSX.Element | null {
   if (!open || !settings) return null
   // Remounts on each open, so drafts initialize fresh from current settings.
   return <SettingsPanel settings={settings} />
-}
-
-function ComingSoon(): React.JSX.Element {
-  return (
-    <div className="coming-block">
-      <RoarBear scale={3} />
-      <span>coming soon</span>
-    </div>
-  )
-}
-
-function ComingTag(): React.JSX.Element {
-  return <span className="coming-tag">coming soon</span>
 }
 
 function Row({
@@ -69,7 +106,7 @@ function Row({
         <div className="set-row-title">{title}</div>
         <div className="set-row-desc">{desc}</div>
       </div>
-      {children ?? <ComingTag />}
+      {children ?? null}
     </div>
   )
 }
@@ -86,12 +123,11 @@ function PageHead({ title, sub }: { title: string; sub: string }): React.JSX.Ele
 function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Element {
   const close = useAppStore((s) => s.closeSettings)
   const providers = useAppStore((s) => s.providers)
-  const conversations = useAppStore((s) => s.conversations)
   const saveSettings = useAppStore((s) => s.saveSettings)
   const setAppearance = useAppStore((s) => s.setAppearance)
   const syncPricing = useAppStore((s) => s.syncPricing)
 
-  const [page, setPage] = useState('models')
+  const [page, setPage] = useState<SettingsPageId>('general')
   const [pricingSync, setPricingSync] = useState<{
     status: 'idle' | 'pending' | 'done' | 'error'
     msg: string
@@ -123,40 +159,36 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
     p.models.map((m) => ({ ref: `${p.id}/${m.id}`, label: `${p.displayName}: ${m.label}` }))
   )
 
-  const projectLabels: string[] = []
-  for (const convo of Object.values(conversations)) {
-    if (convo.projectLabel !== 'No folder' && !projectLabels.includes(convo.projectLabel)) {
-      projectLabels.push(convo.projectLabel)
-    }
+  const railItem = (item: {
+    id: SettingsPageId
+    label: string
+    icon: string
+  }): React.JSX.Element => {
+    const Icon = NAV_ICONS[item.icon]
+    return (
+      <button
+        key={item.id}
+        className={'rail-item' + (page === item.id ? ' selected' : '')}
+        onClick={() => setPage(item.id)}
+      >
+        {Icon ? <Icon size={16} /> : null}
+        <span>{item.label}</span>
+      </button>
+    )
   }
-
-  const railItem = (id: string, label: string): React.JSX.Element => (
-    <button
-      key={id}
-      className={'rail-item' + (page === id ? ' selected' : '')}
-      onClick={() => setPage(id)}
-    >
-      {label}
-    </button>
-  )
 
   return (
     <div className="modal-overlay open" onClick={(e) => e.target === e.currentTarget && close()}>
       <div className="settings-panel">
         <div className="settings-rail">
-          <div className="rail-group-label">General</div>
-          {GENERAL_PAGES.map((p) => railItem(p.id, p.label))}
-          {projectLabels.length > 0 ? (
-            <>
-              <div className="rail-group-label">Projects</div>
-              {projectLabels.map((label) => railItem(`project:${label}`, label))}
-            </>
-          ) : null}
-          <div className="rail-group-label">Not in Project</div>
-          {railItem('conversations', 'Conversations')}
+          {SETTINGS_NAV.map((group) => (
+            <div className="rail-group" key={group.label ?? 'ungrouped'}>
+              {group.label ? <div className="rail-group-label">{group.label}</div> : null}
+              {group.items.map((item) => railItem(item))}
+            </div>
+          ))}
           <div className="rail-spacer" />
-          {railItem('shortcuts', 'Shortcuts')}
-          {railItem('feedback', 'Provide Feedback')}
+          <div className="rail-footer">{SETTINGS_FOOTER.map((item) => railItem(item))}</div>
         </div>
 
         <div className="settings-content">
@@ -164,12 +196,9 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
             <IconClose />
           </button>
 
-          {page === 'account' ? (
-            <>
-              <PageHead title="Account" sub="Your BearCode account and sign-in." />
-              <ComingSoon />
-            </>
-          ) : null}
+          {page === 'general' ? <GeneralPage /> : null}
+
+          {page === 'providers' ? <ProvidersPage /> : null}
 
           {page === 'permissions' ? (
             <>
@@ -470,40 +499,11 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
             </>
           ) : null}
 
-          {page === 'customizations' ? (
-            <>
-              <PageHead title="Customizations" sub="Rules and custom instructions for the agent." />
-              <ComingSoon />
-            </>
-          ) : null}
-
-          {page === 'browser' ? (
-            <>
-              <PageHead title="Browser" sub="Browser tools for the agent." />
-              <ComingSoon />
-            </>
-          ) : null}
-
-          {page === 'app' ? <GeneralPage /> : null}
-
-          {page.startsWith('project:') ? (
-            <>
-              <PageHead
-                title={page.slice('project:'.length)}
-                sub="Agent settings and permissions for this project."
-              />
-              <ComingSoon />
-            </>
-          ) : null}
-
-          {page === 'conversations' ? (
-            <>
-              <PageHead
-                title="Conversations"
-                sub="Agent settings and permissions for conversations outside of projects."
-              />
-              <ComingSoon />
-            </>
+          {PLACEHOLDERS[page] ? (
+            <SettingPlaceholder
+              title={PLACEHOLDERS[page].title}
+              description={PLACEHOLDERS[page].description}
+            />
           ) : null}
 
           {page === 'shortcuts' ? (
@@ -532,7 +532,17 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
           {page === 'feedback' ? (
             <>
               <PageHead title="Provide Feedback" sub="Tell us what BearCode should do better." />
-              <ComingSoon />
+              <div className="set-card pad">
+                <div className="feedback-body">
+                  <p className="feedback-text">
+                    Found a bug or have an idea? Open an issue on GitHub — it goes straight to the
+                    team.
+                  </p>
+                  <button className="pill-btn" onClick={() => window.open(FEEDBACK_URL, '_blank')}>
+                    Report an Issue on GitHub
+                  </button>
+                </div>
+              </div>
             </>
           ) : null}
         </div>
