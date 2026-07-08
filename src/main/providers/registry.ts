@@ -9,7 +9,14 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import type { LanguageModel } from 'ai'
 import type { ProviderOptions } from '@ai-sdk/provider-utils'
-import type { ModelInfo, ProviderId, ProviderModels } from '../../shared/types'
+import type {
+  CustomModel,
+  ManageableModel,
+  ManageableProvider,
+  ModelInfo,
+  ProviderId,
+  ProviderModels
+} from '../../shared/types'
 import { getKey, keyStatus } from '../keys'
 import { getSettings } from '../settings'
 
@@ -121,16 +128,79 @@ export const REGISTRY: ProviderRegistryEntry[] = [
   }
 ]
 
-// Every statically-known "providerId/modelId" ref (first-party + the curated
-// OpenRouter subset). Feeds the LiteLLM pricing sync. Ollama is dynamic/local
-// and free, so it is intentionally excluded.
+// F7 — the effective model set for a provider: curated + custom (custom wins on
+// id collision), minus any refs the user opted out of. Pure: takes the custom
+// and disabled sets explicitly so it is trivially unit-testable and every reader
+// (listAllModels, allKnownModelRefs, contextWindowFor) resolves the SAME set.
+export function mergeModels(
+  provider: ProviderId,
+  curated: ModelInfo[],
+  custom: CustomModel[],
+  disabled: string[]
+): ModelInfo[] {
+  const disabledSet = new Set(disabled)
+  const byId = new Map<string, ModelInfo>()
+  for (const m of curated) byId.set(m.id, m)
+  for (const c of custom) {
+    if (c.provider === provider) {
+      byId.set(c.id, { id: c.id, label: c.label, contextWindow: c.contextWindow })
+    }
+  }
+  return [...byId.values()].filter((m) => !disabledSet.has(`${provider}/${m.id}`))
+}
+
+// The first-party curated providers subject to opt-out + Add-model. Ollama is
+// excluded: it is fully dynamic/local and manages its own catalog.
+const MANAGEABLE: { id: ProviderId; models: ModelInfo[] }[] = [
+  { id: 'anthropic', models: ANTHROPIC_MODELS },
+  { id: 'openai', models: OPENAI_MODELS },
+  { id: 'google', models: GOOGLE_MODELS },
+  { id: 'openrouter', models: OPENROUTER_MODELS }
+]
+
+// Every "providerId/modelId" ref in the EFFECTIVE set (curated + custom minus
+// disabled) for the first-party + OpenRouter providers. Feeds the LiteLLM
+// pricing sync. Ollama is dynamic/local and free, so it is intentionally
+// excluded.
 export function allKnownModelRefs(): string[] {
-  return [
-    ...ANTHROPIC_MODELS.map((m) => `anthropic/${m.id}`),
-    ...OPENAI_MODELS.map((m) => `openai/${m.id}`),
-    ...GOOGLE_MODELS.map((m) => `google/${m.id}`),
-    ...OPENROUTER_MODELS.map((m) => `openrouter/${m.id}`)
-  ]
+  const { customModels = [], disabledModels = [] } = getSettings()
+  return MANAGEABLE.flatMap(({ id, models }) =>
+    mergeModels(id, models, customModels, disabledModels).map((m) => `${id}/${m.id}`)
+  )
+}
+
+// The Models settings page's management list: curated + custom per first-party
+// provider, INCLUDING disabled models (with an `enabled` flag) so the user can
+// toggle them back on. Distinct from listAllModels, which returns only the
+// visible/effective set for the pickers.
+export function listManageableModels(): ManageableProvider[] {
+  const { customModels = [], disabledModels = [] } = getSettings()
+  const disabledSet = new Set(disabledModels)
+  return MANAGEABLE.map(({ id, models }) => {
+    const entry = getProvider(id)
+    const byId = new Map<string, ManageableModel>()
+    for (const m of models) {
+      byId.set(m.id, {
+        id: m.id,
+        label: m.label,
+        contextWindow: m.contextWindow,
+        custom: false,
+        enabled: !disabledSet.has(`${id}/${m.id}`)
+      })
+    }
+    for (const c of customModels) {
+      if (c.provider === id) {
+        byId.set(c.id, {
+          id: c.id,
+          label: c.label,
+          contextWindow: c.contextWindow,
+          custom: true,
+          enabled: !disabledSet.has(`${id}/${c.id}`)
+        })
+      }
+    }
+    return { id, displayName: entry.displayName, color: entry.color, models: [...byId.values()] }
+  })
 }
 
 export function getProvider(id: ProviderId): ProviderRegistryEntry {
@@ -155,7 +225,13 @@ const STATIC_MODELS: Partial<Record<ProviderId, ModelInfo[]>> = {
 export function contextWindowFor(ref: string): number | null {
   const { provider, modelId } = parseModelRef(ref)
   const info = STATIC_MODELS[provider]?.find((m) => m.id === modelId)
-  return info?.contextWindow ?? null
+  if (info?.contextWindow != null) return info.contextWindow
+  // Fall back to a user-added custom model's window (F7) so the context meter
+  // works for models the user defined.
+  const custom = (getSettings().customModels ?? []).find(
+    (c) => c.provider === provider && c.id === modelId
+  )
+  return custom?.contextWindow ?? null
 }
 
 export function parseModelRef(ref: string): { provider: ProviderId; modelId: string } {
@@ -179,9 +255,13 @@ export function supportsNativePdf(provider: ProviderId): boolean {
 
 export async function listAllModels(): Promise<ProviderModels[]> {
   const status = keyStatus()
+  const { customModels = [], disabledModels = [] } = getSettings()
   return Promise.all(
     REGISTRY.map(async (entry) => {
       const { models, reachable, note } = await entry.listModels()
+      // Return the effective set: curated/dynamic + custom, minus opted-out refs
+      // (F7). Every picker/meter/pricing consumer reads this, staying consistent.
+      const merged = mergeModels(entry.id, models, customModels, disabledModels)
       return {
         id: entry.id,
         displayName: entry.displayName,
@@ -189,7 +269,7 @@ export async function listAllModels(): Promise<ProviderModels[]> {
         requiresKey: entry.requiresKey,
         keyConfigured: entry.requiresKey ? status[entry.id] : true,
         reachable,
-        models,
+        models: merged,
         note
       }
     })
