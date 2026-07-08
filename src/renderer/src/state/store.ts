@@ -7,8 +7,10 @@ import type {
   CommandEntry,
   CommandRef,
   ConversationMeta,
+  CustomModel,
   EffortLevel,
   Event,
+  ManageableProvider,
   ManualRuleInfo,
   MentionRef,
   ModelRef,
@@ -165,6 +167,9 @@ interface AppState {
   conversations: Record<string, Convo>
   convoOrder: string[]
   providers: ProviderModels[]
+  // F7 Models page management list (curated + custom incl. disabled). Loaded on
+  // demand by the Models settings page; empty until then.
+  manageableModels: ManageableProvider[]
   modelRef: ModelRef | null
   permissionMode: PermissionMode
   effort: EffortLevel
@@ -224,6 +229,11 @@ interface AppState {
 
   init(): void
   refreshProviders(): Promise<void>
+  // F7 model management.
+  refreshManageableModels(): Promise<void>
+  setModelEnabled(ref: string, enabled: boolean): Promise<void>
+  addCustomModel(model: CustomModel): Promise<void>
+  removeCustomModel(provider: ProviderId, id: string): Promise<void>
   toggleSidebar(): void
   setSidebarCollapsed(collapsed: boolean): void
   setSidebarWidth(w: number): void
@@ -408,6 +418,7 @@ export const useAppStore = create<AppState>((set, get) => {
     conversations: {},
     convoOrder: [],
     providers: [],
+    manageableModels: [],
     modelRef: null,
     permissionMode: 'accept-edits',
     effort: 'adaptive',
@@ -501,6 +512,38 @@ export const useAppStore = create<AppState>((set, get) => {
       const providers = await window.bearcode.models.list()
       set({ providers })
       ensureDefaultModel()
+    },
+
+    refreshManageableModels: async () => {
+      set({ manageableModels: await window.bearcode.models.manageable() })
+    },
+
+    setModelEnabled: async (ref, enabled) => {
+      const cur = get().settings?.disabledModels ?? []
+      const next = enabled ? cur.filter((r) => r !== ref) : [...new Set([...cur, ref])]
+      await get().saveSettings({ disabledModels: next })
+      await get().refreshManageableModels()
+    },
+
+    addCustomModel: async (model) => {
+      const cur = get().settings?.customModels ?? []
+      // Replace any existing entry with the same provider/id (custom wins).
+      const next = [
+        ...cur.filter((c) => !(c.provider === model.provider && c.id === model.id)),
+        model
+      ]
+      await get().saveSettings({ customModels: next })
+      await get().refreshManageableModels()
+    },
+
+    removeCustomModel: async (provider, id) => {
+      const ref = `${provider}/${id}`
+      const cur = get().settings?.customModels ?? []
+      const next = cur.filter((c) => !(c.provider === provider && c.id === id))
+      // Also drop any lingering opt-out for the removed model's ref.
+      const disabled = (get().settings?.disabledModels ?? []).filter((r) => r !== ref)
+      await get().saveSettings({ customModels: next, disabledModels: disabled })
+      await get().refreshManageableModels()
     },
 
     toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
@@ -895,7 +938,14 @@ export const useAppStore = create<AppState>((set, get) => {
     saveSettings: async (patch) => {
       const settings = await window.bearcode.settings.set(patch)
       set({ settings })
-      if (patch.ollamaBaseUrl !== undefined) await get().refreshProviders()
+      // Refresh the effective model set whenever the model roster changes so
+      // every picker/meter reflects opt-out + Add-model immediately (F7).
+      if (
+        patch.ollamaBaseUrl !== undefined ||
+        patch.disabledModels !== undefined ||
+        patch.customModels !== undefined
+      )
+        await get().refreshProviders()
     },
 
     deleteAllConversations: async () => {
