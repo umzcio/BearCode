@@ -24,3 +24,6 @@ release/
 
 # TypeScript incremental build state
 *.tsbuildinfo
+
+# Superpowers SDD scratch (progress ledger, etc.) — never commit
+.superpowers/
