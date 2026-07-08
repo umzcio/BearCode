@@ -5,16 +5,7 @@ import { Hint } from '../Hint'
 import { groupConversations } from './grouping'
 import { DisplayOptions } from './DisplayOptions'
 import { ConvoRowMenu } from './ConvoRowMenu'
-import {
-  IconArchive,
-  IconClock,
-  IconHistory,
-  IconPanel,
-  IconPin,
-  IconPlus,
-  IconSearch,
-  IconSettings
-} from '../icons'
+import { IconArchive, IconHistory, IconPanel, IconPin, IconPlus, IconSettings } from '../icons'
 import { projectIcon } from '../ProjectSettings/projectIcons'
 import './Sidebar.css'
 
@@ -26,11 +17,9 @@ export function Sidebar(): React.JSX.Element {
   const conversations = useAppStore((s) => s.conversations)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const goHome = useAppStore((s) => s.goHome)
-  const openScheduled = useAppStore((s) => s.openScheduled)
   const openHistory = useAppStore((s) => s.openHistory)
   const openConvo = useAppStore((s) => s.openConvo)
   const openSettings = useAppStore((s) => s.openSettings)
-  const openSearch = useAppStore((s) => s.openSearch)
   const folderSettings = useAppStore((s) => s.folderSettings)
   const setPinned = useAppStore((s) => s.setPinned)
   const setArchived = useAppStore((s) => s.setArchived)
@@ -61,11 +50,6 @@ export function Sidebar(): React.JSX.Element {
             <IconPanel />
           </button>
         </Hint>
-        <Hint label="Search" keys="⌘K" side="bottom">
-          <button className="chrome-btn" onClick={openSearch}>
-            <IconSearch />
-          </button>
-        </Hint>
         <span className="wordmark">
           <img src={bearMark} alt="" />
           BearCode
@@ -84,13 +68,6 @@ export function Sidebar(): React.JSX.Element {
       >
         <IconHistory />
         Conversation History
-      </button>
-      <button
-        className={'nav-item' + (view.kind === 'scheduled' ? ' selected' : '')}
-        onClick={openScheduled}
-      >
-        <IconClock />
-        Scheduled Tasks
       </button>
 
       <div className="projects-head">

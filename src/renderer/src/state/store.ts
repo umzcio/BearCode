@@ -53,11 +53,7 @@ export interface Convo {
   preview?: string | null
 }
 
-export type View =
-  | { kind: 'home' }
-  | { kind: 'conversation'; id: string }
-  | { kind: 'scheduled' }
-  | { kind: 'history' }
+export type View = { kind: 'home' } | { kind: 'conversation'; id: string } | { kind: 'history' }
 
 // The Auxiliary Pane's target (Ba4 unification). ONE field for the ONE side
 // panel: an artifact (plan/walkthrough viewer) or a diff group (the virtual
@@ -181,7 +177,7 @@ interface AppState {
   // for a group's color/icon/name and a new conversation's inherited defaults.
   folderSettings: FolderProject[]
   // The folder path whose Project Settings modal is open, or null. Mirrors the
-  // settingsOpen/searchOpen modal-flag idiom.
+  // settingsOpen modal-flag idiom.
   projectSettingsPath: string | null
   settings: SettingsInfo | null
   // Permissions manager read model; null until the Settings section first loads it.
@@ -191,7 +187,6 @@ interface AppState {
   // Which settings page to open on (e.g. 'providers' for the missing-key flow);
   // null → default page. Consumed once by SettingsModal on open.
   settingsInitialPage: string | null
-  searchOpen: boolean
   auxSelection: AuxSelection | null
   // File path the diff viewer should focus when it opens (chip/step clicks).
   reviewFocusPath: string | null
@@ -248,7 +243,6 @@ interface AppState {
   setAuxPaneWidth(w: number): void
   toggleModelMenu(): void
   goHome(): void
-  openScheduled(): void
   openHistory(): void
   openConvo(id: string, opts?: { focusEventId?: string; focusMatches?: string[] }): void
   clearFocusEvent(): void
@@ -305,9 +299,6 @@ interface AppState {
   toggleProjectMenu(): void
   openSettings(page?: string): void
   closeSettings(): void
-  openSearch(): void
-  closeSearch(): void
-  toggleSearch(): void
   saveKey(provider: ProviderId, key: string): Promise<void>
   saveSettings(patch: Partial<AppSettings>): Promise<void>
   deleteAllConversations(): Promise<void>
@@ -450,7 +441,6 @@ export const useAppStore = create<AppState>((set, get) => {
     workspacePath: null,
     settingsOpen: false,
     settingsInitialPage: null,
-    searchOpen: false,
     auxSelection: null,
     reviewFocusPath: null,
     artifactComments: {},
@@ -630,8 +620,6 @@ export const useAppStore = create<AppState>((set, get) => {
         // the next Home visit mints a fresh draft id on first Media use.
         draftConvoId: null
       })),
-    openScheduled: () =>
-      set({ view: { kind: 'scheduled' }, auxSelection: null, reviewFocusPath: null }),
     openHistory: () =>
       set({ view: { kind: 'history' }, auxSelection: null, reviewFocusPath: null }),
     clearFocusEvent: () => set({ focusEventId: null, focusMatches: [] }),
@@ -1027,9 +1015,6 @@ export const useAppStore = create<AppState>((set, get) => {
 
     openSettings: (page) => set({ settingsOpen: true, settingsInitialPage: page ?? null }),
     closeSettings: () => set({ settingsOpen: false }),
-    openSearch: () => set({ searchOpen: true }),
-    closeSearch: () => set({ searchOpen: false }),
-    toggleSearch: () => set((s) => ({ searchOpen: !s.searchOpen })),
 
     saveKey: async (provider, key) => {
       await window.bearcode.keys.set(provider, key)

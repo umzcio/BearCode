@@ -44,12 +44,6 @@ export const BUILTIN_COMMANDS: CommandEntry[] = [
     status: 'live'
   },
   {
-    name: 'schedule',
-    description: 'Run an instruction on a recurring schedule or as a one-time timer.',
-    kind: 'builtin',
-    status: 'coming-soon'
-  },
-  {
     name: 'browser',
     description: 'Delegate the task to the browser subagent in a live browser.',
     kind: 'builtin',

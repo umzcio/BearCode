@@ -7,12 +7,13 @@ import './DisplayOptions.css'
 type GroupBy = AppSettings['sidebarGroupBy']
 type Sort = AppSettings['sidebarSort']
 
-const GROUP_OPTIONS: { id: GroupBy | 'environment' | 'status'; label: string; enabled: boolean }[] = [
-  { id: 'project', label: 'Project', enabled: true },
-  { id: 'environment', label: 'Environment', enabled: false },
-  { id: 'status', label: 'Status', enabled: false },
-  { id: 'none', label: 'None', enabled: true }
-]
+const GROUP_OPTIONS: { id: GroupBy | 'environment' | 'status'; label: string; enabled: boolean }[] =
+  [
+    { id: 'project', label: 'Project', enabled: true },
+    { id: 'environment', label: 'Environment', enabled: false },
+    { id: 'status', label: 'Status', enabled: false },
+    { id: 'none', label: 'None', enabled: true }
+  ]
 const SORT_OPTIONS: { id: Sort; label: string }[] = [
   { id: 'updated', label: 'Last Updated' },
   { id: 'alpha', label: 'Alphabetical (A–Z)' },
@@ -54,13 +55,21 @@ export function DisplayOptions(): React.JSX.Element {
           {GROUP_OPTIONS.map((o) => (
             <div
               key={o.id}
-              className={'menu-item' + (o.enabled ? '' : ' disabled') + (o.enabled && o.id === groupBy ? ' selected' : '')}
+              className={
+                'menu-item' +
+                (o.enabled ? '' : ' disabled') +
+                (o.enabled && o.id === groupBy ? ' selected' : '')
+              }
               onClick={() => {
                 if (o.enabled) void setSidebarView({ sidebarGroupBy: o.id as GroupBy })
               }}
             >
               <span>{o.label}</span>
-              {!o.enabled ? <span className="badge">coming soon</span> : o.id === groupBy ? <span className="check">✓</span> : null}
+              {!o.enabled ? (
+                <span className="badge">coming soon</span>
+              ) : o.id === groupBy ? (
+                <span className="check">✓</span>
+              ) : null}
             </div>
           ))}
           <div className="display-sep" />
@@ -89,14 +98,12 @@ export function DisplayOptions(): React.JSX.Element {
           <div className="menu-group-label">Filter</div>
           <div
             className={'menu-item' + (settings?.sidebarShowArchived ? ' selected' : '')}
-            onClick={() => void setSidebarView({ sidebarShowArchived: !settings?.sidebarShowArchived })}
+            onClick={() =>
+              void setSidebarView({ sidebarShowArchived: !settings?.sidebarShowArchived })
+            }
           >
             <span>Show archived</span>
             {settings?.sidebarShowArchived ? <span className="check">✓</span> : null}
-          </div>
-          <div className="menu-item disabled">
-            <span>Scheduled</span>
-            <span className="badge">coming soon</span>
           </div>
         </div>
       ) : null}

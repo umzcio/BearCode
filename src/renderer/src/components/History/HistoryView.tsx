@@ -5,7 +5,8 @@
 //     ranked rows with a snippet; click jumps to + highlights the matched event
 //     via openConvo(id, { focusEventId, focusMatches }) -- focusMatches carries
 //     every hit in that conversation so the jump navigator can step across them.
-// Cmd-K search (components/Search) is a separate, untouched feature.
+// ⌘K opens this view (the old title-only Cmd-K search modal was removed — this
+// full-text History superseded it).
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HistoryHit } from '@shared/types'
 import { useAppStore } from '../../state/store'

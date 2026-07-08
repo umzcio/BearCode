@@ -6,24 +6,12 @@ import { ConversationView } from './components/ConversationView'
 import { AuxiliaryPane } from './components/AuxiliaryPane'
 import { ResizeHandle } from './components/ResizeHandle'
 import { SettingsModal } from './components/Settings/SettingsModal'
-import { SearchModal } from './components/Search/SearchModal'
 import { ProjectSettingsModal } from './components/ProjectSettings/ProjectSettingsModal'
-import { RoarBear } from './components/brand/RoarBear'
 import { Hint } from './components/Hint'
 import { IconPanel } from './components/icons'
 import { useAppStore } from './state/store'
 import { useCmdHeld } from './lib/useCmdHeld'
 import './App.css'
-
-function ScheduledView(): React.JSX.Element {
-  return (
-    <div className="empty-state">
-      <RoarBear scale={4} />
-      <div className="empty-title">Scheduled tasks are coming soon</div>
-      <div className="empty-sub">Saved prompts on a schedule, run by BearCode while you sleep.</div>
-    </div>
-  )
-}
 
 function App(): React.JSX.Element {
   const collapsed = useAppStore((s) => s.sidebarCollapsed)
@@ -95,7 +83,7 @@ function App(): React.JSX.Element {
           break
         case 'k':
           e.preventDefault()
-          s.toggleSearch()
+          s.openHistory()
           break
         case 'l': {
           e.preventDefault()
@@ -135,11 +123,9 @@ function App(): React.JSX.Element {
           ) : null}
         </div>
         {view.kind === 'home' ? <Home /> : null}
-        {view.kind === 'scheduled' ? <ScheduledView /> : null}
         {view.kind === 'history' ? <HistoryView /> : null}
         {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}
         <SettingsModal />
-        <SearchModal />
         <ProjectSettingsModal />
       </div>
       {auxSelection ? (

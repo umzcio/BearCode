@@ -233,9 +233,9 @@ describe('assembleCommandAdditions', () => {
   })
 
   it('errors on an unknown or non-sendable builtin', () => {
-    const command: CommandRef = { name: 'schedule', kind: 'builtin' }
+    const command: CommandRef = { name: 'browser', kind: 'builtin' }
     const result = assembleCommandAdditions(command, [])
-    expect(result).toEqual({ systemAdditions: [], error: 'Unknown command: /schedule' })
+    expect(result).toEqual({ systemAdditions: [], error: 'Unknown command: /browser' })
   })
 
   it('produces a workflow frame with numbered resolved steps, the write_todos bootstrap, and the precedence line', () => {
