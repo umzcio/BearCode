@@ -398,6 +398,78 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
     )
   })
 
+  it('startFromHome inherits the folder default model/effort/mode over the live composer', async () => {
+    useAppStore.setState({
+      view: { kind: 'home' },
+      // Live composer selection that the folder's opinion should override.
+      modelRef: 'anthropic/claude-sonnet-5',
+      permissionMode: 'ask',
+      effort: 'low',
+      workspacePath: '/repo/x',
+      providers: [
+        {
+          id: 'anthropic',
+          displayName: 'Anthropic',
+          color: '#c96',
+          keyConfigured: true,
+          reachable: true,
+          models: [
+            { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+            { id: 'claude-opus-4-8', label: 'Opus' }
+          ]
+        }
+      ] as never
+    })
+    // startFromHome refreshes folder settings (to catch a seeded row) before it
+    // resolves; the folder's row comes back from projects.list.
+    projects.list.mockResolvedValueOnce([
+      folderProject('/repo/x', {
+        defaultModelRef: 'anthropic/claude-opus-4-8',
+        defaultEffort: 'high',
+        defaultPermissionMode: 'plan'
+      })
+    ] as never)
+    useAppStore.getState().startFromHome('do it')
+    await vi.waitFor(() => expect(run.start).toHaveBeenCalled())
+    expect(conversations.setMode).toHaveBeenCalledWith('c1', 'plan')
+    expect(conversations.setEffort).toHaveBeenCalledWith('c1', 'high')
+    // run.start uses the folder's model (3rd arg), not the composer's sonnet.
+    expect(run.start).toHaveBeenCalledWith(
+      'c1',
+      'do it',
+      'anthropic/claude-opus-4-8',
+      '/repo/x',
+      null,
+      null,
+      null
+    )
+    expect(useAppStore.getState().modelRef).toBe('anthropic/claude-opus-4-8')
+  })
+
+  it('startFromHome keeps the live composer choice where the folder is silent', async () => {
+    useAppStore.setState({
+      view: { kind: 'home' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      permissionMode: 'auto',
+      effort: 'low',
+      workspacePath: '/repo/y'
+    })
+    // Folder row exists but sets no overrides → composer choices stand.
+    projects.list.mockResolvedValueOnce([folderProject('/repo/y')] as never)
+    useAppStore.getState().startFromHome('hi')
+    await vi.waitFor(() => expect(run.start).toHaveBeenCalled())
+    expect(conversations.setMode).toHaveBeenCalledWith('c1', 'auto')
+    expect(run.start).toHaveBeenCalledWith(
+      'c1',
+      'hi',
+      'anthropic/claude-sonnet-5',
+      '/repo/y',
+      null,
+      null,
+      null
+    )
+  })
+
   it('send threads the command through to run.start as the fifth argument', () => {
     useAppStore.setState({
       modelRef: 'anthropic/claude-sonnet-5',
@@ -887,14 +959,17 @@ describe('F9 folder = project: settings + inheritance', () => {
           models: [{ id: 'gpt-5.1', label: 'GPT-5.1' }]
         }
       ] as never,
-      folderSettings: [
-        folderProject('/repo/x', {
-          defaultModelRef: 'openai/gpt-5.1',
-          defaultEffort: 'high',
-          defaultPermissionMode: 'plan'
-        })
-      ] as never
+      folderSettings: [] as never
     })
+    // newConversationInProject refreshes from IPC (to catch a main-side-seeded
+    // row) before resolving; the folder's settings come back from projects.list.
+    projects.list.mockResolvedValueOnce([
+      folderProject('/repo/x', {
+        defaultModelRef: 'openai/gpt-5.1',
+        defaultEffort: 'high',
+        defaultPermissionMode: 'plan'
+      })
+    ] as never)
     await useAppStore.getState().newConversationInProject('/repo/x')
     expect(conversations.create).toHaveBeenCalledWith('/repo/x')
     expect(conversations.setMode).toHaveBeenCalledWith('c1', 'plan')
@@ -918,8 +993,11 @@ describe('F9 folder = project: settings + inheritance', () => {
           models: [{ id: 'gpt-5.1', label: 'GPT-5.1' }]
         }
       ] as never,
-      folderSettings: [folderProject('/repo/x', { defaultModelRef: 'openai/gpt-5.1' })] as never
+      folderSettings: [] as never
     })
+    projects.list.mockResolvedValueOnce([
+      folderProject('/repo/x', { defaultModelRef: 'openai/gpt-5.1' })
+    ] as never)
     await useAppStore.getState().newConversationInProject('/repo/x')
     expect(useAppStore.getState().modelRef).toBe('anthropic/claude-opus-4-8')
   })

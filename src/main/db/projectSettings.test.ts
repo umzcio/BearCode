@@ -87,6 +87,11 @@ describe('project_settings (folder = project)', () => {
     const u = calls.find((c) => /UPDATE project_settings SET/.test(c.sql))
     expect(u!.args[0]).toBe(null)
   })
+  it('an empty patch is a no-op — no phantom all-null row is inserted', () => {
+    upsertProjectSettings('/p', {})
+    expect(calls.some((c) => /INSERT OR IGNORE INTO project_settings/.test(c.sql))).toBe(false)
+    expect(calls.some((c) => /UPDATE project_settings SET/.test(c.sql))).toBe(false)
+  })
   it('a name-only patch updates just name', () => {
     upsertProjectSettings('/p', { name: 'My Repo' })
     const u = calls.find((c) => /UPDATE project_settings SET/.test(c.sql))

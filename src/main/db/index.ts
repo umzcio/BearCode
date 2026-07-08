@@ -368,6 +368,18 @@ export function createConversation(projectPath: string | null, id?: string): Con
        VALUES (@id, @project_path, @title, @model_ref, @created_at, @updated_at)`
     )
     .run(row)
+  // F9 (folder = project): "Set as default for new folders" is only meaningful if
+  // a folder actually adopts the template. The first time a conversation lands in
+  // a folder that has no settings row yet, seed one from newProjectDefaults (if
+  // set) — so the folder materializes with the template's color/icon/defaults and
+  // inheritance uses them. Idempotent: an existing row is never overwritten, and
+  // folderless (projectPath null) conversations seed nothing.
+  if (projectPath) {
+    const template = getSettings().newProjectDefaults
+    if (template && !getProjectSettings(projectPath)) {
+      upsertProjectSettings(projectPath, template)
+    }
+  }
   return toMeta(row)
 }
 
@@ -707,8 +719,6 @@ export function listProjectSettings(): FolderProject[] {
 // the columns present in `patch` (undefined untouched; null clears an override).
 // Enum values coerce (bypass/garbage → null); non-string color/icon/modelRef → null.
 export function upsertProjectSettings(path: string, patch: ProjectSettings): void {
-  const database = getDb()
-  database.prepare(`INSERT OR IGNORE INTO project_settings (path) VALUES (?)`).run(path)
   const cols: string[] = []
   const vals: (string | null)[] = []
   const setStr = (col: string, v: unknown): void => {
@@ -729,7 +739,11 @@ export function upsertProjectSettings(path: string, patch: ProjectSettings): voi
       isSelectableDefaultMode(patch.defaultPermissionMode) ? patch.defaultPermissionMode : null
     )
   }
+  // Empty patch is a no-op — return BEFORE touching the table so an INSERT OR
+  // IGNORE never leaves a phantom all-null row that then haunts listProjectSettings.
   if (cols.length === 0) return
+  const database = getDb()
+  database.prepare(`INSERT OR IGNORE INTO project_settings (path) VALUES (?)`).run(path)
   database
     .prepare(`UPDATE project_settings SET ${cols.join(', ')} WHERE path = ?`)
     .run(...vals, path)

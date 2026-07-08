@@ -708,14 +708,34 @@ export const useAppStore = create<AppState>((set, get) => {
           workspacePath,
           draftConvoId ?? undefined
         )
+        // F9 (folder = project) inheritance on the PRIMARY entry point: a folder's
+        // per-folder default model/effort/mode is the folder's opinion for
+        // conversations that start in it. create() seeds a new folder's row from
+        // newProjectDefaults main-side, so refresh first, then let a folder
+        // override win over the live composer selection; where the folder is
+        // silent, the composer's current choice stands (unlike the sidebar "+"
+        // which falls back to global defaults). The refConfigured guard means an
+        // unusable folder model falls back to the composer model — never start a
+        // run on an unconfigured model.
+        if (workspacePath) await get().refreshProjectSettings()
+        const folder = workspacePath
+          ? (get().folderSettings.find((f) => f.path === workspacePath) ?? null)
+          : null
+        const permissionMode = folder?.defaultPermissionMode ?? get().permissionMode
+        const effort = folder?.defaultEffort ?? get().effort
+        const thinking = get().thinking
+        const wantModel = folder?.defaultModelRef ?? null
+        const runModel =
+          wantModel && refConfigured(get().providers, wantModel) ? wantModel : modelRef
         const provisional = text.length > 42 ? text.slice(0, 42) + '…' : text
         const convo = {
           ...fromMeta(meta),
           title: provisional,
           loaded: true,
-          permissionMode: get().permissionMode,
-          effort: get().effort,
-          thinking: get().thinking
+          modelRef: runModel,
+          permissionMode,
+          effort,
+          thinking
         }
         set((s) => {
           const conversations = { ...s.conversations, [meta.id]: convo }
@@ -723,19 +743,24 @@ export const useAppStore = create<AppState>((set, get) => {
             conversations,
             convoOrder: orderByRecency(conversations),
             view: { kind: 'conversation', id: meta.id },
-            draftConvoId: null
+            draftConvoId: null,
+            // Reflect the folder's inherited defaults in the composer for this
+            // new session (mirrors newConversationInProject).
+            modelRef: runModel,
+            permissionMode,
+            effort
           }
         })
         // Persist the mode before the run starts so the very first run_command
         // resolves the right mode. Await rather than fire-and-forget: do not rely
         // on IPC ordering for a security-sensitive default.
-        await window.bearcode.conversations.setMode(meta.id, get().permissionMode)
-        await window.bearcode.conversations.setEffort(meta.id, get().effort)
-        await window.bearcode.conversations.setThinking(meta.id, get().thinking)
+        await window.bearcode.conversations.setMode(meta.id, permissionMode)
+        await window.bearcode.conversations.setEffort(meta.id, effort)
+        await window.bearcode.conversations.setThinking(meta.id, thinking)
         await window.bearcode.run.start(
           meta.id,
           text,
-          modelRef,
+          runModel,
           workspacePath,
           command ?? null,
           mentions ?? null,
@@ -909,8 +934,14 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ folderSettings })
     },
     updateProject: async (path, patch) => {
-      await window.bearcode.projects.update(path, patch)
-      await get().refreshProjectSettings()
+      try {
+        await window.bearcode.projects.update(path, patch)
+        await get().refreshProjectSettings()
+      } catch {
+        // An IPC failure (e.g. path validation) must not surface as an unhandled
+        // rejection; surface it and leave the modal's stored state as-is.
+        get().showToast('Could not save project settings')
+      }
     },
     setAsNewProjectDefault: async (patch) => {
       await get().saveSettings({ newProjectDefaults: patch })
@@ -941,6 +972,9 @@ export const useAppStore = create<AppState>((set, get) => {
       // Folder = project: the conversation is created directly in the folder;
       // its projectPath IS the project link (no separate assignment step).
       const meta = await window.bearcode.conversations.create(path)
+      // create() seeds a new folder's settings row from newProjectDefaults
+      // main-side; refresh so a freshly-seeded row is visible before we resolve.
+      await get().refreshProjectSettings()
       // F9 inheritance: a new conversation in a folder starts on that folder's
       // per-folder defaults (model/effort/permission mode), each falling back to
       // the global default when the folder leaves it unset. Effort + mode persist
