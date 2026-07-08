@@ -135,6 +135,7 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   loaded: true,
   events: [],
   runState: 'idle',
+  environment: 'local',
   effort: 'adaptive',
   thinking: true,
   projectId: null,

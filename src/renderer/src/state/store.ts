@@ -46,6 +46,10 @@ export interface Convo {
   loaded: boolean
   events: Event[]
   runState: ConvoRunState
+  // F3: execution environment, chosen at creation and locked at first run.
+  // 'local' runs in the project folder; 'worktree' runs in isolated git
+  // worktrees. Mirrors ConversationMeta.environment; defaults to 'local'.
+  environment: 'local' | 'worktree'
   startedAt?: number
   // First-user-message snippet from the DB (F1 History browse), so a preview
   // shows even before the conversation's events are loaded this session. null
@@ -141,6 +145,7 @@ function fromMeta(meta: ConversationMeta): Convo {
     loaded: false,
     events: [],
     runState: 'idle',
+    environment: meta.environment,
     preview: meta.preview ?? null
   }
 }
@@ -229,6 +234,10 @@ interface AppState {
   // display order. Drives the "N of M" jump navigator; stepFocus walks it. Empty
   // (or length 1) hides the navigator -- a lone hit needs no next/prev.
   focusMatches: string[]
+  // F3: the environment drafted in the Home composer's Local/New-Worktree
+  // picker, applied to the conversation at create (before its first run) and
+  // then locked. Reset to 'local' on goHome.
+  composerEnvironment: 'local' | 'worktree'
 
   init(): void
   refreshProviders(): Promise<void>
@@ -283,6 +292,7 @@ interface AppState {
   setPermissionMode(mode: PermissionMode): void
   setEffort(effort: EffortLevel): void
   setThinking(thinking: boolean): void
+  setComposerEnvironment(v: 'local' | 'worktree'): void
   // F9 (folder = project) settings, keyed by workspace path.
   refreshProjectSettings(): Promise<void>
   updateProject(path: string, patch: ProjectSettings): Promise<void>
@@ -454,6 +464,7 @@ export const useAppStore = create<AppState>((set, get) => {
     draftConvoId: null,
     focusEventId: null,
     focusMatches: [],
+    composerEnvironment: 'local',
 
     init: () => {
       if (initialized) return
@@ -618,7 +629,10 @@ export const useAppStore = create<AppState>((set, get) => {
         // Abandoning Home drops any attachments already picked under the draft
         // id (a minor on-disk orphan, acceptable for v1 -- see D4 design note);
         // the next Home visit mints a fresh draft id on first Media use.
-        draftConvoId: null
+        draftConvoId: null,
+        // F3: a New-Worktree pick belongs to the conversation being left; the
+        // next new conversation starts back at Local unless re-chosen.
+        composerEnvironment: 'local'
       })),
     openHistory: () =>
       set({ view: { kind: 'history' }, auxSelection: null, reviewFocusPath: null }),
@@ -745,6 +759,17 @@ export const useAppStore = create<AppState>((set, get) => {
         await window.bearcode.conversations.setMode(meta.id, permissionMode)
         await window.bearcode.conversations.setEffort(meta.id, effort)
         await window.bearcode.conversations.setThinking(meta.id, thinking)
+        // F3: lock the chosen environment before the first run. Worktree
+        // provisioning happens main-side; a non-git folder degrades to local.
+        const env = get().composerEnvironment
+        if (env === 'worktree') {
+          try {
+            const updated = await window.bearcode.conversations.setEnvironment(meta.id, 'worktree')
+            patchConvo(meta.id, { environment: updated.environment })
+          } catch (e) {
+            get().showToast(e instanceof Error ? e.message : 'Could not create worktree')
+          }
+        }
         await window.bearcode.run.start(
           meta.id,
           text,
@@ -916,6 +941,10 @@ export const useAppStore = create<AppState>((set, get) => {
         void window.bearcode.conversations.setThinking(id, thinking).catch(() => {})
       }
     },
+    // F3: pure draft state for the Home composer's env picker. The environment
+    // is only committed (main-side provisioning) at create in startFromHome /
+    // newConversationInProject, then locked -- so this never touches IPC.
+    setComposerEnvironment: (v) => set({ composerEnvironment: v }),
 
     refreshProjectSettings: async () => {
       const folderSettings = await window.bearcode.projects.list()
@@ -977,6 +1006,18 @@ export const useAppStore = create<AppState>((set, get) => {
       })
       await window.bearcode.conversations.setMode(meta.id, d.permissionMode)
       await window.bearcode.conversations.setEffort(meta.id, d.effort)
+      // F3: honor the composer's env pick on the sidebar "+" path too, locking
+      // it before the first run (worktree provisioning is main-side; a non-git
+      // folder degrades to local). A failure toasts and stays local.
+      let newEnv: 'local' | 'worktree' = 'local'
+      if (get().composerEnvironment === 'worktree') {
+        try {
+          const updated = await window.bearcode.conversations.setEnvironment(meta.id, 'worktree')
+          newEnv = updated.environment
+        } catch (e) {
+          get().showToast(e instanceof Error ? e.message : 'Could not create worktree')
+        }
+      }
       // Only adopt the folder's default model if it is still usable (key
       // configured + present in the effective list). A since-removed key or an
       // F7-disabled model falls back to the current selection, mirroring the
@@ -988,6 +1029,7 @@ export const useAppStore = create<AppState>((set, get) => {
         loaded: true,
         permissionMode: d.permissionMode,
         effort: d.effort,
+        environment: newEnv,
         modelRef
       }
       set((s) => {

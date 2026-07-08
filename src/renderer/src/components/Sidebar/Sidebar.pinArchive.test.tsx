@@ -27,7 +27,8 @@ const convo: Convo = {
   createdAt: Date.now(),
   loaded: true,
   events: [],
-  runState: 'idle'
+  runState: 'idle',
+  environment: 'local'
 }
 
 beforeEach(() => {
