@@ -202,7 +202,7 @@ export function Sidebar(): React.JSX.Element {
 
       <div className="sidebar-footer">
         <Hint label="Open Settings" keys="⌘," side="right">
-          <button className="nav-item" onClick={openSettings}>
+          <button className="nav-item" onClick={() => openSettings()}>
             <IconSettings />
             Settings
           </button>

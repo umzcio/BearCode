@@ -18,16 +18,35 @@ function SearchModalContent(): React.JSX.Element {
   const close = useAppStore((s) => s.closeSearch)
   const conversations = useAppStore((s) => s.conversations)
   const convoOrder = useAppStore((s) => s.convoOrder)
-  const projects = useAppStore((s) => s.projects)
+  const folderSettings = useAppStore((s) => s.folderSettings)
   const openConvo = useAppStore((s) => s.openConvo)
   const [query, setQuery] = useState('')
   const [highlighted, setHighlighted] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const results = useMemo(() => {
-    const convos = convoOrder.map((id) => conversations[id]).filter((c): c is NonNullable<typeof c> => c != null)
-    return searchEntries(query, convos, projects)
-  }, [query, conversations, convoOrder, projects])
+    const convos = convoOrder
+      .map((id) => conversations[id])
+      .filter((c): c is NonNullable<typeof c> => c != null)
+    // F9 (folder = project): searchable folders are the distinct projectPaths
+    // across conversations, labeled by a custom name (folderSettings) or the
+    // basename, with updatedAt = the newest conversation in that folder.
+    const folderMap = new Map<string, { path: string; label: string; updatedAt: number }>()
+    for (const c of convos) {
+      if (!c.projectPath) continue
+      const existing = folderMap.get(c.projectPath)
+      if (existing) existing.updatedAt = Math.max(existing.updatedAt, c.updatedAt)
+      else {
+        const custom = folderSettings.find((f) => f.path === c.projectPath)?.name
+        folderMap.set(c.projectPath, {
+          path: c.projectPath,
+          label: custom ?? c.projectLabel,
+          updatedAt: c.updatedAt
+        })
+      }
+    }
+    return searchEntries(query, convos, [...folderMap.values()])
+  }, [query, conversations, convoOrder, folderSettings])
 
   useEffect(() => {
     // focus after mount
@@ -42,13 +61,13 @@ function SearchModalContent(): React.JSX.Element {
       openConvo(entry.id)
       return
     }
-    // Project: open its most-recent conversation, else just close.
-    const inProject = convoOrder
+    // Folder: open its most-recent conversation (entry.id is the folder path).
+    const inFolder = convoOrder
       .map((id) => conversations[id])
-      .filter((c): c is NonNullable<typeof c> => c != null && c.projectId === entry.id)
+      .filter((c): c is NonNullable<typeof c> => c != null && c.projectPath === entry.id)
       .sort((a, b) => b.updatedAt - a.updatedAt)
     close()
-    if (inProject[0]) openConvo(inProject[0].id)
+    if (inFolder[0]) openConvo(inFolder[0].id)
   }
 
   useEffect(() => {

@@ -15,7 +15,7 @@ const folder = {
 }
 
 const updateSpy = vi.fn((path: string, patch: Record<string, unknown>) =>
-  Promise.resolve({ ...folder, ...patch })
+  Promise.resolve({ ...folder, path, ...patch })
 )
 const setSpy = vi.fn((patch: Record<string, unknown>) => Promise.resolve(patch))
 
