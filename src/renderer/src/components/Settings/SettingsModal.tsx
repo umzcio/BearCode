@@ -16,10 +16,10 @@ import {
   IconKeyboard,
   IconChat
 } from '../icons'
-import { PermissionRulesSection } from './PermissionRules'
 import { GeneralPage } from './pages/GeneralPage'
 import { ProvidersPage } from './pages/ProvidersPage'
 import { ModelsPage } from './pages/ModelsPage'
+import { PermissionsPage } from './pages/PermissionsPage'
 import { SettingPlaceholder } from './SettingPlaceholder'
 import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
 import type { SettingsPageId } from './SettingsNav'
@@ -128,7 +128,6 @@ function SettingsPanel({
   initialPage: string | null
 }): React.JSX.Element {
   const close = useAppStore((s) => s.closeSettings)
-  const saveSettings = useAppStore((s) => s.saveSettings)
   const setAppearance = useAppStore((s) => s.setAppearance)
 
   const [page, setPage] = useState<SettingsPageId>(() => {
@@ -185,70 +184,7 @@ function SettingsPanel({
 
           {page === 'providers' ? <ProvidersPage /> : null}
 
-          {page === 'permissions' ? (
-            <>
-              <PageHead
-                title="Permissions"
-                sub="Global agent permissions. These apply everywhere unless a project overrides them."
-              />
-              <PermissionRulesSection />
-              <div className="set-group-title">Artifact Review</div>
-              <div className="set-card">
-                <Row
-                  title="Artifact Review Policy"
-                  desc="How the agent's submitted plans are handled. Request Review holds each plan for your review; Always Proceed approves it immediately. Applies to the next plan the agent submits."
-                >
-                  <div className="radio-col" role="radiogroup" aria-label="Artifact review policy">
-                    <label className="radio-row">
-                      <input
-                        type="radio"
-                        name="artifact-review-policy"
-                        checked={settings.artifactReviewPolicy === 'request-review'}
-                        onChange={() =>
-                          void saveSettings({ artifactReviewPolicy: 'request-review' })
-                        }
-                      />
-                      <span>Request Review (Recommended)</span>
-                    </label>
-                    <label className="radio-row">
-                      <input
-                        type="radio"
-                        name="artifact-review-policy"
-                        checked={settings.artifactReviewPolicy === 'always-proceed'}
-                        onChange={() =>
-                          void saveSettings({ artifactReviewPolicy: 'always-proceed' })
-                        }
-                      />
-                      <span>Always Proceed</span>
-                    </label>
-                  </div>
-                </Row>
-              </div>
-              <div className="set-group-title">Default Mode</div>
-              <div className="set-card">
-                <Row
-                  title="Default Permission Mode"
-                  desc="The permission mode new conversations start in. Bypass is per-conversation only and can never be a default."
-                >
-                  <Select
-                    ariaLabel="Default permission mode"
-                    value={settings.defaultPermissionMode}
-                    onChange={(v) => void saveSettings({ defaultPermissionMode: v })}
-                    options={[
-                      { value: 'ask', label: 'Ask permissions' },
-                      { value: 'accept-edits', label: 'Accept edits' },
-                      { value: 'plan', label: 'Plan mode' },
-                      { value: 'auto', label: 'Auto mode' }
-                    ]}
-                  />
-                </Row>
-              </div>
-              {/* "Agent Settings" (Security Preset / Outside-of-Folders File
-                  Access / Sandbox Mode) are built as real controls in F8 (and
-                  Sandbox in Phase G). Omitted here rather than shown as
-                  control-less rows that read as broken. */}
-            </>
-          ) : null}
+          {page === 'permissions' ? <PermissionsPage /> : null}
 
           {page === 'appearance' ? (
             <>
