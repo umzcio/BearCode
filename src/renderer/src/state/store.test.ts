@@ -118,7 +118,9 @@ const convoMeta: ConversationMeta = {
   thinking: true,
   projectId: null,
   pinned: false,
-  archived: false
+  archived: false,
+  environment: 'local',
+  worktrees: []
 }
 
 const convo = (over: Partial<Convo> = {}): Convo => ({

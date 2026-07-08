@@ -18,6 +18,7 @@ import type {
   FolderProject,
   ProjectSettings,
   ProviderId,
+  WorktreeInfo,
   RunState,
   TranscribeMeta
 } from '../shared/types'
@@ -109,6 +110,15 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:conversations:set-effort', id, effort),
     setThinking: (id: string, thinking: boolean): Promise<void> =>
       ipcRenderer.invoke('bearcode:conversations:set-thinking', id, thinking),
+    // F3: wired to the `set-environment` IPC channel in Task 6, which also
+    // narrows this signature to (id, environment) once provisioning moves
+    // main-side. Kept here now only so BearcodeApi's shape typechecks.
+    setEnvironment: (
+      id: string,
+      environment: 'local' | 'worktree',
+      worktrees: WorktreeInfo[]
+    ): Promise<void> =>
+      ipcRenderer.invoke('bearcode:conversations:set-environment', id, environment, worktrees),
     setPinned: (id: string, pinned: boolean): Promise<void> =>
       ipcRenderer.invoke('bearcode:conversations:set-pinned', id, pinned),
     setArchived: (id: string, archived: boolean): Promise<void> =>

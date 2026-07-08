@@ -464,6 +464,15 @@ export interface FolderProject {
   defaultPermissionMode: PermissionMode | null
 }
 
+// F3: an isolated git worktree spawned for a conversation running in Worktree
+// mode. One per discovered repo; empty for Local mode (or a non-git project).
+export interface WorktreeInfo {
+  repoPath: string
+  worktreePath: string
+  branch: string
+  baseBranch: string
+}
+
 // ---- Conversations ----
 
 export interface ConversationMeta {
@@ -493,6 +502,13 @@ export interface ConversationMeta {
   // conversation has no user message yet, or when the meta wasn't built with a
   // preview (e.g. single-conversation reads that don't need it).
   preview?: string | null
+  // F3: execution environment, chosen at creation and locked after start.
+  // 'local' runs in the project folder; 'worktree' runs in isolated git
+  // worktrees (see `worktrees`). Defaults to 'local'.
+  environment: 'local' | 'worktree'
+  // F3: the spawned worktrees for this conversation (empty in local mode, or
+  // when the project has no git repo so worktree mode fell back to local).
+  worktrees: WorktreeInfo[]
 }
 
 // ---- Conversation history search (F1) ----
@@ -753,6 +769,11 @@ export interface BearcodeApi {
     setMode(id: string, mode: PermissionMode): Promise<void>
     setEffort(id: string, effort: EffortLevel): Promise<void>
     setThinking(id: string, thinking: boolean): Promise<void>
+    setEnvironment(
+      id: string,
+      environment: 'local' | 'worktree',
+      worktrees: WorktreeInfo[]
+    ): Promise<void>
     setPinned(id: string, pinned: boolean): Promise<void>
     setArchived(id: string, archived: boolean): Promise<void>
     rename(id: string, title: string): Promise<void>
