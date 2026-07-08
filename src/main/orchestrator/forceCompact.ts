@@ -9,6 +9,27 @@
 // turn" flag has no meaning across restarts.
 import type { CommandRef } from '../../shared/types'
 
+// The user message a bare `/compact` turn (no trailing prose) sends to the
+// agent. By the time the model runs, the forced summarizer has ALREADY
+// attempted to fold the backlog inside this turn's model call. Two outcomes:
+//   - It compacted: deepagents prepends a summary-framing message to the
+//     model's context ("...a conversation that has been summarized... A
+//     condensed summary follows: <summary>"). The agent restates it so the
+//     user can confirm what was kept; closeOutTurn also emits the deterministic
+//     "Compacted N earlier messages" marker.
+//   - Nothing to compact (chat shorter than the keep window): no summary is
+//     present. The agent must NOT claim a summary happened.
+// The directive keys the reply off that in-context cue so the acknowledgement
+// is honest either way — this is the fix for /compact falsely reporting
+// "summarized" on a too-short conversation.
+export const COMPACT_ACK_DIRECTIVE =
+  'I asked to compact the earlier conversation to free up the context window. ' +
+  'If your context now begins with a summary of the earlier conversation, ' +
+  'briefly restate its key points so I can confirm what was kept, then wait ' +
+  'for my next message. If there is no such summary, the conversation was too ' +
+  'short to compact — reply only with "There wasn\'t enough earlier ' +
+  'conversation to compact yet." and wait for my next message.'
+
 const forced = new Set<string>()
 
 // Mark a conversation to force-compact on its next model call.

@@ -1,6 +1,29 @@
 import { describe, it, expect } from 'vitest'
-import { markForceCompact, consumeForceCompact, commandForcesCompact } from './forceCompact'
+import {
+  markForceCompact,
+  consumeForceCompact,
+  commandForcesCompact,
+  COMPACT_ACK_DIRECTIVE
+} from './forceCompact'
 import type { CommandRef } from '../../shared/types'
+
+describe('COMPACT_ACK_DIRECTIVE', () => {
+  // A bare /compact no-ops when the chat is too short to summarize (deepagents
+  // keeps the last few messages, so a short chat has nothing to fold). The
+  // directive must NOT claim a summary happened unconditionally — it keys the
+  // reply off whether a summary is actually present in context, so the ack is
+  // honest whether or not compaction fired.
+  it('does not unconditionally assert that history was summarized', () => {
+    expect(COMPACT_ACK_DIRECTIVE).not.toMatch(/has (just )?been summarized/i)
+  })
+  it('gives the agent an honest no-op branch when there is nothing to compact', () => {
+    expect(COMPACT_ACK_DIRECTIVE).toMatch(/if there is no such summary/i)
+    expect(COMPACT_ACK_DIRECTIVE).toMatch(/too short to compact|enough .*conversation to compact/i)
+  })
+  it('conditions the restatement on a summary actually being present in context', () => {
+    expect(COMPACT_ACK_DIRECTIVE).toMatch(/summary/i)
+  })
+})
 
 describe('forceCompact', () => {
   it('consume returns false when not marked', () => {

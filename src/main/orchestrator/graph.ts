@@ -60,7 +60,12 @@ import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
 import { makeModel } from './models'
 import { compactionAdvanced } from './compaction'
-import { commandForcesCompact, consumeForceCompact, markForceCompact } from './forceCompact'
+import {
+  COMPACT_ACK_DIRECTIVE,
+  commandForcesCompact,
+  consumeForceCompact,
+  markForceCompact
+} from './forceCompact'
 import {
   buildTunedSummarization,
   defaultStateBackendFactory,
@@ -2010,14 +2015,6 @@ function buildAgentAndContext(
   return { agent, ctx }
 }
 
-// The user message a bare /compact turn (no trailing prose) sends to the
-// agent. By the time the model runs, the forced summarizer has already folded
-// the backlog, so this frames that as done and asks for a one-line ack.
-const COMPACT_ACK_DIRECTIVE =
-  'The earlier conversation history has just been summarized to free up the ' +
-  'context window. Reply with a single short sentence acknowledging this, then ' +
-  'wait for my next message.'
-
 export async function runGraph(opts: {
   conversationId: string
   userText: string
@@ -2102,11 +2099,12 @@ export async function runGraph(opts: {
   // transcript), but drive() must never receive an empty user message. This
   // also covers retryRun's edge (store.ts resends lastUser.text, which can be
   // '', dropping the command per Task 4 -- that resend gets 'Proceed.').
-  // Bare /compact (no trailing prose): the backlog was just folded (the forced
-  // summarizer ran above), so instead of a generic 'Proceed.' inject a fixed
-  // directive telling the agent to give a one-line acknowledgement and wait.
-  // Trailing prose after /compact runs verbatim (compaction still happened,
-  // the flag was set before the agent built).
+  // Bare /compact (no trailing prose): the forced summarizer runs inside this
+  // turn's model call, so instead of a generic 'Proceed.' inject the honest
+  // ack directive. It keys the reply off whether a summary is actually present
+  // in context, so the acknowledgement is truthful whether or not there was
+  // enough history to compact (see COMPACT_ACK_DIRECTIVE). Trailing prose after
+  // /compact runs verbatim (compaction still attempted; flag set before build).
   const modelText =
     userText.trim() !== ''
       ? userText
