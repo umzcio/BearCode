@@ -359,7 +359,16 @@ export function listConversations(): ConversationMeta[] {
   return rows.map((row) => {
     const msg = firstMsg.get(row.id) as { payload: string } | undefined
     let firstText: string | null = null
-    if (msg) firstText = (JSON.parse(msg.payload) as { text: string }).text
+    if (msg) {
+      try {
+        firstText = (JSON.parse(msg.payload) as { text: string }).text
+      } catch {
+        // A single corrupt payload row must not break the entire conversation
+        // list at boot -- degrade to no preview/fallback for this row instead
+        // (mirrors the guarded per-row parse in backfillEventFts).
+        firstText = null
+      }
+    }
     const fallback =
       !row.title && firstText != null
         ? firstText.length > 42

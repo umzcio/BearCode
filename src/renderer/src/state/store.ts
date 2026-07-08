@@ -676,6 +676,10 @@ export const useAppStore = create<AppState>((set, get) => {
     send: (convoId, text, command, mentions, attachments) => {
       const { modelRef, conversations } = get()
       if (!modelRef) return
+      // A new turn must never stay pinned to a prior history-search jump: clear
+      // the focus target + match set so the follow-up run's streamed events
+      // don't fight auto-follow (F1).
+      set({ focusEventId: null, focusMatches: [] })
       patchConvo(convoId, { modelRef })
       void window.bearcode.run.start(
         convoId,

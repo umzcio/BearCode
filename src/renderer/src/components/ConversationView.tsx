@@ -130,6 +130,12 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const stepFocus = useAppStore((s) => s.stepFocus)
   const setFocusMatches = useAppStore((s) => s.setFocusMatches)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // Records the focusEventId whose jump has already fired, so the effect below
+  // scrolls+highlights each id exactly ONCE. Without this, the effect (which
+  // depends on convo.events so it can catch the async-load case) would re-fire
+  // on every streamed event of a follow-up turn, re-pinning the transcript to
+  // the old match and re-flashing the highlight.
+  const consumedFocusRef = useRef<string | null>(null)
 
   const running = convo.runState === 'running' || convo.runState === 'awaiting-approval'
   const items = groupTurns(convo.events)
@@ -161,10 +167,18 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   // the events arrive and only clears when the target is genuinely absent from
   // a loaded transcript (e.g. compacted away).
   useEffect(() => {
-    if (!focusEventId) return
+    if (!focusEventId) {
+      // No pending jump -- forget the last consumed id so a future jump to the
+      // SAME event id (e.g. re-running the same search) fires again.
+      consumedFocusRef.current = null
+      return
+    }
     // Events haven't loaded yet; wait for them (this effect re-runs when
     // convo.events / convo.loaded change). Clearing now would kill the jump.
     if (!convo.loaded) return
+    // Already jumped for this id: do NOT re-scroll/re-highlight when convo.events
+    // changes for the same focusEventId (streamed events on a follow-up turn).
+    if (consumedFocusRef.current === focusEventId) return
     // Scan by dataset rather than an attribute selector so arbitrary event ids
     // never need escaping. A single anchor may advertise more than one id
     // (space-joined) -- e.g. a paired tool_call+tool_result ToolStep -- so match
@@ -178,6 +192,9 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
       clearFocusEvent()
       return
     }
+    // Mark this id consumed before firing so a re-run (from a subsequent
+    // convo.events change) for the same id short-circuits above.
+    consumedFocusRef.current = focusEventId
     el.scrollIntoView({ block: 'center' })
     el.classList.add('event-focus-highlight')
     // Respect reduce-motion: skip the timed fade (the CSS also drops the

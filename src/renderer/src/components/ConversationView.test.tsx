@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
 import type { BearcodeApi } from '@shared/types'
 import { useAppStore } from '../state/store'
 import { ConversationView } from './ConversationView'
@@ -288,6 +288,38 @@ describe('ConversationView jump-to-match (F1)', () => {
     useAppStore.setState({ focusEventId: 'u1', focusMatches: ['a1', 'u1'] } as never)
     render(<ConversationView convoId="c1" />)
     await waitFor(() => expect(useAppStore.getState().focusMatches).toEqual(['u1', 'a1']))
+  })
+
+  it('fires the jump exactly once: new streamed events do not re-scroll or re-highlight', async () => {
+    // Regression: the focus effect depends on convo.events (so it can catch the
+    // async-load case), but it must fire for a given focusEventId only ONCE.
+    // Otherwise every streamed event of a follow-up turn re-runs scrollIntoView
+    // on the old match and re-flashes the highlight, pinning the transcript.
+    useAppStore.setState({ focusEventId: 'u1', focusMatches: ['u1'] } as never)
+    render(<ConversationView convoId="c1" />)
+    const row = document.querySelector('[data-event-id="u1"]') as HTMLElement
+    await waitFor(() => expect(row.classList.contains('event-focus-highlight')).toBe(true))
+    const scrollMock = row.scrollIntoView as unknown as { mock: { calls: unknown[] } }
+    const callsAfterJump = scrollMock.mock.calls.length
+
+    // Remove the highlight so a spurious re-fire would be observable, then append
+    // a new event (as a live turn would) WITHOUT clearing focus.
+    row.classList.remove('event-focus-highlight')
+    await act(async () => {
+      useAppStore.setState({
+        conversations: {
+          c1: {
+            ...focusConvo,
+            events: [...focusConvo.events, { type: 'user_message', id: 'u2', text: 'follow up' }]
+          }
+        }
+      } as never)
+    })
+
+    const rowAfter = document.querySelector('[data-event-id="u1"]') as HTMLElement
+    // No second scroll, and the highlight is not re-applied for the same id.
+    expect(scrollMock.mock.calls.length).toBe(callsAfterJump)
+    expect(rowAfter.classList.contains('event-focus-highlight')).toBe(false)
   })
 
   it('renders an "N of M" navigator and stepFocus advances the highlight', async () => {

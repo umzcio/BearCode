@@ -222,6 +222,33 @@ describe('searchHistory', () => {
     expect(searchHistory('danglingfile')).toEqual([])
   })
 
+  it('listConversations survives a corrupt first-message payload row', () => {
+    // Regression: listConversations JSON.parses the first user_message payload
+    // for EVERY conversation (for the browse preview/fallback title). A single
+    // corrupt payload row must not throw and break the entire list at boot --
+    // it should degrade to null preview for that row and still return all convos.
+    createConversation('/Users/z/proj-corrupt', 'c-bad')
+    holder.instances[0].rawExec(
+      `INSERT INTO events (id, conversation_id, seq, type, payload, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      'ev-bad',
+      'c-bad',
+      1,
+      'user_message',
+      '{not valid json',
+      Date.now()
+    )
+    let metas: ReturnType<typeof listConversations> = []
+    expect(() => {
+      metas = listConversations()
+    }).not.toThrow()
+    // The full list is returned -- both the corrupt convo and the healthy one.
+    expect(metas.find((m) => m.id === 'c-bad')).toBeTruthy()
+    expect(metas.find((m) => m.id === 'c-main')).toBeTruthy()
+    // The corrupt row degrades to no preview rather than throwing.
+    expect(metas.find((m) => m.id === 'c-bad')?.preview).toBeNull()
+  })
+
   it('listConversations exposes a first-user-message preview for browse rows', () => {
     // The preview is sourced from the DB so the History browse list can show it
     // even for conversations never opened this session (empty in-memory events).
