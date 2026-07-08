@@ -15,7 +15,7 @@ import type {
   PermissionRulesInfo,
   PlanReviewResolveResult,
   PreviewPayload,
-  Project,
+  FolderProject,
   ProjectSettings,
   ProviderId,
   RunState,
@@ -109,8 +109,6 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:conversations:set-effort', id, effort),
     setThinking: (id: string, thinking: boolean): Promise<void> =>
       ipcRenderer.invoke('bearcode:conversations:set-thinking', id, thinking),
-    setProject: (id: string, projectId: string | null): Promise<void> =>
-      ipcRenderer.invoke('bearcode:conversations:set-project', id, projectId),
     setPinned: (id: string, pinned: boolean): Promise<void> =>
       ipcRenderer.invoke('bearcode:conversations:set-pinned', id, pinned),
     setArchived: (id: string, archived: boolean): Promise<void> =>
@@ -119,14 +117,9 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:conversations:rename', id, title)
   },
   projects: {
-    list: (): Promise<Project[]> => ipcRenderer.invoke('bearcode:projects:list'),
-    create: (name: string, color?: string | null): Promise<Project> =>
-      ipcRenderer.invoke('bearcode:projects:create', name, color ?? null),
-    rename: (id: string, name: string): Promise<void> =>
-      ipcRenderer.invoke('bearcode:projects:rename', id, name),
-    delete: (id: string): Promise<void> => ipcRenderer.invoke('bearcode:projects:delete', id),
-    update: (id: string, patch: ProjectSettings): Promise<Project> =>
-      ipcRenderer.invoke('bearcode:projects:update', id, patch)
+    list: (): Promise<FolderProject[]> => ipcRenderer.invoke('bearcode:projects:list'),
+    update: (path: string, patch: ProjectSettings): Promise<FolderProject> =>
+      ipcRenderer.invoke('bearcode:projects:update', path, patch)
   },
   permissions: {
     addRule: (rule: AddRuleInput): Promise<void> =>

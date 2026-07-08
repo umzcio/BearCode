@@ -437,40 +437,20 @@ export function registerIpc(): void {
     }
     db.setThinking(id, thinking)
   })
-  const validProjectName = (name: unknown): string => {
-    if (typeof name !== 'string') throw new Error(`Invalid project name`)
-    const trimmed = name.trim()
-    if (trimmed.length === 0 || trimmed.length > 80) {
-      throw new Error(`Invalid project name (1-80 chars): ${String(name)}`)
+  // F9 (folder = project): per-folder settings keyed by workspace path. `list`
+  // returns only folders that carry a stored settings row. `update` upserts the
+  // row (the DB layer coerces effort/mode enums + non-string values) and returns
+  // the resulting FolderProject.
+  ipcMain.handle('bearcode:projects:list', () => db.listProjectSettings())
+  ipcMain.handle('bearcode:projects:update', (_e, path: unknown, patch: unknown) => {
+    if (typeof path !== 'string' || path.length === 0) {
+      throw new Error(`Invalid project path: ${String(path)}`)
     }
-    return trimmed
-  }
-  ipcMain.handle('bearcode:projects:list', () => db.listProjects())
-  ipcMain.handle('bearcode:projects:create', (_e, name: unknown, color?: unknown) =>
-    db.createProject(validProjectName(name), typeof color === 'string' ? color : null)
-  )
-  ipcMain.handle('bearcode:projects:rename', (_e, id: string, name: unknown) => {
-    db.renameProject(id, validProjectName(name))
-  })
-  ipcMain.handle('bearcode:projects:delete', (_e, id: string) => {
-    db.deleteProject(id)
-  })
-  // F9: update a project's settings (color/icon/defaults). The DB layer coerces
-  // effort/mode enums; here we just require the id to exist and the patch to be
-  // an object, then return the updated row.
-  ipcMain.handle('bearcode:projects:update', (_e, id: string, patch: unknown) => {
-    if (!db.getProject(id)) throw new Error(`Invalid project id: ${String(id)}`)
     if (patch == null || typeof patch !== 'object') {
       throw new Error('Invalid project settings patch')
     }
-    db.updateProjectSettings(id, patch as ProjectSettings)
-    return db.getProject(id)
-  })
-  ipcMain.handle('bearcode:conversations:set-project', (_e, id: string, projectId: unknown) => {
-    if (projectId !== null && !db.listProjects().some((p) => p.id === projectId)) {
-      throw new Error(`Invalid project id: ${String(projectId)}`)
-    }
-    db.setConversationProject(id, projectId as string | null)
+    db.upsertProjectSettings(path, patch as ProjectSettings)
+    return db.getProjectSettings(path)
   })
   ipcMain.handle('bearcode:conversations:set-pinned', (_e, id: string, pinned: unknown) => {
     if (typeof pinned !== 'boolean') throw new Error(`Invalid pinned: ${String(pinned)}`)

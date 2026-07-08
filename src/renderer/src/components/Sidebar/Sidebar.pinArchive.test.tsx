@@ -7,20 +7,20 @@ import { Sidebar } from './Sidebar'
 
 const setPinned = vi.fn()
 const setArchived = vi.fn()
-const deleteProject = vi.fn(() => Promise.resolve())
-const renameProject = vi.fn(() => Promise.resolve())
 const newConversationInProject = vi.fn(() => Promise.resolve())
+
+const FOLDER = '/Users/zach/Proj'
 
 const convo: Convo = {
   id: 'c1',
-  projectPath: null,
-  projectLabel: 'No folder',
+  projectPath: FOLDER,
+  projectLabel: 'Proj',
   title: 'Hello there',
   modelRef: null,
   permissionMode: 'ask',
   effort: 'medium',
   thinking: false,
-  projectId: 'p1',
+  projectId: null,
   pinned: false,
   archived: false,
   updatedAt: Date.now(),
@@ -32,22 +32,12 @@ const convo: Convo = {
 
 beforeEach(() => {
   ;(window as unknown as { bearcode: unknown }).bearcode = {}
-  vi.stubGlobal(
-    'confirm',
-    vi.fn(() => true)
-  )
-  vi.stubGlobal(
-    'prompt',
-    vi.fn(() => 'Renamed Project')
-  )
   useAppStore.setState({
     sidebarCollapsed: false,
     view: { kind: 'home' },
     convoOrder: ['c1'],
     conversations: { c1: convo },
-    projects: [
-      { id: 'p1', name: 'Proj', color: null, createdAt: Date.now(), updatedAt: Date.now() }
-    ],
+    folderSettings: [],
     settings: { sidebarGroupBy: 'project', sidebarSort: 'updated' } as never,
     toggleSidebar: vi.fn(),
     goHome: vi.fn(),
@@ -57,23 +47,17 @@ beforeEach(() => {
     openSettings: vi.fn(),
     openSearch: vi.fn(),
     showToast: vi.fn(),
-    createProject: vi.fn(() => Promise.resolve()),
-    assignConversationProject: vi.fn(),
     setPinned,
     setArchived,
-    deleteProject,
-    renameProject,
     newConversationInProject
   } as never)
   setPinned.mockClear()
   setArchived.mockClear()
-  deleteProject.mockClear()
-  renameProject.mockClear()
   newConversationInProject.mockClear()
 })
 afterEach(cleanup)
 
-describe('Sidebar pin/archive + project actions', () => {
+describe('Sidebar pin/archive + folder actions', () => {
   it('clicking Pin calls setPinned(id, true)', () => {
     render(<Sidebar />)
     fireEvent.click(screen.getByTitle('Pin'))
@@ -86,43 +70,62 @@ describe('Sidebar pin/archive + project actions', () => {
     expect(setArchived).toHaveBeenCalledWith('c1', true)
   })
 
-  it('project gear Delete calls deleteProject', () => {
+  it('folder + calls newConversationInProject with the path', () => {
     render(<Sidebar />)
-    fireEvent.click(screen.getByTitle('Delete project'))
-    expect(deleteProject).toHaveBeenCalledWith('p1')
+    fireEvent.click(screen.getByTitle('New conversation in this folder'))
+    expect(newConversationInProject).toHaveBeenCalledWith(FOLDER)
   })
 
-  it('project + calls newConversationInProject', () => {
+  it('no gear shows for the "No folder" group', () => {
+    useAppStore.setState({
+      conversations: { c1: { ...convo, projectPath: null, projectLabel: 'No folder' } }
+    } as never)
     render(<Sidebar />)
-    fireEvent.click(screen.getByTitle('New conversation in project'))
-    expect(newConversationInProject).toHaveBeenCalledWith('p1')
+    expect(screen.queryByTitle('Project settings')).toBeNull()
   })
 })
 
-describe('Sidebar project color + icon + settings (F9)', () => {
-  it('renders a color dot + chosen icon and opens project settings', () => {
+describe('Sidebar folder color + icon + settings (folder = project)', () => {
+  it('renders a color dot + chosen icon and opens project settings by path', () => {
     const openProjectSettings = vi.fn()
     useAppStore.setState({
-      projects: [
+      folderSettings: [
         {
-          id: 'p1',
-          name: 'Proj',
+          path: FOLDER,
+          name: null,
           color: '#4c8dff',
           icon: 'IconBrain',
-          createdAt: Date.now(),
-          updatedAt: Date.now()
+          defaultModelRef: null,
+          defaultEffort: null,
+          defaultPermissionMode: null
         }
       ] as never,
       openProjectSettings
     } as never)
     const { container } = render(<Sidebar />)
-    // Color dot rendered from the project color.
     const dot = container.querySelector('.proj-dot') as HTMLElement
     expect(dot).toBeTruthy()
     expect(dot.style.background).toContain('rgb(76, 141, 255)')
-    // Settings button opens the modal for this project.
     fireEvent.click(screen.getByTitle('Project settings'))
-    expect(openProjectSettings).toHaveBeenCalledWith('p1')
+    expect(openProjectSettings).toHaveBeenCalledWith(FOLDER)
+  })
+
+  it('uses a custom name override for the group label', () => {
+    useAppStore.setState({
+      folderSettings: [
+        {
+          path: FOLDER,
+          name: 'Campus Work',
+          color: null,
+          icon: null,
+          defaultModelRef: null,
+          defaultEffort: null,
+          defaultPermissionMode: null
+        }
+      ] as never
+    } as never)
+    render(<Sidebar />)
+    expect(screen.getByText('Campus Work')).toBeTruthy()
   })
 
   it('falls back cleanly when color/icon are unset (no dot)', () => {

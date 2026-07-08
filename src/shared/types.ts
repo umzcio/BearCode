@@ -753,18 +753,16 @@ export interface BearcodeApi {
     setMode(id: string, mode: PermissionMode): Promise<void>
     setEffort(id: string, effort: EffortLevel): Promise<void>
     setThinking(id: string, thinking: boolean): Promise<void>
-    setProject(id: string, projectId: string | null): Promise<void>
     setPinned(id: string, pinned: boolean): Promise<void>
     setArchived(id: string, archived: boolean): Promise<void>
     rename(id: string, title: string): Promise<void>
   }
+  // F9 (folder = project): per-folder settings keyed by workspace path. `list`
+  // returns only folders that have a stored settings row; folders with none
+  // resolve to all-null in the renderer. `update` upserts the row and returns it.
   projects: {
-    list(): Promise<Project[]>
-    create(name: string, color?: string | null): Promise<Project>
-    rename(id: string, name: string): Promise<void>
-    delete(id: string): Promise<void>
-    // F9: update a project's settings (color/icon/defaults); returns the updated row.
-    update(id: string, patch: ProjectSettings): Promise<Project>
+    list(): Promise<FolderProject[]>
+    update(path: string, patch: ProjectSettings): Promise<FolderProject>
   }
   permissions: {
     addRule(rule: AddRuleInput): Promise<void>

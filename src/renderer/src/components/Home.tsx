@@ -62,7 +62,7 @@ export function Home(): React.JSX.Element {
     <div className="home">
       <div className="composer-wrap">
         <div className="project-picker" ref={rootRef}>
-          <Hint label="Select Project" keys="⌘;" side="top" disabled={open}>
+          <Hint label="Select Folder" keys="⌘;" side="top" disabled={open}>
             <div className="workspace-row" onClick={() => setOpen((o) => !o)}>
               <IconFolder />
               <span>{workspacePath ? shorten(workspacePath) : 'Choose a folder'}</span>
@@ -93,12 +93,12 @@ export function Home(): React.JSX.Element {
                 }}
               >
                 <IconFolderPlus />
-                <span>New Project</span>
+                <span>Open a folder…</span>
               </div>
               <div className="menu-divider" />
               <div className="menu-item" onClick={() => choose(null)}>
                 <IconFolder />
-                <span>No Project</span>
+                <span>No folder</span>
               </div>
             </div>
           ) : null}

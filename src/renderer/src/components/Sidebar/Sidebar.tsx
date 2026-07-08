@@ -8,8 +8,6 @@ import { ConvoRowMenu } from './ConvoRowMenu'
 import {
   IconArchive,
   IconClock,
-  IconClose,
-  IconFolderPlus,
   IconHistory,
   IconPanel,
   IconPin,
@@ -33,18 +31,16 @@ export function Sidebar(): React.JSX.Element {
   const openConvo = useAppStore((s) => s.openConvo)
   const openSettings = useAppStore((s) => s.openSettings)
   const openSearch = useAppStore((s) => s.openSearch)
-  const projects = useAppStore((s) => s.projects)
-  const createProject = useAppStore((s) => s.createProject)
+  const folderSettings = useAppStore((s) => s.folderSettings)
   const setPinned = useAppStore((s) => s.setPinned)
   const setArchived = useAppStore((s) => s.setArchived)
   const newConversationInProject = useAppStore((s) => s.newConversationInProject)
-  const deleteProject = useAppStore((s) => s.deleteProject)
   const openProjectSettings = useAppStore((s) => s.openProjectSettings)
   const groupBy = useAppStore((s) => s.settings?.sidebarGroupBy ?? 'project')
   const sort = useAppStore((s) => s.settings?.sidebarSort ?? 'updated')
   const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
 
-  const groups = groupConversations(convoOrder, conversations, projects, {
+  const groups = groupConversations(convoOrder, conversations, {
     groupBy,
     sort,
     showArchived
@@ -101,138 +97,107 @@ export function Sidebar(): React.JSX.Element {
         Projects
         <div className="actions">
           <DisplayOptions />
-          <button
-            className="chrome-btn"
-            title="New project"
-            onClick={() => {
-              const name = window.prompt('Project name')?.trim()
-              if (name) void createProject(name)
-            }}
-          >
-            <IconFolderPlus />
-          </button>
         </div>
       </div>
 
       <div className="projects-scroll">
         {groups.length === 0 ? <div className="empty-note">No conversations yet</div> : null}
-        {groups.map((group) => (
-          <div
-            className="proj-group"
-            key={
-              group.kind === 'project'
-                ? group.projectId
-                : group.kind === 'all'
-                  ? 'all'
-                  : 'folder:' + group.label
-            }
-          >
-            {group.kind !== 'all' ? (
-              <div className="proj-label">
-                {(() => {
-                  const proj =
-                    group.kind === 'project'
-                      ? projects.find((p) => p.id === group.projectId)
-                      : undefined
-                  const Icon = projectIcon(proj?.icon)
-                  return (
-                    <>
-                      {proj?.color ? (
-                        <span className="proj-dot" style={{ background: proj.color }} />
-                      ) : null}
-                      <Icon size={16} />
-                    </>
-                  )
-                })()}
-                <span>{group.label}</span>
-                {group.kind === 'project' ? (
-                  <span className="proj-actions">
-                    <button
-                      className="row-act"
-                      title="New conversation in project"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void newConversationInProject(group.projectId)
-                      }}
-                    >
-                      <IconPlus size={13} />
-                    </button>
-                    <button
-                      className="row-act"
-                      title="Project settings"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openProjectSettings(group.projectId)
-                      }}
-                    >
-                      <IconSettings size={13} />
-                    </button>
-                    <button
-                      className="row-act"
-                      title="Delete project"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (
-                          window.confirm(`Delete project "${group.label}"? Conversations are kept.`)
-                        ) {
-                          void deleteProject(group.projectId)
-                        }
-                      }}
-                    >
-                      <IconClose size={12} />
-                    </button>
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-            {group.convoIds.map((id) => {
-              const convo = conversations[id]
-              if (!convo) return null
-              const running = convo.runState === 'running' || convo.runState === 'awaiting-approval'
-              const selected = view.kind === 'conversation' && view.id === id
-              return (
-                <div
-                  key={id}
-                  className={
-                    'convo' + (running ? ' active-run' : '') + (selected ? ' selected' : '')
-                  }
-                  onClick={() => openConvo(id)}
-                >
-                  {convo.pinned ? <IconPin size={11} /> : null}
-                  <span className="name">{convo.title}</span>
-                  {running ? (
-                    <span className="dot" />
-                  ) : (
-                    <>
-                      <span className="age">{relativeAge(convo.updatedAt)}</span>
-                      <ConvoRowMenu convoId={id} title={convo.title} projectId={convo.projectId} />
+        {groups.map((group) => {
+          // Every folder group is a project keyed by its path; look up its
+          // stored color/icon/name (a folder with no row shows the default icon
+          // and its basename). "No folder" (path null) has no settings + no gear.
+          const path = group.kind === 'folder' ? group.path : null
+          const fp = path ? folderSettings.find((f) => f.path === path) : undefined
+          const Icon = projectIcon(fp?.icon)
+          const label = group.kind === 'folder' ? (fp?.name ?? group.label) : ''
+          return (
+            <div
+              className="proj-group"
+              key={group.kind === 'all' ? 'all' : 'folder:' + (path ?? 'none')}
+            >
+              {group.kind !== 'all' ? (
+                <div className="proj-label">
+                  {fp?.color ? (
+                    <span className="proj-dot" style={{ background: fp.color }} />
+                  ) : null}
+                  <Icon size={16} />
+                  <span>{label}</span>
+                  {path ? (
+                    <span className="proj-actions">
                       <button
-                        className={'row-act' + (convo.pinned ? ' active' : '')}
-                        title={convo.pinned ? 'Unpin' : 'Pin'}
+                        className="row-act"
+                        title="New conversation in this folder"
                         onClick={(e) => {
                           e.stopPropagation()
-                          setPinned(id, !convo.pinned)
+                          void newConversationInProject(path)
                         }}
                       >
-                        <IconPin size={13} />
+                        <IconPlus size={13} />
                       </button>
                       <button
-                        className={'row-act' + (convo.archived ? ' active' : '')}
-                        title={convo.archived ? 'Unarchive' : 'Archive'}
+                        className="row-act"
+                        title="Project settings"
                         onClick={(e) => {
                           e.stopPropagation()
-                          setArchived(id, !convo.archived)
+                          openProjectSettings(path)
                         }}
                       >
-                        <IconArchive size={13} />
+                        <IconSettings size={13} />
                       </button>
-                    </>
-                  )}
+                    </span>
+                  ) : null}
                 </div>
-              )
-            })}
-          </div>
-        ))}
+              ) : null}
+              {group.convoIds.map((id) => {
+                const convo = conversations[id]
+                if (!convo) return null
+                const running =
+                  convo.runState === 'running' || convo.runState === 'awaiting-approval'
+                const selected = view.kind === 'conversation' && view.id === id
+                return (
+                  <div
+                    key={id}
+                    className={
+                      'convo' + (running ? ' active-run' : '') + (selected ? ' selected' : '')
+                    }
+                    onClick={() => openConvo(id)}
+                  >
+                    {convo.pinned ? <IconPin size={11} /> : null}
+                    <span className="name">{convo.title}</span>
+                    {running ? (
+                      <span className="dot" />
+                    ) : (
+                      <>
+                        <span className="age">{relativeAge(convo.updatedAt)}</span>
+                        <ConvoRowMenu convoId={id} title={convo.title} />
+                        <button
+                          className={'row-act' + (convo.pinned ? ' active' : '')}
+                          title={convo.pinned ? 'Unpin' : 'Pin'}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setPinned(id, !convo.pinned)
+                          }}
+                        >
+                          <IconPin size={13} />
+                        </button>
+                        <button
+                          className={'row-act' + (convo.archived ? ' active' : '')}
+                          title={convo.archived ? 'Unarchive' : 'Archive'}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setArchived(id, !convo.archived)
+                          }}
+                        >
+                          <IconArchive size={13} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })}
       </div>
 
       <div className="sidebar-footer">

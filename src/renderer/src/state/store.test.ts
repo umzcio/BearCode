@@ -49,7 +49,6 @@ const conversations = {
   setMode: vi.fn(() => Promise.resolve()),
   setEffort: vi.fn(() => Promise.resolve()),
   setThinking: vi.fn(() => Promise.resolve()),
-  setProject: vi.fn(() => Promise.resolve()),
   setPinned: vi.fn(() => Promise.resolve()),
   setArchived: vi.fn(() => Promise.resolve()),
   rename: vi.fn(() => Promise.resolve()),
@@ -58,15 +57,23 @@ const conversations = {
 }
 const run = { start: vi.fn(() => Promise.resolve()), cancel: vi.fn(() => Promise.resolve()) }
 
+const folderProject = (
+  path: string,
+  patch: Record<string, unknown> = {}
+): Record<string, unknown> => ({
+  path,
+  name: null,
+  color: null,
+  icon: null,
+  defaultModelRef: null,
+  defaultEffort: null,
+  defaultPermissionMode: null,
+  ...patch
+})
 const projects = {
   list: vi.fn(() => Promise.resolve([])),
-  create: vi.fn(() =>
-    Promise.resolve({ id: 'p1', name: 'A', color: null, createdAt: 1, updatedAt: 1 })
-  ),
-  rename: vi.fn(() => Promise.resolve()),
-  delete: vi.fn(() => Promise.resolve()),
-  update: vi.fn((id: string, patch: Record<string, unknown>) =>
-    Promise.resolve({ id, name: 'A', color: null, createdAt: 1, updatedAt: 2, ...patch })
+  update: vi.fn((path: string, patch: Record<string, unknown>) =>
+    Promise.resolve(folderProject(path, patch))
   )
 }
 
@@ -684,32 +691,14 @@ describe('effort/thinking store actions', () => {
   })
 })
 
-describe('projects store actions', () => {
-  it('refreshProjects populates from IPC', async () => {
+describe('folder = project: settings store actions', () => {
+  it('refreshProjectSettings populates folderSettings from IPC', async () => {
     ;(window.bearcode.projects.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { id: 'p1', name: 'A', color: null, createdAt: 1, updatedAt: 1 }
+      folderProject('/repo/x', { color: '#c96' })
     ])
-    await useAppStore.getState().refreshProjects()
-    expect(useAppStore.getState().projects).toHaveLength(1)
-  })
-  it('createProject persists + refreshes', async () => {
-    await useAppStore.getState().createProject('Campus')
-    expect(window.bearcode.projects.create).toHaveBeenCalledWith('Campus')
-  })
-  it('assignConversationProject updates the convo + persists', async () => {
-    useAppStore.setState({ conversations: { c1: convo() } })
-    await useAppStore.getState().assignConversationProject('c1', 'p1')
-    expect(useAppStore.getState().conversations.c1.projectId).toBe('p1')
-    expect(window.bearcode.conversations.setProject).toHaveBeenCalledWith('c1', 'p1')
-  })
-  it('deleteProject unassigns local convos', async () => {
-    useAppStore.setState({
-      projects: [{ id: 'p1', name: 'A', color: null, createdAt: 1, updatedAt: 1 }],
-      conversations: { c1: convo({ projectId: 'p1' }) }
-    })
-    await useAppStore.getState().deleteProject('p1')
-    expect(useAppStore.getState().conversations.c1.projectId).toBe(null)
-    expect(window.bearcode.projects.delete).toHaveBeenCalledWith('p1')
+    await useAppStore.getState().refreshProjectSettings()
+    expect(useAppStore.getState().folderSettings).toHaveLength(1)
+    expect(useAppStore.getState().folderSettings[0].path).toBe('/repo/x')
   })
 })
 
@@ -732,12 +721,10 @@ describe('pin/archive + newConversationInProject store actions', () => {
     expect(useAppStore.getState().conversations.c1.title).toBe('New')
     expect(window.bearcode.conversations.rename).toHaveBeenCalledWith('c1', 'New')
   })
-  it('newConversationInProject creates, assigns, and opens the conversation', async () => {
-    useAppStore.setState({ conversations: {}, view: { kind: 'home' } })
-    await useAppStore.getState().newConversationInProject('p1')
-    expect(window.bearcode.conversations.create).toHaveBeenCalledWith(null)
-    expect(window.bearcode.conversations.setProject).toHaveBeenCalledWith('c1', 'p1')
-    expect(useAppStore.getState().conversations.c1.projectId).toBe('p1')
+  it('newConversationInProject creates the conversation in the folder and opens it', async () => {
+    useAppStore.setState({ conversations: {}, view: { kind: 'home' }, folderSettings: [] })
+    await useAppStore.getState().newConversationInProject('/repo/x')
+    expect(window.bearcode.conversations.create).toHaveBeenCalledWith('/repo/x')
     expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
   })
 })
@@ -843,12 +830,12 @@ describe('refConfigured (F7 opt-out)', () => {
   })
 })
 
-describe('F9 project settings + inheritance', () => {
+describe('F9 folder = project: settings + inheritance', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({
-      projects: [],
-      projectSettingsId: null,
+      folderSettings: [],
+      projectSettingsPath: null,
       conversations: {},
       convoOrder: [],
       modelRef: null,
@@ -871,20 +858,23 @@ describe('F9 project settings + inheritance', () => {
     })
   })
 
-  it('openProjectSettings / closeProjectSettings toggle the modal id', () => {
-    useAppStore.getState().openProjectSettings('p1')
-    expect(useAppStore.getState().projectSettingsId).toBe('p1')
+  it('openProjectSettings / closeProjectSettings toggle the modal path', () => {
+    useAppStore.getState().openProjectSettings('/repo/x')
+    expect(useAppStore.getState().projectSettingsPath).toBe('/repo/x')
     useAppStore.getState().closeProjectSettings()
-    expect(useAppStore.getState().projectSettingsId).toBeNull()
+    expect(useAppStore.getState().projectSettingsPath).toBeNull()
   })
 
-  it('updateProject persists the patch and refreshes projects', async () => {
-    await useAppStore.getState().updateProject('p1', { color: '#c96', defaultEffort: 'high' })
-    expect(projects.update).toHaveBeenCalledWith('p1', { color: '#c96', defaultEffort: 'high' })
+  it('updateProject persists the patch (by path) and refreshes folder settings', async () => {
+    await useAppStore.getState().updateProject('/repo/x', { color: '#c96', defaultEffort: 'high' })
+    expect(projects.update).toHaveBeenCalledWith('/repo/x', {
+      color: '#c96',
+      defaultEffort: 'high'
+    })
     expect(projects.list).toHaveBeenCalled()
   })
 
-  it('newConversationInProject inherits the project overrides (effort/mode/model)', async () => {
+  it('newConversationInProject inherits the folder overrides (effort/mode/model)', async () => {
     useAppStore.setState({
       // gpt-5.1 must be usable for the inherited model to be adopted (refConfigured).
       providers: [
@@ -897,20 +887,16 @@ describe('F9 project settings + inheritance', () => {
           models: [{ id: 'gpt-5.1', label: 'GPT-5.1' }]
         }
       ] as never,
-      projects: [
-        {
-          id: 'p1',
-          name: 'P',
-          color: null,
+      folderSettings: [
+        folderProject('/repo/x', {
           defaultModelRef: 'openai/gpt-5.1',
           defaultEffort: 'high',
-          defaultPermissionMode: 'plan',
-          createdAt: 1,
-          updatedAt: 1
-        }
+          defaultPermissionMode: 'plan'
+        })
       ] as never
     })
-    await useAppStore.getState().newConversationInProject('p1')
+    await useAppStore.getState().newConversationInProject('/repo/x')
+    expect(conversations.create).toHaveBeenCalledWith('/repo/x')
     expect(conversations.setMode).toHaveBeenCalledWith('c1', 'plan')
     expect(conversations.setEffort).toHaveBeenCalledWith('c1', 'high')
     const s = useAppStore.getState()
@@ -919,7 +905,7 @@ describe('F9 project settings + inheritance', () => {
     expect(s.effort).toBe('high')
   })
 
-  it('does NOT adopt an unusable project default model (falls back to current selection)', async () => {
+  it('does NOT adopt an unusable folder default model (falls back to current selection)', async () => {
     useAppStore.setState({
       modelRef: 'anthropic/claude-opus-4-8',
       providers: [
@@ -932,26 +918,15 @@ describe('F9 project settings + inheritance', () => {
           models: [{ id: 'gpt-5.1', label: 'GPT-5.1' }]
         }
       ] as never,
-      projects: [
-        {
-          id: 'p1',
-          name: 'P',
-          color: null,
-          defaultModelRef: 'openai/gpt-5.1',
-          createdAt: 1,
-          updatedAt: 1
-        }
-      ] as never
+      folderSettings: [folderProject('/repo/x', { defaultModelRef: 'openai/gpt-5.1' })] as never
     })
-    await useAppStore.getState().newConversationInProject('p1')
+    await useAppStore.getState().newConversationInProject('/repo/x')
     expect(useAppStore.getState().modelRef).toBe('anthropic/claude-opus-4-8')
   })
 
-  it('newConversationInProject falls back to global defaults when the project has no overrides', async () => {
-    useAppStore.setState({
-      projects: [{ id: 'p1', name: 'P', color: null, createdAt: 1, updatedAt: 1 }] as never
-    })
-    await useAppStore.getState().newConversationInProject('p1')
+  it('falls back to global defaults when the folder has no stored settings row', async () => {
+    useAppStore.setState({ folderSettings: [] })
+    await useAppStore.getState().newConversationInProject('/repo/x')
     expect(conversations.setMode).toHaveBeenCalledWith('c1', 'accept-edits')
     expect(conversations.setEffort).toHaveBeenCalledWith('c1', 'adaptive')
     expect(useAppStore.getState().modelRef).toBe('anthropic/claude-opus-4-8')

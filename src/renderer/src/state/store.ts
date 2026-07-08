@@ -17,7 +17,7 @@ import type {
   PermissionMode,
   PermissionRulesInfo,
   PickedAttachmentWire,
-  Project,
+  FolderProject,
   ProjectSettings,
   ProviderId,
   ProviderModels,
@@ -176,10 +176,13 @@ interface AppState {
   permissionMode: PermissionMode
   effort: EffortLevel
   thinking: boolean
-  projects: Project[]
-  // F9: the project whose Project Settings modal is open, or null. Mirrors the
+  // F9 (folder = project): per-folder settings rows (only folders that carry a
+  // stored row appear; folders with none resolve to all-null). Looked up by path
+  // for a group's color/icon/name and a new conversation's inherited defaults.
+  folderSettings: FolderProject[]
+  // The folder path whose Project Settings modal is open, or null. Mirrors the
   // settingsOpen/searchOpen modal-flag idiom.
-  projectSettingsId: string | null
+  projectSettingsPath: string | null
   settings: SettingsInfo | null
   // Permissions manager read model; null until the Settings section first loads it.
   permissionRules: PermissionRulesInfo | null
@@ -286,20 +289,16 @@ interface AppState {
   setPermissionMode(mode: PermissionMode): void
   setEffort(effort: EffortLevel): void
   setThinking(thinking: boolean): void
-  refreshProjects(): Promise<void>
-  createProject(name: string): Promise<void>
-  renameProject(id: string, name: string): Promise<void>
-  deleteProject(id: string): Promise<void>
-  // F9 project settings.
-  updateProject(id: string, patch: ProjectSettings): Promise<void>
+  // F9 (folder = project) settings, keyed by workspace path.
+  refreshProjectSettings(): Promise<void>
+  updateProject(path: string, patch: ProjectSettings): Promise<void>
   setAsNewProjectDefault(patch: ProjectSettings): Promise<void>
-  openProjectSettings(id: string): void
+  openProjectSettings(path: string): void
   closeProjectSettings(): void
-  assignConversationProject(convoId: string, projectId: string | null): void
   setPinned(id: string, pinned: boolean): void
   setArchived(id: string, archived: boolean): void
   renameConversation(id: string, title: string): void
-  newConversationInProject(projectId: string): Promise<void>
+  newConversationInProject(path: string): Promise<void>
   togglePermMenu(): void
   pickWorkspace(): Promise<void>
   setWorkspace(path: string | null): void
@@ -444,8 +443,8 @@ export const useAppStore = create<AppState>((set, get) => {
     permissionMode: 'accept-edits',
     effort: 'adaptive',
     thinking: true,
-    projects: [],
-    projectSettingsId: null,
+    folderSettings: [],
+    projectSettingsPath: null,
     settings: null,
     permissionRules: null,
     workspacePath: null,
@@ -525,7 +524,7 @@ export const useAppStore = create<AppState>((set, get) => {
         const conversations: Record<string, Convo> = {}
         for (const meta of metas) conversations[meta.id] = fromMeta(meta)
         set({ conversations, convoOrder: orderByRecency(conversations) })
-        await get().refreshProjects()
+        await get().refreshProjectSettings()
         await get().refreshProviders()
       })()
     },
@@ -905,45 +904,20 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
-    refreshProjects: async () => {
-      const projects = await window.bearcode.projects.list()
-      set({ projects })
+    refreshProjectSettings: async () => {
+      const folderSettings = await window.bearcode.projects.list()
+      set({ folderSettings })
     },
-    createProject: async (name) => {
-      await window.bearcode.projects.create(name)
-      await get().refreshProjects()
-    },
-    renameProject: async (id, name) => {
-      await window.bearcode.projects.rename(id, name)
-      await get().refreshProjects()
-    },
-    updateProject: async (id, patch) => {
-      await window.bearcode.projects.update(id, patch)
-      await get().refreshProjects()
+    updateProject: async (path, patch) => {
+      await window.bearcode.projects.update(path, patch)
+      await get().refreshProjectSettings()
     },
     setAsNewProjectDefault: async (patch) => {
       await get().saveSettings({ newProjectDefaults: patch })
       get().showToast('Saved as the default for new projects')
     },
-    openProjectSettings: (id) => set({ projectSettingsId: id }),
-    closeProjectSettings: () => set({ projectSettingsId: null }),
-    deleteProject: async (id) => {
-      await window.bearcode.projects.delete(id)
-      // Locally unassign so the sidebar regroups without waiting on a reload.
-      set((s) => {
-        const conversations = { ...s.conversations }
-        for (const cid of Object.keys(conversations)) {
-          if (conversations[cid].projectId === id) {
-            conversations[cid] = { ...conversations[cid], projectId: null }
-          }
-        }
-        return { conversations, projects: s.projects.filter((p) => p.id !== id) }
-      })
-    },
-    assignConversationProject: (convoId, projectId) => {
-      patchConvo(convoId, { projectId })
-      void window.bearcode.conversations.setProject(convoId, projectId).catch(() => {})
-    },
+    openProjectSettings: (path) => set({ projectSettingsPath: path }),
+    closeProjectSettings: () => set({ projectSettingsPath: null }),
     setPinned: (id, pinned) => {
       patchConvo(id, { pinned })
       void window.bearcode.conversations.setPinned(id, pinned).catch(() => {})
@@ -963,24 +937,25 @@ export const useAppStore = create<AppState>((set, get) => {
       patchConvo(id, { title })
       void window.bearcode.conversations.rename(id, title).catch(() => {})
     },
-    newConversationInProject: async (projectId) => {
-      const meta = await window.bearcode.conversations.create(null)
-      await window.bearcode.conversations.setProject(meta.id, projectId)
-      // F9 inheritance: a new conversation in a project starts on the project's
-      // per-project defaults (model/effort/permission mode), each falling back to
-      // the global default when the project leaves it unset. Effort + mode persist
+    newConversationInProject: async (path) => {
+      // Folder = project: the conversation is created directly in the folder;
+      // its projectPath IS the project link (no separate assignment step).
+      const meta = await window.bearcode.conversations.create(path)
+      // F9 inheritance: a new conversation in a folder starts on that folder's
+      // per-folder defaults (model/effort/permission mode), each falling back to
+      // the global default when the folder leaves it unset. Effort + mode persist
       // per-conversation via IPC; model is the store's active selection (same as
       // selectModel). thinking stays global.
-      const project = get().projects.find((p) => p.id === projectId) ?? null
+      const folder = get().folderSettings.find((f) => f.path === path) ?? null
       const settings = get().settings
-      const d = resolveProjectDefaults(project, {
+      const d = resolveProjectDefaults(folder, {
         defaultModelRef: settings?.defaultModelRef ?? null,
         defaultEffort: settings?.defaultEffort ?? 'adaptive',
         defaultPermissionMode: settings?.defaultPermissionMode ?? 'accept-edits'
       })
       await window.bearcode.conversations.setMode(meta.id, d.permissionMode)
       await window.bearcode.conversations.setEffort(meta.id, d.effort)
-      // Only adopt the project's default model if it is still usable (key
+      // Only adopt the folder's default model if it is still usable (key
       // configured + present in the effective list). A since-removed key or an
       // F7-disabled model falls back to the current selection, mirroring the
       // refConfigured guard in openConvo/ensureDefaultModel — never silently
@@ -988,7 +963,6 @@ export const useAppStore = create<AppState>((set, get) => {
       const modelRef = refConfigured(get().providers, d.modelRef) ? d.modelRef : get().modelRef
       const convo = {
         ...fromMeta(meta),
-        projectId,
         loaded: true,
         permissionMode: d.permissionMode,
         effort: d.effort,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import type { EffortLevel, PermissionMode, Project } from '@shared/types'
+import type { EffortLevel, FolderProject, PermissionMode } from '@shared/types'
 import { EFFORT_LEVELS, EFFORT_LABELS } from '@shared/effort'
 import { useAppStore } from '../../state/store'
 import { Select } from '../Select'
@@ -12,23 +12,42 @@ import './ProjectSettings.css'
 // Curated project colors (bounded, like the icon set — no arbitrary picker).
 const PROJECT_COLORS = ['#d97757', '#4c8dff', '#3ecf8e', '#e0b568', '#b58cff', '#e5698f', '#5ac8d8']
 
-// Outer gate: mounted unconditionally in App; renders the panel (keyed by
-// project id so its local draft state initializes fresh) only when open.
-export function ProjectSettingsModal(): JSX.Element | null {
-  const projectId = useAppStore((s) => s.projectSettingsId)
-  const project = useAppStore((s) => s.projects.find((p) => p.id === projectId) ?? null)
-  if (!projectId || !project) return null
-  return <ProjectSettingsPanel key={project.id} project={project} />
+function basename(path: string): string {
+  const parts = path.replace(/\/$/, '').split('/')
+  return parts[parts.length - 1] || path
 }
 
-function ProjectSettingsPanel({ project }: { project: Project }): JSX.Element {
+// Outer gate: mounted unconditionally in App; renders the panel (keyed by folder
+// path so its local draft state initializes fresh) only when open. A folder with
+// no stored settings row resolves to an all-null FolderProject so the modal can
+// open on any folder; the first edit upserts the row.
+export function ProjectSettingsModal(): JSX.Element | null {
+  const path = useAppStore((s) => s.projectSettingsPath)
+  const stored = useAppStore((s) =>
+    path ? (s.folderSettings.find((f) => f.path === path) ?? null) : null
+  )
+  if (!path) return null
+  const folder: FolderProject = stored ?? {
+    path,
+    name: null,
+    color: null,
+    icon: null,
+    defaultModelRef: null,
+    defaultEffort: null,
+    defaultPermissionMode: null
+  }
+  return <ProjectSettingsPanel key={folder.path} folder={folder} />
+}
+
+function ProjectSettingsPanel({ folder }: { folder: FolderProject }): JSX.Element {
   const providers = useAppStore((s) => s.providers)
   const close = useAppStore((s) => s.closeProjectSettings)
   const updateProject = useAppStore((s) => s.updateProject)
-  const renameProject = useAppStore((s) => s.renameProject)
   const setAsNewProjectDefault = useAppStore((s) => s.setAsNewProjectDefault)
 
-  const [name, setName] = useState(project.name)
+  const folderName = basename(folder.path)
+  const displayName = folder.name ?? folderName
+  const [name, setName] = useState(folder.name ?? '')
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -56,9 +75,10 @@ function ProjectSettingsPanel({ project }: { project: Project }): JSX.Element {
     { value: 'auto', label: 'Auto mode' }
   ]
 
+  // A custom display name; blank clears the override back to the folder basename.
   const saveName = (): void => {
     const n = name.trim()
-    if (n && n !== project.name) void renameProject(project.id, n)
+    if ((n || null) !== (folder.name ?? null)) void updateProject(folder.path, { name: n || null })
   }
 
   return (
@@ -69,7 +89,7 @@ function ProjectSettingsPanel({ project }: { project: Project }): JSX.Element {
         </button>
         <div className="page-title">Project Settings</div>
         <div className="page-sub">
-          Appearance and per-project defaults for <b>{project.name}</b>. Unset defaults inherit the
+          Appearance and per-project defaults for <b>{displayName}</b>. Unset defaults inherit the
           global settings.
         </div>
 
@@ -78,10 +98,15 @@ function ProjectSettingsPanel({ project }: { project: Project }): JSX.Element {
           <input
             className="set-input"
             aria-label="Project name"
+            placeholder={folderName}
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={saveName}
           />
+          <div className="set-row-desc" style={{ marginTop: 6 }}>
+            A display name for this folder. Leave blank to use the folder name (<b>{folderName}</b>
+            ).
+          </div>
         </div>
 
         <div className="set-group-title">Appearance</div>
@@ -89,17 +114,17 @@ function ProjectSettingsPanel({ project }: { project: Project }): JSX.Element {
           <div className="set-row-title">Color</div>
           <div className="ps-swatches">
             <button
-              className={'ps-swatch none' + (project.color == null ? ' selected' : '')}
+              className={'ps-swatch none' + (folder.color == null ? ' selected' : '')}
               aria-label="No color"
-              onClick={() => void updateProject(project.id, { color: null })}
+              onClick={() => void updateProject(folder.path, { color: null })}
             />
-            {PROJECT_COLORS.map((c) => (
+            {PROJECT_COLORS.map((col) => (
               <button
-                key={c}
-                className={'ps-swatch' + (project.color === c ? ' selected' : '')}
-                style={{ background: c }}
-                aria-label={`Color ${c}`}
-                onClick={() => void updateProject(project.id, { color: c })}
+                key={col}
+                className={'ps-swatch' + (folder.color === col ? ' selected' : '')}
+                style={{ background: col }}
+                aria-label={`Color ${col}`}
+                onClick={() => void updateProject(folder.path, { color: col })}
               />
             ))}
           </div>
@@ -110,9 +135,9 @@ function ProjectSettingsPanel({ project }: { project: Project }): JSX.Element {
             {Object.entries(PROJECT_ICONS).map(([iconName, Icon]) => (
               <button
                 key={iconName}
-                className={'ps-icon' + (project.icon === iconName ? ' selected' : '')}
+                className={'ps-icon' + (folder.icon === iconName ? ' selected' : '')}
                 aria-label={iconName}
-                onClick={() => void updateProject(project.id, { icon: iconName })}
+                onClick={() => void updateProject(folder.path, { icon: iconName })}
               >
                 <Icon size={16} />
               </button>
@@ -131,8 +156,8 @@ function ProjectSettingsPanel({ project }: { project: Project }): JSX.Element {
             </div>
             <Select
               ariaLabel="Project default model"
-              value={project.defaultModelRef ?? ''}
-              onChange={(v) => void updateProject(project.id, { defaultModelRef: v || null })}
+              value={folder.defaultModelRef ?? ''}
+              onChange={(v) => void updateProject(folder.path, { defaultModelRef: v || null })}
               options={modelOptions}
             />
           </div>
@@ -143,9 +168,11 @@ function ProjectSettingsPanel({ project }: { project: Project }): JSX.Element {
             </div>
             <Select
               ariaLabel="Project default effort"
-              value={project.defaultEffort ?? ''}
+              value={folder.defaultEffort ?? ''}
               onChange={(v) =>
-                void updateProject(project.id, { defaultEffort: (v || null) as EffortLevel | null })
+                void updateProject(folder.path, {
+                  defaultEffort: (v || null) as EffortLevel | null
+                })
               }
               options={effortOptions}
             />
@@ -159,9 +186,9 @@ function ProjectSettingsPanel({ project }: { project: Project }): JSX.Element {
             </div>
             <Select
               ariaLabel="Project default permission mode"
-              value={project.defaultPermissionMode ?? ''}
+              value={folder.defaultPermissionMode ?? ''}
               onChange={(v) =>
-                void updateProject(project.id, {
+                void updateProject(folder.path, {
                   defaultPermissionMode: (v || null) as PermissionMode | null
                 })
               }
@@ -185,18 +212,18 @@ function ProjectSettingsPanel({ project }: { project: Project }): JSX.Element {
           <div className="set-row-text">
             <div className="set-row-title">Set as default for new projects</div>
             <div className="set-row-desc">
-              Apply this project&apos;s color, icon, and defaults to every project you create next.
+              Apply this project&apos;s color, icon, and defaults to every folder you open next.
             </div>
           </div>
           <button
             className="pill-btn"
             onClick={() =>
               void setAsNewProjectDefault({
-                color: project.color,
-                icon: project.icon ?? null,
-                defaultModelRef: project.defaultModelRef ?? null,
-                defaultEffort: project.defaultEffort ?? null,
-                defaultPermissionMode: project.defaultPermissionMode ?? null
+                color: folder.color,
+                icon: folder.icon,
+                defaultModelRef: folder.defaultModelRef,
+                defaultEffort: folder.defaultEffort,
+                defaultPermissionMode: folder.defaultPermissionMode
               })
             }
           >

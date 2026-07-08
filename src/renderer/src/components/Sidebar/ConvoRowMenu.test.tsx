@@ -1,31 +1,27 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { useAppStore } from '../../state/store'
 import { ConvoRowMenu } from './ConvoRowMenu'
 
-beforeEach(() => {
-  useAppStore.setState({
-    projects: [{ id: 'p1', name: 'Campus', color: null, createdAt: 0, updatedAt: 0 }]
-  })
-})
 afterEach(cleanup)
 
-describe('ConvoRowMenu', () => {
-  it('opens on the ⋮ button and lists Rename / Move to project / Delete', () => {
-    render(<ConvoRowMenu convoId="c1" title="T" projectId={null} />)
+describe('ConvoRowMenu (folder = project)', () => {
+  it('opens on the ⋮ button and lists Rename / Delete (no move-to-project)', () => {
+    render(<ConvoRowMenu convoId="c1" title="T" />)
     fireEvent.click(screen.getByTitle('More'))
     expect(screen.getByText('Rename')).toBeTruthy()
-    expect(screen.getByText(/move to project/i)).toBeTruthy()
     expect(screen.getByText('Delete Conversation')).toBeTruthy()
-    expect(screen.getByText('Campus')).toBeTruthy() // a project option
+    // A conversation belongs to the folder it was created in — no move menu.
+    expect(screen.queryByText(/move to project/i)).toBeNull()
   })
-  it('Move to a project calls assignConversationProject', () => {
+  it('Delete calls deleteConvo after confirm', () => {
     const spy = vi.fn()
-    useAppStore.setState({ assignConversationProject: spy as never })
-    render(<ConvoRowMenu convoId="c1" title="T" projectId={null} />)
+    useAppStore.setState({ deleteConvo: spy as never })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<ConvoRowMenu convoId="c1" title="T" />)
     fireEvent.click(screen.getByTitle('More'))
-    fireEvent.click(screen.getByText('Campus'))
-    expect(spy).toHaveBeenCalledWith('c1', 'p1')
+    fireEvent.click(screen.getByText('Delete Conversation'))
+    expect(spy).toHaveBeenCalledWith('c1')
   })
 })
