@@ -91,14 +91,19 @@ export function HistoryView(): React.JSX.Element {
               <div className="history-bucket" key={group.bucket}>
                 <div className="history-bucket-head">{group.bucket}</div>
                 {group.items.map((convo) => {
-                  const preview = convo.events.find((e) => e.type === 'user_message')
+                  // Prefer the loaded transcript's first user message; fall back
+                  // to the DB-sourced preview so unopened conversations (empty
+                  // in-memory events after a restart) still show a snippet.
+                  const loadedPreview = convo.events.find((e) => e.type === 'user_message')
+                  const preview =
+                    loadedPreview && loadedPreview.type === 'user_message'
+                      ? loadedPreview.text
+                      : convo.preview
                   return (
                     <div className="history-row" key={convo.id} onClick={() => openConvo(convo.id)}>
                       <div className="history-row-main">
                         <span className="history-row-title">{convo.title}</span>
-                        {preview && preview.type === 'user_message' ? (
-                          <span className="history-row-preview">{preview.text}</span>
-                        ) : null}
+                        {preview ? <span className="history-row-preview">{preview}</span> : null}
                       </div>
                       <div className="history-row-meta">
                         <span className="history-row-proj">{convo.projectLabel}</span>

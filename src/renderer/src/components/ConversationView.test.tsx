@@ -254,6 +254,42 @@ describe('ConversationView jump-to-match (F1)', () => {
     expect(anchor.scrollIntoView).toHaveBeenCalled()
   })
 
+  it('jumps once events arrive for a not-yet-loaded conversation (async open)', async () => {
+    // The main history-search path: openConvo sets focus while the conversation
+    // is still loaded:false with empty events (conversations.get is in flight).
+    // The focus effect must NOT clear focus on that first render -- it has to
+    // wait for the events, then highlight. (Regression: the old effect ran once
+    // on mount, found no anchor, cleared focus, and never re-ran.)
+    useAppStore.setState({
+      conversations: { c1: { ...focusConvo, loaded: false, events: [] } },
+      focusEventId: 'u1',
+      focusMatches: ['u1']
+    } as never)
+    render(<ConversationView convoId="c1" />)
+    // Nothing to highlight yet, and focus survives (not cleared).
+    expect(document.querySelector('.event-focus-highlight')).toBeNull()
+    expect(useAppStore.getState().focusEventId).toBe('u1')
+
+    // conversations.get resolves: events land and loaded flips true.
+    useAppStore.setState({ conversations: { c1: { ...focusConvo, loaded: true } } } as never)
+
+    await waitFor(() => {
+      const row = document.querySelector('[data-event-id="u1"]') as HTMLElement | null
+      expect(row?.classList.contains('event-focus-highlight')).toBe(true)
+    })
+    const row = document.querySelector('[data-event-id="u1"]') as HTMLElement
+    expect(row.scrollIntoView).toHaveBeenCalled()
+  })
+
+  it('reorders bm25-ranked matches into transcript (document) order', async () => {
+    // Hits arrive ranked by bm25 (a1 ahead of u1), but u1 precedes a1 in the
+    // transcript. Once loaded, the navigator set is sorted to document order so
+    // next/prev steps monotonically top-to-bottom.
+    useAppStore.setState({ focusEventId: 'u1', focusMatches: ['a1', 'u1'] } as never)
+    render(<ConversationView convoId="c1" />)
+    await waitFor(() => expect(useAppStore.getState().focusMatches).toEqual(['u1', 'a1']))
+  })
+
   it('renders an "N of M" navigator and stepFocus advances the highlight', async () => {
     useAppStore.setState({ focusEventId: 'u1', focusMatches: ['u1', 'a1'] } as never)
     render(<ConversationView convoId="c1" />)

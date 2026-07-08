@@ -128,6 +128,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const focusMatches = useAppStore((s) => s.focusMatches)
   const clearFocusEvent = useAppStore((s) => s.clearFocusEvent)
   const stepFocus = useAppStore((s) => s.stepFocus)
+  const setFocusMatches = useAppStore((s) => s.setFocusMatches)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const running = convo.runState === 'running' || convo.runState === 'awaiting-approval'
@@ -151,8 +152,19 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   // the DOM node (never via React state) so it survives streaming re-renders --
   // the row's JSX className is constant, so React won't clobber the added class.
   // Runs after the auto-scroll-to-bottom effect above so it wins on open.
+  //
+  // The common history-search path opens a conversation that is NOT yet loaded:
+  // `conversations.get(id)` resolves asynchronously, so on the first render the
+  // transcript is empty and the target anchor does not exist yet. We must NOT
+  // clear focus then -- that would permanently abort the jump. Instead we gate
+  // on `convo.loaded` and depend on `convo.events`, so the effect re-runs once
+  // the events arrive and only clears when the target is genuinely absent from
+  // a loaded transcript (e.g. compacted away).
   useEffect(() => {
     if (!focusEventId) return
+    // Events haven't loaded yet; wait for them (this effect re-runs when
+    // convo.events / convo.loaded change). Clearing now would kill the jump.
+    if (!convo.loaded) return
     // Scan by dataset rather than an attribute selector so arbitrary event ids
     // never need escaping. A single anchor may advertise more than one id
     // (space-joined) -- e.g. a paired tool_call+tool_result ToolStep -- so match
@@ -161,8 +173,8 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
       ((n as HTMLElement).dataset.eventId ?? '').split(' ').includes(focusEventId)
     )
     if (!el) {
-      // Target isn't in the rendered transcript (e.g. compacted away). Abort the
-      // jump so it can't fire spuriously later; never throw.
+      // Loaded, but the target isn't in the rendered transcript (e.g. compacted
+      // away). Abort the jump so it can't fire spuriously later; never throw.
       clearFocusEvent()
       return
     }
@@ -178,7 +190,21 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
       if (timer) window.clearTimeout(timer)
       el.classList.remove('event-focus-highlight')
     }
-  }, [focusEventId, clearFocusEvent])
+  }, [focusEventId, convo.loaded, convo.events, clearFocusEvent])
+
+  // F1: searchHistory ranks matches by bm25, but the next/prev navigator should
+  // walk them in transcript order so "N of M" advances monotonically down the
+  // conversation. Once events are loaded, reorder focusMatches into document
+  // order. Guarded to a single write: after sorting, the order matches and no
+  // further set fires, so this settles without looping.
+  useEffect(() => {
+    if (focusMatches.length < 2 || !convo.loaded) return
+    const pos = new Map(convo.events.map((e, i) => [e.id, i] as const))
+    const ordered = [...focusMatches].sort(
+      (a, b) => (pos.get(a) ?? Infinity) - (pos.get(b) ?? Infinity)
+    )
+    if (ordered.some((id, i) => id !== focusMatches[i])) setFocusMatches(ordered)
+  }, [focusMatches, convo.loaded, convo.events, setFocusMatches])
 
   const focusIdx = focusEventId ? focusMatches.indexOf(focusEventId) : -1
 

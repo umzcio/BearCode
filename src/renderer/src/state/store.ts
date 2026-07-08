@@ -43,6 +43,10 @@ export interface Convo {
   events: Event[]
   runState: ConvoRunState
   startedAt?: number
+  // First-user-message snippet from the DB (F1 History browse), so a preview
+  // shows even before the conversation's events are loaded this session. null
+  // until known.
+  preview?: string | null
 }
 
 export type View =
@@ -136,7 +140,8 @@ function fromMeta(meta: ConversationMeta): Convo {
     createdAt: meta.createdAt,
     loaded: false,
     events: [],
-    runState: 'idle'
+    runState: 'idle',
+    preview: meta.preview ?? null
   }
 }
 
@@ -227,6 +232,10 @@ interface AppState {
   openConvo(id: string, opts?: { focusEventId?: string; focusMatches?: string[] }): void
   clearFocusEvent(): void
   stepFocus(dir: -1 | 1): void
+  // Replace the match set (F1). ConversationView reorders bm25-ranked matches
+  // into transcript order once the events are loaded, so the next/prev
+  // navigator steps monotonically down the conversation.
+  setFocusMatches(ids: string[]): void
   startFromHome(
     text: string,
     command?: CommandRef | null,
@@ -527,6 +536,7 @@ export const useAppStore = create<AppState>((set, get) => {
     openHistory: () =>
       set({ view: { kind: 'history' }, auxSelection: null, reviewFocusPath: null }),
     clearFocusEvent: () => set({ focusEventId: null, focusMatches: [] }),
+    setFocusMatches: (ids) => set({ focusMatches: ids }),
     // Walk the current match set (from a content-search jump) by one step,
     // clamped to the ends, and re-point focusEventId so ConversationView
     // re-scrolls + re-highlights. No-op when there's no match set.

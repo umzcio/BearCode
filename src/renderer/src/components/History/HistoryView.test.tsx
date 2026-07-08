@@ -36,7 +36,10 @@ function seed(openConvo = vi.fn()): typeof openConvo {
         title: 'Old chat',
         modelRef: 'anthropic/claude-sonnet-5',
         updatedAt: now - 40 * 86400000,
-        events: []
+        // Unopened this session: no in-memory events, but the DB-sourced preview
+        // is still present so the browse row shows a snippet.
+        events: [],
+        preview: 'first message from a restart'
       }
     },
     convoOrder: ['c1', 'c2'],
@@ -68,6 +71,13 @@ describe('HistoryView browse', () => {
     expect(screen.getByText('Older')).toBeTruthy()
     expect(screen.getByText('Fox puzzle')).toBeTruthy()
     expect(screen.getByText('Old chat')).toBeTruthy()
+  })
+
+  it('shows the DB-sourced preview for an unopened conversation (empty events)', () => {
+    seed()
+    render(<HistoryView />)
+    // c2 has events:[] but a DB preview -- the browse row must still render it.
+    expect(screen.getByText('first message from a restart')).toBeTruthy()
   })
 
   it('opens a conversation with no focus when a browse row is clicked', () => {
