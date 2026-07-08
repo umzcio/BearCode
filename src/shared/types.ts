@@ -575,6 +575,9 @@ export interface BearcodeApi {
   models: {
     list(): Promise<ProviderModels[]>
   }
+  history: {
+    search(query: string): Promise<HistoryHit[]>
+  }
   commands: {
     // The slash menu's live read model (design 6.1), re-fetched on menu open:
     // built-ins first, then the project + global workflows for this project

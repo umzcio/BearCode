@@ -49,6 +49,9 @@ const bearcode: BearcodeApi = {
   models: {
     list: () => ipcRenderer.invoke('bearcode:models:list')
   },
+  history: {
+    search: (query: string) => ipcRenderer.invoke('bearcode:history:search', query)
+  },
   commands: {
     list: (projectPath: string | null) => ipcRenderer.invoke('bearcode:commands:list', projectPath)
   },
