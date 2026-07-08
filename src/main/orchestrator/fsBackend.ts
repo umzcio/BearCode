@@ -32,6 +32,7 @@ import { stageFile } from '../diffs'
 import { evaluateEditForConversation, resolveConversationMode } from '../permissions'
 import { getSettings } from '../settings'
 import { takeDeniedEditReplayPin } from './tools'
+import { matchWorktree, toWorktreePath, type WorktreeMapping } from '../worktree/paths'
 
 const execFileAsync = promisify(execFile)
 
@@ -146,15 +147,52 @@ async function rg(args: string[], cwd: string): Promise<{ stdout: string; code: 
 export class DiffFsBackend implements BackendProtocolV2 {
   readonly stagedFiles: FileDiffFile[] = []
 
+  // F3: repoPath→worktreePath redirect table (empty in local mode / a non-git
+  // project). Each repoPath is normalized through realpath so prefix-matching
+  // lines up with jailPath's realpath'd absolute paths — without this a
+  // symlinked project root (macOS /var→/private/var, or a symlinked workspace)
+  // would fail to match and SILENTLY write to the project tree instead of the
+  // worktree, which the F3 security contract forbids.
+  private readonly worktrees: WorktreeMapping[]
+
   constructor(
     private readonly conversationId: string,
     private readonly projectPath: string,
-    private readonly diffGroupId: string
-  ) {}
+    private readonly diffGroupId: string,
+    worktrees: WorktreeMapping[] = []
+  ) {
+    this.worktrees = worktrees.map((m) => {
+      let repoPath = m.repoPath
+      try {
+        repoPath = realpathSync(m.repoPath)
+      } catch {
+        // repoPath does not resolve on disk; keep the raw string (a missing
+        // repo simply never matches, so writes fall through to the project).
+      }
+      return { repoPath, worktreePath: m.worktreePath }
+    })
+  }
+
+  // Outer jail (project root) is the load-bearing security guard and always
+  // runs first. If the resulting absolute path falls under a discovered repo,
+  // route it into that repo's worktree and RE-JAIL inside the worktree. Loose
+  // files (no repo match) stay at the project root. When `worktrees` is empty,
+  // this returns exactly what jailPath returned — identical to pre-F3 behavior.
+  private effectivePath(p: string | undefined, opts?: { allowOutsideRead?: boolean }): string {
+    const abs = jailPath(this.projectPath, p, opts)
+    if (this.worktrees.length === 0) return abs
+    const m = matchWorktree(abs, this.worktrees)
+    if (!m) return abs
+    const target = toWorktreePath(abs, m)
+    // Re-jail inside the worktree: `target` is derived from `abs` which is
+    // already project-jailed, so this cannot escape; the second jail defends
+    // against a degenerate mapping and keeps symlink resolution honest.
+    return jailPath(m.worktreePath, target, opts)
+  }
 
   async ls(path: string, allowOutsideRead = false): Promise<LsResult> {
     try {
-      const dir = jailPath(this.projectPath, path, { allowOutsideRead })
+      const dir = this.effectivePath(path, { allowOutsideRead })
       const entries = readdirSync(dir, { withFileTypes: true })
       const files = entries
         .filter((e) => e.name !== '.git')
@@ -173,7 +211,7 @@ export class DiffFsBackend implements BackendProtocolV2 {
     allowOutsideRead = false
   ): Promise<ReadResult> {
     try {
-      const abs = jailPath(this.projectPath, filePath, { allowOutsideRead })
+      const abs = this.effectivePath(filePath, { allowOutsideRead })
       const all = readFileSync(abs, 'utf8').split('\n')
       const slice = all.slice(offset, offset + limit)
       const notice =
@@ -188,7 +226,7 @@ export class DiffFsBackend implements BackendProtocolV2 {
 
   async readRaw(filePath: string, allowOutsideRead = false): Promise<ReadRawResult> {
     try {
-      const abs = jailPath(this.projectPath, filePath, { allowOutsideRead })
+      const abs = this.effectivePath(filePath, { allowOutsideRead })
       const stat = statSync(abs)
       const content = readFileSync(abs, 'utf8')
       return {
@@ -211,7 +249,7 @@ export class DiffFsBackend implements BackendProtocolV2 {
     allowOutsideRead = false
   ): Promise<GrepResult> {
     try {
-      const dir = jailPath(this.projectPath, path ?? undefined, { allowOutsideRead })
+      const dir = this.effectivePath(path ?? undefined, { allowOutsideRead })
       const args = ['-n', '--no-heading', '-F', '--max-columns', '250', '-e', pattern]
       if (glob) args.push('-g', glob)
       args.push('.')
@@ -235,7 +273,7 @@ export class DiffFsBackend implements BackendProtocolV2 {
 
   async glob(pattern: string, path?: string, allowOutsideRead = false): Promise<GlobResult> {
     try {
-      const dir = jailPath(this.projectPath, path, { allowOutsideRead })
+      const dir = this.effectivePath(path, { allowOutsideRead })
       const { stdout } = await rg(
         ['--files', '--hidden', '-g', '!.git', '-g', pattern, '--sort', 'path'],
         dir
@@ -253,7 +291,7 @@ export class DiffFsBackend implements BackendProtocolV2 {
 
   async write(filePath: string, content: string): Promise<WriteResult> {
     try {
-      const abs = jailPath(this.projectPath, filePath)
+      const abs = this.effectivePath(filePath)
       const before = existsSync(abs) ? readFileSync(abs, 'utf8') : ''
       const staged = stageFile(this.diffGroupId, this.conversationId, abs, before, content)
       this.stagedFiles.push(staged)
@@ -270,7 +308,7 @@ export class DiffFsBackend implements BackendProtocolV2 {
     replaceAll = false
   ): Promise<EditResult> {
     try {
-      const abs = jailPath(this.projectPath, filePath)
+      const abs = this.effectivePath(filePath)
       if (!existsSync(abs)) return { error: `File not found: ${filePath}` }
       const before = readFileSync(abs, 'utf8')
       const count = before.split(oldString).length - 1
