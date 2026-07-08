@@ -154,9 +154,11 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   useEffect(() => {
     if (!focusEventId) return
     // Scan by dataset rather than an attribute selector so arbitrary event ids
-    // never need escaping.
-    const el = Array.from(scrollRef.current?.querySelectorAll('[data-event-id]') ?? []).find(
-      (n) => (n as HTMLElement).dataset.eventId === focusEventId
+    // never need escaping. A single anchor may advertise more than one id
+    // (space-joined) -- e.g. a paired tool_call+tool_result ToolStep -- so match
+    // against the whole set. Event ids never contain spaces.
+    const el = Array.from(scrollRef.current?.querySelectorAll('[data-event-id]') ?? []).find((n) =>
+      ((n as HTMLElement).dataset.eventId ?? '').split(' ').includes(focusEventId)
     )
     if (!el) {
       // Target isn't in the rendered transcript (e.g. compacted away). Abort the

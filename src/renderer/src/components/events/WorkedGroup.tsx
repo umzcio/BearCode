@@ -69,14 +69,22 @@ export function WorkedGroup({
       )
     } else if (ev.type === 'tool_call') {
       const result = steps.find((r) => r.type === 'tool_result' && r.callId === ev.id)
+      // F1 jump-to-match anchor: a content-search hit can land on the tool_call
+      // OR its tool_result (both are FTS-indexed via extractSearchText), yet the
+      // pair renders as one ToolStep. So the wrapper advertises BOTH event ids,
+      // space-joined -- ConversationView's focus scan matches either id. Without
+      // this, tool/tool_result hits jump nowhere (their rows had no data-event-id).
+      const anchorIds = result && result.type === 'tool_result' ? `${ev.id} ${result.id}` : ev.id
       rows.push(
-        <AgentAttributed key={ev.id} event={ev}>
-          <ToolStep
-            call={ev}
-            result={result && result.type === 'tool_result' ? result : undefined}
-            convoId={convoId}
-          />
-        </AgentAttributed>
+        <div key={ev.id} data-event-id={anchorIds}>
+          <AgentAttributed event={ev}>
+            <ToolStep
+              call={ev}
+              result={result && result.type === 'tool_result' ? result : undefined}
+              convoId={convoId}
+            />
+          </AgentAttributed>
+        </div>
       )
     }
   }

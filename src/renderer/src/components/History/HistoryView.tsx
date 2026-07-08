@@ -3,7 +3,8 @@
 //     newest first, click a row to open it.
 //   - non-empty     -> debounced FTS content search (history.search IPC),
 //     ranked rows with a snippet; click jumps to + highlights the matched event
-//     via openConvo(id, { focusEventId }).
+//     via openConvo(id, { focusEventId, focusMatches }) -- focusMatches carries
+//     every hit in that conversation so the jump navigator can step across them.
 // Cmd-K search (components/Search) is a separate, untouched feature.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HistoryHit } from '@shared/types'
@@ -119,7 +120,19 @@ export function HistoryView(): React.JSX.Element {
             <div
               className="history-hit"
               key={hit.eventId}
-              onClick={() => openConvo(hit.conversationId, { focusEventId: hit.eventId })}
+              onClick={() =>
+                openConvo(hit.conversationId, {
+                  focusEventId: hit.eventId,
+                  // Derive the per-conversation match set (in ranked display
+                  // order) from the current results so ConversationView's
+                  // next/prev navigator can walk every hit in this conversation,
+                  // not just the clicked one. A lone hit yields a single-element
+                  // set (navigator stays hidden).
+                  focusMatches: hits
+                    .filter((h) => h.conversationId === hit.conversationId)
+                    .map((h) => h.eventId)
+                })
+              }
             >
               <div className="history-hit-head">
                 <span className="history-hit-title">{hit.title ?? 'Untitled conversation'}</span>

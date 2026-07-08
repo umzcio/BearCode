@@ -116,6 +116,49 @@ describe('HistoryView content search', () => {
     fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'fox' } })
     await waitFor(() => expect(container.querySelector('.history-hit')).toBeTruthy())
     fireEvent.click(container.querySelector('.history-hit') as Element)
-    expect(openConvo).toHaveBeenCalledWith('c1', { focusEventId: 'u1' })
+    expect(openConvo).toHaveBeenCalledWith('c1', { focusEventId: 'u1', focusMatches: ['u1'] })
+  })
+
+  it('passes the full per-conversation match set so the next/prev navigator is reachable', async () => {
+    const openConvo = seed(vi.fn())
+    // Three hits: two in c1, one in c2. Clicking a c1 hit must carry BOTH c1
+    // event ids (in ranked order) and exclude c2's.
+    search.mockResolvedValue([
+      {
+        conversationId: 'c1',
+        eventId: 'u1',
+        kind: 'user_message',
+        snippet: '‹mark›fox‹/mark›',
+        title: 'Fox puzzle',
+        projectLabel: 'proj',
+        updatedAt: Date.now()
+      },
+      {
+        conversationId: 'c1',
+        eventId: 'a5',
+        kind: 'assistant_text',
+        snippet: 'the ‹mark›fox‹/mark› again',
+        title: 'Fox puzzle',
+        projectLabel: 'proj',
+        updatedAt: Date.now()
+      },
+      {
+        conversationId: 'c2',
+        eventId: 'z9',
+        kind: 'tool_call',
+        snippet: '‹mark›fox‹/mark›',
+        title: 'Old chat',
+        projectLabel: 'proj',
+        updatedAt: Date.now()
+      }
+    ])
+    const { container } = render(<HistoryView />)
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'fox' } })
+    await waitFor(() => expect(container.querySelectorAll('.history-hit').length).toBe(3))
+    fireEvent.click(container.querySelectorAll('.history-hit')[0])
+    expect(openConvo).toHaveBeenCalledWith('c1', {
+      focusEventId: 'u1',
+      focusMatches: ['u1', 'a5']
+    })
   })
 })

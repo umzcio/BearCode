@@ -216,6 +216,44 @@ describe('ConversationView jump-to-match (F1)', () => {
     expect(document.querySelector('.event-focus-highlight')).toBeNull()
   })
 
+  it('jumps to a tool_call or tool_result hit rendered inside a WorkedGroup', async () => {
+    // tool_call + tool_result render as one paired ToolStep inside WorkedGroup.
+    // Both event kinds are FTS-indexed, so a content-search hit can land on
+    // either id -- the anchor must cover both.
+    const toolConvo = {
+      ...focusConvo,
+      events: [
+        { type: 'user_message', id: 'u1', text: 'edit the registry' },
+        {
+          type: 'tool_call',
+          id: 'tc1',
+          tool: 'edit_file',
+          input: { path: 'src/registry.ts' },
+          approvalState: 'approved'
+        },
+        {
+          type: 'tool_result',
+          id: 'tr1',
+          callId: 'tc1',
+          output: 'wrote src/registry.ts',
+          durationMs: 1,
+          truncated: false
+        },
+        { type: 'turn_meta', id: 'm1', provider: 'anthropic', model: 'x', startedAt: 1, endedAt: 2 }
+      ]
+    }
+    useAppStore.setState({
+      conversations: { c1: toolConvo },
+      focusEventId: 'tr1',
+      focusMatches: ['tc1', 'tr1']
+    } as never)
+    render(<ConversationView convoId="c1" />)
+    const anchor = document.querySelector('[data-event-id~="tr1"]') as HTMLElement
+    expect(anchor).toBeTruthy()
+    await waitFor(() => expect(anchor.classList.contains('event-focus-highlight')).toBe(true))
+    expect(anchor.scrollIntoView).toHaveBeenCalled()
+  })
+
   it('renders an "N of M" navigator and stepFocus advances the highlight', async () => {
     useAppStore.setState({ focusEventId: 'u1', focusMatches: ['u1', 'a1'] } as never)
     render(<ConversationView convoId="c1" />)
