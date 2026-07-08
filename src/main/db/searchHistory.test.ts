@@ -106,6 +106,8 @@ import {
   createConversation,
   clearAll,
   deleteConversation,
+  dropDanglingApprovalRows,
+  listConversations,
   searchHistory,
   setTitle
 } from './index'
@@ -201,5 +203,29 @@ describe('searchHistory', () => {
     deleteConversation('c-main')
     expect(searchHistory('fox')).toEqual([])
     expect(searchHistory('registry')).toEqual([])
+  })
+
+  it('drops the FTS row when dropDanglingApprovalRows removes a stale tool_call', () => {
+    // A crash-resume leaves a trailing pending tool_call (FTS-indexed). Cleanup
+    // must delete both the events row AND its event_fts row, or the search index
+    // keeps a ghost hit pointing at a row that no longer exists.
+    createConversation('/Users/z/proj-gamma', 'c-appr')
+    appendEvent('c-appr', {
+      type: 'tool_call',
+      id: 'tc-stale',
+      tool: 'edit_file' as never,
+      input: { path: 'src/danglingfile.ts' },
+      approvalState: 'pending' as never
+    })
+    expect(searchHistory('danglingfile')).toHaveLength(1)
+    dropDanglingApprovalRows('c-appr')
+    expect(searchHistory('danglingfile')).toEqual([])
+  })
+
+  it('listConversations exposes a first-user-message preview for browse rows', () => {
+    // The preview is sourced from the DB so the History browse list can show it
+    // even for conversations never opened this session (empty in-memory events).
+    const meta = listConversations().find((m) => m.id === 'c-main')
+    expect(meta?.preview).toBe('fox chicken grain')
   })
 })

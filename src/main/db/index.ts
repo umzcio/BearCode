@@ -295,7 +295,11 @@ function parseActiveRules(raw: string | null): string[] {
   }
 }
 
-function toMeta(row: ConversationRow, fallbackTitle?: string | null): ConversationMeta {
+function toMeta(
+  row: ConversationRow,
+  fallbackTitle?: string | null,
+  preview?: string | null
+): ConversationMeta {
   return {
     id: row.id,
     projectPath: row.project_path || null,
@@ -309,7 +313,8 @@ function toMeta(row: ConversationRow, fallbackTitle?: string | null): Conversati
     thinking: row.thinking == null ? getSettings().defaultThinking : row.thinking === 1,
     projectId: row.project_id ?? null,
     pinned: row.pinned === 1,
-    archived: row.archived === 1
+    archived: row.archived === 1,
+    preview: preview ?? null
   }
 }
 
@@ -343,21 +348,31 @@ export function listConversations(): ConversationMeta[] {
   const rows = getDb()
     .prepare(`SELECT * FROM conversations ORDER BY updated_at DESC`)
     .all() as ConversationRow[]
-  // Fall back to the first user message when no generated title exists yet.
+  // The first user message serves two browse-list needs: a fallback title when
+  // none was generated, and a preview snippet. Sourcing the preview here (from
+  // the DB) means the History browse list can show it even for conversations
+  // never opened this session, whose in-memory events array is empty.
   const firstMsg = getDb().prepare(
     `SELECT payload FROM events WHERE conversation_id = ? AND type = 'user_message'
      ORDER BY seq ASC LIMIT 1`
   )
   return rows.map((row) => {
-    let fallback: string | null = null
-    if (!row.title) {
-      const msg = firstMsg.get(row.id) as { payload: string } | undefined
-      if (msg) {
-        const text = (JSON.parse(msg.payload) as { text: string }).text
-        fallback = text.length > 42 ? text.slice(0, 42) + '…' : text
-      }
-    }
-    return toMeta(row, fallback)
+    const msg = firstMsg.get(row.id) as { payload: string } | undefined
+    let firstText: string | null = null
+    if (msg) firstText = (JSON.parse(msg.payload) as { text: string }).text
+    const fallback =
+      !row.title && firstText != null
+        ? firstText.length > 42
+          ? firstText.slice(0, 42) + '…'
+          : firstText
+        : null
+    const preview =
+      firstText != null
+        ? firstText.length > 120
+          ? firstText.slice(0, 120) + '…'
+          : firstText
+        : null
+    return toMeta(row, fallback, preview)
   })
 }
 
@@ -475,6 +490,10 @@ export function dropDanglingApprovalRows(conversationId: string): void {
     }
   }
   const del = database.prepare(`DELETE FROM events WHERE id = ?`)
+  // tool_call events ARE FTS-indexed at append (extractSearchText), so deleting
+  // the event row alone would leave a ghost search hit pointing at a row that no
+  // longer exists. Drop the matching event_fts row in lockstep.
+  const delFts = database.prepare(`DELETE FROM event_fts WHERE event_id = ?`)
   for (const row of rows) {
     let ev: Event
     try {
@@ -489,6 +508,7 @@ export function dropDanglingApprovalRows(conversationId: string): void {
         !resultCallIds.has(ev.id))
     if (!stale) break
     del.run(row.id)
+    delFts.run(row.id)
   }
 }
 
