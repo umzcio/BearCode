@@ -773,9 +773,35 @@ describe('F1 history: openHistory + openConvo focusEventId (jump-to-match)', () 
     expect(useAppStore.getState().focusEventId).toBeNull()
   })
 
-  it('clearFocusEvent nulls the transient focus after ConversationView consumes it', () => {
-    useAppStore.setState({ focusEventId: 'e9' })
+  it('clearFocusEvent nulls the transient focus and match set', () => {
+    useAppStore.setState({ focusEventId: 'e9', focusMatches: ['e9', 'e10'] })
     useAppStore.getState().clearFocusEvent()
     expect(useAppStore.getState().focusEventId).toBeNull()
+    expect(useAppStore.getState().focusMatches).toEqual([])
+  })
+
+  it('openConvo with focusMatches keeps the full match set for the navigator', () => {
+    useAppStore.setState({ view: { kind: 'history' }, conversations: { c1: convo() } })
+    useAppStore.getState().openConvo('c1', { focusEventId: 'e2', focusMatches: ['e1', 'e2', 'e3'] })
+    expect(useAppStore.getState().focusEventId).toBe('e2')
+    expect(useAppStore.getState().focusMatches).toEqual(['e1', 'e2', 'e3'])
+  })
+
+  it('openConvo with only focusEventId defaults focusMatches to that single event', () => {
+    useAppStore.setState({ view: { kind: 'history' }, conversations: { c1: convo() } })
+    useAppStore.getState().openConvo('c1', { focusEventId: 'e2' })
+    expect(useAppStore.getState().focusMatches).toEqual(['e2'])
+  })
+
+  it('stepFocus walks the match set and clamps at the ends', () => {
+    useAppStore.setState({ focusEventId: 'e1', focusMatches: ['e1', 'e2', 'e3'] })
+    useAppStore.getState().stepFocus(1)
+    expect(useAppStore.getState().focusEventId).toBe('e2')
+    useAppStore.getState().stepFocus(1)
+    expect(useAppStore.getState().focusEventId).toBe('e3')
+    useAppStore.getState().stepFocus(1) // clamped at the last match
+    expect(useAppStore.getState().focusEventId).toBe('e3')
+    useAppStore.getState().stepFocus(-1)
+    expect(useAppStore.getState().focusEventId).toBe('e2')
   })
 })

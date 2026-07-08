@@ -122,6 +122,12 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const cancelRun = useAppStore((s) => s.cancelRun)
   const retryRun = useAppStore((s) => s.retryRun)
   const showToast = useAppStore((s) => s.showToast)
+  // F1 jump-to-match: the event a content-search hit wants to land on, the full
+  // match set for the next/prev navigator, and the actions to walk/clear it.
+  const focusEventId = useAppStore((s) => s.focusEventId)
+  const focusMatches = useAppStore((s) => s.focusMatches)
+  const clearFocusEvent = useAppStore((s) => s.clearFocusEvent)
+  const stepFocus = useAppStore((s) => s.stepFocus)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const running = convo.runState === 'running' || convo.runState === 'awaiting-approval'
@@ -140,8 +146,65 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
     if (el) el.scrollTop = el.scrollHeight
   }, [convo.events])
 
+  // F1: when a content-search hit points here, scroll the matching event into
+  // view and flash a transient highlight. The class is toggled imperatively on
+  // the DOM node (never via React state) so it survives streaming re-renders --
+  // the row's JSX className is constant, so React won't clobber the added class.
+  // Runs after the auto-scroll-to-bottom effect above so it wins on open.
+  useEffect(() => {
+    if (!focusEventId) return
+    // Scan by dataset rather than an attribute selector so arbitrary event ids
+    // never need escaping.
+    const el = Array.from(scrollRef.current?.querySelectorAll('[data-event-id]') ?? []).find(
+      (n) => (n as HTMLElement).dataset.eventId === focusEventId
+    )
+    if (!el) {
+      // Target isn't in the rendered transcript (e.g. compacted away). Abort the
+      // jump so it can't fire spuriously later; never throw.
+      clearFocusEvent()
+      return
+    }
+    el.scrollIntoView({ block: 'center' })
+    el.classList.add('event-focus-highlight')
+    // Respect reduce-motion: skip the timed fade (the CSS also drops the
+    // animation), leaving a static highlight until focus moves away.
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    const timer = reduce
+      ? undefined
+      : window.setTimeout(() => el.classList.remove('event-focus-highlight'), 1600)
+    return () => {
+      if (timer) window.clearTimeout(timer)
+      el.classList.remove('event-focus-highlight')
+    }
+  }, [focusEventId, clearFocusEvent])
+
+  const focusIdx = focusEventId ? focusMatches.indexOf(focusEventId) : -1
+
   return (
     <div className="convo-view">
+      {focusMatches.length > 1 ? (
+        <div className="focus-nav" role="status" aria-label="Search match navigator">
+          <button
+            className="icon-btn"
+            title="Previous match"
+            onClick={() => stepFocus(-1)}
+            disabled={focusIdx <= 0}
+          >
+            ‹
+          </button>
+          <span className="focus-nav-count">
+            {Math.max(0, focusIdx) + 1} of {focusMatches.length}
+          </span>
+          <button
+            className="icon-btn"
+            title="Next match"
+            onClick={() => stepFocus(1)}
+            disabled={focusIdx >= focusMatches.length - 1}
+          >
+            ›
+          </button>
+        </div>
+      ) : null}
       <div className="convo-scroll" ref={scrollRef}>
         <div className="convo-inner">
           {items.map((item, i) => {
@@ -157,7 +220,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
             const streaming = isLast && running && hasText
             return (
               <div key={turn.user.id} className="turn-pair">
-                <div className="msg-user-wrap">
+                <div className="msg-user-wrap" data-event-id={turn.user.id}>
                   <div className="msg-user">
                     {turn.user.command ? (
                       <span className="msg-command-pill">/{turn.user.command.name}</span>
@@ -203,12 +266,9 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                   ))}
                   {turn.texts.map((t) =>
                     t.text.length > 0 ? (
-                      <AssistantText
-                        key={t.id}
-                        text={t.text}
-                        streaming={streaming}
-                        convoId={convoId}
-                      />
+                      <div key={t.id} data-event-id={t.id}>
+                        <AssistantText text={t.text} streaming={streaming} convoId={convoId} />
+                      </div>
                     ) : null
                   )}
                   {turn.diffs.map((d) => (

@@ -204,9 +204,15 @@ interface AppState {
   draftConvoId: string | null
   // F1 Conversation History: the event a content-search hit should jump to in
   // the freshly-opened conversation. Transient -- set by openConvo(id, {focusEventId})
-  // and consumed (then cleared via clearFocusEvent) by ConversationView once it
-  // has scrolled to + highlighted the match. Null when no jump is pending.
+  // and consumed by ConversationView, which scrolls to + highlights the match.
+  // Stays set as the "current" match so the next/prev navigator can advance it;
+  // ConversationView calls clearFocusEvent when the target isn't in the rendered
+  // list (e.g. compacted away). Null when no jump is pending.
   focusEventId: string | null
+  // The full set of event ids the active search matched in this conversation, in
+  // display order. Drives the "N of M" jump navigator; stepFocus walks it. Empty
+  // (or length 1) hides the navigator -- a lone hit needs no next/prev.
+  focusMatches: string[]
 
   init(): void
   refreshProviders(): Promise<void>
@@ -218,8 +224,9 @@ interface AppState {
   goHome(): void
   openScheduled(): void
   openHistory(): void
-  openConvo(id: string, opts?: { focusEventId?: string }): void
+  openConvo(id: string, opts?: { focusEventId?: string; focusMatches?: string[] }): void
   clearFocusEvent(): void
+  stepFocus(dir: -1 | 1): void
   startFromHome(
     text: string,
     command?: CommandRef | null,
@@ -411,6 +418,7 @@ export const useAppStore = create<AppState>((set, get) => {
     manualRules: [],
     draftConvoId: null,
     focusEventId: null,
+    focusMatches: [],
 
     init: () => {
       if (initialized) return
@@ -518,7 +526,17 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ view: { kind: 'scheduled' }, auxSelection: null, reviewFocusPath: null }),
     openHistory: () =>
       set({ view: { kind: 'history' }, auxSelection: null, reviewFocusPath: null }),
-    clearFocusEvent: () => set({ focusEventId: null }),
+    clearFocusEvent: () => set({ focusEventId: null, focusMatches: [] }),
+    // Walk the current match set (from a content-search jump) by one step,
+    // clamped to the ends, and re-point focusEventId so ConversationView
+    // re-scrolls + re-highlights. No-op when there's no match set.
+    stepFocus: (dir) => {
+      const { focusMatches, focusEventId } = get()
+      if (focusMatches.length === 0) return
+      const cur = focusEventId ? focusMatches.indexOf(focusEventId) : -1
+      const next = Math.min(focusMatches.length - 1, Math.max(0, cur + dir))
+      set({ focusEventId: focusMatches[next] })
+    },
     openConvo: (id, opts) => {
       const prev = get().view
       // Ba4: the pane renders the CURRENT conversation's entries and
@@ -532,6 +550,10 @@ export const useAppStore = create<AppState>((set, get) => {
         // F1: a content-search hit passes the event to jump to; a plain open
         // (no opts) clears any stale pending focus so it can't fire later.
         focusEventId: opts?.focusEventId ?? null,
+        // Match set for the next/prev navigator. Defaults to just the single
+        // focused event (no navigator) when the caller doesn't supply one, and
+        // clears entirely on a plain open.
+        focusMatches: opts?.focusMatches ?? (opts?.focusEventId ? [opts.focusEventId] : []),
         ...(switching ? { auxSelection: null, reviewFocusPath: null } : {})
       })
       const convo = get().conversations[id]
