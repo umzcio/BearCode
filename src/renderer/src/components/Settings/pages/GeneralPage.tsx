@@ -55,7 +55,7 @@ export function GeneralPage(): JSX.Element | null {
           <input
             type="text"
             className="set-input"
-            placeholder="e.g. Zach"
+            placeholder="e.g. Ursa"
             value={callMe}
             onChange={(e) => setCallMe(e.target.value)}
             onBlur={saveCallMe}

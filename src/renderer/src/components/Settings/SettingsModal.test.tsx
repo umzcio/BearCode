@@ -110,6 +110,15 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
     expect(screen.queryByText('Conversations')).toBeNull()
   })
 
+  it('portals the dropdown menu outside .app-select so it is not clipped', () => {
+    render(<SettingsModal />)
+    fireEvent.click(screen.getByText('Permissions'))
+    fireEvent.click(screen.getByLabelText('Default permission mode'))
+    const option = screen.getAllByRole('option')[0]
+    // Menu is portaled to <body>, so options are NOT inside the trigger wrapper.
+    expect(option.closest('.app-select')).toBeNull()
+  })
+
   it('routes: Providers shows a key input, Models does not', () => {
     render(<SettingsModal />)
     fireEvent.click(screen.getByText('Providers'))
@@ -169,13 +178,25 @@ describe('SettingsModal General page', () => {
     render(<GeneralPage />)
     // Profile fields
     expect(screen.getByPlaceholderText('Your name')).toBeTruthy()
-    expect(screen.getByPlaceholderText('e.g. Zach')).toBeTruthy()
+    expect(screen.getByPlaceholderText('e.g. Ursa')).toBeTruthy()
     // Custom Instructions section
     expect(screen.getByText('Custom Instructions')).toBeTruthy()
     // Data card: the storage location (from settings.dataPath)
     expect(screen.getByText('/tmp/data')).toBeTruthy()
     // Delete All conversations control
     expect(screen.getByRole('button', { name: /delete/i })).toBeTruthy()
+  })
+
+  it('saves a profile field on blur, and not when unchanged', () => {
+    render(<GeneralPage />)
+    const name = screen.getByPlaceholderText('Your name')
+    // Blur with no change → no save (change-detection guard).
+    fireEvent.blur(name)
+    expect(setSpy).not.toHaveBeenCalled()
+    // Change + blur → persists via saveSettings.
+    fireEvent.change(name, { target: { value: 'Ursa' } })
+    fireEvent.blur(name)
+    expect(setSpy).toHaveBeenCalledWith({ profileName: 'Ursa' })
   })
 })
 

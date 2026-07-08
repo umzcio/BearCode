@@ -6,6 +6,8 @@ import './Select.css'
 export interface SelectOption<T extends string> {
   value: T
   label: string
+  // Optional secondary line (Antigravity-style rich dropdowns).
+  description?: string
 }
 
 // The app's shared dropdown: a pill trigger + the standard .menu popover, so
@@ -52,17 +54,23 @@ export function Select<T extends string>({
       if (e.key === 'Escape') setOpen(false)
     }
     // A fixed-positioned menu detaches from the trigger on scroll/resize, so
-    // close it rather than let it float in the wrong place.
-    const onReflow = (): void => setOpen(false)
+    // close it rather than let it float in the wrong place -- but ignore scrolls
+    // WITHIN the menu itself (a long option list scrolling shouldn't close it).
+    const onResize = (): void => setOpen(false)
+    const onScroll = (e: Event): void => {
+      const t = e.target as Node
+      if (menuRef.current && menuRef.current.contains(t)) return
+      setOpen(false)
+    }
     document.addEventListener('click', onDoc)
     window.addEventListener('keydown', onKey)
-    window.addEventListener('resize', onReflow)
-    window.addEventListener('scroll', onReflow, true)
+    window.addEventListener('resize', onResize)
+    window.addEventListener('scroll', onScroll, true)
     return () => {
       document.removeEventListener('click', onDoc)
       window.removeEventListener('keydown', onKey)
-      window.removeEventListener('resize', onReflow)
-      window.removeEventListener('scroll', onReflow, true)
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('scroll', onScroll, true)
     }
   }, [open])
 
@@ -107,13 +115,24 @@ export function Select<T extends string>({
                   key={o.value}
                   role="option"
                   aria-selected={o.value === value}
-                  className={'menu-item' + (o.value === value ? ' selected' : '')}
+                  className={
+                    'menu-item' +
+                    (o.value === value ? ' selected' : '') +
+                    (o.description ? ' has-desc' : '')
+                  }
                   onClick={() => {
                     onChange(o.value)
                     setOpen(false)
                   }}
                 >
-                  <span>{o.label}</span>
+                  {o.description ? (
+                    <span className="mi-text">
+                      <span className="mi-title">{o.label}</span>
+                      <span className="mi-desc">{o.description}</span>
+                    </span>
+                  ) : (
+                    <span>{o.label}</span>
+                  )}
                   <span className="check">✓</span>
                 </div>
               ))}
