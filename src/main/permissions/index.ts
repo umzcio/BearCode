@@ -45,7 +45,14 @@ export function evaluateCommandForConversation(
 ): CommandDecision {
   const mode = resolveConversationMode(conversationId)
   if (mode === 'bypass') return 'run'
-  return evaluateCommand(command, mode, getEffectiveRules(projectPath))
+  // F8: terminalAutoExec (global) can only TIGHTEN the auto-mode fallback; it is
+  // read live like mode/rules. Bypass already returned above, unaffected.
+  return evaluateCommand(
+    command,
+    mode,
+    getEffectiveRules(projectPath),
+    getSettings().terminalAutoExec ?? 'auto'
+  )
 }
 
 // The file-write gate's single entry point: rules first (deny/ask), then the
