@@ -16,7 +16,6 @@
 // always used.
 import { spawn } from 'child_process'
 import { createHash, randomUUID } from 'crypto'
-import { realpathSync } from 'fs'
 import { interrupt } from '@langchain/langgraph'
 import { tool } from 'langchain'
 import { z } from 'zod'
@@ -34,7 +33,14 @@ import {
 } from '../permissions'
 import { loadAgentsContent } from '../agentsDir'
 import type { RunSink } from '../sink'
-import { jailPath, relForGate } from './fsBackend'
+import {
+  jailPath,
+  relForGate,
+  normalizeWorktreeMappings,
+  worktreeWritePath,
+  worktreeCommandCwd
+} from './fsBackend'
+import type { WorktreeMapping } from '../worktree/paths'
 import { generateDocument, type DocFormat } from '../docgen/generate'
 import { docGenGateMessage } from '../docgen/gate'
 import { recordBinaryCreation } from '../diffs'
@@ -227,8 +233,16 @@ export function buildTools(
   projectPath: string,
   conversationId: string,
   sink: RunSink,
-  diffGroupId: string
+  diffGroupId: string,
+  worktreeMappings: WorktreeMapping[] = []
 ) {
+  // F3: in worktree mode run_command + generate_document must honor the same
+  // repo→worktree routing the DiffFsBackend applies to write_file/edit_file, or
+  // shell commands and generated docs silently read/write the user's REAL
+  // project tree. Normalize once (realpath the repoPaths) so matching lines up
+  // with jailPath's realpath'd output. Empty in local mode → byte-identical to
+  // pre-F3 behavior.
+  const worktrees = normalizeWorktreeMappings(worktreeMappings)
   const runCommandTool = tool(
     async (
       { command, timeoutMs }: { command: string; timeoutMs?: number },
@@ -273,7 +287,10 @@ export function buildTools(
         if (!approval.approved) return 'User denied this command.'
       }
       // decision === 'run' (or approved): fall through and execute.
-      const cwd = realpathSync(projectPath)
+      // F3: in worktree mode run inside the project root's worktree so shell
+      // edits/builds/tests stay isolated from the real project tree (loose /
+      // child-repo-only projects fall back to the real project folder).
+      const cwd = worktreeCommandCwd(projectPath, worktrees)
       const result = await runCommand(command, cwd, timeoutMs ?? 60000)
       const truncated = result.output.length > 50000
       return (
@@ -547,8 +564,12 @@ export function buildTools(
       if (!projectPath) {
         return 'No folder is open. Open a folder first so I can create files there.'
       }
-      const abs = jailPath(projectPath, path)
-      const rel = relForGate(projectPath, abs)
+      // Gate stays in PROJECT space (approval cards + permission rules are
+      // project-relative, matching the GatedDiffFsBackend contract): jail + the
+      // rel used for the rules engine and the user-facing message come from the
+      // project path.
+      const projAbs = jailPath(projectPath, path)
+      const rel = relForGate(projectPath, projAbs)
       const decision = evaluateEditForConversation(rel, conversationId, projectPath)
       const decline = docGenGateMessage(decision, resolveConversationMode(conversationId))
       if (decline) return decline
@@ -559,6 +580,11 @@ export function buildTools(
         return `Failed to generate ${format}: ${err instanceof Error ? err.message : String(err)}`
       }
       const marker = `(binary: ${format}, ${buffer.length.toLocaleString()} bytes — preview coming in E9)`
+      // F3: route the actual write into the matching worktree (loose files stay
+      // at the project root) so a generated doc never lands in the real project
+      // tree while write_file edits land in the worktree — the wrong-tree write
+      // the multi-root backend exists to prevent.
+      const abs = worktreeWritePath(projAbs, worktrees)
       recordBinaryCreation(diffGroupId, conversationId, abs, buffer, marker)
       return `Created ${format} file at ${rel} (${buffer.length.toLocaleString()} bytes).`
     },

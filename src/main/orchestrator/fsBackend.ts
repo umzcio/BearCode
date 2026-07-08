@@ -161,16 +161,7 @@ export class DiffFsBackend implements BackendProtocolV2 {
     private readonly diffGroupId: string,
     worktrees: WorktreeMapping[] = []
   ) {
-    this.worktrees = worktrees.map((m) => {
-      let repoPath = m.repoPath
-      try {
-        repoPath = realpathSync(m.repoPath)
-      } catch {
-        // repoPath does not resolve on disk; keep the raw string (a missing
-        // repo simply never matches, so writes fall through to the project).
-      }
-      return { repoPath, worktreePath: m.worktreePath }
-    })
+    this.worktrees = normalizeWorktreeMappings(worktrees)
   }
 
   // Outer jail (project root) is the load-bearing security guard and always
@@ -334,6 +325,51 @@ export class DiffFsBackend implements BackendProtocolV2 {
 // dodge a deny rule (Task 1 review carry-forward).
 export function relForGate(projectPath: string, abs: string): string {
   return relative(projectPath, abs).split(sep).join('/')
+}
+
+// F3: normalize a repoPath→worktreePath table so each repoPath lines up with
+// jailPath's realpath'd absolute output. A symlinked project root (macOS
+// /var→/private/var, or a symlinked workspace) would otherwise fail prefix-
+// matching and SILENTLY write to the project tree instead of the worktree —
+// the F3 security contract forbids that. A repoPath that does not resolve on
+// disk keeps its raw string (a missing repo simply never matches, so writes
+// fall through to the project).
+export function normalizeWorktreeMappings(worktrees: WorktreeMapping[]): WorktreeMapping[] {
+  return worktrees.map((m) => {
+    let repoPath = m.repoPath
+    try {
+      repoPath = realpathSync(m.repoPath)
+    } catch {
+      // repoPath does not resolve on disk; keep the raw string.
+    }
+    return { repoPath, worktreePath: m.worktreePath }
+  })
+}
+
+// F3: route a project-jailed absolute path into its worktree, RE-JAILING inside
+// the worktree — the same routing DiffFsBackend.effectivePath applies, exposed
+// for tools that write OUTSIDE the backend (generate_document, which has its
+// own path resolution). `worktrees` must already be normalized (via
+// normalizeWorktreeMappings). A loose path (no repo match) or an empty table
+// returns `abs` unchanged, matching the loose-file write-through contract.
+export function worktreeWritePath(abs: string, worktrees: WorktreeMapping[]): string {
+  if (worktrees.length === 0) return abs
+  const m = matchWorktree(abs, worktrees)
+  if (!m) return abs
+  // Re-jail inside the worktree: `target` derives from `abs` which is already
+  // project-jailed, so it cannot escape; the second jail defends against a
+  // degenerate mapping and keeps symlink resolution honest.
+  return jailPath(m.worktreePath, toWorktreePath(abs, m))
+}
+
+// F3: the cwd for shell commands (run_command) in worktree mode. Commands run
+// in the project root's worktree when the project root is itself a git repo;
+// otherwise (only child repos have worktrees, or local mode with an empty
+// table) they run in the real project folder — matching loose-file write-
+// through. `worktrees` must already be normalized. Always returns a realpath'd
+// absolute path (jailPath resolves symlinks).
+export function worktreeCommandCwd(projectPath: string, worktrees: WorktreeMapping[]): string {
+  return worktreeWritePath(jailPath(projectPath, '.'), worktrees)
 }
 
 // Per-tool-invocation wrapper created by the backend factory (graph.ts).

@@ -2040,7 +2040,13 @@ function buildAgentAndContext(
     ...(backendFactory
       ? {
           backend: backendFactory,
-          tools: buildTools(projectPath as string, conversationId, sink, diffGroupId)
+          tools: buildTools(
+            projectPath as string,
+            conversationId,
+            sink,
+            diffGroupId,
+            worktreeMappings
+          )
         }
       : {})
   })
