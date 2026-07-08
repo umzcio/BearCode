@@ -18,17 +18,17 @@ const rule = (match: string, effect: PermissionRule['effect']): PermissionRule =
 
 describe('SECURITY FLOOR — deny always wins', () => {
   it('a deny rule beats an allow rule (command)', () => {
-    expect(evaluateCommand('git push', 'auto', [rule('git *', 'allow'), rule('git push', 'deny')])).toBe(
-      'block'
-    )
+    expect(
+      evaluateCommand('git push', 'auto', [rule('git *', 'allow'), rule('git push', 'deny')])
+    ).toBe('block')
   })
   it('a deny rule beats terminalAutoExec=auto', () => {
     expect(evaluateCommand('rm -rf /', 'auto', [rule('rm -rf *', 'deny')], 'auto')).toBe('block')
   })
   it('terminalAutoExec can only add a prompt, never remove a deny', () => {
-    expect(
-      evaluateCommand('rm -rf /', 'auto', [rule('rm -rf *', 'deny')], 'require-review')
-    ).toBe('block')
+    expect(evaluateCommand('rm -rf /', 'auto', [rule('rm -rf *', 'deny')], 'require-review')).toBe(
+      'block'
+    )
   })
 })
 

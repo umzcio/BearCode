@@ -421,6 +421,7 @@ describe('F8 fileAccessPolicy — outside-root READ relaxation (writes stay jail
       kind: 'read_file',
       tool: 'read_file',
       path: '../outside.txt',
+      resolvedPath: expect.stringContaining('outside.txt'),
       toolCallId: 'tc1'
     })
     expect(shared.read).toHaveBeenCalledWith('../outside.txt', undefined, undefined, true)

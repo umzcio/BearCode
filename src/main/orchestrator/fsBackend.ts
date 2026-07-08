@@ -418,8 +418,9 @@ export class GatedDiffFsBackend implements BackendProtocolV2 {
     tool: string
   ): { error: string } | { allowOutside: boolean } {
     let outside: boolean
+    let real: string
     try {
-      ;({ outside } = resolveInWorkspace(this.projectPath, rawPath ?? '.'))
+      ;({ outside, real } = resolveInWorkspace(this.projectPath, rawPath ?? '.'))
     } catch (err) {
       // An unresolvable path (e.g. realpath on a broken root): let the shared
       // method surface the real error by proceeding inside-jail (no relaxation).
@@ -432,10 +433,16 @@ export class GatedDiffFsBackend implements BackendProtocolV2 {
       return { error: `Path is outside the workspace: ${rawPath ?? '.'}` }
     }
     if (policy === 'ask') {
+      // resolvedPath is the REAL absolute target, shown on the approval card:
+      // a symlink planted inside the workspace can make the raw path look
+      // in-project (assets/link/id_rsa) while resolving to ~/.ssh/id_rsa, so
+      // the card must show where the read actually lands (mirrors the edit
+      // gate's resolvedPath contract).
       const approval = interrupt({
         kind: 'read_file',
         tool,
         path: rawPath ?? '.',
+        resolvedPath: real,
         toolCallId: this.toolCallId
       }) as { approved: boolean }
       if (!approval.approved) return { error: 'User denied reading this path.' }

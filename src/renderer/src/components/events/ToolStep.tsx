@@ -217,10 +217,21 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
     )
   }
 
-  // F8: an outside-folder read awaiting approval ('ask' fileAccessPolicy).
+  // F8: an outside-folder read awaiting approval ('ask' fileAccessPolicy). The
+  // enriched input carries file_path = the jail-RESOLVED target (what the read
+  // actually lands on) with the raw agent string as requested_path — shown so a
+  // symlink that makes the path look in-project can't win a misinformed approval.
   if (READ_TOOLS.has(call.tool) && call.approvalState === 'pending') {
     const path = inputStr(call, 'file_path') ?? inputStr(call, 'path') ?? 'a path'
-    return <PendingRead callId={call.id} path={path} convoId={convoId} />
+    const requestedPath = inputStr(call, 'requested_path')
+    return (
+      <PendingRead
+        callId={call.id}
+        path={path}
+        requestedPath={requestedPath !== path ? requestedPath : null}
+        convoId={convoId}
+      />
+    )
   }
   if (READ_TOOLS.has(call.tool) && call.approvalState === 'denied') {
     const path = inputStr(call, 'file_path') ?? inputStr(call, 'path') ?? 'a path'
@@ -482,10 +493,12 @@ function PendingCommand({
 function PendingRead({
   callId,
   path,
+  requestedPath,
   convoId
 }: {
   callId: string
   path: string
+  requestedPath: string | null
   convoId: string
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
@@ -515,6 +528,11 @@ function PendingRead({
           Allow the agent to read <span className="mono">{path}</span> outside the project folder?
         </span>
       </div>
+      {requestedPath ? (
+        <div className="waiting-note">
+          requested as <span className="mono">{requestedPath}</span>
+        </div>
+      ) : null}
       <div className="waiting-note">Waiting for your input…</div>
       <div className="approval-card pulse-once">
         <div className="approval-title">This path is outside the project folder.</div>

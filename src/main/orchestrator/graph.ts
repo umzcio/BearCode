@@ -667,6 +667,30 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
       toolCallId
     }
   }
+  // F8 outside-folder read approval: without this branch an unpaired read_file
+  // interrupt fell through to the run_command default below, surfacing a
+  // mislabeled empty command card whose approval resumed the outside READ. The
+  // card's tool is the payload's read tool so the renderer's read-approval card
+  // renders; file_path is the jail-resolved target (raw rides as requested_path).
+  if (value?.kind === 'read_file') {
+    const READ_TOOLS: ToolName[] = ['read_file', 'ls', 'grep', 'glob']
+    const tool = (
+      typeof value.tool === 'string' && (READ_TOOLS as string[]).includes(value.tool)
+        ? value.tool
+        : 'read_file'
+    ) as ToolName
+    const raw = typeof value.path === 'string' ? value.path : undefined
+    const resolved = typeof value.resolvedPath === 'string' ? value.resolvedPath : undefined
+    const filePath = resolved ?? raw ?? ''
+    return {
+      tool,
+      input:
+        raw !== undefined && raw !== filePath
+          ? { file_path: filePath, requested_path: raw }
+          : { file_path: filePath },
+      toolCallId
+    }
+  }
   return { tool: 'run_command', input: { command: value?.command ?? '' }, toolCallId }
 }
 
@@ -695,7 +719,10 @@ export function pairedApprovalInput(interruptValue: unknown, args: unknown): unk
     // (the edit_file precedent above).
     return { ...base, artifactId: value.artifactId }
   }
-  if (value?.kind !== 'edit_file') return args
+  // edit_file and read_file (F8) share the resolved-path enrichment so the
+  // paired live card also shows the TRUE target instead of the raw agent string
+  // (a symlink inside the workspace can make an outside read look in-project).
+  if (value?.kind !== 'edit_file' && value?.kind !== 'read_file') return args
   const resolved = typeof value.resolvedPath === 'string' ? value.resolvedPath : undefined
   if (resolved === undefined) return args
   const base = (typeof args === 'object' && args !== null ? args : {}) as Record<string, unknown>

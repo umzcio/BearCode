@@ -446,6 +446,30 @@ describe('synthesizedApprovalCard (call:null synthesis and edit rehydration)', (
     })
   })
 
+  it('synthesizes a read_file card (never a mislabeled empty run_command)', () => {
+    // F8 security fix: an unpaired read_file interrupt must render as its read
+    // tool with the resolved target, not fall through to an empty command card.
+    expect(
+      synthesizedApprovalCard({
+        kind: 'read_file',
+        tool: 'read_file',
+        path: 'assets/link/id_rsa',
+        resolvedPath: '/Users/zach/.ssh/id_rsa',
+        toolCallId: 'tc9'
+      })
+    ).toEqual({
+      tool: 'read_file',
+      input: { file_path: '/Users/zach/.ssh/id_rsa', requested_path: 'assets/link/id_rsa' },
+      toolCallId: 'tc9'
+    })
+  })
+
+  it('a read_file card keeps the read tool name (ls/grep/glob) from the payload', () => {
+    expect(synthesizedApprovalCard({ kind: 'read_file', tool: 'ls', path: '../out' }).tool).toBe(
+      'ls'
+    )
+  })
+
   it('shows the RESOLVED path on an edit card and carries the raw string as requested_path', () => {
     // Carry-forward: the UI must render the TRUE target ('safe/../.env'
     // resolving to '.env' must show '.env'); the raw agent string rides along
