@@ -12,6 +12,8 @@ function icon(path: React.ReactNode, strokeWidth = 1.8) {
         fill="none"
         stroke="currentColor"
         strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
         style={size ? { width: size, height: size } : undefined}
       >
         {path}

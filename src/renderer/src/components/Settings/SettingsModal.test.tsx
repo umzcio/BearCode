@@ -117,6 +117,13 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
     expect(screen.queryByPlaceholderText('sk-ant-…')).toBeNull()
   })
 
+  it('opens directly on the Providers page when openSettings targets it (missing-key flow)', () => {
+    useAppStore.setState({ settingsInitialPage: 'providers' })
+    render(<SettingsModal />)
+    // Lands on Providers (API-key input visible) without any nav click.
+    expect(screen.getByPlaceholderText('sk-ant-…')).toBeTruthy()
+  })
+
   it('each Customize tab shows an intentional placeholder', () => {
     render(<SettingsModal />)
     for (const label of ['Skills', 'Connectors', 'Memory', 'Integrations', 'Browser']) {

@@ -96,7 +96,7 @@ export function ModelPicker(): React.JSX.Element {
                     className="menu-item add-key"
                     onClick={() => {
                       setOpen(false)
-                      openSettings()
+                      openSettings('providers')
                     }}
                   >
                     <span>Add API key</span>

@@ -175,6 +175,9 @@ interface AppState {
   permissionRules: PermissionRulesInfo | null
   workspacePath: string | null
   settingsOpen: boolean
+  // Which settings page to open on (e.g. 'providers' for the missing-key flow);
+  // null → default page. Consumed once by SettingsModal on open.
+  settingsInitialPage: string | null
   searchOpen: boolean
   auxSelection: AuxSelection | null
   // File path the diff viewer should focus when it opens (chip/step clicks).
@@ -281,7 +284,7 @@ interface AppState {
   pickWorkspace(): Promise<void>
   setWorkspace(path: string | null): void
   toggleProjectMenu(): void
-  openSettings(): void
+  openSettings(page?: string): void
   closeSettings(): void
   openSearch(): void
   closeSearch(): void
@@ -414,6 +417,7 @@ export const useAppStore = create<AppState>((set, get) => {
     permissionRules: null,
     workspacePath: null,
     settingsOpen: false,
+    settingsInitialPage: null,
     searchOpen: false,
     auxSelection: null,
     reviewFocusPath: null,
@@ -876,7 +880,7 @@ export const useAppStore = create<AppState>((set, get) => {
     setWorkspace: (path) => set({ workspacePath: path }),
     toggleProjectMenu: () => set((s) => ({ projectMenuTick: s.projectMenuTick + 1 })),
 
-    openSettings: () => set({ settingsOpen: true }),
+    openSettings: (page) => set({ settingsOpen: true, settingsInitialPage: page ?? null }),
     closeSettings: () => set({ settingsOpen: false }),
     openSearch: () => set({ searchOpen: true }),
     closeSearch: () => set({ searchOpen: false }),

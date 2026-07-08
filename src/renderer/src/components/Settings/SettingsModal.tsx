@@ -86,9 +86,10 @@ const PLACEHOLDERS: Record<string, { title: string; description: string }> = {
 export function SettingsModal(): React.JSX.Element | null {
   const open = useAppStore((s) => s.settingsOpen)
   const settings = useAppStore((s) => s.settings)
+  const initialPage = useAppStore((s) => s.settingsInitialPage)
   if (!open || !settings) return null
   // Remounts on each open, so drafts initialize fresh from current settings.
-  return <SettingsPanel settings={settings} />
+  return <SettingsPanel settings={settings} initialPage={initialPage} />
 }
 
 function Row({
@@ -120,14 +121,23 @@ function PageHead({ title, sub }: { title: string; sub: string }): React.JSX.Ele
   )
 }
 
-function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Element {
+function SettingsPanel({
+  settings,
+  initialPage
+}: {
+  settings: SettingsInfo
+  initialPage: string | null
+}): React.JSX.Element {
   const close = useAppStore((s) => s.closeSettings)
   const providers = useAppStore((s) => s.providers)
   const saveSettings = useAppStore((s) => s.saveSettings)
   const setAppearance = useAppStore((s) => s.setAppearance)
   const syncPricing = useAppStore((s) => s.syncPricing)
 
-  const [page, setPage] = useState<SettingsPageId>('general')
+  const [page, setPage] = useState<SettingsPageId>(() => {
+    const ids = [...SETTINGS_NAV.flatMap((g) => g.items), ...SETTINGS_FOOTER].map((i) => i.id)
+    return ids.includes(initialPage as SettingsPageId) ? (initialPage as SettingsPageId) : 'general'
+  })
   const [pricingSync, setPricingSync] = useState<{
     status: 'idle' | 'pending' | 'done' | 'error'
     msg: string
@@ -258,21 +268,10 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                   />
                 </Row>
               </div>
-              <div className="set-group-title">Agent Settings</div>
-              <div className="set-card">
-                <Row
-                  title="Security Preset"
-                  desc="Choose a predefined security preset for the agent. This controls terminal auto-execution policy, and file access policy."
-                />
-                <Row
-                  title="Outside of Folders File Access Policy"
-                  desc="Configures how the agent tries to access files outside of its working folders."
-                />
-                <Row
-                  title="Enable Sandbox Mode"
-                  desc="Restricts agent tools to a secure, isolated local sandbox."
-                />
-              </div>
+              {/* "Agent Settings" (Security Preset / Outside-of-Folders File
+                  Access / Sandbox Mode) are built as real controls in F8 (and
+                  Sandbox in Phase G). Omitted here rather than shown as
+                  control-less rows that read as broken. */}
             </>
           ) : null}
 
