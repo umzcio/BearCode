@@ -22,6 +22,7 @@ import {
   IconImage,
   IconMic,
   IconMonitor,
+  IconGitBranch,
   IconPlus,
   IconSlash,
   IconStop
@@ -115,6 +116,8 @@ export function Composer({
   const activeConvo = conversationId ? conversations[conversationId] : undefined
   const envLocked = activeConvo ? activeConvo.events.length > 0 : false
   const displayEnv = envLocked && activeConvo ? activeConvo.environment : composerEnvironment
+  const workspacePath = useAppStore((s) => s.workspacePath)
+  const [worktreeAvailable, setWorktreeAvailable] = useState(false)
 
   // The menu opens only when the composer is otherwise empty and the very
   // first character typed is '/', and stays open while the text still starts
@@ -172,6 +175,25 @@ export function Composer({
     document.addEventListener('click', close)
     return () => document.removeEventListener('click', close)
   }, [envOpen])
+
+  // F3: New Worktree is offerable only for a git-repo folder (git present +
+  // repo discovered). When the current workspace can't host a worktree, gray the
+  // option out and never leave a stale 'worktree' selection standing.
+  useEffect(() => {
+    if (!showEnvRow) return undefined
+    let live = true
+    const probe = workspacePath
+      ? window.bearcode.worktree.available(workspacePath)
+      : Promise.resolve(false)
+    void probe.then((ok) => {
+      if (!live) return
+      setWorktreeAvailable(ok)
+      if (!ok) setComposerEnvironment('local')
+    })
+    return () => {
+      live = false
+    }
+  }, [showEnvRow, workspacePath, setComposerEnvironment])
 
   useEffect(() => {
     if (!addMenuOpen) return undefined
@@ -401,7 +423,7 @@ export function Composer({
         <div className="env-row">
           <div className="env-picker" ref={envRef}>
             <button className="pill-btn" onClick={() => setEnvOpen((o) => !o)} disabled={envLocked}>
-              <IconMonitor />
+              {displayEnv === 'worktree' ? <IconGitBranch /> : <IconMonitor />}
               <span>{displayEnv === 'worktree' ? 'New Worktree' : 'Local'}</span>
               {!envLocked ? (
                 <span className="chev">
@@ -411,19 +433,34 @@ export function Composer({
             </button>
             {envOpen && !envLocked ? (
               <div className="menu env-menu">
-                {(['local', 'worktree'] as const).map((v) => (
-                  <div
-                    key={v}
-                    className={'menu-item' + (composerEnvironment === v ? ' selected' : '')}
-                    onClick={() => {
-                      setComposerEnvironment(v)
-                      setEnvOpen(false)
-                    }}
-                  >
-                    <span>{v === 'worktree' ? 'New Worktree' : 'Local'}</span>
-                    {composerEnvironment === v ? <span className="check">✓</span> : null}
-                  </div>
-                ))}
+                <div
+                  className={'menu-item' + (composerEnvironment === 'local' ? ' selected' : '')}
+                  onClick={() => {
+                    setComposerEnvironment('local')
+                    setEnvOpen(false)
+                  }}
+                >
+                  <IconMonitor size={16} />
+                  <span>Local</span>
+                  {composerEnvironment === 'local' ? <span className="check">✓</span> : null}
+                </div>
+                <div
+                  className={
+                    'menu-item' +
+                    (composerEnvironment === 'worktree' ? ' selected' : '') +
+                    (worktreeAvailable ? '' : ' disabled')
+                  }
+                  onClick={() => {
+                    if (!worktreeAvailable) return
+                    setComposerEnvironment('worktree')
+                    setEnvOpen(false)
+                  }}
+                >
+                  <IconGitBranch size={16} />
+                  <span>New Worktree</span>
+                  {composerEnvironment === 'worktree' ? <span className="check">✓</span> : null}
+                </div>
+                <div className="env-hint">Worktrees are available for Git repositories</div>
               </div>
             ) : null}
           </div>

@@ -817,6 +817,10 @@ export interface BearcodeApi {
   // worktrees (removes each + its branch) and resets the conversation to local.
   worktree: {
     discard(convId: string): Promise<void>
+    // F3: whether New-Worktree mode is offerable for a folder — git is present
+    // AND the folder (or an immediate child) is a git repo. Drives the composer
+    // env picker's grayed-out state.
+    available(path: string): Promise<boolean>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

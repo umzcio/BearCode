@@ -32,7 +32,7 @@ import { runOfficeHtml, runOfficeRows } from './attachments/office'
 import { parseCsv } from './preview/csv'
 import { extractTextLane } from './attachments/extract'
 import * as db from './db'
-import { createWorktrees, removeWorktrees, gitAvailable } from './worktree/manager'
+import { createWorktrees, removeWorktrees, gitAvailable, discoverRepos } from './worktree/manager'
 import { jailPath } from './orchestrator/fsBackend'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
@@ -487,6 +487,16 @@ export function registerIpc(): void {
     if (!meta) return
     await removeWorktrees(meta.worktrees)
     db.setEnvironment(convId, 'local', [])
+  })
+  // F3: New-Worktree mode is offerable only when git is present AND the folder
+  // (or an immediate child) is a git repo — mirrors createWorktrees' discovery.
+  ipcMain.handle('bearcode:worktree:available', async (_e, path: unknown) => {
+    if (typeof path !== 'string' || path.length === 0) return false
+    try {
+      return (await gitAvailable()) && discoverRepos(path).length > 0
+    } catch {
+      return false
+    }
   })
   // F9 (folder = project): per-folder settings keyed by workspace path. `list`
   // returns only folders that carry a stored settings row. `update` upserts the

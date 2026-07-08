@@ -159,7 +159,9 @@ const bearcode: BearcodeApi = {
   },
   worktree: {
     discard: (convId: string): Promise<void> =>
-      ipcRenderer.invoke('bearcode:worktree:discard', convId)
+      ipcRenderer.invoke('bearcode:worktree:discard', convId),
+    available: (path: string): Promise<boolean> =>
+      ipcRenderer.invoke('bearcode:worktree:available', path)
   },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>
