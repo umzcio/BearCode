@@ -3,12 +3,12 @@
 // writes to disk, Reject discards.
 import { randomUUID } from 'crypto'
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
-import { dirname, relative } from 'path'
+import { dirname, relative, sep } from 'path'
 import { diffLines } from 'diff'
 import { app } from 'electron'
 import { join } from 'path'
 import Database from 'better-sqlite3'
-import type { FileDiff, FileDiffFile } from '../shared/types'
+import type { FileDiff, FileDiffFile, WorktreeInfo } from '../shared/types'
 import { getConversationMeta } from './db'
 
 // Reuse the main database file; the diffs table gains a group_id column so
@@ -125,11 +125,27 @@ interface DiffRow {
   group_id: string
 }
 
-function rowToFile(row: DiffRow, projectPath: string | null): FileDiffFile {
+function rowToFile(
+  row: DiffRow,
+  projectPath: string | null,
+  worktrees: WorktreeInfo[]
+): FileDiffFile {
   const { additions, deletions } = countChanges(row.before_text, row.after_text)
+  // F3: a worktree write's absolute path lives under <userData>/worktrees/…, so
+  // relative(projectPath, …) would render traversal garbage in the review pane.
+  // Display it relative to its worktree root instead, so worktree files read
+  // exactly like local ones.
+  const wt = worktrees.find(
+    (w) => row.path === w.worktreePath || row.path.startsWith(w.worktreePath + sep)
+  )
+  const displayPath = wt
+    ? relative(wt.worktreePath, row.path)
+    : projectPath
+      ? relative(projectPath, row.path)
+      : row.path
   return {
     fileId: row.id,
-    path: projectPath ? relative(projectPath, row.path) : row.path,
+    path: displayPath,
     status: row.before_text === '' ? 'created' : 'modified',
     beforeText: row.before_text,
     afterText: row.after_text,
@@ -143,10 +159,10 @@ export function getDiff(groupId: string): FileDiff {
   const rows = getDb()
     .prepare(`SELECT * FROM diffs WHERE group_id = ? ORDER BY path`)
     .all(groupId) as DiffRow[]
-  const projectPath = rows[0]
-    ? (getConversationMeta(rows[0].conversation_id)?.projectPath ?? null)
-    : null
-  return { diffId: groupId, files: rows.map((r) => rowToFile(r, projectPath)) }
+  const meta = rows[0] ? getConversationMeta(rows[0].conversation_id) : null
+  const projectPath = meta?.projectPath ?? null
+  const worktrees = meta?.worktrees ?? []
+  return { diffId: groupId, files: rows.map((r) => rowToFile(r, projectPath, worktrees)) }
 }
 
 export function filePathFor(fileId: string): string | null {
