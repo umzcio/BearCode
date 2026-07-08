@@ -36,7 +36,7 @@ describe('settingsToPreset', () => {
       settingsToPreset({ ...PRESET_VALUES['full-autonomy'], terminalAutoExec: 'require-review' })
     ).toBe('custom')
   })
-  it("the behavior-preserving default (accept-edits/deny/auto) → custom", () => {
+  it('the behavior-preserving default (accept-edits/deny/auto) → custom', () => {
     expect(
       settingsToPreset({
         defaultPermissionMode: 'accept-edits',

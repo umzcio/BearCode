@@ -8,7 +8,12 @@ import type {
   ProviderId,
   SettingsInfo
 } from '../shared/types'
-import { isSttBackend, isSecurityPreset, isFileAccessPolicy, isTerminalAutoExec } from '../shared/types'
+import {
+  isSttBackend,
+  isSecurityPreset,
+  isFileAccessPolicy,
+  isTerminalAutoExec
+} from '../shared/types'
 import type { PricingMap } from '../shared/pricing'
 import { isEffortLevel } from '../shared/effort'
 import {

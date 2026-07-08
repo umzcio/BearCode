@@ -44,7 +44,9 @@ describe('setSettings: F8 write validation', () => {
     expect(() => setSettings({ securityPreset: 'nope' as never })).toThrow(/securityPreset/)
   })
   it('rejects an invalid fileAccessPolicy', () => {
-    expect(() => setSettings({ fileAccessPolicy: 'wide-open' as never })).toThrow(/fileAccessPolicy/)
+    expect(() => setSettings({ fileAccessPolicy: 'wide-open' as never })).toThrow(
+      /fileAccessPolicy/
+    )
   })
   it('rejects an invalid terminalAutoExec', () => {
     expect(() => setSettings({ terminalAutoExec: 'yolo' as never })).toThrow(/terminalAutoExec/)

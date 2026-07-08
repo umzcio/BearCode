@@ -182,9 +182,9 @@ describe('evaluateEdit', () => {
     expect(evaluateEdit('src/a.ts', 'plan', [rule('ask', 'src/a.ts')])).toBe('block')
   })
   it('ignores allow edit rules and command rules', () => {
-    expect(evaluateEdit('.env', 'accept-edits', [rule('allow', '.env'), rule('deny', '.env')])).toBe(
-      'block'
-    )
+    expect(
+      evaluateEdit('.env', 'accept-edits', [rule('allow', '.env'), rule('deny', '.env')])
+    ).toBe('block')
     const cmd: PermissionRule = {
       id: 'c',
       scope: 'global',

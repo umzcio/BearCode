@@ -101,7 +101,9 @@ describe('buildUserMessageContent', () => {
   const noSide = (): string | null => null
 
   it('returns the plain string when there are no attachments', () => {
-    expect(buildUserMessageContent('hello', [], noBytes, noSide, { pdfNative: false })).toBe('hello')
+    expect(buildUserMessageContent('hello', [], noBytes, noSide, { pdfNative: false })).toBe(
+      'hello'
+    )
   })
 
   it('image only -> text block then one image block per resolvable image', () => {

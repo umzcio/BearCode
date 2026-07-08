@@ -112,7 +112,7 @@ describe('GatedDiffFsBackend', () => {
     expect(interrupt).not.toHaveBeenCalled()
   })
 
-  it("block in plan mode returns the read-only message, not the generic rule message", async () => {
+  it('block in plan mode returns the read-only message, not the generic rule message', async () => {
     vi.mocked(evaluateEditForConversation).mockReturnValue('block')
     vi.mocked(resolveConversationMode).mockReturnValue('plan')
     const result = await gated.write('.env', 'SECRET=1')
@@ -399,21 +399,21 @@ describe('F8 fileAccessPolicy — outside-root READ relaxation (writes stay jail
     gated = new GatedDiffFsBackend(shared as unknown as DiffFsBackend, 'tc1', 'convo', projectPath)
   })
 
-  it("deny (default): an outside-root read is rejected, shared read untouched", async () => {
+  it('deny (default): an outside-root read is rejected, shared read untouched', async () => {
     const r = await gated.read('../outside.txt')
     expect(r).toEqual({ error: expect.stringContaining('outside the workspace') })
     expect(shared.read).not.toHaveBeenCalled()
     expect(interrupt).not.toHaveBeenCalled()
   })
 
-  it("allow: an outside-root read is permitted (threads allowOutsideRead=true)", async () => {
+  it('allow: an outside-root read is permitted (threads allowOutsideRead=true)', async () => {
     vi.mocked(getSettings).mockReturnValue({ fileAccessPolicy: 'allow' } as never)
     await gated.read('../outside.txt', 0, 500)
     expect(shared.read).toHaveBeenCalledWith('../outside.txt', 0, 500, true)
     expect(interrupt).not.toHaveBeenCalled()
   })
 
-  it("ask: an outside-root read raises a read_file approval card; approved → permitted", async () => {
+  it('ask: an outside-root read raises a read_file approval card; approved → permitted', async () => {
     vi.mocked(getSettings).mockReturnValue({ fileAccessPolicy: 'ask' } as never)
     vi.mocked(interrupt).mockReturnValue({ approved: true })
     await gated.read('../outside.txt')
@@ -426,7 +426,7 @@ describe('F8 fileAccessPolicy — outside-root READ relaxation (writes stay jail
     expect(shared.read).toHaveBeenCalledWith('../outside.txt', undefined, undefined, true)
   })
 
-  it("ask: a denied approval blocks the read", async () => {
+  it('ask: a denied approval blocks the read', async () => {
     vi.mocked(getSettings).mockReturnValue({ fileAccessPolicy: 'ask' } as never)
     vi.mocked(interrupt).mockReturnValue({ approved: false })
     const r = await gated.read('../outside.txt')
@@ -434,7 +434,7 @@ describe('F8 fileAccessPolicy — outside-root READ relaxation (writes stay jail
     expect(shared.read).not.toHaveBeenCalled()
   })
 
-  it("inside-root reads are UNCHANGED under every policy (no prompt, no relaxation flag)", async () => {
+  it('inside-root reads are UNCHANGED under every policy (no prompt, no relaxation flag)', async () => {
     for (const policy of ['deny', 'ask', 'allow'] as const) {
       vi.mocked(getSettings).mockReturnValue({ fileAccessPolicy: policy } as never)
       shared.read.mockClear()
@@ -455,10 +455,12 @@ describe('F8 fileAccessPolicy — outside-root READ relaxation (writes stay jail
     expect(shared.edit).not.toHaveBeenCalled()
   })
 
-  it("jailPath: no opts throws outside; allowOutsideRead returns the resolved path", () => {
+  it('jailPath: no opts throws outside; allowOutsideRead returns the resolved path', () => {
     expect(() => jailPath(projectPath, '../escape.txt')).toThrow(/outside the workspace/)
     // allowOutsideRead lets the resolution through (used only by read delegations).
-    expect(jailPath(projectPath, '../escape.txt', { allowOutsideRead: true })).toContain('escape.txt')
+    expect(jailPath(projectPath, '../escape.txt', { allowOutsideRead: true })).toContain(
+      'escape.txt'
+    )
     // Inside-root is unchanged regardless of the flag.
     expect(jailPath(projectPath, 'a/b.txt')).toBe(join(projectPath, 'a', 'b.txt'))
   })
