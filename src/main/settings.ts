@@ -42,7 +42,10 @@ const DEFAULTS: AppSettings = {
   chatFont: 'sans',
   modelPricing: {},
   modelPricingSyncedAt: 0,
-  sttBackend: 'openai'
+  sttBackend: 'openai',
+  profileName: '',
+  profileCallMe: '',
+  customInstructions: ''
 }
 
 // Keep only well-formed pricing entries: an object of modelRef -> { inputPer1M,
@@ -132,6 +135,13 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   // typo, downgrade from a future version) collapses to 'openai', the
   // guaranteed-working default. Optional & additive.
   if (!isSttBackend(merged.sttBackend)) merged.sttBackend = 'openai'
+  // Profile + custom instructions (F6): optional string fields; coerce any
+  // non-string persisted value (including missing) to '' so a malformed
+  // settings.json can never leak a non-string into the system prompt.
+  merged.profileName = typeof s['profileName'] === 'string' ? s['profileName'] : ''
+  merged.profileCallMe = typeof s['profileCallMe'] === 'string' ? s['profileCallMe'] : ''
+  merged.customInstructions =
+    typeof s['customInstructions'] === 'string' ? s['customInstructions'] : ''
   return merged
 }
 

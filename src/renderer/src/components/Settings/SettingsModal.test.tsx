@@ -98,8 +98,9 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
 
   it('defaults to the General page', () => {
     render(<SettingsModal />)
-    // General page's intentional WIP placeholder.
-    expect(screen.getByText('Profile & Custom Instructions')).toBeTruthy()
+    // General page shows the Profile + Custom Instructions sections.
+    expect(screen.getByText('Custom Instructions')).toBeTruthy()
+    expect(screen.getByPlaceholderText('Your name')).toBeTruthy()
   })
 
   it('has no Account, Projects, or Conversations nav entries', () => {
@@ -107,6 +108,15 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
     expect(screen.queryByText('Account')).toBeNull()
     expect(screen.queryByText('Projects')).toBeNull()
     expect(screen.queryByText('Conversations')).toBeNull()
+  })
+
+  it('portals the dropdown menu outside .app-select so it is not clipped', () => {
+    render(<SettingsModal />)
+    fireEvent.click(screen.getByText('Permissions'))
+    fireEvent.click(screen.getByLabelText('Default permission mode'))
+    const option = screen.getAllByRole('option')[0]
+    // Menu is portaled to <body>, so options are NOT inside the trigger wrapper.
+    expect(option.closest('.app-select')).toBeNull()
   })
 
   it('routes: Providers shows a key input, Models does not', () => {
@@ -164,14 +174,29 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
 })
 
 describe('SettingsModal General page', () => {
-  it('shows the data Location, a Delete-all control, and the profile placeholder', () => {
+  it('shows the Profile fields, Custom Instructions, the data Location, and Delete-all', () => {
     render(<GeneralPage />)
+    // Profile fields
+    expect(screen.getByPlaceholderText('Your name')).toBeTruthy()
+    expect(screen.getByPlaceholderText('e.g. Ursa')).toBeTruthy()
+    // Custom Instructions section
+    expect(screen.getByText('Custom Instructions')).toBeTruthy()
     // Data card: the storage location (from settings.dataPath)
     expect(screen.getByText('/tmp/data')).toBeTruthy()
     // Delete All conversations control
     expect(screen.getByRole('button', { name: /delete/i })).toBeTruthy()
-    // Intentional WIP placeholder for the account/profile content
-    expect(screen.getByText('Profile & Custom Instructions')).toBeTruthy()
+  })
+
+  it('saves a profile field on blur, and not when unchanged', () => {
+    render(<GeneralPage />)
+    const name = screen.getByPlaceholderText('Your name')
+    // Blur with no change → no save (change-detection guard).
+    fireEvent.blur(name)
+    expect(setSpy).not.toHaveBeenCalled()
+    // Change + blur → persists via saveSettings.
+    fireEvent.change(name, { target: { value: 'Ursa' } })
+    fireEvent.blur(name)
+    expect(setSpy).toHaveBeenCalledWith({ profileName: 'Ursa' })
   })
 })
 

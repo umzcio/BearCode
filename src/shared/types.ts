@@ -539,6 +539,13 @@ export interface AppSettings {
   // Voice input STT backend (E5). Optional & additive: settings persisted before
   // this feature load unchanged (coerced to 'openai', the guaranteed default).
   sttBackend?: SttBackend
+  // General tab (F6): user profile + global custom instructions, folded into the
+  // orchestrator system prompt. Optional & additive: coerced to '' on read.
+  profileName?: string
+  // How BearCode should address the user (may differ from profileName).
+  profileCallMe?: string
+  // Free-form instructions the user wants followed in every conversation.
+  customInstructions?: string
 }
 
 export interface SettingsInfo extends AppSettings {

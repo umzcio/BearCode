@@ -36,13 +36,14 @@
   width: 14px;
   height: 14px;
 }
-/* Popover uses the shared .menu; just anchor + size it to the trigger. */
+/* Popover uses the shared .menu but is portaled to <body> and positioned
+   `fixed` inline from the trigger rect (see Select.tsx), so it escapes any
+   overflow-clipping ancestor. z-index sits above the settings modal. */
 .app-select-menu {
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 100%;
   width: max-content;
   max-width: 280px;
+  min-width: 0;
+  z-index: 1000;
 }
 .app-select.compact .app-select-trigger {
   min-width: 0;

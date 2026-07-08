@@ -1,4 +1,29 @@
 import { hostname, platform, release } from 'os'
+import { getSettings } from '../settings'
+
+// Turn the user's profile + global custom instructions (from AppSettings) into
+// prompt lines. Pure and side-effect-free: returns [] when nothing is set, so
+// the caller can splice it unconditionally. Each part is emitted only when its
+// (trimmed) value is non-empty.
+export function personalizationBlock(s: {
+  profileName?: string
+  profileCallMe?: string
+  customInstructions?: string
+}): string[] {
+  const name = (s.profileName ?? '').trim()
+  const callMe = (s.profileCallMe ?? '').trim()
+  const instructions = (s.customInstructions ?? '').trim()
+  const lines: string[] = []
+  if (name) lines.push(`The user's name is ${name}.`)
+  if (callMe) lines.push(`Address the user as ${callMe}.`)
+  if (instructions) {
+    lines.push(
+      'The user has provided the following custom instructions. Follow them:',
+      instructions
+    )
+  }
+  return lines
+}
 
 // The main agent's system prompt. createDeepAgent PREPENDS this to Deep Agents'
 // own base + filesystem-tool prompts (verified in
@@ -13,6 +38,10 @@ export function orchestratorSystemPrompt(projectPath: string | null, isPlan = fa
     "You are BearCode, an autonomous coding agent running on the user's own machine.",
     `Host: ${platform()} ${release()} (${hostname()}).`
   ]
+  // Fold in the user's profile + global custom instructions, read live from
+  // settings, right after the intro and before any task-specific framing.
+  const personal = personalizationBlock(getSettings())
+  if (personal.length) lines.push('', ...personal)
   if (projectPath) {
     lines.push(
       '',
