@@ -124,16 +124,7 @@ export function Sidebar(): React.JSX.Element {
                   <span>{label}</span>
                   {path ? (
                     <span className="proj-actions">
-                      <button
-                        className="row-act"
-                        title="New conversation in this folder"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void newConversationInProject(path)
-                        }}
-                      >
-                        <IconPlus size={13} />
-                      </button>
+                      {/* Order matches Antigravity: gear (settings) then + (new). */}
                       <button
                         className="row-act"
                         title="Project settings"
@@ -143,6 +134,16 @@ export function Sidebar(): React.JSX.Element {
                         }}
                       >
                         <IconSettings size={13} />
+                      </button>
+                      <button
+                        className="row-act"
+                        title="New conversation in this folder"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void newConversationInProject(path)
+                        }}
+                      >
+                        <IconPlus size={13} />
                       </button>
                     </span>
                   ) : null}

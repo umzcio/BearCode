@@ -19,6 +19,11 @@ const updateSpy = vi.fn((path: string, patch: Record<string, unknown>) =>
 )
 const setSpy = vi.fn((patch: Record<string, unknown>) => Promise.resolve(patch))
 
+// Rail navigation helper: click a left-nav section by its label.
+const goTo = (label: string): void => {
+  fireEvent.click(screen.getByRole('button', { name: label }))
+}
+
 beforeEach(() => {
   // jsdom lacks matchMedia; RoarBear (inside SettingPlaceholder) reads it.
   ;(window as unknown as { matchMedia: unknown }).matchMedia = vi
@@ -54,29 +59,34 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('ProjectSettingsModal (folder = project)', () => {
+describe('ProjectSettingsModal (folder = project, left-nav shell)', () => {
   it('returns null when no folder is open', () => {
     useAppStore.setState({ projectSettingsPath: null })
     const { container } = render(<ProjectSettingsModal />)
     expect(container.firstChild).toBeNull()
   })
 
-  it('opens on a folder with no stored settings row (all-null defaults)', () => {
+  it('opens on the General page with the name field (default page)', () => {
+    render(<ProjectSettingsModal />)
+    // 'General' appears in both the rail item and the page title.
+    expect(screen.getAllByText('General').length).toBeGreaterThan(0)
+    expect(screen.getByLabelText('Project name')).toBeTruthy()
+  })
+
+  it('opens a folder with no stored settings row (basename placeholder)', () => {
     useAppStore.setState({ projectSettingsPath: '/Users/zach/Unsaved', folderSettings: [] })
     render(<ProjectSettingsModal />)
-    expect(screen.getByText('Project Settings')).toBeTruthy()
-    // Falls back to the folder basename as the display name.
     expect(screen.getByLabelText('Project name').getAttribute('placeholder')).toBe('Unsaved')
   })
 
-  it('renders the sections for the open folder', () => {
+  it('the rail navigates to each section', () => {
     render(<ProjectSettingsModal />)
-    expect(screen.getByText('Project Settings')).toBeTruthy()
-    expect(screen.getByLabelText('Project name')).toBeTruthy()
+    goTo('Defaults')
     expect(screen.getByLabelText('Project default model')).toBeTruthy()
     expect(screen.getByLabelText('Project default effort')).toBeTruthy()
     expect(screen.getByLabelText('Project default permission mode')).toBeTruthy()
-    // Phase-G placeholders present (no "coming soon").
+    goTo('Connectors')
+    // Phase-G placeholder present (no "coming soon").
     expect(screen.queryByText(/coming soon/i)).toBeNull()
     expect(screen.getByText('Project Connectors')).toBeTruthy()
   })
@@ -89,26 +99,28 @@ describe('ProjectSettingsModal (folder = project)', () => {
     expect(updateSpy).toHaveBeenCalledWith('/Users/zach/Campus', { name: 'Campus Work' })
   })
 
-  it('picking a color persists via updateProject (by path)', () => {
+  it('picking a color (Appearance tab) persists via updateProject by path', () => {
     render(<ProjectSettingsModal />)
+    goTo('Appearance')
     fireEvent.click(screen.getByLabelText('Color #4c8dff'))
     expect(updateSpy).toHaveBeenCalledWith('/Users/zach/Campus', { color: '#4c8dff' })
   })
 
-  it('picking an icon persists the icon name', () => {
+  it('picking an icon (Appearance tab) persists the icon name', () => {
     render(<ProjectSettingsModal />)
+    goTo('Appearance')
     fireEvent.click(screen.getByLabelText('IconBrain'))
     expect(updateSpy).toHaveBeenCalledWith('/Users/zach/Campus', { icon: 'IconBrain' })
   })
 
-  it('setting the default effort to High writes it; Inherit writes null', () => {
+  it('default effort (Defaults tab): High writes it; Inherit writes null', () => {
     render(<ProjectSettingsModal />)
+    goTo('Defaults')
     fireEvent.click(screen.getByLabelText('Project default effort'))
     fireEvent.click(
       screen.getAllByRole('option').find((o) => o.textContent?.includes('High')) as HTMLElement
     )
     expect(updateSpy).toHaveBeenCalledWith('/Users/zach/Campus', { defaultEffort: 'high' })
-    // Now Inherit → null.
     fireEvent.click(screen.getByLabelText('Project default effort'))
     fireEvent.click(
       screen.getAllByRole('option').find((o) => o.textContent?.includes('Inherit')) as HTMLElement
@@ -116,7 +128,7 @@ describe('ProjectSettingsModal (folder = project)', () => {
     expect(updateSpy).toHaveBeenCalledWith('/Users/zach/Campus', { defaultEffort: null })
   })
 
-  it('"Set as default" saves the current folder settings as newProjectDefaults (no name)', () => {
+  it('"Set as default" (General tab) saves folder settings as newProjectDefaults (no name)', () => {
     useAppStore.setState({
       folderSettings: [
         { ...folder, color: '#d97757', icon: 'IconGrid', defaultEffort: 'high' }
