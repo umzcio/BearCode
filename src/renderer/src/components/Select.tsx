@@ -82,7 +82,15 @@ export function Select<T extends string>({
       return
     }
     const r = triggerRef.current?.getBoundingClientRect()
-    if (r) setPos({ top: r.bottom + 4, left: r.left, width: r.width })
+    if (r) {
+      // The app sets CSS `zoom` on <html> for font size (appearance.ts). A
+      // position:fixed menu is re-scaled by that zoom, while getBoundingClientRect
+      // already returns zoom-scaled coords -- so a raw rect lands the menu at
+      // position*zoom^2. Divide by the zoom factor so it sits exactly under the
+      // trigger at every font size (small/medium/large).
+      const zoom = Number(document.documentElement.style.zoom) || 1
+      setPos({ top: r.bottom / zoom + 4, left: r.left / zoom, width: r.width / zoom })
+    }
     setOpen(true)
   }
 
