@@ -64,7 +64,10 @@ const projects = {
     Promise.resolve({ id: 'p1', name: 'A', color: null, createdAt: 1, updatedAt: 1 })
   ),
   rename: vi.fn(() => Promise.resolve()),
-  delete: vi.fn(() => Promise.resolve())
+  delete: vi.fn(() => Promise.resolve()),
+  update: vi.fn((id: string, patch: Record<string, unknown>) =>
+    Promise.resolve({ id, name: 'A', color: null, createdAt: 1, updatedAt: 2, ...patch })
+  )
 }
 
 const attachments = {
@@ -837,5 +840,69 @@ describe('refConfigured (F7 opt-out)', () => {
 
   it('is false for a null ref', () => {
     expect(refConfigured(providers, null)).toBe(false)
+  })
+})
+
+describe('F9 project settings + inheritance', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({
+      projects: [],
+      projectSettingsId: null,
+      conversations: {},
+      convoOrder: [],
+      settings: {
+        defaultModelRef: 'anthropic/claude-opus-4-8',
+        defaultEffort: 'adaptive',
+        defaultPermissionMode: 'accept-edits'
+      } as never
+    })
+  })
+
+  it('openProjectSettings / closeProjectSettings toggle the modal id', () => {
+    useAppStore.getState().openProjectSettings('p1')
+    expect(useAppStore.getState().projectSettingsId).toBe('p1')
+    useAppStore.getState().closeProjectSettings()
+    expect(useAppStore.getState().projectSettingsId).toBeNull()
+  })
+
+  it('updateProject persists the patch and refreshes projects', async () => {
+    await useAppStore.getState().updateProject('p1', { color: '#c96', defaultEffort: 'high' })
+    expect(projects.update).toHaveBeenCalledWith('p1', { color: '#c96', defaultEffort: 'high' })
+    expect(projects.list).toHaveBeenCalled()
+  })
+
+  it('newConversationInProject inherits the project overrides (effort/mode/model)', async () => {
+    useAppStore.setState({
+      projects: [
+        {
+          id: 'p1',
+          name: 'P',
+          color: null,
+          defaultModelRef: 'openai/gpt-5.1',
+          defaultEffort: 'high',
+          defaultPermissionMode: 'plan',
+          createdAt: 1,
+          updatedAt: 1
+        }
+      ] as never
+    })
+    await useAppStore.getState().newConversationInProject('p1')
+    expect(conversations.setMode).toHaveBeenCalledWith('c1', 'plan')
+    expect(conversations.setEffort).toHaveBeenCalledWith('c1', 'high')
+    const s = useAppStore.getState()
+    expect(s.modelRef).toBe('openai/gpt-5.1')
+    expect(s.permissionMode).toBe('plan')
+    expect(s.effort).toBe('high')
+  })
+
+  it('newConversationInProject falls back to global defaults when the project has no overrides', async () => {
+    useAppStore.setState({
+      projects: [{ id: 'p1', name: 'P', color: null, createdAt: 1, updatedAt: 1 }] as never
+    })
+    await useAppStore.getState().newConversationInProject('p1')
+    expect(conversations.setMode).toHaveBeenCalledWith('c1', 'accept-edits')
+    expect(conversations.setEffort).toHaveBeenCalledWith('c1', 'adaptive')
+    expect(useAppStore.getState().modelRef).toBe('anthropic/claude-opus-4-8')
   })
 })

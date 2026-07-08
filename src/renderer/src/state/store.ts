@@ -18,12 +18,14 @@ import type {
   PermissionRulesInfo,
   PickedAttachmentWire,
   Project,
+  ProjectSettings,
   ProviderId,
   ProviderModels,
   RunState,
   SettingsInfo
 } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
+import { resolveProjectDefaults } from '@shared/projectDefaults'
 
 export type ConvoRunState = RunState | 'idle'
 
@@ -175,6 +177,9 @@ interface AppState {
   effort: EffortLevel
   thinking: boolean
   projects: Project[]
+  // F9: the project whose Project Settings modal is open, or null. Mirrors the
+  // settingsOpen/searchOpen modal-flag idiom.
+  projectSettingsId: string | null
   settings: SettingsInfo | null
   // Permissions manager read model; null until the Settings section first loads it.
   permissionRules: PermissionRulesInfo | null
@@ -285,6 +290,11 @@ interface AppState {
   createProject(name: string): Promise<void>
   renameProject(id: string, name: string): Promise<void>
   deleteProject(id: string): Promise<void>
+  // F9 project settings.
+  updateProject(id: string, patch: ProjectSettings): Promise<void>
+  setAsNewProjectDefault(patch: ProjectSettings): Promise<void>
+  openProjectSettings(id: string): void
+  closeProjectSettings(): void
   assignConversationProject(convoId: string, projectId: string | null): void
   setPinned(id: string, pinned: boolean): void
   setArchived(id: string, archived: boolean): void
@@ -435,6 +445,7 @@ export const useAppStore = create<AppState>((set, get) => {
     effort: 'adaptive',
     thinking: true,
     projects: [],
+    projectSettingsId: null,
     settings: null,
     permissionRules: null,
     workspacePath: null,
@@ -906,6 +917,16 @@ export const useAppStore = create<AppState>((set, get) => {
       await window.bearcode.projects.rename(id, name)
       await get().refreshProjects()
     },
+    updateProject: async (id, patch) => {
+      await window.bearcode.projects.update(id, patch)
+      await get().refreshProjects()
+    },
+    setAsNewProjectDefault: async (patch) => {
+      await get().saveSettings({ newProjectDefaults: patch })
+      get().showToast('Saved as the default for new projects')
+    },
+    openProjectSettings: (id) => set({ projectSettingsId: id }),
+    closeProjectSettings: () => set({ projectSettingsId: null }),
     deleteProject: async (id) => {
       await window.bearcode.projects.delete(id)
       // Locally unassign so the sidebar regroups without waiting on a reload.
@@ -945,13 +966,38 @@ export const useAppStore = create<AppState>((set, get) => {
     newConversationInProject: async (projectId) => {
       const meta = await window.bearcode.conversations.create(null)
       await window.bearcode.conversations.setProject(meta.id, projectId)
-      const convo = { ...fromMeta(meta), projectId, loaded: true }
+      // F9 inheritance: a new conversation in a project starts on the project's
+      // per-project defaults (model/effort/permission mode), each falling back to
+      // the global default when the project leaves it unset. Effort + mode persist
+      // per-conversation via IPC; model is the store's active selection (same as
+      // selectModel). thinking stays global.
+      const project = get().projects.find((p) => p.id === projectId) ?? null
+      const settings = get().settings
+      const d = resolveProjectDefaults(project, {
+        defaultModelRef: settings?.defaultModelRef ?? null,
+        defaultEffort: settings?.defaultEffort ?? 'adaptive',
+        defaultPermissionMode: settings?.defaultPermissionMode ?? 'accept-edits'
+      })
+      await window.bearcode.conversations.setMode(meta.id, d.permissionMode)
+      await window.bearcode.conversations.setEffort(meta.id, d.effort)
+      const convo = {
+        ...fromMeta(meta),
+        projectId,
+        loaded: true,
+        permissionMode: d.permissionMode,
+        effort: d.effort,
+        modelRef: d.modelRef
+      }
       set((s) => {
         const conversations = { ...s.conversations, [meta.id]: convo }
         return {
           conversations,
           convoOrder: orderByRecency(conversations),
-          view: { kind: 'conversation', id: meta.id }
+          view: { kind: 'conversation', id: meta.id },
+          // Reflect the inherited defaults in the composer for the new session.
+          modelRef: d.modelRef,
+          permissionMode: d.permissionMode,
+          effort: d.effort
         }
       })
     },
