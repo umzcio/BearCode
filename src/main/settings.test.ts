@@ -84,3 +84,28 @@ describe('setSettings defaultPermissionMode validation', () => {
     )
   })
 })
+
+describe('migrateSettings profile + custom instructions coercion', () => {
+  it('defaults profileName, profileCallMe, customInstructions to empty strings', () => {
+    const s = migrateSettings({})
+    expect(s.profileName).toBe('')
+    expect(s.profileCallMe).toBe('')
+    expect(s.customInstructions).toBe('')
+  })
+  it('preserves provided string values across load', () => {
+    const s = migrateSettings({
+      profileName: 'Zach',
+      profileCallMe: 'Z',
+      customInstructions: 'Always use TS.'
+    })
+    expect(s.profileName).toBe('Zach')
+    expect(s.profileCallMe).toBe('Z')
+    expect(s.customInstructions).toBe('Always use TS.')
+  })
+  it('coerces non-string values to empty strings', () => {
+    const s = migrateSettings({ profileName: 7, profileCallMe: null, customInstructions: {} })
+    expect(s.profileName).toBe('')
+    expect(s.profileCallMe).toBe('')
+    expect(s.customInstructions).toBe('')
+  })
+})
