@@ -344,9 +344,20 @@ export function modelDisplay(
 
 export function refConfigured(providers: ProviderModels[], ref: ModelRef | null): boolean {
   if (!ref) return false
-  const providerId = ref.slice(0, ref.indexOf('/'))
+  const slash = ref.indexOf('/')
+  const providerId = ref.slice(0, slash)
+  const modelId = ref.slice(slash + 1)
   const provider = providers.find((p) => p.id === providerId)
-  return Boolean(provider && provider.keyConfigured && provider.reachable)
+  // The model must still be present in the provider's EFFECTIVE list: a model the
+  // user opted out of (F7) — or a removed custom model — is no longer selectable,
+  // so the active/default ref must fall through to another model, not keep
+  // silently running a hidden one.
+  return Boolean(
+    provider &&
+    provider.keyConfigured &&
+    provider.reachable &&
+    provider.models.some((m) => m.id === modelId)
+  )
 }
 
 export const useAppStore = create<AppState>((set, get) => {
@@ -519,30 +530,61 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     setModelEnabled: async (ref, enabled) => {
-      const cur = get().settings?.disabledModels ?? []
-      const next = enabled ? cur.filter((r) => r !== ref) : [...new Set([...cur, ref])]
-      await get().saveSettings({ disabledModels: next })
+      const s = get().settings
+      if (!s) return
+      const cur = s.disabledModels ?? []
+      const disabledModels = enabled ? cur.filter((r) => r !== ref) : [...new Set([...cur, ref])]
+      // Disabling the persisted default model clears it, so a hidden model is
+      // never re-selected for new conversations (ensureDefaultModel).
+      const patch =
+        !enabled && s.defaultModelRef === ref
+          ? { disabledModels, defaultModelRef: null }
+          : { disabledModels }
+      // Optimistic synchronous update: rapid consecutive toggles then read the
+      // updated array (no lost-update race), and the switch flips immediately
+      // rather than after the (Ollama-fetching) provider refresh completes.
+      set((st) => ({
+        settings: { ...s, ...patch },
+        manageableModels: st.manageableModels.map((p) => ({
+          ...p,
+          models: p.models.map((m) => (`${p.id}/${m.id}` === ref ? { ...m, enabled } : m))
+        }))
+      }))
+      await get().saveSettings(patch)
       await get().refreshManageableModels()
     },
 
     addCustomModel: async (model) => {
-      const cur = get().settings?.customModels ?? []
+      const s = get().settings
+      if (!s) return
       // Replace any existing entry with the same provider/id (custom wins).
-      const next = [
-        ...cur.filter((c) => !(c.provider === model.provider && c.id === model.id)),
+      const customModels = [
+        ...(s.customModels ?? []).filter(
+          (c) => !(c.provider === model.provider && c.id === model.id)
+        ),
         model
       ]
-      await get().saveSettings({ customModels: next })
+      set({ settings: { ...s, customModels } })
+      await get().saveSettings({ customModels })
       await get().refreshManageableModels()
     },
 
     removeCustomModel: async (provider, id) => {
+      const s = get().settings
+      if (!s) return
       const ref = `${provider}/${id}`
-      const cur = get().settings?.customModels ?? []
-      const next = cur.filter((c) => !(c.provider === provider && c.id === id))
-      // Also drop any lingering opt-out for the removed model's ref.
-      const disabled = (get().settings?.disabledModels ?? []).filter((r) => r !== ref)
-      await get().saveSettings({ customModels: next, disabledModels: disabled })
+      const customModels = (s.customModels ?? []).filter(
+        (c) => !(c.provider === provider && c.id === id)
+      )
+      // Also drop any lingering opt-out for the removed ref, and clear the
+      // default if it pointed at the removed model.
+      const disabledModels = (s.disabledModels ?? []).filter((r) => r !== ref)
+      const patch =
+        s.defaultModelRef === ref
+          ? { customModels, disabledModels, defaultModelRef: null }
+          : { customModels, disabledModels }
+      set({ settings: { ...s, ...patch } })
+      await get().saveSettings(patch)
       await get().refreshManageableModels()
     },
 

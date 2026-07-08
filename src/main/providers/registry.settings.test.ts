@@ -30,6 +30,19 @@ describe('contextWindowFor', () => {
   it('returns null for an unknown model', () => {
     expect(contextWindowFor('openai/does-not-exist')).toBeNull()
   })
+
+  it('a custom override wins over the curated window on id collision', () => {
+    // User adds a lower-tier deployment of a curated id with a smaller window.
+    settings.customModels = [
+      {
+        provider: 'anthropic',
+        id: 'claude-opus-4-8',
+        label: 'Opus (local)',
+        contextWindow: 200_000
+      }
+    ]
+    expect(contextWindowFor('anthropic/claude-opus-4-8')).toBe(200_000)
+  })
 })
 
 describe('allKnownModelRefs', () => {

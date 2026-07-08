@@ -224,14 +224,16 @@ const STATIC_MODELS: Partial<Record<ProviderId, ModelInfo[]>> = {
 // list). Never throws for an unknown model id — only an unparseable ref does.
 export function contextWindowFor(ref: string): number | null {
   const { provider, modelId } = parseModelRef(ref)
-  const info = STATIC_MODELS[provider]?.find((m) => m.id === modelId)
-  if (info?.contextWindow != null) return info.contextWindow
-  // Fall back to a user-added custom model's window (F7) so the context meter
-  // works for models the user defined.
+  // A custom model wins on id collision (F7 invariant, matching mergeModels): the
+  // user may deliberately override a curated id with a smaller window (a lower-
+  // tier deployment). Check custom FIRST so the summarizer compacts against the
+  // real window, not the curated one.
   const custom = (getSettings().customModels ?? []).find(
     (c) => c.provider === provider && c.id === modelId
   )
-  return custom?.contextWindow ?? null
+  if (custom) return custom.contextWindow
+  const info = STATIC_MODELS[provider]?.find((m) => m.id === modelId)
+  return info?.contextWindow ?? null
 }
 
 export function parseModelRef(ref: string): { provider: ProviderId; modelId: string } {

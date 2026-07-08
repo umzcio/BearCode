@@ -8,7 +8,8 @@ import type {
   PermissionRulesInfo,
   PlanReviewResolveResult
 } from '@shared/types'
-import { useAppStore, shouldFollowNewDiff, type Convo } from './store'
+import { useAppStore, shouldFollowNewDiff, refConfigured, type Convo } from './store'
+import type { ProviderModels } from '@shared/types'
 
 const info: PermissionRulesInfo = {
   userRules: [
@@ -803,5 +804,38 @@ describe('F1 history: openHistory + openConvo focusEventId (jump-to-match)', () 
     expect(useAppStore.getState().focusEventId).toBe('e3')
     useAppStore.getState().stepFocus(-1)
     expect(useAppStore.getState().focusEventId).toBe('e2')
+  })
+})
+
+describe('refConfigured (F7 opt-out)', () => {
+  const providers: ProviderModels[] = [
+    {
+      id: 'anthropic',
+      displayName: 'Anthropic',
+      color: '#d97757',
+      requiresKey: true,
+      keyConfigured: true,
+      reachable: true,
+      models: [{ id: 'claude-sonnet-5', label: 'Sonnet 5' }]
+    }
+  ]
+
+  it('is true when the model is present in the effective list', () => {
+    expect(refConfigured(providers, 'anthropic/claude-sonnet-5')).toBe(true)
+  })
+
+  it('is false when the model was opted out (no longer in the effective list)', () => {
+    // Opus is not in the merged/filtered list → a disabled/hidden model must not
+    // read as "configured", so a disabled active/default ref falls through.
+    expect(refConfigured(providers, 'anthropic/claude-opus-4-8')).toBe(false)
+  })
+
+  it('is false when the provider key is not configured', () => {
+    const unconfigured = [{ ...providers[0], keyConfigured: false }]
+    expect(refConfigured(unconfigured, 'anthropic/claude-sonnet-5')).toBe(false)
+  })
+
+  it('is false for a null ref', () => {
+    expect(refConfigured(providers, null)).toBe(false)
   })
 })

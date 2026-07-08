@@ -56,12 +56,20 @@ const DEFAULTS: AppSettings = {
   customModels: []
 }
 
-const PROVIDER_IDS = new Set<ProviderId>(['anthropic', 'openai', 'google', 'openrouter', 'ollama'])
+// Custom models may only target the four first-party curated providers. Ollama
+// is fully dynamic/local and manages its own catalog, so a hand-edited
+// settings.json cannot inject a phantom `ollama/*` model into the picker.
+const CUSTOM_MODEL_PROVIDER_IDS = new Set<ProviderId>([
+  'anthropic',
+  'openai',
+  'google',
+  'openrouter'
+])
 
-// Keep only well-formed custom models: a valid provider id, a non-empty id and
-// label, and a finite positive contextWindow. Anything else (bad provider,
-// empty id, non-numeric/negative window) is dropped so a malformed settings.json
-// or a bad Add-model payload can never poison the registry merge.
+// Keep only well-formed custom models: a valid (non-Ollama) provider id, a
+// non-empty id and label, and a finite positive contextWindow. Anything else
+// (bad provider, empty id, non-numeric/negative window) is dropped so a
+// malformed settings.json or a bad Add-model payload can never poison the merge.
 function coerceCustomModels(raw: unknown): CustomModel[] {
   if (!Array.isArray(raw)) return []
   const out: CustomModel[] = []
@@ -70,7 +78,7 @@ function coerceCustomModels(raw: unknown): CustomModel[] {
     const { provider, id, label, contextWindow } = v as Record<string, unknown>
     if (
       typeof provider === 'string' &&
-      PROVIDER_IDS.has(provider as ProviderId) &&
+      CUSTOM_MODEL_PROVIDER_IDS.has(provider as ProviderId) &&
       typeof id === 'string' &&
       id.length > 0 &&
       typeof label === 'string' &&

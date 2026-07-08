@@ -84,7 +84,14 @@ export function ModelsPage(): JSX.Element | null {
     setAddCtx('')
   }
 
-  const fmtCtx = (n?: number): string => (n ? `${Math.round(n / 1000)}K context` : '')
+  const fmtCtx = (n?: number): string => {
+    if (!n) return ''
+    const size =
+      n >= 1_000_000
+        ? `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
+        : `${Math.round(n / 1000)}K`
+    return `${size} context`
+  }
 
   return (
     <>
