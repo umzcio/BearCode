@@ -61,8 +61,6 @@ describe('resolveProjectDefaults', () => {
   })
 
   it('a null global model with no project override resolves to null', () => {
-    expect(
-      resolveProjectDefaults(null, { ...global, defaultModelRef: null }).modelRef
-    ).toBeNull()
+    expect(resolveProjectDefaults(null, { ...global, defaultModelRef: null }).modelRef).toBeNull()
   })
 })

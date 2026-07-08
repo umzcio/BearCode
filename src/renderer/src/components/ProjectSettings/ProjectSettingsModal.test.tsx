@@ -27,16 +27,29 @@ beforeEach(() => {
     .fn()
     .mockReturnValue({ matches: false })
   ;(window as unknown as { bearcode: unknown }).bearcode = {
-    projects: { update: updateSpy, rename: vi.fn(() => Promise.resolve()), list: vi.fn(() => Promise.resolve([project])) },
+    projects: {
+      update: updateSpy,
+      rename: vi.fn(() => Promise.resolve()),
+      list: vi.fn(() => Promise.resolve([project]))
+    },
     settings: { set: setSpy }
   }
   useAppStore.setState({
     projectSettingsId: 'p1',
     projects: [project] as never,
     providers: [
-      { id: 'anthropic', displayName: 'Anthropic', color: '#c96', models: [{ id: 'claude-opus-4-8', label: 'Opus 4.8' }] }
+      {
+        id: 'anthropic',
+        displayName: 'Anthropic',
+        color: '#c96',
+        models: [{ id: 'claude-opus-4-8', label: 'Opus 4.8' }]
+      }
     ] as never,
-    settings: { defaultModelRef: null, defaultEffort: 'adaptive', defaultPermissionMode: 'accept-edits' } as never
+    settings: {
+      defaultModelRef: null,
+      defaultEffort: 'adaptive',
+      defaultPermissionMode: 'accept-edits'
+    } as never
   })
 })
 afterEach(() => {
@@ -78,7 +91,9 @@ describe('ProjectSettingsModal (F9)', () => {
   it('setting the default effort to High writes it; Inherit writes null', () => {
     render(<ProjectSettingsModal />)
     fireEvent.click(screen.getByLabelText('Project default effort'))
-    fireEvent.click(screen.getAllByRole('option').find((o) => o.textContent?.includes('High')) as HTMLElement)
+    fireEvent.click(
+      screen.getAllByRole('option').find((o) => o.textContent?.includes('High')) as HTMLElement
+    )
     expect(updateSpy).toHaveBeenCalledWith('p1', { defaultEffort: 'high' })
     // Now Inherit → null.
     fireEvent.click(screen.getByLabelText('Project default effort'))

@@ -615,8 +615,7 @@ export function listProjects(): Project[] {
 
 export function getProject(id: string): Project | null {
   const row = getDb().prepare(`SELECT * FROM projects WHERE id = ?`).get(id) as
-    | ProjectRow
-    | undefined
+    ProjectRow | undefined
   return row ? rowToProject(row) : null
 }
 

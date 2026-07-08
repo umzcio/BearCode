@@ -32,14 +32,22 @@ const convo: Convo = {
 
 beforeEach(() => {
   ;(window as unknown as { bearcode: unknown }).bearcode = {}
-  vi.stubGlobal('confirm', vi.fn(() => true))
-  vi.stubGlobal('prompt', vi.fn(() => 'Renamed Project'))
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true)
+  )
+  vi.stubGlobal(
+    'prompt',
+    vi.fn(() => 'Renamed Project')
+  )
   useAppStore.setState({
     sidebarCollapsed: false,
     view: { kind: 'home' },
     convoOrder: ['c1'],
     conversations: { c1: convo },
-    projects: [{ id: 'p1', name: 'Proj', color: null, createdAt: Date.now(), updatedAt: Date.now() }],
+    projects: [
+      { id: 'p1', name: 'Proj', color: null, createdAt: Date.now(), updatedAt: Date.now() }
+    ],
     settings: { sidebarGroupBy: 'project', sidebarSort: 'updated' } as never,
     toggleSidebar: vi.fn(),
     goHome: vi.fn(),
@@ -88,5 +96,37 @@ describe('Sidebar pin/archive + project actions', () => {
     render(<Sidebar />)
     fireEvent.click(screen.getByTitle('New conversation in project'))
     expect(newConversationInProject).toHaveBeenCalledWith('p1')
+  })
+})
+
+describe('Sidebar project color + icon + settings (F9)', () => {
+  it('renders a color dot + chosen icon and opens project settings', () => {
+    const openProjectSettings = vi.fn()
+    useAppStore.setState({
+      projects: [
+        {
+          id: 'p1',
+          name: 'Proj',
+          color: '#4c8dff',
+          icon: 'IconBrain',
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        }
+      ] as never,
+      openProjectSettings
+    } as never)
+    const { container } = render(<Sidebar />)
+    // Color dot rendered from the project color.
+    const dot = container.querySelector('.proj-dot') as HTMLElement
+    expect(dot).toBeTruthy()
+    expect(dot.style.background).toContain('rgb(76, 141, 255)')
+    // Settings button opens the modal for this project.
+    fireEvent.click(screen.getByTitle('Project settings'))
+    expect(openProjectSettings).toHaveBeenCalledWith('p1')
+  })
+
+  it('falls back cleanly when color/icon are unset (no dot)', () => {
+    const { container } = render(<Sidebar />)
+    expect(container.querySelector('.proj-dot')).toBeNull()
   })
 })

@@ -23,7 +23,11 @@ vi.mock('better-sqlite3', () => ({
         lastPrepared = sql
         return statement
       }),
-      transaction: vi.fn((fn: (...a: unknown[]) => unknown) => (...a: unknown[]) => fn(...a))
+      transaction: vi.fn(
+        (fn: (...a: unknown[]) => unknown) =>
+          (...a: unknown[]) =>
+            fn(...a)
+      )
     }
   })
 }))
@@ -150,15 +154,31 @@ describe('db projects', () => {
   })
   it('setConversationProject persists a project id and null', () => {
     setConversationProject('c1', 'p1')
-    expect(calls.some((c) => /UPDATE conversations SET project_id = \?/.test(c.sql) && c.args[0] === 'p1')).toBe(true)
+    expect(
+      calls.some(
+        (c) => /UPDATE conversations SET project_id = \?/.test(c.sql) && c.args[0] === 'p1'
+      )
+    ).toBe(true)
     setConversationProject('c1', null)
-    expect(calls.some((c) => /UPDATE conversations SET project_id = \?/.test(c.sql) && c.args[0] === null)).toBe(true)
+    expect(
+      calls.some(
+        (c) => /UPDATE conversations SET project_id = \?/.test(c.sql) && c.args[0] === null
+      )
+    ).toBe(true)
   })
   it('toMeta resolves projectId (null when column NULL)', () => {
     getRow = {
-      id: 'c1', project_path: '', title: null, model_ref: null,
-      created_at: 1, updated_at: 1, permission_mode: null, active_rules: null,
-      effort: null, thinking: null, project_id: 'p1'
+      id: 'c1',
+      project_path: '',
+      title: null,
+      model_ref: null,
+      created_at: 1,
+      updated_at: 1,
+      permission_mode: null,
+      active_rules: null,
+      effort: null,
+      thinking: null,
+      project_id: 'p1'
     }
     expect(getConversationMeta('c1')?.projectId).toBe('p1')
     getRow = { ...getRow, project_id: null }
