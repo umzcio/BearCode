@@ -13,13 +13,15 @@ vi.mock('electron', () => ({
 
 // vi.mock factories are hoisted above regular const/let; any vi.fn() referenced
 // in a factory must be created via vi.hoisted().
-const { getConversationMeta, setEnvironment } = vi.hoisted(() => ({
+const { getConversationMeta, setEnvironment, deleteConversation } = vi.hoisted(() => ({
   getConversationMeta: vi.fn(),
-  setEnvironment: vi.fn()
+  setEnvironment: vi.fn(),
+  deleteConversation: vi.fn()
 }))
 vi.mock('./db', () => ({
   getConversationMeta,
-  setEnvironment
+  setEnvironment,
+  deleteConversation
 }))
 
 const { createWorktrees, removeWorktrees, gitAvailable } = vi.hoisted(() => ({
@@ -57,8 +59,30 @@ describe('worktree IPC', () => {
       worktrees: []
     })
     await handlers.get('bearcode:conversations:set-environment')!({}, 'c1', 'worktree')
-    expect(createWorktrees).toHaveBeenCalledWith('/userdata', 'c1', '/proj', 'My Task')
+    // slug folds a convId fragment in so the bearcode/<slug> branch is unique.
+    expect(createWorktrees).toHaveBeenCalledWith('/userdata', 'c1', '/proj', 'My Task c1')
     expect(setEnvironment).toHaveBeenCalledWith('c1', 'worktree', WT)
+  })
+
+  it('gives untitled conversations distinct slugs so branches never collide', async () => {
+    gitAvailable.mockResolvedValue(true)
+    createWorktrees.mockResolvedValue(WT)
+    const untitled = (
+      id: string
+    ): { id: string; projectPath: string; title: null; environment: string; worktrees: [] } => ({
+      id,
+      projectPath: '/proj',
+      title: null,
+      environment: 'local',
+      worktrees: []
+    })
+    getConversationMeta.mockImplementation((id: string) => untitled(id))
+    await handlers.get('bearcode:conversations:set-environment')!({}, 'abcd1234ef', 'worktree')
+    await handlers.get('bearcode:conversations:set-environment')!({}, 'wxyz5678gh', 'worktree')
+    const slugs = createWorktrees.mock.calls.map((c) => c[3])
+    expect(slugs[0]).not.toBe(slugs[1])
+    expect(slugs[0]).toBe('work abcd1234')
+    expect(slugs[1]).toBe('work wxyz5678')
   })
 
   it('set-environment(local) stores (local, []) and never provisions', async () => {
@@ -106,5 +130,29 @@ describe('worktree IPC', () => {
     await handlers.get('bearcode:worktree:discard')!({}, 'c1')
     expect(removeWorktrees).toHaveBeenCalledWith(WT)
     expect(setEnvironment).toHaveBeenCalledWith('c1', 'local', [])
+  })
+
+  it('delete reclaims a worktree conversation (worktrees + branch) then deletes', async () => {
+    getConversationMeta.mockReturnValue({
+      id: 'c1',
+      projectPath: '/proj',
+      environment: 'worktree',
+      worktrees: WT
+    })
+    await handlers.get('bearcode:conversations:delete')!({}, 'c1')
+    expect(removeWorktrees).toHaveBeenCalledWith(WT)
+    expect(deleteConversation).toHaveBeenCalledWith('c1')
+  })
+
+  it('delete of a local conversation never touches git', async () => {
+    getConversationMeta.mockReturnValue({
+      id: 'c2',
+      projectPath: '/proj',
+      environment: 'local',
+      worktrees: []
+    })
+    await handlers.get('bearcode:conversations:delete')!({}, 'c2')
+    expect(removeWorktrees).not.toHaveBeenCalled()
+    expect(deleteConversation).toHaveBeenCalledWith('c2')
   })
 })

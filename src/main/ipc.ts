@@ -415,8 +415,17 @@ export function registerIpc(): void {
     if (id !== undefined) assertValidConversationId(id)
     return db.createConversation(projectPath, id)
   })
-  ipcMain.handle('bearcode:conversations:delete', (_e, id: string) => {
+  ipcMain.handle('bearcode:conversations:delete', async (_e, id: string) => {
     forgetRunOrchestrator(id)
+    // F3: a worktree conversation owns a worktree dir under userData PLUS a
+    // bearcode/* branch + worktree registration in the user's repo. Deleting it
+    // must reclaim them (design: delete → removeWorktrees), or the orphaned
+    // branch bricks future worktree creation for that project. Read meta BEFORE
+    // deleteConversation drops the row.
+    const meta = db.getConversationMeta(id)
+    if (meta && meta.worktrees.length > 0) {
+      await removeWorktrees(meta.worktrees)
+    }
     void pruneCheckpoints(id)
     db.deleteConversation(id)
   })
@@ -461,12 +470,13 @@ export function registerIpc(): void {
         )
       }
       const app = (await import('electron')).app
-      const worktrees = await createWorktrees(
-        app.getPath('userData'),
-        id,
-        meta.projectPath,
-        meta.title ?? 'work'
-      )
+      // The branch is bearcode/<slug>; the title is null at create (both create
+      // paths make untitled conversations), so a title-only slug would be
+      // 'work' for EVERY worktree conversation in a project and the second
+      // `git worktree add -b bearcode/work` would fail. Fold a convId fragment
+      // into the slug so each conversation gets a unique branch.
+      const slug = `${meta.title ?? 'work'} ${id.slice(0, 8)}`
+      const worktrees = await createWorktrees(app.getPath('userData'), id, meta.projectPath, slug)
       // A non-git project yields no worktrees: record honestly as local.
       db.setEnvironment(id, worktrees.length > 0 ? 'worktree' : 'local', worktrees)
       return db.getConversationMeta(id)
