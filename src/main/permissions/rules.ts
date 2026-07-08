@@ -2,7 +2,8 @@ import type {
   CommandDecision,
   EditDecision,
   PermissionMode,
-  PermissionRule
+  PermissionRule,
+  TerminalAutoExec
 } from '../../shared/types'
 import { BUILTIN_RULES } from './builtins'
 
@@ -120,14 +121,23 @@ export function evaluateEdit(
 //   1b. else if mode === 'plan' -> block (TRUE read-only; outranks allow/ask)
 //   2. else any matching allow             -> run
 //   3. else any matching ask               -> prompt
-//   4.  else the mode decides: auto -> run, otherwise -> prompt
+//   4.  else the mode decides: auto -> run (unless terminalAutoExec tightens
+//       it), otherwise -> prompt
 // Because deny is checked first, a user allow can never override a builtin deny
 // (§4.4). Pure over its inputs -- rules are passed in (BUILTIN_RULES + user
 // rules for the scope), so this is unit-testable with no DB/Electron.
+//
+// F8 terminalAutoExec (only tightens): it applies ONLY to the auto-mode
+// fallback. 'require-review' downgrades that fallback run→prompt so an
+// auto-mode conversation reviews commands while still auto-applying edits. It
+// NEVER changes deny, plan-block, an explicit allow rule, or a non-auto mode --
+// it can only add a prompt, never remove one. Default 'auto' keeps today's
+// behavior (and every pre-F8 caller/test) identical.
 export function evaluateCommand(
   command: string,
   mode: PermissionMode,
-  rules: PermissionRule[]
+  rules: PermissionRule[],
+  terminalAutoExec: TerminalAutoExec = 'auto'
 ): CommandDecision {
   const matching = rules.filter((r) => r.action === 'command' && matchesCommand(r.match, command))
   if (matching.some((r) => r.effect === 'deny')) return 'block'
@@ -136,5 +146,5 @@ export function evaluateCommand(
   if (mode === 'plan') return 'block'
   if (matching.some((r) => r.effect === 'allow')) return 'run'
   if (matching.some((r) => r.effect === 'ask')) return 'prompt'
-  return mode === 'auto' ? 'run' : 'prompt'
+  return mode === 'auto' && terminalAutoExec === 'auto' ? 'run' : 'prompt'
 }

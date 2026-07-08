@@ -77,6 +77,31 @@ describe('evaluateCommand', () => {
   })
 })
 
+describe('evaluateCommand terminalAutoExec (F8, only tightens)', () => {
+  it("downgrades the auto-mode fallback run→prompt under 'require-review'", () => {
+    expect(evaluateCommand('ls', 'auto', [], 'require-review')).toBe('prompt')
+  })
+  it("auto-mode fallback still runs under 'auto' (default preserves behavior)", () => {
+    expect(evaluateCommand('ls', 'auto', [], 'auto')).toBe('run')
+    expect(evaluateCommand('ls', 'auto', [])).toBe('run') // default param
+  })
+  it('an explicit allow rule still runs even under require-review (allow wins before fallback)', () => {
+    expect(evaluateCommand('git status', 'auto', [rule('git *', 'allow')], 'require-review')).toBe(
+      'run'
+    )
+  })
+  it('never overrides deny or plan under require-review', () => {
+    expect(evaluateCommand('rm -rf /', 'auto', [rule('rm -rf *', 'deny')], 'require-review')).toBe(
+      'block'
+    )
+    expect(evaluateCommand('ls', 'plan', [], 'require-review')).toBe('block')
+  })
+  it('does not change a non-auto mode (accept-edits/ask already prompt)', () => {
+    expect(evaluateCommand('ls', 'accept-edits', [], 'require-review')).toBe('prompt')
+    expect(evaluateCommand('ls', 'accept-edits', [], 'auto')).toBe('prompt')
+  })
+})
+
 describe('BUILTIN_RULES', () => {
   it('are all deny rules from source builtin', () => {
     expect(BUILTIN_RULES.length).toBeGreaterThan(0)
@@ -157,9 +182,9 @@ describe('evaluateEdit', () => {
     expect(evaluateEdit('src/a.ts', 'plan', [rule('ask', 'src/a.ts')])).toBe('block')
   })
   it('ignores allow edit rules and command rules', () => {
-    expect(evaluateEdit('.env', 'accept-edits', [rule('allow', '.env'), rule('deny', '.env')])).toBe(
-      'block'
-    )
+    expect(
+      evaluateEdit('.env', 'accept-edits', [rule('allow', '.env'), rule('deny', '.env')])
+    ).toBe('block')
     const cmd: PermissionRule = {
       id: 'c',
       scope: 'global',

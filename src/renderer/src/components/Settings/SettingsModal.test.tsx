@@ -51,7 +51,8 @@ describe('SettingsModal default permission mode', () => {
     expect(options).toEqual(['Ask permissions', 'Accept edits', 'Plan mode', 'Auto mode'])
     const auto = screen.getAllByRole('option').find((o) => o.textContent?.includes('Auto mode'))
     fireEvent.click(auto as HTMLElement)
-    expect(setSpy).toHaveBeenCalledWith({ defaultPermissionMode: 'auto' })
+    // F8: saving the default mode also carries the re-derived security preset.
+    expect(setSpy).toHaveBeenCalledWith(expect.objectContaining({ defaultPermissionMode: 'auto' }))
   })
 })
 

@@ -17,6 +17,11 @@ vi.mock('../permissions', () => ({
 vi.mock('../diffs', () => ({
   stageFile: vi.fn()
 }))
+// F8: the read gate reads fileAccessPolicy live from settings. Mock it so each
+// test drives the policy; default 'deny' preserves the pre-F8 hard jail.
+vi.mock('../settings', () => ({
+  getSettings: vi.fn(() => ({ fileAccessPolicy: 'deny' }))
+}))
 // Keep the real @langchain/langgraph module (GraphInterrupt/isGraphInterrupt
 // must be the genuine classes) and stub ONLY interrupt(), which would
 // otherwise throw outside a running graph. This is not a mock LangGraph --
@@ -29,7 +34,8 @@ vi.mock('@langchain/langgraph', async (importOriginal) => {
 import { GraphInterrupt, interrupt, isGraphInterrupt } from '@langchain/langgraph'
 import { stageFile } from '../diffs'
 import { evaluateEditForConversation, resolveConversationMode } from '../permissions'
-import { DiffFsBackend, GatedDiffFsBackend, relForGate } from './fsBackend'
+import { getSettings } from '../settings'
+import { DiffFsBackend, GatedDiffFsBackend, relForGate, jailPath } from './fsBackend'
 import { clearDeniedReplayPins, pinDeniedReplays } from './tools'
 
 describe('relForGate', () => {
@@ -106,7 +112,7 @@ describe('GatedDiffFsBackend', () => {
     expect(interrupt).not.toHaveBeenCalled()
   })
 
-  it("block in plan mode returns the read-only message, not the generic rule message", async () => {
+  it('block in plan mode returns the read-only message, not the generic rule message', async () => {
     vi.mocked(evaluateEditForConversation).mockReturnValue('block')
     vi.mocked(resolveConversationMode).mockReturnValue('plan')
     const result = await gated.write('.env', 'SECRET=1')
@@ -261,17 +267,19 @@ describe('GatedDiffFsBackend', () => {
   })
 
   it('delegates every non-write BackendProtocolV2 method 1:1 to the shared backend', async () => {
+    // Inside-root reads delegate with allowOutsideRead=false (F8): the read gate
+    // only relaxes OUTSIDE-root paths, so these stay identical to pre-F8.
     await gated.ls('a')
-    expect(shared.ls).toHaveBeenCalledWith('a')
+    expect(shared.ls).toHaveBeenCalledWith('a', false)
     await gated.read('a/b.txt', 3, 7)
-    expect(shared.read).toHaveBeenCalledWith('a/b.txt', 3, 7)
+    expect(shared.read).toHaveBeenCalledWith('a/b.txt', 3, 7, false)
     await gated.readRaw('a/b.txt')
-    expect(shared.readRaw).toHaveBeenCalledWith('a/b.txt')
+    expect(shared.readRaw).toHaveBeenCalledWith('a/b.txt', false)
     await gated.grep('needle', 'a', '*.txt')
-    expect(shared.grep).toHaveBeenCalledWith('needle', 'a', '*.txt')
+    expect(shared.grep).toHaveBeenCalledWith('needle', 'a', '*.txt', false)
     await gated.glob('**/*.txt', 'a')
-    expect(shared.glob).toHaveBeenCalledWith('**/*.txt', 'a')
-    // None of the read-side delegations consult the gate.
+    expect(shared.glob).toHaveBeenCalledWith('**/*.txt', 'a', false)
+    // None of the read-side delegations consult the edit/write rules engine.
     expect(evaluateEditForConversation).not.toHaveBeenCalled()
   })
 })
@@ -373,5 +381,88 @@ describe('jailPath with a symlinked workspace root (smoke F1)', () => {
     const inside = await gated.write('guarded/../guarded/x.txt', 'hi')
     expect(inside).toEqual({ path: 'x', filesUpdate: null })
     expect(evaluateEditForConversation).toHaveBeenCalledWith('guarded/x.txt', 'convo', linkPath)
+  })
+})
+
+describe('F8 fileAccessPolicy — outside-root READ relaxation (writes stay jailed)', () => {
+  let projectPath: string
+  let shared: ReturnType<typeof fakeShared>
+  let gated: GatedDiffFsBackend
+
+  beforeEach(() => {
+    vi.mocked(interrupt).mockClear()
+    vi.mocked(getSettings).mockReturnValue({ fileAccessPolicy: 'deny' } as never)
+    projectPath = realpathSync(mkdtempSync(join(tmpdir(), 'bearcode-fap-')))
+    mkdirSync(join(projectPath, 'a'))
+    writeFileSync(join(projectPath, 'a', 'b.txt'), 'inside')
+    shared = fakeShared()
+    gated = new GatedDiffFsBackend(shared as unknown as DiffFsBackend, 'tc1', 'convo', projectPath)
+  })
+
+  it('deny (default): an outside-root read is rejected, shared read untouched', async () => {
+    const r = await gated.read('../outside.txt')
+    expect(r).toEqual({ error: expect.stringContaining('outside the workspace') })
+    expect(shared.read).not.toHaveBeenCalled()
+    expect(interrupt).not.toHaveBeenCalled()
+  })
+
+  it('allow: an outside-root read is permitted (threads allowOutsideRead=true)', async () => {
+    vi.mocked(getSettings).mockReturnValue({ fileAccessPolicy: 'allow' } as never)
+    await gated.read('../outside.txt', 0, 500)
+    expect(shared.read).toHaveBeenCalledWith('../outside.txt', 0, 500, true)
+    expect(interrupt).not.toHaveBeenCalled()
+  })
+
+  it('ask: an outside-root read raises a read_file approval card; approved → permitted', async () => {
+    vi.mocked(getSettings).mockReturnValue({ fileAccessPolicy: 'ask' } as never)
+    vi.mocked(interrupt).mockReturnValue({ approved: true })
+    await gated.read('../outside.txt')
+    expect(interrupt).toHaveBeenCalledWith({
+      kind: 'read_file',
+      tool: 'read_file',
+      path: '../outside.txt',
+      resolvedPath: expect.stringContaining('outside.txt'),
+      toolCallId: 'tc1'
+    })
+    expect(shared.read).toHaveBeenCalledWith('../outside.txt', undefined, undefined, true)
+  })
+
+  it('ask: a denied approval blocks the read', async () => {
+    vi.mocked(getSettings).mockReturnValue({ fileAccessPolicy: 'ask' } as never)
+    vi.mocked(interrupt).mockReturnValue({ approved: false })
+    const r = await gated.read('../outside.txt')
+    expect(r).toEqual({ error: 'User denied reading this path.' })
+    expect(shared.read).not.toHaveBeenCalled()
+  })
+
+  it('inside-root reads are UNCHANGED under every policy (no prompt, no relaxation flag)', async () => {
+    for (const policy of ['deny', 'ask', 'allow'] as const) {
+      vi.mocked(getSettings).mockReturnValue({ fileAccessPolicy: policy } as never)
+      shared.read.mockClear()
+      vi.mocked(interrupt).mockClear()
+      await gated.read('a/b.txt', 0, 500)
+      expect(shared.read).toHaveBeenCalledWith('a/b.txt', 0, 500, false)
+      expect(interrupt).not.toHaveBeenCalled()
+    }
+  })
+
+  it("SECURITY REGRESSION: a WRITE outside root is rejected even under 'allow'", async () => {
+    vi.mocked(getSettings).mockReturnValue({ fileAccessPolicy: 'allow' } as never)
+    const w = await gated.write('../escape.txt', 'x')
+    expect(w).toEqual({ error: expect.stringContaining('outside the workspace') })
+    expect(shared.write).not.toHaveBeenCalled()
+    const e = await gated.edit('../escape.txt', 'a', 'b')
+    expect(e).toEqual({ error: expect.stringContaining('outside the workspace') })
+    expect(shared.edit).not.toHaveBeenCalled()
+  })
+
+  it('jailPath: no opts throws outside; allowOutsideRead returns the resolved path', () => {
+    expect(() => jailPath(projectPath, '../escape.txt')).toThrow(/outside the workspace/)
+    // allowOutsideRead lets the resolution through (used only by read delegations).
+    expect(jailPath(projectPath, '../escape.txt', { allowOutsideRead: true })).toContain(
+      'escape.txt'
+    )
+    // Inside-root is unchanged regardless of the flag.
+    expect(jailPath(projectPath, 'a/b.txt')).toBe(join(projectPath, 'a', 'b.txt'))
   })
 })

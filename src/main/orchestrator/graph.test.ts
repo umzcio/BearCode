@@ -101,7 +101,9 @@ describe('buildUserMessageContent', () => {
   const noSide = (): string | null => null
 
   it('returns the plain string when there are no attachments', () => {
-    expect(buildUserMessageContent('hello', [], noBytes, noSide, { pdfNative: false })).toBe('hello')
+    expect(buildUserMessageContent('hello', [], noBytes, noSide, { pdfNative: false })).toBe(
+      'hello'
+    )
   })
 
   it('image only -> text block then one image block per resolvable image', () => {
@@ -395,6 +397,40 @@ describe('edit interrupt pairing', () => {
   })
 })
 
+describe('read_file interrupt pairing (F8 outside-folder read approval)', () => {
+  it('pairs a read interrupt to its tool call by toolCallId', () => {
+    const v = { kind: 'read_file', tool: 'read_file', path: '../secret.txt', toolCallId: 'tc9' }
+    expect(
+      interruptBelongsToToolCall(v, {
+        id: 'tc9',
+        name: 'read_file',
+        args: { file_path: '../secret.txt' }
+      })
+    ).toBe(true)
+  })
+
+  it('falls back to path match when toolCallId is absent, and requires the exact tool', () => {
+    const v = { kind: 'read_file', tool: 'ls', path: '../out' }
+    expect(interruptBelongsToToolCall(v, { id: 'x', name: 'ls', args: { path: '../out' } })).toBe(
+      true
+    )
+    expect(interruptBelongsToToolCall(v, { id: 'x', name: 'grep', args: { path: '../out' } })).toBe(
+      false
+    )
+  })
+
+  it('a present-but-mismatched toolCallId never falls back to the path match', () => {
+    const v = { kind: 'read_file', tool: 'read_file', path: '../secret.txt', toolCallId: 'tc9' }
+    expect(
+      interruptBelongsToToolCall(v, {
+        id: 'other',
+        name: 'read_file',
+        args: { file_path: '../secret.txt' }
+      })
+    ).toBe(false)
+  })
+})
+
 describe('synthesizedApprovalCard (call:null synthesis and edit rehydration)', () => {
   it('synthesizes a run_command card from the payload command', () => {
     expect(
@@ -408,6 +444,30 @@ describe('synthesizedApprovalCard (call:null synthesis and edit rehydration)', (
       input: { command: '' },
       toolCallId: undefined
     })
+  })
+
+  it('synthesizes a read_file card (never a mislabeled empty run_command)', () => {
+    // F8 security fix: an unpaired read_file interrupt must render as its read
+    // tool with the resolved target, not fall through to an empty command card.
+    expect(
+      synthesizedApprovalCard({
+        kind: 'read_file',
+        tool: 'read_file',
+        path: 'assets/link/id_rsa',
+        resolvedPath: '/Users/zach/.ssh/id_rsa',
+        toolCallId: 'tc9'
+      })
+    ).toEqual({
+      tool: 'read_file',
+      input: { file_path: '/Users/zach/.ssh/id_rsa', requested_path: 'assets/link/id_rsa' },
+      toolCallId: 'tc9'
+    })
+  })
+
+  it('a read_file card keeps the read tool name (ls/grep/glob) from the payload', () => {
+    expect(synthesizedApprovalCard({ kind: 'read_file', tool: 'ls', path: '../out' }).tool).toBe(
+      'ls'
+    )
   })
 
   it('shows the RESOLVED path on an edit card and carries the raw string as requested_path', () => {
