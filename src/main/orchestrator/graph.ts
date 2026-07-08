@@ -499,6 +499,16 @@ export function interruptBelongsToToolCall(
     const args = tc.args as { file_path?: unknown; path?: unknown } | null | undefined
     return (args?.file_path ?? args?.path) === value.path
   }
+  // F8 outside-folder read approval ('ask' fileAccessPolicy). Same pairing as
+  // edit_file: the candidate must be the exact read tool the gate interrupted
+  // for, matched by toolCallId when present (always is, from the backend
+  // factory) and otherwise by the RAW agent path the streamed args carry.
+  if (value?.kind === 'read_file') {
+    if (tc.name !== value.tool) return false
+    if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
+    const args = tc.args as { file_path?: unknown; path?: unknown } | null | undefined
+    return (args?.file_path ?? args?.path) === value.path
+  }
   if (value?.kind === 'plan_review') {
     if (tc.name !== 'submit_plan') return false
     if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId

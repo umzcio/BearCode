@@ -395,6 +395,40 @@ describe('edit interrupt pairing', () => {
   })
 })
 
+describe('read_file interrupt pairing (F8 outside-folder read approval)', () => {
+  it('pairs a read interrupt to its tool call by toolCallId', () => {
+    const v = { kind: 'read_file', tool: 'read_file', path: '../secret.txt', toolCallId: 'tc9' }
+    expect(
+      interruptBelongsToToolCall(v, {
+        id: 'tc9',
+        name: 'read_file',
+        args: { file_path: '../secret.txt' }
+      })
+    ).toBe(true)
+  })
+
+  it('falls back to path match when toolCallId is absent, and requires the exact tool', () => {
+    const v = { kind: 'read_file', tool: 'ls', path: '../out' }
+    expect(interruptBelongsToToolCall(v, { id: 'x', name: 'ls', args: { path: '../out' } })).toBe(
+      true
+    )
+    expect(interruptBelongsToToolCall(v, { id: 'x', name: 'grep', args: { path: '../out' } })).toBe(
+      false
+    )
+  })
+
+  it('a present-but-mismatched toolCallId never falls back to the path match', () => {
+    const v = { kind: 'read_file', tool: 'read_file', path: '../secret.txt', toolCallId: 'tc9' }
+    expect(
+      interruptBelongsToToolCall(v, {
+        id: 'other',
+        name: 'read_file',
+        args: { file_path: '../secret.txt' }
+      })
+    ).toBe(false)
+  })
+})
+
 describe('synthesizedApprovalCard (call:null synthesis and edit rehydration)', () => {
   it('synthesizes a run_command card from the payload command', () => {
     expect(

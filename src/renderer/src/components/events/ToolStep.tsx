@@ -7,6 +7,12 @@ import './events.css'
 type ToolCallEvent = Extract<Event, { type: 'tool_call' }>
 type ToolResultEvent = Extract<Event, { type: 'tool_result' }>
 
+// Read-side tools that the F8 outside-folder read gate ('ask' fileAccessPolicy)
+// can pause for approval. A pending/denied state only ever occurs for a read
+// whose path resolved OUTSIDE the project root; normal in-root reads never
+// interrupt, so their tool_call has no approvalState and falls through.
+const READ_TOOLS = new Set(['read_file', 'ls', 'grep', 'glob', 'list_dir', 'search_files'])
+
 interface ToolStepProps {
   call: ToolCallEvent
   result?: ToolResultEvent
@@ -207,6 +213,25 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
             requested as <span className="mono">{requestedPath}</span>
           </div>
         ) : null}
+      </div>
+    )
+  }
+
+  // F8: an outside-folder read awaiting approval ('ask' fileAccessPolicy).
+  if (READ_TOOLS.has(call.tool) && call.approvalState === 'pending') {
+    const path = inputStr(call, 'file_path') ?? inputStr(call, 'path') ?? 'a path'
+    return <PendingRead callId={call.id} path={path} convoId={convoId} />
+  }
+  if (READ_TOOLS.has(call.tool) && call.approvalState === 'denied') {
+    const path = inputStr(call, 'file_path') ?? inputStr(call, 'path') ?? 'a path'
+    const name = path.split('/').pop() ?? path
+    return (
+      <div className="step">
+        <div className="step-row static">
+          <span>
+            Denied reading <b>{name}</b>
+          </span>
+        </div>
       </div>
     )
   }
@@ -443,6 +468,63 @@ function PendingCommand({
         ) : null}
         <button className="approval-opt" onClick={deny}>
           {isFirstPending ? <span className="opt-num">3</span> : null}
+          No, deny it
+          <span className="opt-hint">the agent is told you declined</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// F8 outside-folder read approval card. Reads have no rule grammar (the engine
+// gates reads only by the jail + fileAccessPolicy), so this is a plain
+// allow-once / deny card reusing the generic approveTool resume flow.
+function PendingRead({
+  callId,
+  path,
+  convoId
+}: {
+  callId: string
+  path: string
+  convoId: string
+}): React.JSX.Element {
+  const approveTool = useAppStore((s) => s.approveTool)
+  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+
+  const allow = (): void => approveTool(callId, true)
+  const deny = (): void => approveTool(callId, false)
+
+  useEffect(() => {
+    if (!isFirstPending) return undefined
+    const onKey = (e: KeyboardEvent): void => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === '1') allow()
+      else if (e.key === '2') deny()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId, isFirstPending])
+
+  return (
+    <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
+      <div className="step-row static">
+        <span>
+          Allow the agent to read <span className="mono">{path}</span> outside the project folder?
+        </span>
+      </div>
+      <div className="waiting-note">Waiting for your input…</div>
+      <div className="approval-card pulse-once">
+        <div className="approval-title">This path is outside the project folder.</div>
+        <div className="approval-cmd">{path}</div>
+        <button className="approval-opt" onClick={allow}>
+          {isFirstPending ? <span className="opt-num">1</span> : null}
+          Yes, allow this read
+        </button>
+        <button className="approval-opt" onClick={deny}>
+          {isFirstPending ? <span className="opt-num">2</span> : null}
           No, deny it
           <span className="opt-hint">the agent is told you declined</span>
         </button>
