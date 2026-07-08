@@ -34,7 +34,9 @@ import {
   renameProject,
   deleteProject,
   setConversationProject,
-  getConversationMeta
+  getConversationMeta,
+  getProject,
+  updateProjectSettings
 } from './index'
 
 beforeEach(() => {
@@ -51,11 +53,78 @@ describe('db projects', () => {
     expect(typeof p.id).toBe('string')
     expect(p.id.length).toBeGreaterThan(0)
   })
-  it('listProjects maps rows', () => {
+  it('listProjects maps rows (old rows: F9 fields null → inherit)', () => {
     allRows = [{ id: 'p1', name: 'A', color: null, created_at: 1, updated_at: 2 }]
     expect(listProjects()).toEqual([
-      { id: 'p1', name: 'A', color: null, createdAt: 1, updatedAt: 2 }
+      {
+        id: 'p1',
+        name: 'A',
+        color: null,
+        icon: null,
+        defaultModelRef: null,
+        defaultEffort: null,
+        defaultPermissionMode: null,
+        createdAt: 1,
+        updatedAt: 2
+      }
     ])
+  })
+  it('getProject maps F9 columns and coerces a bad enum to null', () => {
+    getRow = {
+      id: 'p1',
+      name: 'A',
+      color: '#c96',
+      icon: 'IconGrid',
+      default_model_ref: 'anthropic/claude-opus-4-8',
+      default_effort: 'high',
+      default_permission_mode: 'not-a-mode',
+      created_at: 1,
+      updated_at: 2
+    }
+    expect(getProject('p1')).toEqual({
+      id: 'p1',
+      name: 'A',
+      color: '#c96',
+      icon: 'IconGrid',
+      defaultModelRef: 'anthropic/claude-opus-4-8',
+      defaultEffort: 'high',
+      defaultPermissionMode: null, // 'not-a-mode' coerced away
+      createdAt: 1,
+      updatedAt: 2
+    })
+  })
+  it('getProject returns null for a missing id', () => {
+    getRow = undefined
+    expect(getProject('nope')).toBeNull()
+  })
+  it('updateProjectSettings updates only present keys (null clears)', () => {
+    updateProjectSettings('p1', { color: '#123', defaultEffort: 'low', defaultModelRef: null })
+    const c = calls.find((c) => /UPDATE projects SET/.test(c.sql))
+    expect(c).toBeTruthy()
+    expect(c!.sql).toContain('color = ?')
+    expect(c!.sql).toContain('default_effort = ?')
+    expect(c!.sql).toContain('default_model_ref = ?')
+    expect(c!.sql).not.toContain('icon = ?')
+    // Columns are appended in field order: color, default_model_ref, default_effort.
+    // args: color, modelRef(null), effort, updated_at, id
+    expect(c!.args[0]).toBe('#123')
+    expect(c!.args[1]).toBe(null)
+    expect(c!.args[2]).toBe('low')
+    expect(c!.args[c!.args.length - 1]).toBe('p1')
+  })
+  it('updateProjectSettings coerces a bad effort/mode to null before persisting', () => {
+    updateProjectSettings('p1', {
+      defaultEffort: 'yolo' as never,
+      defaultPermissionMode: 'bypassy' as never
+    })
+    const c = calls.find((c) => /UPDATE projects SET/.test(c.sql))
+    // order: default_effort, default_permission_mode, updated_at, id
+    expect(c!.args[0]).toBe(null)
+    expect(c!.args[1]).toBe(null)
+  })
+  it('updateProjectSettings with no settable keys is a no-op (no UPDATE)', () => {
+    updateProjectSettings('p1', {})
+    expect(calls.some((c) => /UPDATE projects SET/.test(c.sql))).toBe(false)
   })
   it('renameProject issues an UPDATE with the new name', () => {
     renameProject('p1', 'B')

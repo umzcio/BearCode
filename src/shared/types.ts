@@ -428,8 +428,26 @@ export interface Project {
   id: string
   name: string
   color: string | null
+  // F9 per-project settings (all optional; null/unset → inherit global). icon is
+  // a curated icon name (see the renderer's PROJECT_ICONS); the default* fields
+  // override the global defaults for conversations created in this project.
+  icon?: string | null
+  defaultModelRef?: ModelRef | null
+  defaultEffort?: EffortLevel | null
+  defaultPermissionMode?: PermissionMode | null
   createdAt: number
   updatedAt: number
+}
+
+// The settable subset of a Project (what the Project Settings modal writes and
+// what AppSettings.newProjectDefaults holds as the new-project template). Every
+// field optional so a patch touches only what changed; a null clears an override.
+export interface ProjectSettings {
+  color?: string | null
+  icon?: string | null
+  defaultModelRef?: ModelRef | null
+  defaultEffort?: EffortLevel | null
+  defaultPermissionMode?: PermissionMode | null
 }
 
 // ---- Conversations ----
@@ -607,6 +625,9 @@ export interface AppSettings {
   securityPreset?: SecurityPreset
   fileAccessPolicy?: FileAccessPolicy
   terminalAutoExec?: TerminalAutoExec
+  // F9 template applied to every newly created project ("set as default for new
+  // projects"). Optional & additive.
+  newProjectDefaults?: ProjectSettings
 }
 
 export interface SettingsInfo extends AppSettings {
@@ -728,6 +749,8 @@ export interface BearcodeApi {
     create(name: string, color?: string | null): Promise<Project>
     rename(id: string, name: string): Promise<void>
     delete(id: string): Promise<void>
+    // F9: update a project's settings (color/icon/defaults); returns the updated row.
+    update(id: string, patch: ProjectSettings): Promise<Project>
   }
   permissions: {
     addRule(rule: AddRuleInput): Promise<void>

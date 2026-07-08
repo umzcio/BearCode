@@ -17,8 +17,11 @@ import type {
   PermissionMode,
   PermissionRule,
   HistoryHit,
-  Project
+  Project,
+  ProjectSettings
 } from '../../shared/types'
+import { isEffortLevel } from '../../shared/effort'
+import { isPermissionMode } from '../../shared/permissionMode'
 import { getSettings } from '../settings'
 import { extractSearchText } from './searchText'
 
@@ -154,6 +157,20 @@ function getDb(): Database.Database {
     db.exec(`ALTER TABLE conversations ADD COLUMN archived INTEGER`)
   } catch {
     // column already exists
+  }
+  // F9: per-project settings columns (NULL = inherit global). Same
+  // idempotent-guarded ALTER idiom; old DBs upgrade in place.
+  for (const col of [
+    'icon TEXT',
+    'default_model_ref TEXT',
+    'default_effort TEXT',
+    'default_permission_mode TEXT'
+  ]) {
+    try {
+      db.exec(`ALTER TABLE projects ADD COLUMN ${col}`)
+    } catch {
+      // column already exists
+    }
   }
   backfillEventFts(db)
   zombieRunIds = cancelZombieRuns(db)
@@ -558,21 +575,77 @@ export function setActiveRules(conversationId: string, names: string[]): void {
     .run(JSON.stringify(names), Date.now(), conversationId)
 }
 
-export function listProjects(): Project[] {
-  const rows = getDb().prepare(`SELECT * FROM projects ORDER BY updated_at DESC`).all() as {
-    id: string
-    name: string
-    color: string | null
-    created_at: number
-    updated_at: number
-  }[]
-  return rows.map((r) => ({
+interface ProjectRow {
+  id: string
+  name: string
+  color: string | null
+  icon: string | null
+  default_model_ref: string | null
+  default_effort: string | null
+  default_permission_mode: string | null
+  created_at: number
+  updated_at: number
+}
+
+// Map a projects row → Project. F9 settings columns are coerced: an effort/mode
+// value outside its enum (a downgrade or hand-edit) reads as null (inherit
+// global) rather than poisoning the resolver.
+function rowToProject(r: ProjectRow): Project {
+  return {
     id: r.id,
     name: r.name,
     color: r.color ?? null,
+    icon: r.icon ?? null,
+    defaultModelRef: r.default_model_ref ?? null,
+    defaultEffort: isEffortLevel(r.default_effort) ? r.default_effort : null,
+    defaultPermissionMode: isPermissionMode(r.default_permission_mode)
+      ? r.default_permission_mode
+      : null,
     createdAt: r.created_at,
     updatedAt: r.updated_at
-  }))
+  }
+}
+
+export function listProjects(): Project[] {
+  const rows = getDb()
+    .prepare(`SELECT * FROM projects ORDER BY updated_at DESC`)
+    .all() as ProjectRow[]
+  return rows.map(rowToProject)
+}
+
+export function getProject(id: string): Project | null {
+  const row = getDb().prepare(`SELECT * FROM projects WHERE id = ?`).get(id) as
+    | ProjectRow
+    | undefined
+  return row ? rowToProject(row) : null
+}
+
+// Update only the columns present in `patch` (undefined keys are left untouched;
+// a null clears an override). Enum values are coerced/dropped so an invalid
+// effort/mode can never persist. No-op when the patch has no settable keys.
+export function updateProjectSettings(id: string, patch: ProjectSettings): void {
+  const cols: string[] = []
+  const vals: (string | null)[] = []
+  const set = (col: string, v: string | null): void => {
+    cols.push(`${col} = ?`)
+    vals.push(v)
+  }
+  if (patch.color !== undefined) set('color', patch.color)
+  if (patch.icon !== undefined) set('icon', patch.icon)
+  if (patch.defaultModelRef !== undefined) set('default_model_ref', patch.defaultModelRef)
+  if (patch.defaultEffort !== undefined) {
+    set('default_effort', isEffortLevel(patch.defaultEffort) ? patch.defaultEffort : null)
+  }
+  if (patch.defaultPermissionMode !== undefined) {
+    set(
+      'default_permission_mode',
+      isPermissionMode(patch.defaultPermissionMode) ? patch.defaultPermissionMode : null
+    )
+  }
+  if (cols.length === 0) return
+  getDb()
+    .prepare(`UPDATE projects SET ${cols.join(', ')}, updated_at = ? WHERE id = ?`)
+    .run(...vals, Date.now(), id)
 }
 
 export function createProject(name: string, color: string | null = null): Project {
