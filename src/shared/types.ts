@@ -428,6 +428,21 @@ export interface ConversationMeta {
   archived: boolean
 }
 
+// ---- Conversation history search (F1) ----
+
+// One ranked full-text hit from searchHistory: the matched event, its host
+// conversation's display meta, and a snippet with the matched term wrapped in
+// the ‹mark›…‹/mark› sentinels the renderer parses into <mark> nodes.
+export interface HistoryHit {
+  conversationId: string
+  eventId: string
+  kind: Event['type']
+  snippet: string
+  title: string | null
+  projectLabel: string
+  updatedAt: number
+}
+
 // ---- Diffs ----
 
 export interface FileDiffFile {
