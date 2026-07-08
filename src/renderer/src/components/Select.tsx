@@ -108,7 +108,14 @@ export function Select<T extends string>({
               className="menu app-select-menu"
               role="listbox"
               ref={menuRef}
-              style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: pos.width }}
+              style={{
+                position: 'fixed',
+                top: pos.top,
+                left: pos.left,
+                minWidth: pos.width,
+                maxWidth: 320,
+                zIndex: 1000
+              }}
             >
               {options.map((o) => (
                 <div
