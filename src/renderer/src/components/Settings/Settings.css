@@ -185,6 +185,18 @@
   font-size: 13.5px;
 }
 
+.coming-block-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.coming-block-desc {
+  max-width: 360px;
+  text-align: center;
+  color: var(--text-dim);
+}
+
 /* --- Key rows (Models page) --- */
 .key-row {
   display: flex;
