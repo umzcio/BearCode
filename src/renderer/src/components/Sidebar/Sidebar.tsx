@@ -29,10 +29,10 @@ export function Sidebar(): React.JSX.Element {
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const goHome = useAppStore((s) => s.goHome)
   const openScheduled = useAppStore((s) => s.openScheduled)
+  const openHistory = useAppStore((s) => s.openHistory)
   const openConvo = useAppStore((s) => s.openConvo)
   const openSettings = useAppStore((s) => s.openSettings)
   const openSearch = useAppStore((s) => s.openSearch)
-  const showToast = useAppStore((s) => s.showToast)
   const projects = useAppStore((s) => s.projects)
   const createProject = useAppStore((s) => s.createProject)
   const setPinned = useAppStore((s) => s.setPinned)
@@ -44,7 +44,11 @@ export function Sidebar(): React.JSX.Element {
   const sort = useAppStore((s) => s.settings?.sidebarSort ?? 'updated')
   const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
 
-  const groups = groupConversations(convoOrder, conversations, projects, { groupBy, sort, showArchived })
+  const groups = groupConversations(convoOrder, conversations, projects, {
+    groupBy,
+    sort,
+    showArchived
+  })
 
   return (
     <div
@@ -78,7 +82,10 @@ export function Sidebar(): React.JSX.Element {
           New Conversation
         </button>
       </Hint>
-      <button className="nav-item" onClick={() => showToast('Conversation history is coming soon')}>
+      <button
+        className={'nav-item' + (view.kind === 'history' ? ' selected' : '')}
+        onClick={openHistory}
+      >
         <IconHistory />
         Conversation History
       </button>
@@ -152,7 +159,9 @@ export function Sidebar(): React.JSX.Element {
                       title="Delete project"
                       onClick={(e) => {
                         e.stopPropagation()
-                        if (window.confirm(`Delete project "${group.label}"? Conversations are kept.`)) {
+                        if (
+                          window.confirm(`Delete project "${group.label}"? Conversations are kept.`)
+                        ) {
                           void deleteProject(group.projectId)
                         }
                       }}
@@ -171,7 +180,9 @@ export function Sidebar(): React.JSX.Element {
               return (
                 <div
                   key={id}
-                  className={'convo' + (running ? ' active-run' : '') + (selected ? ' selected' : '')}
+                  className={
+                    'convo' + (running ? ' active-run' : '') + (selected ? ' selected' : '')
+                  }
                   onClick={() => openConvo(id)}
                 >
                   {convo.pinned ? <IconPin size={11} /> : null}
