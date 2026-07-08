@@ -4,7 +4,6 @@ import { join } from 'path'
 import type {
   AppSettings,
   CustomModel,
-  PermissionMode,
   ProjectSettings,
   ProviderId,
   SettingsInfo
@@ -17,7 +16,7 @@ import {
 } from '../shared/types'
 import type { PricingMap } from '../shared/pricing'
 import { isEffortLevel } from '../shared/effort'
-import { isSelectableDefaultMode } from '../shared/permissionMode'
+import { isSelectableDefaultMode, SELECTABLE_DEFAULT_MODES } from '../shared/permissionMode'
 import {
   isThemeMode,
   isFontSize,
@@ -29,12 +28,9 @@ import {
 
 // The four selectable default modes (design §5). 'bypass' is per-conversation
 // only and is NEVER a valid default -- coerced away on read, rejected on write.
-export const SELECTABLE_PERMISSION_MODES: readonly PermissionMode[] = [
-  'ask',
-  'accept-edits',
-  'plan',
-  'auto'
-]
+// Single source of truth in shared/permissionMode.ts (also used by F9's
+// per-project default coercion) so the two can never drift.
+export const SELECTABLE_PERMISSION_MODES = SELECTABLE_DEFAULT_MODES
 
 const DEFAULTS: AppSettings = {
   ollamaBaseUrl: 'http://localhost:11434',
