@@ -30,6 +30,7 @@ import type {
 import type { FileDiffFile } from '../../shared/types'
 import { stageFile } from '../diffs'
 import { evaluateEditForConversation, resolveConversationMode } from '../permissions'
+import { getSettings } from '../settings'
 import { takeDeniedEditReplayPin } from './tools'
 
 const execFileAsync = promisify(execFile)
@@ -61,38 +62,35 @@ function realpathExistingPrefix(p: string): string {
   return probe + suffix
 }
 
-export function jailPath(projectPath: string, p: string | undefined): string {
+// Resolve a model-supplied path to its real absolute location AND report
+// whether that location falls outside the workspace root -- WITHOUT throwing on
+// the outside case. This is the shared resolution core; jailPath() wraps it with
+// the throw. Splitting it lets the F8 read path inspect outside-ness and apply
+// fileAccessPolicy instead of unconditionally rejecting. The normalization and
+// symlink resolution are byte-for-byte the pre-F8 jailPath body, so the
+// inside-root behavior (and the write throw) are unchanged.
+export function resolveInWorkspace(
+  projectPath: string,
+  p: string | undefined
+): { real: string; outside: boolean } {
   const root = realpathSync(projectPath)
   let raw: string
   if (!p || p === '.' || p === '/') {
     raw = root
   } else if (isAbsolute(p)) {
     if (p === root || p.startsWith(root + sep)) {
-      // Literal OS path already textually under the (realpath'd) root. Keep
-      // the RAW string so the containment check at the bottom still resolves
-      // any symlinks the path crosses INSIDE the workspace and throws on a
-      // real escape (e.g. <root>/link-to-outside/secret) exactly as before.
+      // Literal OS path already textually under the (realpath'd) root. Keep the
+      // RAW string so the containment check below still resolves any symlinks
+      // the path crosses INSIDE the workspace (e.g. <root>/link-to-outside/x).
       raw = p
     } else {
-      // SECURITY (jail) -- smoke finding F1 (.superpowers/sdd/task-5-report.md):
-      // `root` above is realpath'd, so a purely TEXTUAL prefix test here
-      // misclassifies an absolute path that reaches the workspace THROUGH a
-      // symlink. macOS classic: workspace opened as /tmp/proj while /tmp ->
-      // /private/tmp -- the agent's '/tmp/proj/guarded/x' does not start
-      // with '/private/tmp/proj', so it used to fall into the virtual-root
-      // branch and resolve to the nested phantom '<root>/tmp/proj/guarded/x'.
-      // Two observed consequences: the write landed at that wrong nested
-      // path, and relForGate yielded 'tmp/proj/guarded/x', silently dodging
-      // edit rules like 'guarded/**'. Normalizing the INCOMING path first
-      // (longest existing prefix through realpath, not-yet-created suffix
-      // re-appended -- the same idiom the final containment check uses) maps
-      // it to '/private/tmp/proj/guarded/x', which the prefix test then
-      // accepts as a genuine workspace path. Anything that normalizes to a
-      // location still outside the root keeps the legacy virtual-root
-      // fallback (treated as root-relative, never an escape). This branch
-      // can only PROMOTE a path into the inside-the-jail interpretation; the
-      // authoritative containment check at the bottom still runs on the
-      // result, so no escape path is widened.
+      // SECURITY (jail) -- smoke finding F1: `root` is realpath'd, so a purely
+      // TEXTUAL prefix test misclassifies an absolute path reaching the
+      // workspace THROUGH a symlink (macOS /tmp -> /private/tmp). Normalize the
+      // INCOMING path first (longest existing prefix through realpath); if it
+      // maps under root accept it, else keep the virtual-root fallback (treated
+      // as root-relative, never an escape). This branch can only PROMOTE a path
+      // into the jail; the containment check below still runs on the result.
       const normalized = realpathExistingPrefix(p)
       raw =
         normalized === root || normalized.startsWith(root + sep)
@@ -102,8 +100,27 @@ export function jailPath(projectPath: string, p: string | undefined): string {
   } else {
     raw = resolve(root, p)
   }
+  // Authoritative containment: resolve symlinks (longest existing prefix) and
+  // report outside-ness. jailPath() turns `outside` into the throw for writes;
+  // the F8 read path consults fileAccessPolicy instead.
   const real = realpathExistingPrefix(raw)
-  if (real !== root && !real.startsWith(root + sep)) {
+  const outside = real !== root && !real.startsWith(root + sep)
+  return { real, outside }
+}
+
+// The jail. Resolves a path against the workspace root and, by default, THROWS
+// if it escapes -- exactly as before. `opts.allowOutsideRead` is the ONLY way to
+// permit an outside path, and it is passed solely by the READ delegations in
+// GatedDiffFsBackend after fileAccessPolicy has authorized the read (F8). Write/
+// edit callers NEVER pass it, so writes stay hard-jailed to the root regardless
+// of any setting.
+export function jailPath(
+  projectPath: string,
+  p: string | undefined,
+  opts?: { allowOutsideRead?: boolean }
+): string {
+  const { real, outside } = resolveInWorkspace(projectPath, p)
+  if (outside && !opts?.allowOutsideRead) {
     throw new Error(`Path is outside the workspace: ${p}`)
   }
   return real
@@ -135,9 +152,9 @@ export class DiffFsBackend implements BackendProtocolV2 {
     private readonly diffGroupId: string
   ) {}
 
-  async ls(path: string): Promise<LsResult> {
+  async ls(path: string, allowOutsideRead = false): Promise<LsResult> {
     try {
-      const dir = jailPath(this.projectPath, path)
+      const dir = jailPath(this.projectPath, path, { allowOutsideRead })
       const entries = readdirSync(dir, { withFileTypes: true })
       const files = entries
         .filter((e) => e.name !== '.git')
@@ -149,9 +166,14 @@ export class DiffFsBackend implements BackendProtocolV2 {
     }
   }
 
-  async read(filePath: string, offset = 0, limit = 500): Promise<ReadResult> {
+  async read(
+    filePath: string,
+    offset = 0,
+    limit = 500,
+    allowOutsideRead = false
+  ): Promise<ReadResult> {
     try {
-      const abs = jailPath(this.projectPath, filePath)
+      const abs = jailPath(this.projectPath, filePath, { allowOutsideRead })
       const all = readFileSync(abs, 'utf8').split('\n')
       const slice = all.slice(offset, offset + limit)
       const notice =
@@ -164,9 +186,9 @@ export class DiffFsBackend implements BackendProtocolV2 {
     }
   }
 
-  async readRaw(filePath: string): Promise<ReadRawResult> {
+  async readRaw(filePath: string, allowOutsideRead = false): Promise<ReadRawResult> {
     try {
-      const abs = jailPath(this.projectPath, filePath)
+      const abs = jailPath(this.projectPath, filePath, { allowOutsideRead })
       const stat = statSync(abs)
       const content = readFileSync(abs, 'utf8')
       return {
@@ -182,9 +204,14 @@ export class DiffFsBackend implements BackendProtocolV2 {
     }
   }
 
-  async grep(pattern: string, path?: string | null, glob?: string | null): Promise<GrepResult> {
+  async grep(
+    pattern: string,
+    path?: string | null,
+    glob?: string | null,
+    allowOutsideRead = false
+  ): Promise<GrepResult> {
     try {
-      const dir = jailPath(this.projectPath, path ?? undefined)
+      const dir = jailPath(this.projectPath, path ?? undefined, { allowOutsideRead })
       const args = ['-n', '--no-heading', '-F', '--max-columns', '250', '-e', pattern]
       if (glob) args.push('-g', glob)
       args.push('.')
@@ -206,9 +233,9 @@ export class DiffFsBackend implements BackendProtocolV2 {
     }
   }
 
-  async glob(pattern: string, path?: string): Promise<GlobResult> {
+  async glob(pattern: string, path?: string, allowOutsideRead = false): Promise<GlobResult> {
     try {
-      const dir = jailPath(this.projectPath, path)
+      const dir = jailPath(this.projectPath, path, { allowOutsideRead })
       const { stdout } = await rg(
         ['--files', '--hidden', '-g', '!.git', '-g', pattern, '--sort', 'path'],
         dir
@@ -375,26 +402,77 @@ export class GatedDiffFsBackend implements BackendProtocolV2 {
     return this.shared.edit(filePath, oldString, newString, replaceAll)
   }
 
-  // Every remaining BackendProtocolV2 method DiffFsBackend implements,
-  // delegated 1:1 (read-side, no gate). uploadFiles/downloadFiles are
-  // optional in the protocol and DiffFsBackend does not implement them.
-  ls(path: string): Promise<LsResult> {
-    return this.shared.ls(path)
+  // F8 read gate: reads INSIDE the workspace root are unchanged (ungated, no
+  // prompt, no perf cost). Only a read whose resolved path is OUTSIDE the root
+  // consults the global fileAccessPolicy: 'deny' (default) rejects exactly as
+  // the jail did before F8; 'allow' permits; 'ask' raises an approval card.
+  // Returns {error} when the read must not happen, or {allowOutside} — the flag
+  // the shared read method threads to jailPath so an authorized outside read
+  // resolves instead of throwing. WRITES never call this and stay hard-jailed.
+  //
+  // interrupt() runs OUTSIDE any try (like the write gate) so a GraphInterrupt
+  // propagates as the pending-approval pause; resolveInWorkspace is pure and
+  // does not throw for the outside case, so no try is needed here.
+  private guardRead(
+    rawPath: string | undefined,
+    tool: string
+  ): { error: string } | { allowOutside: boolean } {
+    let outside: boolean
+    try {
+      ;({ outside } = resolveInWorkspace(this.projectPath, rawPath ?? '.'))
+    } catch (err) {
+      // An unresolvable path (e.g. realpath on a broken root): let the shared
+      // method surface the real error by proceeding inside-jail (no relaxation).
+      if (isGraphInterrupt(err)) throw err
+      return { allowOutside: false }
+    }
+    if (!outside) return { allowOutside: false }
+    const policy = getSettings().fileAccessPolicy ?? 'deny'
+    if (policy === 'deny') {
+      return { error: `Path is outside the workspace: ${rawPath ?? '.'}` }
+    }
+    if (policy === 'ask') {
+      const approval = interrupt({
+        kind: 'read_file',
+        tool,
+        path: rawPath ?? '.',
+        toolCallId: this.toolCallId
+      }) as { approved: boolean }
+      if (!approval.approved) return { error: 'User denied reading this path.' }
+    }
+    return { allowOutside: true } // 'allow', or an approved 'ask'
   }
 
-  read(filePath: string, offset?: number, limit?: number): Promise<ReadResult> {
-    return this.shared.read(filePath, offset, limit)
+  // Read-side delegations. Each guards the outside-root case, then threads the
+  // resolved allowOutsideRead flag to the shared method. uploadFiles/
+  // downloadFiles are optional in the protocol and DiffFsBackend omits them.
+  async ls(path: string): Promise<LsResult> {
+    const g = this.guardRead(path, 'ls')
+    if ('error' in g) return { error: g.error }
+    return this.shared.ls(path, g.allowOutside)
   }
 
-  readRaw(filePath: string): Promise<ReadRawResult> {
-    return this.shared.readRaw(filePath)
+  async read(filePath: string, offset?: number, limit?: number): Promise<ReadResult> {
+    const g = this.guardRead(filePath, 'read_file')
+    if ('error' in g) return { error: g.error }
+    return this.shared.read(filePath, offset, limit, g.allowOutside)
   }
 
-  grep(pattern: string, path?: string | null, glob?: string | null): Promise<GrepResult> {
-    return this.shared.grep(pattern, path, glob)
+  async readRaw(filePath: string): Promise<ReadRawResult> {
+    const g = this.guardRead(filePath, 'read_file')
+    if ('error' in g) return { error: g.error }
+    return this.shared.readRaw(filePath, g.allowOutside)
   }
 
-  glob(pattern: string, path?: string): Promise<GlobResult> {
-    return this.shared.glob(pattern, path)
+  async grep(pattern: string, path?: string | null, glob?: string | null): Promise<GrepResult> {
+    const g = this.guardRead(path ?? undefined, 'grep')
+    if ('error' in g) return { error: g.error }
+    return this.shared.grep(pattern, path, glob, g.allowOutside)
+  }
+
+  async glob(pattern: string, path?: string): Promise<GlobResult> {
+    const g = this.guardRead(path, 'glob')
+    if ('error' in g) return { error: g.error }
+    return this.shared.glob(pattern, path, g.allowOutside)
   }
 }
