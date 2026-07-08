@@ -1,0 +1,79 @@
+/* F9 Project Settings modal — reuses the shared .modal-overlay + .set-* classes
+   from Settings.css; this file adds only the panel frame and the swatch/icon
+   pickers. */
+.project-settings-panel {
+  position: relative;
+  width: min(560px, 92vw);
+  max-height: 86vh;
+  overflow-y: auto;
+  background: var(--bg-window);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 30px 30px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+}
+
+.ps-swatches,
+.ps-icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.ps-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.ps-swatch.selected {
+  border-color: var(--text);
+}
+.ps-swatch.none {
+  background: transparent;
+  border: 1px dashed var(--border);
+  position: relative;
+}
+.ps-swatch.none.selected {
+  border: 2px solid var(--text);
+}
+
+.ps-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-mid);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.ps-icon:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.ps-icon.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ps-default-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+/* Sidebar project header color dot (F9). */
+.proj-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}

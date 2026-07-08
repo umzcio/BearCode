@@ -9,7 +9,6 @@ import {
   IconArchive,
   IconClock,
   IconClose,
-  IconFolder,
   IconFolderPlus,
   IconHistory,
   IconPanel,
@@ -18,6 +17,7 @@ import {
   IconSearch,
   IconSettings
 } from '../icons'
+import { projectIcon } from '../ProjectSettings/projectIcons'
 import './Sidebar.css'
 
 export function Sidebar(): React.JSX.Element {
@@ -38,8 +38,8 @@ export function Sidebar(): React.JSX.Element {
   const setPinned = useAppStore((s) => s.setPinned)
   const setArchived = useAppStore((s) => s.setArchived)
   const newConversationInProject = useAppStore((s) => s.newConversationInProject)
-  const renameProject = useAppStore((s) => s.renameProject)
   const deleteProject = useAppStore((s) => s.deleteProject)
+  const openProjectSettings = useAppStore((s) => s.openProjectSettings)
   const groupBy = useAppStore((s) => s.settings?.sidebarGroupBy ?? 'project')
   const sort = useAppStore((s) => s.settings?.sidebarSort ?? 'updated')
   const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
@@ -129,7 +129,21 @@ export function Sidebar(): React.JSX.Element {
           >
             {group.kind !== 'all' ? (
               <div className="proj-label">
-                <IconFolder />
+                {(() => {
+                  const proj =
+                    group.kind === 'project'
+                      ? projects.find((p) => p.id === group.projectId)
+                      : undefined
+                  const Icon = projectIcon(proj?.icon)
+                  return (
+                    <>
+                      {proj?.color ? (
+                        <span className="proj-dot" style={{ background: proj.color }} />
+                      ) : null}
+                      <Icon size={16} />
+                    </>
+                  )
+                })()}
                 <span>{group.label}</span>
                 {group.kind === 'project' ? (
                   <span className="proj-actions">
@@ -145,11 +159,10 @@ export function Sidebar(): React.JSX.Element {
                     </button>
                     <button
                       className="row-act"
-                      title="Rename project"
+                      title="Project settings"
                       onClick={(e) => {
                         e.stopPropagation()
-                        const n = window.prompt('Rename project', group.label)?.trim()
-                        if (n) void renameProject(group.projectId, n)
+                        openProjectSettings(group.projectId)
                       }}
                     >
                       <IconSettings size={13} />
