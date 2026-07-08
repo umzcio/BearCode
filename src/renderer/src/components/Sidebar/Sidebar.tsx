@@ -7,7 +7,6 @@ import { DisplayOptions } from './DisplayOptions'
 import { ConvoRowMenu } from './ConvoRowMenu'
 import {
   IconArchive,
-  IconClock,
   IconHistory,
   IconPanel,
   IconPin,
@@ -26,7 +25,6 @@ export function Sidebar(): React.JSX.Element {
   const conversations = useAppStore((s) => s.conversations)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const goHome = useAppStore((s) => s.goHome)
-  const openScheduled = useAppStore((s) => s.openScheduled)
   const openHistory = useAppStore((s) => s.openHistory)
   const openConvo = useAppStore((s) => s.openConvo)
   const openSettings = useAppStore((s) => s.openSettings)
@@ -84,13 +82,6 @@ export function Sidebar(): React.JSX.Element {
       >
         <IconHistory />
         Conversation History
-      </button>
-      <button
-        className={'nav-item' + (view.kind === 'scheduled' ? ' selected' : '')}
-        onClick={openScheduled}
-      >
-        <IconClock />
-        Scheduled Tasks
       </button>
 
       <div className="projects-head">

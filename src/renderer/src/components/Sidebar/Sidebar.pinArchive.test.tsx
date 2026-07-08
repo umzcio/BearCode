@@ -41,7 +41,6 @@ beforeEach(() => {
     settings: { sidebarGroupBy: 'project', sidebarSort: 'updated' } as never,
     toggleSidebar: vi.fn(),
     goHome: vi.fn(),
-    openScheduled: vi.fn(),
     openConvo: vi.fn(),
     deleteConvo: vi.fn(),
     openSettings: vi.fn(),

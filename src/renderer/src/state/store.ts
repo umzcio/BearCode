@@ -53,11 +53,7 @@ export interface Convo {
   preview?: string | null
 }
 
-export type View =
-  | { kind: 'home' }
-  | { kind: 'conversation'; id: string }
-  | { kind: 'scheduled' }
-  | { kind: 'history' }
+export type View = { kind: 'home' } | { kind: 'conversation'; id: string } | { kind: 'history' }
 
 // The Auxiliary Pane's target (Ba4 unification). ONE field for the ONE side
 // panel: an artifact (plan/walkthrough viewer) or a diff group (the virtual
@@ -248,7 +244,6 @@ interface AppState {
   setAuxPaneWidth(w: number): void
   toggleModelMenu(): void
   goHome(): void
-  openScheduled(): void
   openHistory(): void
   openConvo(id: string, opts?: { focusEventId?: string; focusMatches?: string[] }): void
   clearFocusEvent(): void
@@ -630,8 +625,6 @@ export const useAppStore = create<AppState>((set, get) => {
         // the next Home visit mints a fresh draft id on first Media use.
         draftConvoId: null
       })),
-    openScheduled: () =>
-      set({ view: { kind: 'scheduled' }, auxSelection: null, reviewFocusPath: null }),
     openHistory: () =>
       set({ view: { kind: 'history' }, auxSelection: null, reviewFocusPath: null }),
     clearFocusEvent: () => set({ focusEventId: null, focusMatches: [] }),
