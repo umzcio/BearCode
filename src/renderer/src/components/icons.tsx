@@ -12,6 +12,8 @@ function icon(path: React.ReactNode, strokeWidth = 1.8) {
         fill="none"
         stroke="currentColor"
         strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
         style={size ? { width: size, height: size } : undefined}
       >
         {path}
@@ -210,7 +212,11 @@ export const IconRevert = icon(
 )
 export function IconPaw({ size }: IconProps): React.JSX.Element {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" style={size ? { width: size, height: size } : undefined}>
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      style={size ? { width: size, height: size } : undefined}
+    >
       <ellipse cx="12" cy="16.5" rx="4.6" ry="4" />
       <circle cx="6.4" cy="11" r="1.9" />
       <circle cx="10" cy="7.6" r="1.9" />
@@ -224,5 +230,79 @@ export const IconComment = icon(
     <path d="M4 5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-4 4z" />
     <line x1="12" y1="8" x2="12" y2="12" />
     <line x1="10" y1="10" x2="14" y2="10" />
+  </>
+)
+export const IconGear = icon(
+  <>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.3 2.6a7.6 7.6 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 1.7 1L11 21h4l.3-2.6a7.6 7.6 0 0 0 1.7-1l2.4 1 2-3.4z" />
+  </>
+)
+export const IconShield = icon(<path d="M12 3l7 3v6c0 4.5-3 7.7-7 9-4-1.3-7-4.5-7-9V6z" />)
+export const IconPalette = icon(
+  <>
+    <path d="M12 3a9 9 0 1 0 0 18c1.1 0 2-.9 2-2a2 2 0 0 0-.6-1.4 2 2 0 0 1-.6-1.4c0-1.1.9-2 2-2H17a4 4 0 0 0 4-4c0-4.4-4-7.2-9-7.2z" />
+    <circle cx="7.5" cy="10.5" r="1" />
+    <circle cx="11" cy="7.5" r="1" />
+    <circle cx="15" cy="8.5" r="1" />
+  </>
+)
+export const IconPlug = icon(
+  <>
+    <line x1="9" y1="3" x2="9" y2="8" />
+    <line x1="15" y1="3" x2="15" y2="8" />
+    <path d="M6 8h12v3a6 6 0 0 1-6 6 6 6 0 0 1-6-6z" />
+    <line x1="12" y1="17" x2="12" y2="21" />
+  </>
+)
+export const IconGrid = icon(
+  <>
+    <rect x="3" y="3" width="8" height="8" rx="1" />
+    <rect x="13" y="3" width="8" height="8" rx="1" />
+    <rect x="3" y="13" width="8" height="8" rx="1" />
+    <rect x="13" y="13" width="8" height="8" rx="1" />
+  </>
+)
+export const IconScroll = icon(
+  <>
+    <path d="M7 3h11a2 2 0 0 1 2 2v13a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V6" />
+    <path d="M5 6a2 2 0 0 1 2-2 2 2 0 0 1 2 2v12" />
+    <line x1="9" y1="9" x2="16" y2="9" />
+    <line x1="9" y1="13" x2="16" y2="13" />
+  </>
+)
+export const IconBlocks = icon(
+  <>
+    <rect x="3" y="3" width="7" height="7" rx="1" />
+    <rect x="14" y="3" width="7" height="7" rx="1" />
+    <rect x="3" y="14" width="7" height="7" rx="1" />
+    <rect x="14" y="14" width="7" height="7" rx="1" />
+  </>
+)
+export const IconBrain = icon(
+  <>
+    <path d="M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 2.8 3 3 0 0 0 1.5 5.4A3 3 0 0 0 8 19a3 3 0 0 0 1-.2V4.6A3 3 0 0 0 9 4z" />
+    <path d="M15 4a3 3 0 0 1 3 3 3 3 0 0 1 2 2.8 3 3 0 0 1-1.5 5.4A3 3 0 0 1 16 19a3 3 0 0 1-1-.2V4.6A3 3 0 0 1 15 4z" />
+  </>
+)
+export const IconLink = icon(
+  <>
+    <path d="M10 14a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.5 1.5" />
+    <path d="M14 10a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.5-1.5" />
+  </>
+)
+export const IconKeyboard = icon(
+  <>
+    <rect x="2" y="6" width="20" height="12" rx="2" />
+    <line x1="6" y1="10" x2="6" y2="10" />
+    <line x1="10" y1="10" x2="10" y2="10" />
+    <line x1="14" y1="10" x2="14" y2="10" />
+    <line x1="18" y1="10" x2="18" y2="10" />
+    <line x1="6" y1="14" x2="16" y2="14" />
+  </>
+)
+export const IconChat = icon(
+  <>
+    <path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4z" />
   </>
 )

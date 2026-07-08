@@ -310,7 +310,7 @@ export function Composer({
       {showNotice ? (
         <div className="composer-notice">
           No API key for the selected model.{' '}
-          <span className="notice-link" onClick={openSettings}>
+          <span className="notice-link" onClick={() => openSettings('providers')}>
             Open Settings
           </span>
         </div>

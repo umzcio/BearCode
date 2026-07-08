@@ -1,12 +1,29 @@
 import { useEffect, useState } from 'react'
-import type { ProviderId, SettingsInfo } from '@shared/types'
+import type { SettingsInfo } from '@shared/types'
 import { resolvePrice } from '@shared/pricing'
 import { useAppStore } from '../../state/store'
 import { relativeAge } from '../../lib/time'
-import { ProviderIcon } from '../ProviderIcon'
-import { RoarBear } from '../brand/RoarBear'
-import { IconClose } from '../icons'
+import {
+  IconClose,
+  IconGear,
+  IconShield,
+  IconPalette,
+  IconPlug,
+  IconGrid,
+  IconScroll,
+  IconBlocks,
+  IconBrain,
+  IconLink,
+  IconGlobe,
+  IconKeyboard,
+  IconChat
+} from '../icons'
 import { PermissionRulesSection } from './PermissionRules'
+import { GeneralPage } from './pages/GeneralPage'
+import { ProvidersPage } from './pages/ProvidersPage'
+import { SettingPlaceholder } from './SettingPlaceholder'
+import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
+import type { SettingsPageId } from './SettingsNav'
 import { Select } from '../Select'
 import './Settings.css'
 
@@ -23,42 +40,56 @@ const SHORTCUTS: { label: string; keys: string[] }[] = [
   { label: 'Close Modal or Menu', keys: ['esc'] }
 ]
 
-const KEY_PROVIDERS: { id: ProviderId; label: string; placeholder: string }[] = [
-  { id: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-…' },
-  { id: 'openai', label: 'OpenAI', placeholder: 'sk-…' },
-  { id: 'google', label: 'Google', placeholder: 'AIza…' },
-  { id: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-…' }
-]
+// Resolves a SETTINGS_NAV item's icon name to its component.
+const NAV_ICONS: Record<string, (props: { size?: number }) => React.JSX.Element> = {
+  IconGear,
+  IconShield,
+  IconPalette,
+  IconPlug,
+  IconGrid,
+  IconScroll,
+  IconBlocks,
+  IconBrain,
+  IconLink,
+  IconGlobe,
+  IconKeyboard,
+  IconChat
+}
 
-const GENERAL_PAGES: { id: string; label: string }[] = [
-  { id: 'account', label: 'Account' },
-  { id: 'permissions', label: 'Permissions' },
-  { id: 'appearance', label: 'Appearance' },
-  { id: 'models', label: 'Models' },
-  { id: 'customizations', label: 'Customizations' },
-  { id: 'browser', label: 'Browser' },
-  { id: 'app', label: 'App' }
-]
+// Intentional WIP panels for the Customize group (not "coming soon" badges).
+const PLACEHOLDERS: Record<string, { title: string; description: string }> = {
+  skills: {
+    title: 'Skills',
+    description:
+      'Teach the agent reusable workflows and domain knowledge — arriving in a future update.'
+  },
+  connectors: {
+    title: 'Connectors',
+    description:
+      'Connect MCP servers and external tools the agent can call — arriving in a future update.'
+  },
+  memory: {
+    title: 'Memory',
+    description:
+      'Persistent memory the agent carries across conversations — arriving in a future update.'
+  },
+  integrations: {
+    title: 'Integrations',
+    description: 'Link BearCode to the services you already use — arriving in a future update.'
+  },
+  browser: {
+    title: 'Browser',
+    description: 'Give the agent controlled access to a real browser — arriving in a future update.'
+  }
+}
 
 export function SettingsModal(): React.JSX.Element | null {
   const open = useAppStore((s) => s.settingsOpen)
   const settings = useAppStore((s) => s.settings)
+  const initialPage = useAppStore((s) => s.settingsInitialPage)
   if (!open || !settings) return null
   // Remounts on each open, so drafts initialize fresh from current settings.
-  return <SettingsPanel settings={settings} />
-}
-
-function ComingSoon(): React.JSX.Element {
-  return (
-    <div className="coming-block">
-      <RoarBear scale={3} />
-      <span>coming soon</span>
-    </div>
-  )
-}
-
-function ComingTag(): React.JSX.Element {
-  return <span className="coming-tag">coming soon</span>
+  return <SettingsPanel settings={settings} initialPage={initialPage} />
 }
 
 function Row({
@@ -76,7 +107,7 @@ function Row({
         <div className="set-row-title">{title}</div>
         <div className="set-row-desc">{desc}</div>
       </div>
-      {children ?? <ComingTag />}
+      {children ?? null}
     </div>
   )
 }
@@ -90,19 +121,23 @@ function PageHead({ title, sub }: { title: string; sub: string }): React.JSX.Ele
   )
 }
 
-function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Element {
+function SettingsPanel({
+  settings,
+  initialPage
+}: {
+  settings: SettingsInfo
+  initialPage: string | null
+}): React.JSX.Element {
   const close = useAppStore((s) => s.closeSettings)
   const providers = useAppStore((s) => s.providers)
-  const conversations = useAppStore((s) => s.conversations)
-  const saveKey = useAppStore((s) => s.saveKey)
   const saveSettings = useAppStore((s) => s.saveSettings)
   const setAppearance = useAppStore((s) => s.setAppearance)
-  const deleteAll = useAppStore((s) => s.deleteAllConversations)
   const syncPricing = useAppStore((s) => s.syncPricing)
 
-  const [page, setPage] = useState('models')
-  const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({})
-  const [ollamaUrl, setOllamaUrl] = useState(settings.ollamaBaseUrl)
+  const [page, setPage] = useState<SettingsPageId>(() => {
+    const ids = [...SETTINGS_NAV.flatMap((g) => g.items), ...SETTINGS_FOOTER].map((i) => i.id)
+    return ids.includes(initialPage as SettingsPageId) ? (initialPage as SettingsPageId) : 'general'
+  })
   const [pricingSync, setPricingSync] = useState<{
     status: 'idle' | 'pending' | 'done' | 'error'
     msg: string
@@ -130,47 +165,40 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
     return () => window.removeEventListener('keydown', onKey)
   }, [close])
 
-  const configured = (id: ProviderId): boolean =>
-    providers.find((p) => p.id === id)?.keyConfigured ?? false
-
   const allModels = providers.flatMap((p) =>
     p.models.map((m) => ({ ref: `${p.id}/${m.id}`, label: `${p.displayName}: ${m.label}` }))
   )
 
-  const projectLabels: string[] = []
-  for (const convo of Object.values(conversations)) {
-    if (convo.projectLabel !== 'No folder' && !projectLabels.includes(convo.projectLabel)) {
-      projectLabels.push(convo.projectLabel)
-    }
+  const railItem = (item: {
+    id: SettingsPageId
+    label: string
+    icon: string
+  }): React.JSX.Element => {
+    const Icon = NAV_ICONS[item.icon]
+    return (
+      <button
+        key={item.id}
+        className={'rail-item' + (page === item.id ? ' selected' : '')}
+        onClick={() => setPage(item.id)}
+      >
+        {Icon ? <Icon size={16} /> : null}
+        <span>{item.label}</span>
+      </button>
+    )
   }
-
-  const railItem = (id: string, label: string): React.JSX.Element => (
-    <button
-      key={id}
-      className={'rail-item' + (page === id ? ' selected' : '')}
-      onClick={() => setPage(id)}
-    >
-      {label}
-    </button>
-  )
 
   return (
     <div className="modal-overlay open" onClick={(e) => e.target === e.currentTarget && close()}>
       <div className="settings-panel">
         <div className="settings-rail">
-          <div className="rail-group-label">General</div>
-          {GENERAL_PAGES.map((p) => railItem(p.id, p.label))}
-          {projectLabels.length > 0 ? (
-            <>
-              <div className="rail-group-label">Projects</div>
-              {projectLabels.map((label) => railItem(`project:${label}`, label))}
-            </>
-          ) : null}
-          <div className="rail-group-label">Not in Project</div>
-          {railItem('conversations', 'Conversations')}
+          {SETTINGS_NAV.map((group) => (
+            <div className="rail-group" key={group.label ?? 'ungrouped'}>
+              {group.label ? <div className="rail-group-label">{group.label}</div> : null}
+              {group.items.map((item) => railItem(item))}
+            </div>
+          ))}
           <div className="rail-spacer" />
-          {railItem('shortcuts', 'Shortcuts')}
-          {railItem('feedback', 'Provide Feedback')}
+          <div className="rail-footer">{SETTINGS_FOOTER.map((item) => railItem(item))}</div>
         </div>
 
         <div className="settings-content">
@@ -178,12 +206,9 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
             <IconClose />
           </button>
 
-          {page === 'account' ? (
-            <>
-              <PageHead title="Account" sub="Your BearCode account and sign-in." />
-              <ComingSoon />
-            </>
-          ) : null}
+          {page === 'general' ? <GeneralPage /> : null}
+
+          {page === 'providers' ? <ProvidersPage /> : null}
 
           {page === 'permissions' ? (
             <>
@@ -243,21 +268,10 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
                   />
                 </Row>
               </div>
-              <div className="set-group-title">Agent Settings</div>
-              <div className="set-card">
-                <Row
-                  title="Security Preset"
-                  desc="Choose a predefined security preset for the agent. This controls terminal auto-execution policy, and file access policy."
-                />
-                <Row
-                  title="Outside of Folders File Access Policy"
-                  desc="Configures how the agent tries to access files outside of its working folders."
-                />
-                <Row
-                  title="Enable Sandbox Mode"
-                  desc="Restricts agent tools to a secure, isolated local sandbox."
-                />
-              </div>
+              {/* "Agent Settings" (Security Preset / Outside-of-Folders File
+                  Access / Sandbox Mode) are built as real controls in F8 (and
+                  Sandbox in Phase G). Omitted here rather than shown as
+                  control-less rows that read as broken. */}
             </>
           ) : null}
 
@@ -383,70 +397,8 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
             <>
               <PageHead
                 title="Models"
-                sub="Provider API keys, local models, and the default model for new conversations."
+                sub="Local models, pricing, and the default model for new conversations."
               />
-              <div className="set-group-title">API Keys</div>
-              <div className="set-card pad">
-                {KEY_PROVIDERS.map((p) => (
-                  <div className="key-row" key={p.id}>
-                    <span className={'status-dot' + (configured(p.id) ? ' ok' : '')} />
-                    <span className="key-label icon-label">
-                      <ProviderIcon provider={p.id} size={14} />
-                      {p.label}
-                    </span>
-                    <input
-                      type="password"
-                      placeholder={configured(p.id) ? 'Configured' : p.placeholder}
-                      value={keyDrafts[p.id] ?? ''}
-                      onChange={(e) => setKeyDrafts((d) => ({ ...d, [p.id]: e.target.value }))}
-                    />
-                    <button
-                      className="small-btn"
-                      disabled={!(keyDrafts[p.id] ?? '').trim() && !configured(p.id)}
-                      onClick={() => {
-                        void saveKey(p.id, (keyDrafts[p.id] ?? '').trim())
-                        setKeyDrafts((d) => ({ ...d, [p.id]: '' }))
-                      }}
-                    >
-                      {(keyDrafts[p.id] ?? '').trim()
-                        ? 'Save'
-                        : configured(p.id)
-                          ? 'Remove'
-                          : 'Save'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              <div className="set-group-title">Ollama</div>
-              <div className="set-card pad">
-                <div className="key-row">
-                  <span
-                    className={
-                      'status-dot' +
-                      (providers.find((p) => p.id === 'ollama')?.reachable ? ' ok' : '')
-                    }
-                  />
-                  <span className="key-label icon-label" title="Base URL">
-                    <ProviderIcon provider="ollama" size={14} />
-                    Ollama
-                  </span>
-                  <input
-                    type="text"
-                    value={ollamaUrl}
-                    placeholder="http://localhost:11434"
-                    onChange={(e) => setOllamaUrl(e.target.value)}
-                  />
-                  <button
-                    className="small-btn"
-                    disabled={ollamaUrl === settings.ollamaBaseUrl}
-                    onClick={() => void saveSettings({ ollamaBaseUrl: ollamaUrl })}
-                  >
-                    Save
-                  </button>
-                </div>
-              </div>
-
               <div className="set-group-title">Defaults</div>
               <div className="set-card">
                 <Row
@@ -546,65 +498,11 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
             </>
           ) : null}
 
-          {page === 'customizations' ? (
-            <>
-              <PageHead title="Customizations" sub="Rules and custom instructions for the agent." />
-              <ComingSoon />
-            </>
-          ) : null}
-
-          {page === 'browser' ? (
-            <>
-              <PageHead title="Browser" sub="Browser tools for the agent." />
-              <ComingSoon />
-            </>
-          ) : null}
-
-          {page === 'app' ? (
-            <>
-              <PageHead title="App" sub="Application data and housekeeping." />
-              <div className="set-group-title">Data</div>
-              <div className="set-card">
-                <Row title="Location" desc={settings.dataPath}>
-                  <span />
-                </Row>
-                <Row
-                  title="Delete All Conversations"
-                  desc="Removes every conversation and staged diff. This cannot be undone."
-                >
-                  <button
-                    className="danger-btn"
-                    onClick={() => {
-                      if (window.confirm('Delete all conversations? This cannot be undone.')) {
-                        void deleteAll()
-                      }
-                    }}
-                  >
-                    Delete
-                  </button>
-                </Row>
-              </div>
-            </>
-          ) : null}
-
-          {page.startsWith('project:') ? (
-            <>
-              <PageHead
-                title={page.slice('project:'.length)}
-                sub="Agent settings and permissions for this project."
-              />
-              <ComingSoon />
-            </>
-          ) : null}
-
-          {page === 'conversations' ? (
-            <>
-              <PageHead
-                title="Conversations"
-                sub="Agent settings and permissions for conversations outside of projects."
-              />
-              <ComingSoon />
-            </>
+          {PLACEHOLDERS[page] ? (
+            <SettingPlaceholder
+              title={PLACEHOLDERS[page].title}
+              description={PLACEHOLDERS[page].description}
+            />
           ) : null}
 
           {page === 'shortcuts' ? (
@@ -633,7 +531,17 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
           {page === 'feedback' ? (
             <>
               <PageHead title="Provide Feedback" sub="Tell us what BearCode should do better." />
-              <ComingSoon />
+              <div className="set-card pad">
+                <div className="feedback-body">
+                  <p className="feedback-text">
+                    Found a bug or have an idea? Open an issue on GitHub — it goes straight to the
+                    team.
+                  </p>
+                  <button className="pill-btn" onClick={() => window.open(FEEDBACK_URL, '_blank')}>
+                    Report an Issue on GitHub
+                  </button>
+                </div>
+              </div>
             </>
           ) : null}
         </div>
