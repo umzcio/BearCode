@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
-import type { ProviderId, SettingsInfo } from '@shared/types'
+import type { SettingsInfo } from '@shared/types'
 import { resolvePrice } from '@shared/pricing'
 import { useAppStore } from '../../state/store'
 import { relativeAge } from '../../lib/time'
-import { ProviderIcon } from '../ProviderIcon'
 import { RoarBear } from '../brand/RoarBear'
 import { IconClose } from '../icons'
 import { PermissionRulesSection } from './PermissionRules'
@@ -21,13 +20,6 @@ const SHORTCUTS: { label: string; keys: string[] }[] = [
   { label: 'Send Message', keys: ['⏎'] },
   { label: 'New Line', keys: ['⇧', '⏎'] },
   { label: 'Close Modal or Menu', keys: ['esc'] }
-]
-
-const KEY_PROVIDERS: { id: ProviderId; label: string; placeholder: string }[] = [
-  { id: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-…' },
-  { id: 'openai', label: 'OpenAI', placeholder: 'sk-…' },
-  { id: 'google', label: 'Google', placeholder: 'AIza…' },
-  { id: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-…' }
 ]
 
 const GENERAL_PAGES: { id: string; label: string }[] = [
@@ -94,15 +86,12 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
   const close = useAppStore((s) => s.closeSettings)
   const providers = useAppStore((s) => s.providers)
   const conversations = useAppStore((s) => s.conversations)
-  const saveKey = useAppStore((s) => s.saveKey)
   const saveSettings = useAppStore((s) => s.saveSettings)
   const setAppearance = useAppStore((s) => s.setAppearance)
   const deleteAll = useAppStore((s) => s.deleteAllConversations)
   const syncPricing = useAppStore((s) => s.syncPricing)
 
   const [page, setPage] = useState('models')
-  const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({})
-  const [ollamaUrl, setOllamaUrl] = useState(settings.ollamaBaseUrl)
   const [pricingSync, setPricingSync] = useState<{
     status: 'idle' | 'pending' | 'done' | 'error'
     msg: string
@@ -129,9 +118,6 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [close])
-
-  const configured = (id: ProviderId): boolean =>
-    providers.find((p) => p.id === id)?.keyConfigured ?? false
 
   const allModels = providers.flatMap((p) =>
     p.models.map((m) => ({ ref: `${p.id}/${m.id}`, label: `${p.displayName}: ${m.label}` }))
@@ -383,70 +369,8 @@ function SettingsPanel({ settings }: { settings: SettingsInfo }): React.JSX.Elem
             <>
               <PageHead
                 title="Models"
-                sub="Provider API keys, local models, and the default model for new conversations."
+                sub="Local models, pricing, and the default model for new conversations."
               />
-              <div className="set-group-title">API Keys</div>
-              <div className="set-card pad">
-                {KEY_PROVIDERS.map((p) => (
-                  <div className="key-row" key={p.id}>
-                    <span className={'status-dot' + (configured(p.id) ? ' ok' : '')} />
-                    <span className="key-label icon-label">
-                      <ProviderIcon provider={p.id} size={14} />
-                      {p.label}
-                    </span>
-                    <input
-                      type="password"
-                      placeholder={configured(p.id) ? 'Configured' : p.placeholder}
-                      value={keyDrafts[p.id] ?? ''}
-                      onChange={(e) => setKeyDrafts((d) => ({ ...d, [p.id]: e.target.value }))}
-                    />
-                    <button
-                      className="small-btn"
-                      disabled={!(keyDrafts[p.id] ?? '').trim() && !configured(p.id)}
-                      onClick={() => {
-                        void saveKey(p.id, (keyDrafts[p.id] ?? '').trim())
-                        setKeyDrafts((d) => ({ ...d, [p.id]: '' }))
-                      }}
-                    >
-                      {(keyDrafts[p.id] ?? '').trim()
-                        ? 'Save'
-                        : configured(p.id)
-                          ? 'Remove'
-                          : 'Save'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              <div className="set-group-title">Ollama</div>
-              <div className="set-card pad">
-                <div className="key-row">
-                  <span
-                    className={
-                      'status-dot' +
-                      (providers.find((p) => p.id === 'ollama')?.reachable ? ' ok' : '')
-                    }
-                  />
-                  <span className="key-label icon-label" title="Base URL">
-                    <ProviderIcon provider="ollama" size={14} />
-                    Ollama
-                  </span>
-                  <input
-                    type="text"
-                    value={ollamaUrl}
-                    placeholder="http://localhost:11434"
-                    onChange={(e) => setOllamaUrl(e.target.value)}
-                  />
-                  <button
-                    className="small-btn"
-                    disabled={ollamaUrl === settings.ollamaBaseUrl}
-                    onClick={() => void saveSettings({ ollamaBaseUrl: ollamaUrl })}
-                  >
-                    Save
-                  </button>
-                </div>
-              </div>
-
               <div className="set-group-title">Defaults</div>
               <div className="set-card">
                 <Row

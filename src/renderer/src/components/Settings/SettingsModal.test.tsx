@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { useAppStore } from '../../state/store'
 import { SettingsModal } from './SettingsModal'
+import { ProvidersPage } from './pages/ProvidersPage'
 
 const settings = {
   ollamaBaseUrl: 'http://localhost:11434',
@@ -44,6 +45,21 @@ describe('SettingsModal default permission mode', () => {
     const auto = screen.getAllByRole('option').find((o) => o.textContent?.includes('Auto mode'))
     fireEvent.click(auto as HTMLElement)
     expect(setSpy).toHaveBeenCalledWith({ defaultPermissionMode: 'auto' })
+  })
+})
+
+describe('SettingsModal Providers split', () => {
+  it('Providers page shows the API-key inputs and the Ollama URL field', () => {
+    render(<ProvidersPage />)
+    // Anthropic key input (unconfigured → its placeholder shows)
+    expect(screen.getByPlaceholderText('sk-ant-…')).toBeTruthy()
+    // Ollama base URL field
+    expect(screen.getByPlaceholderText('http://localhost:11434')).toBeTruthy()
+  })
+
+  it('Models page no longer shows the API-key inputs', () => {
+    render(<SettingsModal />) // 'models' is the default page
+    expect(screen.queryByPlaceholderText('sk-ant-…')).toBeNull()
   })
 })
 
