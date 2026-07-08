@@ -47,7 +47,8 @@ const bearcode: BearcodeApi = {
     cancel: (conversationId: string) => ipcRenderer.invoke('bearcode:run:cancel', conversationId)
   },
   models: {
-    list: () => ipcRenderer.invoke('bearcode:models:list')
+    list: () => ipcRenderer.invoke('bearcode:models:list'),
+    manageable: () => ipcRenderer.invoke('bearcode:models:manageable')
   },
   history: {
     search: (query: string) => ipcRenderer.invoke('bearcode:history:search', query)

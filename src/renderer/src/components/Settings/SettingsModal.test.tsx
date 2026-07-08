@@ -25,7 +25,8 @@ beforeEach(() => {
     .mockReturnValue({ matches: false })
   ;(window as unknown as { bearcode: unknown }).bearcode = {
     settings: { set: setSpy },
-    permissions: { list: vi.fn(() => Promise.resolve({ userRules: [], builtins: [] })) }
+    permissions: { list: vi.fn(() => Promise.resolve({ userRules: [], builtins: [] })) },
+    models: { list: vi.fn(() => Promise.resolve([])), manageable: vi.fn(() => Promise.resolve([])) }
   }
   useAppStore.setState({
     settingsOpen: true,
@@ -246,7 +247,11 @@ describe('SettingsModal Model Pricing', () => {
     ;(window as unknown as { bearcode: unknown }).bearcode = {
       settings: { set: setSpy, get: getSpy },
       permissions: { list: vi.fn(() => Promise.resolve({ userRules: [], builtins: [] })) },
-      pricing: { sync: syncSpy }
+      pricing: { sync: syncSpy },
+      models: {
+        list: vi.fn(() => Promise.resolve([])),
+        manageable: vi.fn(() => Promise.resolve([]))
+      }
     }
     useAppStore.setState({
       settingsOpen: true,

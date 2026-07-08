@@ -21,7 +21,7 @@ import { isEffortLevel } from '../shared/effort'
 import { keyStatus, setKey } from './keys'
 import { addUserRule, deleteUserRule, listRulesInfo, setBuiltinDisabled } from './permissions'
 import { setSettings, settingsInfo } from './settings'
-import { allKnownModelRefs, listAllModels } from './providers/registry'
+import { allKnownModelRefs, listAllModels, listManageableModels } from './providers/registry'
 import { syncPricing } from './pricing/sync'
 import { filePathFor, getDiff, revertFile } from './diffs'
 import { transcribe } from './voice/transcribe'
@@ -132,6 +132,8 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('bearcode:models:list', () => listAllModels())
+
+  ipcMain.handle('bearcode:models:manageable', () => listManageableModels())
 
   ipcMain.handle('bearcode:history:search', (_e, query: string): HistoryHit[] =>
     db.searchHistory(query)

@@ -28,7 +28,7 @@ vi.mock('./permissions', () => ({
   setBuiltinDisabled: vi.fn()
 }))
 vi.mock('./settings', () => ({ setSettings: vi.fn(), settingsInfo: vi.fn() }))
-vi.mock('./providers/registry', () => ({ listAllModels: vi.fn() }))
+vi.mock('./providers/registry', () => ({ listAllModels: vi.fn(), listManageableModels: vi.fn() }))
 vi.mock('./diffs', () => ({ filePathFor: vi.fn(), getDiff: vi.fn(), revertFile: vi.fn() }))
 
 vi.mock('./db', () => ({
@@ -79,9 +79,9 @@ describe('set-effort / set-thinking IPC guards', () => {
     expect(db.setEffort).toHaveBeenCalledWith('c1', 'high')
   })
   it('set-effort throws on garbage', () => {
-    expect(() =>
-      handlers.get('bearcode:conversations:set-effort')!({}, 'c1', 'ultra')
-    ).toThrow(/Invalid effort/)
+    expect(() => handlers.get('bearcode:conversations:set-effort')!({}, 'c1', 'ultra')).toThrow(
+      /Invalid effort/
+    )
     expect(db.setEffort).not.toHaveBeenCalled()
   })
   it('set-thinking coerces to boolean', () => {
@@ -89,8 +89,8 @@ describe('set-effort / set-thinking IPC guards', () => {
     expect(db.setThinking).toHaveBeenCalledWith('c1', true)
   })
   it('set-thinking throws on non-boolean', () => {
-    expect(() =>
-      handlers.get('bearcode:conversations:set-thinking')!({}, 'c1', 'yes')
-    ).toThrow(/Invalid thinking/)
+    expect(() => handlers.get('bearcode:conversations:set-thinking')!({}, 'c1', 'yes')).toThrow(
+      /Invalid thinking/
+    )
   })
 })

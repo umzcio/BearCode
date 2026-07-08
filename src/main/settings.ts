@@ -1,7 +1,13 @@
 import { app } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import type { AppSettings, PermissionMode, SettingsInfo } from '../shared/types'
+import type {
+  AppSettings,
+  CustomModel,
+  PermissionMode,
+  ProviderId,
+  SettingsInfo
+} from '../shared/types'
 import { isSttBackend } from '../shared/types'
 import type { PricingMap } from '../shared/pricing'
 import { isEffortLevel } from '../shared/effort'
@@ -45,7 +51,50 @@ const DEFAULTS: AppSettings = {
   sttBackend: 'openai',
   profileName: '',
   profileCallMe: '',
-  customInstructions: ''
+  customInstructions: '',
+  disabledModels: [],
+  customModels: []
+}
+
+// Custom models may only target the four first-party curated providers. Ollama
+// is fully dynamic/local and manages its own catalog, so a hand-edited
+// settings.json cannot inject a phantom `ollama/*` model into the picker.
+const CUSTOM_MODEL_PROVIDER_IDS = new Set<ProviderId>([
+  'anthropic',
+  'openai',
+  'google',
+  'openrouter'
+])
+
+// Keep only well-formed custom models: a valid (non-Ollama) provider id, a
+// non-empty id and label, and a finite positive contextWindow. Anything else
+// (bad provider, empty id, non-numeric/negative window) is dropped so a
+// malformed settings.json or a bad Add-model payload can never poison the merge.
+function coerceCustomModels(raw: unknown): CustomModel[] {
+  if (!Array.isArray(raw)) return []
+  const out: CustomModel[] = []
+  for (const v of raw) {
+    if (v == null || typeof v !== 'object') continue
+    const { provider, id, label, contextWindow } = v as Record<string, unknown>
+    if (
+      typeof provider === 'string' &&
+      CUSTOM_MODEL_PROVIDER_IDS.has(provider as ProviderId) &&
+      typeof id === 'string' &&
+      id.length > 0 &&
+      typeof label === 'string' &&
+      label.length > 0 &&
+      typeof contextWindow === 'number' &&
+      Number.isFinite(contextWindow) &&
+      contextWindow > 0
+    ) {
+      out.push({ provider: provider as ProviderId, id, label, contextWindow })
+    }
+  }
+  return out
+}
+
+function coerceStringArray(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []
 }
 
 // Keep only well-formed pricing entries: an object of modelRef -> { inputPer1M,
@@ -142,6 +191,10 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   merged.profileCallMe = typeof s['profileCallMe'] === 'string' ? s['profileCallMe'] : ''
   merged.customInstructions =
     typeof s['customInstructions'] === 'string' ? s['customInstructions'] : ''
+  // F7 model management: optional & additive. A non-array disabledModels or a
+  // malformed customModels collapses to [] so the registry merge stays safe.
+  merged.disabledModels = coerceStringArray(s['disabledModels'])
+  merged.customModels = coerceCustomModels(s['customModels'])
   return merged
 }
 
@@ -199,6 +252,14 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   // transcribe router can't dispatch on).
   if (patch.sttBackend !== undefined && !isSttBackend(patch.sttBackend)) {
     throw new Error(`Invalid sttBackend: ${String(patch.sttBackend)}`)
+  }
+  // Never persist a malformed model-management payload: coerce the patch before
+  // write so a bad Add-model entry drops instead of poisoning the registry.
+  if (patch.customModels !== undefined) {
+    patch = { ...patch, customModels: coerceCustomModels(patch.customModels) }
+  }
+  if (patch.disabledModels !== undefined) {
+    patch = { ...patch, disabledModels: coerceStringArray(patch.disabledModels) }
   }
   const next = { ...getSettings(), ...patch }
   cache = next

@@ -7,8 +7,10 @@ import type {
   CommandEntry,
   CommandRef,
   ConversationMeta,
+  CustomModel,
   EffortLevel,
   Event,
+  ManageableProvider,
   ManualRuleInfo,
   MentionRef,
   ModelRef,
@@ -165,6 +167,9 @@ interface AppState {
   conversations: Record<string, Convo>
   convoOrder: string[]
   providers: ProviderModels[]
+  // F7 Models page management list (curated + custom incl. disabled). Loaded on
+  // demand by the Models settings page; empty until then.
+  manageableModels: ManageableProvider[]
   modelRef: ModelRef | null
   permissionMode: PermissionMode
   effort: EffortLevel
@@ -224,6 +229,11 @@ interface AppState {
 
   init(): void
   refreshProviders(): Promise<void>
+  // F7 model management.
+  refreshManageableModels(): Promise<void>
+  setModelEnabled(ref: string, enabled: boolean): Promise<void>
+  addCustomModel(model: CustomModel): Promise<void>
+  removeCustomModel(provider: ProviderId, id: string): Promise<void>
   toggleSidebar(): void
   setSidebarCollapsed(collapsed: boolean): void
   setSidebarWidth(w: number): void
@@ -334,9 +344,20 @@ export function modelDisplay(
 
 export function refConfigured(providers: ProviderModels[], ref: ModelRef | null): boolean {
   if (!ref) return false
-  const providerId = ref.slice(0, ref.indexOf('/'))
+  const slash = ref.indexOf('/')
+  const providerId = ref.slice(0, slash)
+  const modelId = ref.slice(slash + 1)
   const provider = providers.find((p) => p.id === providerId)
-  return Boolean(provider && provider.keyConfigured && provider.reachable)
+  // The model must still be present in the provider's EFFECTIVE list: a model the
+  // user opted out of (F7) — or a removed custom model — is no longer selectable,
+  // so the active/default ref must fall through to another model, not keep
+  // silently running a hidden one.
+  return Boolean(
+    provider &&
+    provider.keyConfigured &&
+    provider.reachable &&
+    provider.models.some((m) => m.id === modelId)
+  )
 }
 
 export const useAppStore = create<AppState>((set, get) => {
@@ -408,6 +429,7 @@ export const useAppStore = create<AppState>((set, get) => {
     conversations: {},
     convoOrder: [],
     providers: [],
+    manageableModels: [],
     modelRef: null,
     permissionMode: 'accept-edits',
     effort: 'adaptive',
@@ -501,6 +523,69 @@ export const useAppStore = create<AppState>((set, get) => {
       const providers = await window.bearcode.models.list()
       set({ providers })
       ensureDefaultModel()
+    },
+
+    refreshManageableModels: async () => {
+      set({ manageableModels: await window.bearcode.models.manageable() })
+    },
+
+    setModelEnabled: async (ref, enabled) => {
+      const s = get().settings
+      if (!s) return
+      const cur = s.disabledModels ?? []
+      const disabledModels = enabled ? cur.filter((r) => r !== ref) : [...new Set([...cur, ref])]
+      // Disabling the persisted default model clears it, so a hidden model is
+      // never re-selected for new conversations (ensureDefaultModel).
+      const patch =
+        !enabled && s.defaultModelRef === ref
+          ? { disabledModels, defaultModelRef: null }
+          : { disabledModels }
+      // Optimistic synchronous update: rapid consecutive toggles then read the
+      // updated array (no lost-update race), and the switch flips immediately
+      // rather than after the (Ollama-fetching) provider refresh completes.
+      set((st) => ({
+        settings: { ...s, ...patch },
+        manageableModels: st.manageableModels.map((p) => ({
+          ...p,
+          models: p.models.map((m) => (`${p.id}/${m.id}` === ref ? { ...m, enabled } : m))
+        }))
+      }))
+      await get().saveSettings(patch)
+      await get().refreshManageableModels()
+    },
+
+    addCustomModel: async (model) => {
+      const s = get().settings
+      if (!s) return
+      // Replace any existing entry with the same provider/id (custom wins).
+      const customModels = [
+        ...(s.customModels ?? []).filter(
+          (c) => !(c.provider === model.provider && c.id === model.id)
+        ),
+        model
+      ]
+      set({ settings: { ...s, customModels } })
+      await get().saveSettings({ customModels })
+      await get().refreshManageableModels()
+    },
+
+    removeCustomModel: async (provider, id) => {
+      const s = get().settings
+      if (!s) return
+      const ref = `${provider}/${id}`
+      const customModels = (s.customModels ?? []).filter(
+        (c) => !(c.provider === provider && c.id === id)
+      )
+      // Also drop any lingering opt-out for the removed ref, and clear the
+      // default if it pointed at the removed model.
+      const disabledModels = (s.disabledModels ?? []).filter((r) => r !== ref)
+      const patch =
+        s.defaultModelRef === ref
+          ? { customModels, disabledModels, defaultModelRef: null }
+          : { customModels, disabledModels }
+      set({ settings: { ...s, ...patch } })
+      await get().saveSettings(patch)
+      await get().refreshManageableModels()
     },
 
     toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
@@ -895,7 +980,14 @@ export const useAppStore = create<AppState>((set, get) => {
     saveSettings: async (patch) => {
       const settings = await window.bearcode.settings.set(patch)
       set({ settings })
-      if (patch.ollamaBaseUrl !== undefined) await get().refreshProviders()
+      // Refresh the effective model set whenever the model roster changes so
+      // every picker/meter reflects opt-out + Add-model immediately (F7).
+      if (
+        patch.ollamaBaseUrl !== undefined ||
+        patch.disabledModels !== undefined ||
+        patch.customModels !== undefined
+      )
+        await get().refreshProviders()
     },
 
     deleteAllConversations: async () => {

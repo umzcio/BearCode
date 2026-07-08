@@ -393,6 +393,35 @@ export interface ProviderModels {
   note?: string
 }
 
+// ---- Model management (F7) ----
+
+// A user-added model merged into a provider's curated list. Custom wins on id
+// collision with a curated model (a single merged entry).
+export interface CustomModel {
+  provider: ProviderId
+  id: string
+  label: string
+  contextWindow: number
+}
+
+// One row in the Models settings page's management list. Unlike ProviderModels
+// (the effective/visible set), this includes disabled models so the user can
+// toggle them back on.
+export interface ManageableModel {
+  id: string
+  label: string
+  contextWindow?: number
+  custom: boolean // user-added (removable) vs curated (toggle-only)
+  enabled: boolean // false when its ref is in disabledModels
+}
+
+export interface ManageableProvider {
+  id: ProviderId
+  displayName: string
+  color: string
+  models: ManageableModel[]
+}
+
 // ---- Projects (E4) ----
 
 export interface Project {
@@ -546,6 +575,12 @@ export interface AppSettings {
   profileCallMe?: string
   // Free-form instructions the user wants followed in every conversation.
   customInstructions?: string
+  // F7 model management. Model refs the user opted OUT of (hidden everywhere the
+  // effective model set is read: picker, default-model, pricing, context meter).
+  // Optional & additive: settings persisted before this feature coerce to [].
+  disabledModels?: string[]
+  // User-added models merged into the curated lists (custom wins on id collision).
+  customModels?: CustomModel[]
 }
 
 export interface SettingsInfo extends AppSettings {
@@ -587,6 +622,9 @@ export interface BearcodeApi {
   }
   models: {
     list(): Promise<ProviderModels[]>
+    // F7: full curated + custom set per first-party provider, incl. disabled
+    // models (with an `enabled` flag) so the Models page can toggle them.
+    manageable(): Promise<ManageableProvider[]>
   }
   history: {
     search(query: string): Promise<HistoryHit[]>

@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { SettingsInfo } from '@shared/types'
-import { resolvePrice } from '@shared/pricing'
 import { useAppStore } from '../../state/store'
-import { relativeAge } from '../../lib/time'
 import {
   IconClose,
   IconGear,
@@ -21,6 +19,7 @@ import {
 import { PermissionRulesSection } from './PermissionRules'
 import { GeneralPage } from './pages/GeneralPage'
 import { ProvidersPage } from './pages/ProvidersPage'
+import { ModelsPage } from './pages/ModelsPage'
 import { SettingPlaceholder } from './SettingPlaceholder'
 import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
 import type { SettingsPageId } from './SettingsNav'
@@ -129,33 +128,13 @@ function SettingsPanel({
   initialPage: string | null
 }): React.JSX.Element {
   const close = useAppStore((s) => s.closeSettings)
-  const providers = useAppStore((s) => s.providers)
   const saveSettings = useAppStore((s) => s.saveSettings)
   const setAppearance = useAppStore((s) => s.setAppearance)
-  const syncPricing = useAppStore((s) => s.syncPricing)
 
   const [page, setPage] = useState<SettingsPageId>(() => {
     const ids = [...SETTINGS_NAV.flatMap((g) => g.items), ...SETTINGS_FOOTER].map((i) => i.id)
     return ids.includes(initialPage as SettingsPageId) ? (initialPage as SettingsPageId) : 'general'
   })
-  const [pricingSync, setPricingSync] = useState<{
-    status: 'idle' | 'pending' | 'done' | 'error'
-    msg: string
-  }>({ status: 'idle', msg: '' })
-
-  const runPricingSync = (): void => {
-    setPricingSync({ status: 'pending', msg: '' })
-    void syncPricing()
-      .then((r) =>
-        setPricingSync({
-          status: 'done',
-          msg: `${r.syncedCount} synced · ${r.unmatched.length} unmatched`
-        })
-      )
-      .catch((e) =>
-        setPricingSync({ status: 'error', msg: e instanceof Error ? e.message : 'Sync failed' })
-      )
-  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -164,10 +143,6 @@ function SettingsPanel({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [close])
-
-  const allModels = providers.flatMap((p) =>
-    p.models.map((m) => ({ ref: `${p.id}/${m.id}`, label: `${p.displayName}: ${m.label}` }))
-  )
 
   const railItem = (item: {
     id: SettingsPageId
@@ -393,110 +368,7 @@ function SettingsPanel({
             </>
           ) : null}
 
-          {page === 'models' ? (
-            <>
-              <PageHead
-                title="Models"
-                sub="Local models, pricing, and the default model for new conversations."
-              />
-              <div className="set-group-title">Defaults</div>
-              <div className="set-card">
-                <Row
-                  title="Default Model"
-                  desc="The model new conversations start with. Last used keeps whatever you picked most recently."
-                >
-                  <Select
-                    ariaLabel="Default model"
-                    value={settings.defaultModelRef ?? ''}
-                    onChange={(v) => void saveSettings({ defaultModelRef: v || null })}
-                    options={[
-                      { value: '', label: 'Last used' },
-                      ...allModels.map((m) => ({ value: m.ref, label: m.label }))
-                    ]}
-                  />
-                </Row>
-              </div>
-
-              <div className="set-group-title">Voice input</div>
-              <div className="set-card">
-                <Row
-                  title="Speech-to-text backend"
-                  desc="OpenAI Whisper transcribes in the cloud using your OpenAI key. Local runs on-device, offline, with no key."
-                >
-                  <Select
-                    ariaLabel="Speech-to-text backend"
-                    value={settings.sttBackend ?? 'openai'}
-                    onChange={(v) => void saveSettings({ sttBackend: v })}
-                    options={[
-                      { value: 'openai', label: 'OpenAI Whisper (uses your OpenAI key)' },
-                      { value: 'local', label: 'Local (offline)' }
-                    ]}
-                  />
-                </Row>
-              </div>
-
-              <div className="set-group-title">Model Pricing</div>
-              <div className="set-card pad">
-                <div className="pricing-intro">
-                  USD per 1M tokens. Sync pulls current prices from LiteLLM.
-                </div>
-                <table className="pricing-table">
-                  <thead>
-                    <tr>
-                      <th>Model</th>
-                      <th>Input</th>
-                      <th>Output</th>
-                      <th>Source</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allModels.map((m) => {
-                      const price = resolvePrice(m.ref, settings.modelPricing)
-                      const source = settings.modelPricing?.[m.ref]
-                        ? 'synced'
-                        : price
-                          ? 'default'
-                          : null
-                      return (
-                        <tr key={m.ref}>
-                          <td className="pricing-model">{m.label}</td>
-                          <td>{price ? `$${price.inputPer1M}` : '—'}</td>
-                          <td>{price ? `$${price.outputPer1M}` : '—'}</td>
-                          <td>
-                            {source ? (
-                              <span className={'price-src ' + source}>{source}</span>
-                            ) : (
-                              <span className="price-src none">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-                <div className="pricing-actions">
-                  <button
-                    className="pill-btn"
-                    onClick={runPricingSync}
-                    disabled={pricingSync.status === 'pending'}
-                  >
-                    {pricingSync.status === 'pending' ? 'Syncing…' : 'Sync prices'}
-                  </button>
-                  {pricingSync.status === 'done' ? (
-                    <span className="pricing-result">{pricingSync.msg}</span>
-                  ) : null}
-                  {pricingSync.status === 'error' ? (
-                    <span className="pricing-result err">{pricingSync.msg}</span>
-                  ) : null}
-                </div>
-                <div className="pricing-synced">
-                  {settings.modelPricingSyncedAt
-                    ? `Last synced ${relativeAge(settings.modelPricingSyncedAt)}`
-                    : 'Using bundled defaults'}
-                </div>
-              </div>
-            </>
-          ) : null}
+          {page === 'models' ? <ModelsPage /> : null}
 
           {PLACEHOLDERS[page] ? (
             <SettingPlaceholder
