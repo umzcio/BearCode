@@ -443,11 +443,25 @@ export interface Project {
 // what AppSettings.newProjectDefaults holds as the new-project template). Every
 // field optional so a patch touches only what changed; a null clears an override.
 export interface ProjectSettings {
+  name?: string | null // custom display-name override; null → use the folder basename
   color?: string | null
   icon?: string | null
   defaultModelRef?: ModelRef | null
   defaultEffort?: EffortLevel | null
   defaultPermissionMode?: PermissionMode | null
+}
+
+// F9 (folder = project): per-folder settings keyed by the workspace PATH. A
+// folder with no stored row resolves to all-null (inherit global). See memory
+// bearcode-folder-equals-project. Supersedes the E4 named-Project entity.
+export interface FolderProject {
+  path: string
+  name: string | null
+  color: string | null
+  icon: string | null
+  defaultModelRef: ModelRef | null
+  defaultEffort: EffortLevel | null
+  defaultPermissionMode: PermissionMode | null
 }
 
 // ---- Conversations ----

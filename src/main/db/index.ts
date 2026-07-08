@@ -18,7 +18,8 @@ import type {
   PermissionRule,
   HistoryHit,
   Project,
-  ProjectSettings
+  ProjectSettings,
+  FolderProject
 } from '../../shared/types'
 import { isEffortLevel } from '../../shared/effort'
 import { isSelectableDefaultMode } from '../../shared/permissionMode'
@@ -95,6 +96,15 @@ function getDb(): Database.Database {
       color TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS project_settings (
+      path TEXT PRIMARY KEY,
+      name TEXT,
+      color TEXT,
+      icon TEXT,
+      default_model_ref TEXT,
+      default_effort TEXT,
+      default_permission_mode TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_artifacts_convo ON artifacts(conversation_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_events_convo ON events(conversation_id, seq);
@@ -653,6 +663,76 @@ export function updateProjectSettings(id: string, patch: ProjectSettings): void 
   getDb()
     .prepare(`UPDATE projects SET ${cols.join(', ')}, updated_at = ? WHERE id = ?`)
     .run(...vals, Date.now(), id)
+}
+
+// ---- F9 folder = project: per-folder settings keyed by workspace path ----
+
+interface ProjectSettingsRow {
+  path: string
+  name: string | null
+  color: string | null
+  icon: string | null
+  default_model_ref: string | null
+  default_effort: string | null
+  default_permission_mode: string | null
+}
+
+function rowToFolderProject(r: ProjectSettingsRow): FolderProject {
+  return {
+    path: r.path,
+    name: r.name ?? null,
+    color: r.color ?? null,
+    icon: r.icon ?? null,
+    defaultModelRef: r.default_model_ref ?? null,
+    defaultEffort: isEffortLevel(r.default_effort) ? r.default_effort : null,
+    // 'bypass' is never a valid default (design §5): coerce it + garbage to null.
+    defaultPermissionMode: isSelectableDefaultMode(r.default_permission_mode)
+      ? r.default_permission_mode
+      : null
+  }
+}
+
+export function getProjectSettings(path: string): FolderProject | null {
+  const row = getDb().prepare(`SELECT * FROM project_settings WHERE path = ?`).get(path) as
+    ProjectSettingsRow | undefined
+  return row ? rowToFolderProject(row) : null
+}
+
+export function listProjectSettings(): FolderProject[] {
+  const rows = getDb().prepare(`SELECT * FROM project_settings`).all() as ProjectSettingsRow[]
+  return rows.map(rowToFolderProject)
+}
+
+// Upsert the settings for a folder path: ensure the row exists, then update only
+// the columns present in `patch` (undefined untouched; null clears an override).
+// Enum values coerce (bypass/garbage → null); non-string color/icon/modelRef → null.
+export function upsertProjectSettings(path: string, patch: ProjectSettings): void {
+  const database = getDb()
+  database.prepare(`INSERT OR IGNORE INTO project_settings (path) VALUES (?)`).run(path)
+  const cols: string[] = []
+  const vals: (string | null)[] = []
+  const setStr = (col: string, v: unknown): void => {
+    cols.push(`${col} = ?`)
+    vals.push(typeof v === 'string' ? v : null)
+  }
+  if (patch.name !== undefined) setStr('name', patch.name)
+  if (patch.color !== undefined) setStr('color', patch.color)
+  if (patch.icon !== undefined) setStr('icon', patch.icon)
+  if (patch.defaultModelRef !== undefined) setStr('default_model_ref', patch.defaultModelRef)
+  if (patch.defaultEffort !== undefined) {
+    cols.push('default_effort = ?')
+    vals.push(isEffortLevel(patch.defaultEffort) ? patch.defaultEffort : null)
+  }
+  if (patch.defaultPermissionMode !== undefined) {
+    cols.push('default_permission_mode = ?')
+    vals.push(
+      isSelectableDefaultMode(patch.defaultPermissionMode) ? patch.defaultPermissionMode : null
+    )
+  }
+  if (cols.length === 0) return
+  database
+    .prepare(`UPDATE project_settings SET ${cols.join(', ')} WHERE path = ?`)
+    .run(...vals, path)
 }
 
 export function createProject(name: string, color: string | null = null): Project {
