@@ -16,6 +16,7 @@ import type {
   PlanReviewResolveResult,
   PreviewPayload,
   Project,
+  ProjectSettings,
   ProviderId,
   RunState,
   TranscribeMeta
@@ -123,7 +124,9 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:projects:create', name, color ?? null),
     rename: (id: string, name: string): Promise<void> =>
       ipcRenderer.invoke('bearcode:projects:rename', id, name),
-    delete: (id: string): Promise<void> => ipcRenderer.invoke('bearcode:projects:delete', id)
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('bearcode:projects:delete', id),
+    update: (id: string, patch: ProjectSettings): Promise<Project> =>
+      ipcRenderer.invoke('bearcode:projects:update', id, patch)
   },
   permissions: {
     addRule: (rule: AddRuleInput): Promise<void> =>

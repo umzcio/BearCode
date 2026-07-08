@@ -5,6 +5,7 @@ import type {
   AppSettings,
   CustomModel,
   PermissionMode,
+  ProjectSettings,
   ProviderId,
   SettingsInfo
 } from '../shared/types'
@@ -16,6 +17,7 @@ import {
 } from '../shared/types'
 import type { PricingMap } from '../shared/pricing'
 import { isEffortLevel } from '../shared/effort'
+import { isPermissionMode } from '../shared/permissionMode'
 import {
   isThemeMode,
   isFontSize,
@@ -103,6 +105,23 @@ function coerceCustomModels(raw: unknown): CustomModel[] {
 
 function coerceStringArray(raw: unknown): string[] {
   return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []
+}
+
+// F9: keep only well-formed ProjectSettings fields (the new-project template).
+// Strings for color/icon/modelRef; effort/mode validated against their enums.
+// Anything else is omitted so a malformed value can never seed a bad project.
+function coerceProjectSettings(raw: unknown): ProjectSettings | undefined {
+  if (raw == null || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  const out: ProjectSettings = {}
+  if (typeof r.color === 'string' || r.color === null) out.color = r.color as string | null
+  if (typeof r.icon === 'string' || r.icon === null) out.icon = r.icon as string | null
+  if (typeof r.defaultModelRef === 'string' || r.defaultModelRef === null) {
+    out.defaultModelRef = r.defaultModelRef as string | null
+  }
+  if (isEffortLevel(r.defaultEffort)) out.defaultEffort = r.defaultEffort
+  if (isPermissionMode(r.defaultPermissionMode)) out.defaultPermissionMode = r.defaultPermissionMode
+  return out
 }
 
 // Keep only well-formed pricing entries: an object of modelRef -> { inputPer1M,
@@ -209,6 +228,8 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   if (!isSecurityPreset(merged.securityPreset)) merged.securityPreset = 'custom'
   if (!isFileAccessPolicy(merged.fileAccessPolicy)) merged.fileAccessPolicy = 'deny'
   if (!isTerminalAutoExec(merged.terminalAutoExec)) merged.terminalAutoExec = 'auto'
+  // F9 new-project template: coerce to a clean ProjectSettings or drop entirely.
+  merged.newProjectDefaults = coerceProjectSettings(s['newProjectDefaults'])
   return merged
 }
 
@@ -285,6 +306,11 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.terminalAutoExec !== undefined && !isTerminalAutoExec(patch.terminalAutoExec)) {
     throw new Error(`Invalid terminalAutoExec: ${String(patch.terminalAutoExec)}`)
+  }
+  // F9: coerce the new-project template on write so a malformed field can never
+  // persist (drops unknown/invalid keys rather than throwing at the boundary).
+  if (patch.newProjectDefaults !== undefined) {
+    patch = { ...patch, newProjectDefaults: coerceProjectSettings(patch.newProjectDefaults) }
   }
   const next = { ...getSettings(), ...patch }
   cache = next

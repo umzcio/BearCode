@@ -47,11 +47,23 @@ beforeEach(() => {
 })
 
 describe('db projects', () => {
-  it('createProject inserts and returns a Project', () => {
+  it('createProject inserts and returns the (re-read) Project', () => {
+    // createProject re-reads via getProject after applying any new-project
+    // template, so the fake DB returns this row on the follow-up .get().
+    getRow = {
+      id: 'new',
+      name: 'Campus',
+      color: null,
+      icon: null,
+      default_model_ref: null,
+      default_effort: null,
+      default_permission_mode: null,
+      created_at: 1,
+      updated_at: 1
+    }
     const p = createProject('Campus', null)
     expect(p.name).toBe('Campus')
-    expect(typeof p.id).toBe('string')
-    expect(p.id.length).toBeGreaterThan(0)
+    expect(calls.some((c) => /INSERT INTO projects/.test(c.sql))).toBe(true)
   })
   it('listProjects maps rows (old rows: F9 fields null → inherit)', () => {
     allRows = [{ id: 'p1', name: 'A', color: null, created_at: 1, updated_at: 2 }]

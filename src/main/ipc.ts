@@ -12,6 +12,7 @@ import type {
   ManualRuleInfo,
   PingResult,
   PreviewPayload,
+  ProjectSettings,
   ProviderId,
   RunState,
   TranscribeMeta
@@ -453,6 +454,17 @@ export function registerIpc(): void {
   })
   ipcMain.handle('bearcode:projects:delete', (_e, id: string) => {
     db.deleteProject(id)
+  })
+  // F9: update a project's settings (color/icon/defaults). The DB layer coerces
+  // effort/mode enums; here we just require the id to exist and the patch to be
+  // an object, then return the updated row.
+  ipcMain.handle('bearcode:projects:update', (_e, id: string, patch: unknown) => {
+    if (!db.getProject(id)) throw new Error(`Invalid project id: ${String(id)}`)
+    if (patch == null || typeof patch !== 'object') {
+      throw new Error('Invalid project settings patch')
+    }
+    db.updateProjectSettings(id, patch as ProjectSettings)
+    return db.getProject(id)
   })
   ipcMain.handle('bearcode:conversations:set-project', (_e, id: string, projectId: unknown) => {
     if (projectId !== null && !db.listProjects().some((p) => p.id === projectId)) {

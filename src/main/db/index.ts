@@ -650,14 +650,22 @@ export function updateProjectSettings(id: string, patch: ProjectSettings): void 
 
 export function createProject(name: string, color: string | null = null): Project {
   const now = Date.now()
-  const project: Project = { id: randomUUID(), name, color, createdAt: now, updatedAt: now }
+  const id = randomUUID()
   getDb()
     .prepare(
       `INSERT INTO projects (id, name, color, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?)`
     )
-    .run(project.id, project.name, project.color, project.createdAt, project.updatedAt)
-  return project
+    .run(id, name, color, now, now)
+  // F9: seed the new project from the "default for new projects" template, if
+  // one is set. An explicit `color` arg wins over the template's color.
+  const template = getSettings().newProjectDefaults
+  if (template) {
+    const seed = { ...template }
+    if (color !== null) delete seed.color
+    updateProjectSettings(id, seed)
+  }
+  return getProject(id) as Project
 }
 
 export function renameProject(id: string, name: string): void {
