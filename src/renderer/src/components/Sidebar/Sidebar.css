@@ -110,7 +110,11 @@
   white-space: nowrap;
   overflow: hidden;
 }
-.proj-label span {
+/* The folder-name text only — NOT .proj-actions (also a <span>), which must keep
+   its natural width and sit flush right via margin-left:auto. */
+.proj-label > span:not(.proj-actions) {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -229,12 +233,15 @@
 }
 
 .proj-actions {
-  display: none;
+  display: flex;
   align-items: center;
   gap: 2px;
   margin-left: auto;
   flex-shrink: 0;
 }
-.proj-group:hover .proj-actions {
+/* Mirror the conversation-row behavior: the gear / + are `.row-act` (default
+   display:none) and reveal on hover — here on hover of the whole folder group,
+   since they live in .proj-label rather than inside a .convo. */
+.proj-group:hover .proj-actions .row-act {
   display: flex;
 }

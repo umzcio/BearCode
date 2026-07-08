@@ -57,3 +57,40 @@ describe('setSettings: F8 write validation', () => {
     expect(out.terminalAutoExec).toBe('require-review')
   })
 })
+
+describe('F9 newProjectDefaults coercion', () => {
+  it('defaults missing to undefined', () => {
+    expect(migrateSettings({}).newProjectDefaults).toBeUndefined()
+  })
+  it('keeps valid fields and drops malformed ones (migrate)', () => {
+    const s = migrateSettings({
+      newProjectDefaults: {
+        color: '#c96',
+        icon: 'IconGrid',
+        defaultModelRef: 'anthropic/claude-opus-4-8',
+        defaultEffort: 'high',
+        defaultPermissionMode: 'nope', // invalid → dropped
+        junk: 'x' // unknown → dropped
+      }
+    })
+    expect(s.newProjectDefaults).toEqual({
+      color: '#c96',
+      icon: 'IconGrid',
+      defaultModelRef: 'anthropic/claude-opus-4-8',
+      defaultEffort: 'high'
+    })
+  })
+  it('coerces on write too', () => {
+    const out = setSettings({
+      newProjectDefaults: { defaultEffort: 'low', defaultPermissionMode: 'bad' } as never
+    })
+    expect(out.newProjectDefaults).toEqual({ defaultEffort: 'low' })
+  })
+  it("SECURITY: drops 'bypass' from the new-project template (never a default)", () => {
+    const s = migrateSettings({
+      newProjectDefaults: { defaultPermissionMode: 'bypass', defaultEffort: 'high' }
+    })
+    expect(s.newProjectDefaults).toEqual({ defaultEffort: 'high' })
+    expect(s.newProjectDefaults?.defaultPermissionMode).toBeUndefined()
+  })
+})

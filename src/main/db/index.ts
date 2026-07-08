@@ -17,8 +17,12 @@ import type {
   PermissionMode,
   PermissionRule,
   HistoryHit,
-  Project
+  Project,
+  ProjectSettings,
+  FolderProject
 } from '../../shared/types'
+import { isEffortLevel } from '../../shared/effort'
+import { isSelectableDefaultMode } from '../../shared/permissionMode'
 import { getSettings } from '../settings'
 import { extractSearchText } from './searchText'
 
@@ -93,6 +97,15 @@ function getDb(): Database.Database {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS project_settings (
+      path TEXT PRIMARY KEY,
+      name TEXT,
+      color TEXT,
+      icon TEXT,
+      default_model_ref TEXT,
+      default_effort TEXT,
+      default_permission_mode TEXT
+    );
     CREATE INDEX IF NOT EXISTS idx_artifacts_convo ON artifacts(conversation_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_events_convo ON events(conversation_id, seq);
     CREATE VIRTUAL TABLE IF NOT EXISTS event_fts USING fts5(text, event_id UNINDEXED, conversation_id UNINDEXED, kind UNINDEXED);
@@ -154,6 +167,20 @@ function getDb(): Database.Database {
     db.exec(`ALTER TABLE conversations ADD COLUMN archived INTEGER`)
   } catch {
     // column already exists
+  }
+  // F9: per-project settings columns (NULL = inherit global). Same
+  // idempotent-guarded ALTER idiom; old DBs upgrade in place.
+  for (const col of [
+    'icon TEXT',
+    'default_model_ref TEXT',
+    'default_effort TEXT',
+    'default_permission_mode TEXT'
+  ]) {
+    try {
+      db.exec(`ALTER TABLE projects ADD COLUMN ${col}`)
+    } catch {
+      // column already exists
+    }
   }
   backfillEventFts(db)
   zombieRunIds = cancelZombieRuns(db)
@@ -341,6 +368,18 @@ export function createConversation(projectPath: string | null, id?: string): Con
        VALUES (@id, @project_path, @title, @model_ref, @created_at, @updated_at)`
     )
     .run(row)
+  // F9 (folder = project): "Set as default for new folders" is only meaningful if
+  // a folder actually adopts the template. The first time a conversation lands in
+  // a folder that has no settings row yet, seed one from newProjectDefaults (if
+  // set) — so the folder materializes with the template's color/icon/defaults and
+  // inheritance uses them. Idempotent: an existing row is never overwritten, and
+  // folderless (projectPath null) conversations seed nothing.
+  if (projectPath) {
+    const template = getSettings().newProjectDefaults
+    if (template && !getProjectSettings(projectPath)) {
+      upsertProjectSettings(projectPath, template)
+    }
+  }
   return toMeta(row)
 }
 
@@ -558,33 +597,176 @@ export function setActiveRules(conversationId: string, names: string[]): void {
     .run(JSON.stringify(names), Date.now(), conversationId)
 }
 
-export function listProjects(): Project[] {
-  const rows = getDb().prepare(`SELECT * FROM projects ORDER BY updated_at DESC`).all() as {
-    id: string
-    name: string
-    color: string | null
-    created_at: number
-    updated_at: number
-  }[]
-  return rows.map((r) => ({
+interface ProjectRow {
+  id: string
+  name: string
+  color: string | null
+  icon: string | null
+  default_model_ref: string | null
+  default_effort: string | null
+  default_permission_mode: string | null
+  created_at: number
+  updated_at: number
+}
+
+// Map a projects row → Project. F9 settings columns are coerced: an effort/mode
+// value outside its enum (a downgrade or hand-edit) reads as null (inherit
+// global) rather than poisoning the resolver.
+function rowToProject(r: ProjectRow): Project {
+  return {
     id: r.id,
     name: r.name,
     color: r.color ?? null,
+    icon: r.icon ?? null,
+    defaultModelRef: r.default_model_ref ?? null,
+    defaultEffort: isEffortLevel(r.default_effort) ? r.default_effort : null,
+    // 'bypass' is never a valid default (design §5): coerce it (and garbage) to
+    // null so a hand-edited column can't start conversations in bypass.
+    defaultPermissionMode: isSelectableDefaultMode(r.default_permission_mode)
+      ? r.default_permission_mode
+      : null,
     createdAt: r.created_at,
     updatedAt: r.updated_at
-  }))
+  }
+}
+
+export function listProjects(): Project[] {
+  const rows = getDb()
+    .prepare(`SELECT * FROM projects ORDER BY updated_at DESC`)
+    .all() as ProjectRow[]
+  return rows.map(rowToProject)
+}
+
+export function getProject(id: string): Project | null {
+  const row = getDb().prepare(`SELECT * FROM projects WHERE id = ?`).get(id) as
+    ProjectRow | undefined
+  return row ? rowToProject(row) : null
+}
+
+// Update only the columns present in `patch` (undefined keys are left untouched;
+// a null clears an override). Enum values are coerced/dropped so an invalid
+// effort/mode can never persist. No-op when the patch has no settable keys.
+export function updateProjectSettings(id: string, patch: ProjectSettings): void {
+  const cols: string[] = []
+  const vals: (string | null)[] = []
+  const set = (col: string, v: string | null): void => {
+    cols.push(`${col} = ?`)
+    vals.push(v)
+  }
+  // A string column coerces a non-string, non-null value to null rather than
+  // binding a number/object (which SQLite would happily store and then read
+  // back typed as string).
+  const setStr = (col: string, v: unknown): void => set(col, typeof v === 'string' ? v : null)
+  if (patch.color !== undefined) setStr('color', patch.color)
+  if (patch.icon !== undefined) setStr('icon', patch.icon)
+  if (patch.defaultModelRef !== undefined) setStr('default_model_ref', patch.defaultModelRef)
+  if (patch.defaultEffort !== undefined) {
+    set('default_effort', isEffortLevel(patch.defaultEffort) ? patch.defaultEffort : null)
+  }
+  if (patch.defaultPermissionMode !== undefined) {
+    // Selectable-default guard, NOT isPermissionMode: 'bypass' can never be a
+    // per-project default, so it (and garbage) coerces to null on write.
+    set(
+      'default_permission_mode',
+      isSelectableDefaultMode(patch.defaultPermissionMode) ? patch.defaultPermissionMode : null
+    )
+  }
+  if (cols.length === 0) return
+  getDb()
+    .prepare(`UPDATE projects SET ${cols.join(', ')}, updated_at = ? WHERE id = ?`)
+    .run(...vals, Date.now(), id)
+}
+
+// ---- F9 folder = project: per-folder settings keyed by workspace path ----
+
+interface ProjectSettingsRow {
+  path: string
+  name: string | null
+  color: string | null
+  icon: string | null
+  default_model_ref: string | null
+  default_effort: string | null
+  default_permission_mode: string | null
+}
+
+function rowToFolderProject(r: ProjectSettingsRow): FolderProject {
+  return {
+    path: r.path,
+    name: r.name ?? null,
+    color: r.color ?? null,
+    icon: r.icon ?? null,
+    defaultModelRef: r.default_model_ref ?? null,
+    defaultEffort: isEffortLevel(r.default_effort) ? r.default_effort : null,
+    // 'bypass' is never a valid default (design §5): coerce it + garbage to null.
+    defaultPermissionMode: isSelectableDefaultMode(r.default_permission_mode)
+      ? r.default_permission_mode
+      : null
+  }
+}
+
+export function getProjectSettings(path: string): FolderProject | null {
+  const row = getDb().prepare(`SELECT * FROM project_settings WHERE path = ?`).get(path) as
+    ProjectSettingsRow | undefined
+  return row ? rowToFolderProject(row) : null
+}
+
+export function listProjectSettings(): FolderProject[] {
+  const rows = getDb().prepare(`SELECT * FROM project_settings`).all() as ProjectSettingsRow[]
+  return rows.map(rowToFolderProject)
+}
+
+// Upsert the settings for a folder path: ensure the row exists, then update only
+// the columns present in `patch` (undefined untouched; null clears an override).
+// Enum values coerce (bypass/garbage → null); non-string color/icon/modelRef → null.
+export function upsertProjectSettings(path: string, patch: ProjectSettings): void {
+  const cols: string[] = []
+  const vals: (string | null)[] = []
+  const setStr = (col: string, v: unknown): void => {
+    cols.push(`${col} = ?`)
+    vals.push(typeof v === 'string' ? v : null)
+  }
+  if (patch.name !== undefined) setStr('name', patch.name)
+  if (patch.color !== undefined) setStr('color', patch.color)
+  if (patch.icon !== undefined) setStr('icon', patch.icon)
+  if (patch.defaultModelRef !== undefined) setStr('default_model_ref', patch.defaultModelRef)
+  if (patch.defaultEffort !== undefined) {
+    cols.push('default_effort = ?')
+    vals.push(isEffortLevel(patch.defaultEffort) ? patch.defaultEffort : null)
+  }
+  if (patch.defaultPermissionMode !== undefined) {
+    cols.push('default_permission_mode = ?')
+    vals.push(
+      isSelectableDefaultMode(patch.defaultPermissionMode) ? patch.defaultPermissionMode : null
+    )
+  }
+  // Empty patch is a no-op — return BEFORE touching the table so an INSERT OR
+  // IGNORE never leaves a phantom all-null row that then haunts listProjectSettings.
+  if (cols.length === 0) return
+  const database = getDb()
+  database.prepare(`INSERT OR IGNORE INTO project_settings (path) VALUES (?)`).run(path)
+  database
+    .prepare(`UPDATE project_settings SET ${cols.join(', ')} WHERE path = ?`)
+    .run(...vals, path)
 }
 
 export function createProject(name: string, color: string | null = null): Project {
   const now = Date.now()
-  const project: Project = { id: randomUUID(), name, color, createdAt: now, updatedAt: now }
+  const id = randomUUID()
   getDb()
     .prepare(
       `INSERT INTO projects (id, name, color, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?)`
     )
-    .run(project.id, project.name, project.color, project.createdAt, project.updatedAt)
-  return project
+    .run(id, name, color, now, now)
+  // F9: seed the new project from the "default for new projects" template, if
+  // one is set. An explicit `color` arg wins over the template's color.
+  const template = getSettings().newProjectDefaults
+  if (template) {
+    const seed = { ...template }
+    if (color !== null) delete seed.color
+    updateProjectSettings(id, seed)
+  }
+  return getProject(id) as Project
 }
 
 export function renameProject(id: string, name: string): void {

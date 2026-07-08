@@ -428,8 +428,40 @@ export interface Project {
   id: string
   name: string
   color: string | null
+  // F9 per-project settings (all optional; null/unset → inherit global). icon is
+  // a curated icon name (see the renderer's PROJECT_ICONS); the default* fields
+  // override the global defaults for conversations created in this project.
+  icon?: string | null
+  defaultModelRef?: ModelRef | null
+  defaultEffort?: EffortLevel | null
+  defaultPermissionMode?: PermissionMode | null
   createdAt: number
   updatedAt: number
+}
+
+// The settable subset of a Project (what the Project Settings modal writes and
+// what AppSettings.newProjectDefaults holds as the new-project template). Every
+// field optional so a patch touches only what changed; a null clears an override.
+export interface ProjectSettings {
+  name?: string | null // custom display-name override; null → use the folder basename
+  color?: string | null
+  icon?: string | null
+  defaultModelRef?: ModelRef | null
+  defaultEffort?: EffortLevel | null
+  defaultPermissionMode?: PermissionMode | null
+}
+
+// F9 (folder = project): per-folder settings keyed by the workspace PATH. A
+// folder with no stored row resolves to all-null (inherit global). See memory
+// bearcode-folder-equals-project. Supersedes the E4 named-Project entity.
+export interface FolderProject {
+  path: string
+  name: string | null
+  color: string | null
+  icon: string | null
+  defaultModelRef: ModelRef | null
+  defaultEffort: EffortLevel | null
+  defaultPermissionMode: PermissionMode | null
 }
 
 // ---- Conversations ----
@@ -607,6 +639,9 @@ export interface AppSettings {
   securityPreset?: SecurityPreset
   fileAccessPolicy?: FileAccessPolicy
   terminalAutoExec?: TerminalAutoExec
+  // F9 template applied to every newly created project ("set as default for new
+  // projects"). Optional & additive.
+  newProjectDefaults?: ProjectSettings
 }
 
 export interface SettingsInfo extends AppSettings {
@@ -718,16 +753,16 @@ export interface BearcodeApi {
     setMode(id: string, mode: PermissionMode): Promise<void>
     setEffort(id: string, effort: EffortLevel): Promise<void>
     setThinking(id: string, thinking: boolean): Promise<void>
-    setProject(id: string, projectId: string | null): Promise<void>
     setPinned(id: string, pinned: boolean): Promise<void>
     setArchived(id: string, archived: boolean): Promise<void>
     rename(id: string, title: string): Promise<void>
   }
+  // F9 (folder = project): per-folder settings keyed by workspace path. `list`
+  // returns only folders that have a stored settings row; folders with none
+  // resolve to all-null in the renderer. `update` upserts the row and returns it.
   projects: {
-    list(): Promise<Project[]>
-    create(name: string, color?: string | null): Promise<Project>
-    rename(id: string, name: string): Promise<void>
-    delete(id: string): Promise<void>
+    list(): Promise<FolderProject[]>
+    update(path: string, patch: ProjectSettings): Promise<FolderProject>
   }
   permissions: {
     addRule(rule: AddRuleInput): Promise<void>

@@ -1,8 +1,6 @@
-import type { Project } from '@shared/types'
-
 type ConvoLike = {
   id: string
-  projectId: string | null
+  projectPath: string | null
   projectLabel: string
   title: string
   updatedAt: number
@@ -11,10 +9,12 @@ type ConvoLike = {
   archived: boolean
 }
 
+// F9 (folder = project): every distinct workspace folder is a project group,
+// keyed by its full path (basename collisions across different paths stay
+// separate). A null path is the "No folder" group. Display color/icon/name come
+// from the folder-settings row, looked up by path in the Sidebar.
 export type SidebarGroup = (
-  | { kind: 'project'; projectId: string; label: string }
-  | { kind: 'folder'; label: string }
-  | { kind: 'all' }
+  { kind: 'folder'; path: string | null; label: string } | { kind: 'all' }
 ) & { convoIds: string[] }
 
 export type GroupOpts = {
@@ -25,7 +25,11 @@ export type GroupOpts = {
 
 const DEFAULT_OPTS: GroupOpts = { groupBy: 'project', sort: 'updated', showArchived: false }
 
-function sortIds(ids: string[], convos: Record<string, ConvoLike | undefined>, sort: GroupOpts['sort']): string[] {
+function sortIds(
+  ids: string[],
+  convos: Record<string, ConvoLike | undefined>,
+  sort: GroupOpts['sort']
+): string[] {
   const withConvo = ids.map((id) => convos[id]).filter((c): c is ConvoLike => c != null)
   const sorted = [...withConvo].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
@@ -36,42 +40,41 @@ function sortIds(ids: string[], convos: Record<string, ConvoLike | undefined>, s
   return sorted.map((c) => c.id)
 }
 
-// Group + sort conversations for the sidebar. groupBy 'none' → one headerless
-// 'all' group; 'project' → project groups (updatedAt desc, empty shown) then
-// folder-basename groups for unassigned. `sort` orders conversations WITHIN each
-// group. Default opts reproduce the pre-E3 behavior.
+// Group + sort conversations for the sidebar. groupBy 'none' -> one headerless
+// 'all' group. groupBy 'project' -> one folder group per distinct projectPath,
+// in first-appearance order over `order` (which is recency desc, so the folder
+// touched most recently floats up). `sort` orders conversations WITHIN a group.
 export function groupConversations(
   order: string[],
   convos: Record<string, ConvoLike | undefined>,
-  projects: Project[],
   opts: GroupOpts = DEFAULT_OPTS
 ): SidebarGroup[] {
+  const visible = (id: string): boolean =>
+    convos[id] != null && (opts.showArchived || !convos[id]!.archived)
+
   if (opts.groupBy === 'none') {
-    const ids = order.filter((id) => convos[id] != null && (opts.showArchived || !convos[id]!.archived))
+    const ids = order.filter(visible)
     return [{ kind: 'all', convoIds: sortIds(ids, convos, opts.sort) }]
   }
-  const groups: SidebarGroup[] = []
-  const sortedProjects = [...projects].sort((a, b) => b.updatedAt - a.updatedAt)
-  const projectGroups = new Map<string, SidebarGroup>()
-  for (const p of sortedProjects) {
-    const g: SidebarGroup = { kind: 'project', projectId: p.id, label: p.name, convoIds: [] }
-    projectGroups.set(p.id, g)
-    groups.push(g)
-  }
-  const folderGroups: SidebarGroup[] = []
+
+  // Key by path directly; the null ("No folder") path is its own Map key, so it
+  // can never collide with a real workspace path (a sentinel string could).
+  const groups = new Map<string | null, SidebarGroup & { kind: 'folder' }>()
   for (const id of order) {
     const convo = convos[id]
-    if (!convo) continue
-    if (!opts.showArchived && convo.archived) continue
-    if (convo.projectId && projectGroups.has(convo.projectId)) {
-      projectGroups.get(convo.projectId)!.convoIds.push(id)
-      continue
-    }
-    const existing = folderGroups.find((g) => g.kind === 'folder' && g.label === convo.projectLabel)
+    if (!convo || !visible(id)) continue
+    const existing = groups.get(convo.projectPath)
     if (existing) existing.convoIds.push(id)
-    else folderGroups.push({ kind: 'folder', label: convo.projectLabel, convoIds: [id] })
+    else {
+      groups.set(convo.projectPath, {
+        kind: 'folder',
+        path: convo.projectPath,
+        label: convo.projectLabel,
+        convoIds: [id]
+      })
+    }
   }
-  const all = [...groups, ...folderGroups]
+  const all = [...groups.values()]
   for (const g of all) g.convoIds = sortIds(g.convoIds, convos, opts.sort)
   return all
 }

@@ -7,6 +7,7 @@ import { AuxiliaryPane } from './components/AuxiliaryPane'
 import { ResizeHandle } from './components/ResizeHandle'
 import { SettingsModal } from './components/Settings/SettingsModal'
 import { SearchModal } from './components/Search/SearchModal'
+import { ProjectSettingsModal } from './components/ProjectSettings/ProjectSettingsModal'
 import { RoarBear } from './components/brand/RoarBear'
 import { Hint } from './components/Hint'
 import { IconPanel } from './components/icons'
@@ -139,6 +140,7 @@ function App(): React.JSX.Element {
         {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}
         <SettingsModal />
         <SearchModal />
+        <ProjectSettingsModal />
       </div>
       {auxSelection ? (
         <ResizeHandle onDrag={(dx) => setAuxPaneWidth(useAppStore.getState().auxPaneWidth - dx)} />

@@ -5,16 +5,12 @@ import './ConvoRowMenu.css'
 
 export function ConvoRowMenu({
   convoId,
-  title,
-  projectId
+  title
 }: {
   convoId: string
   title: string
-  projectId: string | null
 }): React.JSX.Element {
-  const projects = useAppStore((s) => s.projects)
   const renameConversation = useAppStore((s) => s.renameConversation)
-  const assignConversationProject = useAppStore((s) => s.assignConversationProject)
   const deleteConvo = useAppStore((s) => s.deleteConvo)
   const [open, setOpen] = useState(false)
   // Fixed-position coords measured off the ⋮ button so the menu snaps directly
@@ -87,31 +83,6 @@ export function ConvoRowMenu({
           >
             Delete Conversation
           </div>
-          <div className="convo-menu-sep" />
-          <div className="menu-group-label">Move to project</div>
-          <div
-            className={'menu-item' + (projectId === null ? ' selected' : '')}
-            onClick={() => {
-              setOpen(false)
-              assignConversationProject(convoId, null)
-            }}
-          >
-            No project
-            {projectId === null ? <span className="check">✓</span> : null}
-          </div>
-          {projects.map((p) => (
-            <div
-              key={p.id}
-              className={'menu-item' + (projectId === p.id ? ' selected' : '')}
-              onClick={() => {
-                setOpen(false)
-                assignConversationProject(convoId, p.id)
-              }}
-            >
-              {p.name}
-              {projectId === p.id ? <span className="check">✓</span> : null}
-            </div>
-          ))}
         </div>
       ) : null}
     </div>
