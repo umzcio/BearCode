@@ -769,11 +769,10 @@ export interface BearcodeApi {
     setMode(id: string, mode: PermissionMode): Promise<void>
     setEffort(id: string, effort: EffortLevel): Promise<void>
     setThinking(id: string, thinking: boolean): Promise<void>
-    setEnvironment(
-      id: string,
-      environment: 'local' | 'worktree',
-      worktrees: WorktreeInfo[]
-    ): Promise<void>
+    // F3: chosen at create, locked at first run. Worktrees are provisioned
+    // main-side (the renderer never shells out), so this takes only the
+    // environment and returns the updated meta with the resolved worktrees.
+    setEnvironment(id: string, environment: 'local' | 'worktree'): Promise<ConversationMeta>
     setPinned(id: string, pinned: boolean): Promise<void>
     setArchived(id: string, archived: boolean): Promise<void>
     rename(id: string, title: string): Promise<void>
@@ -813,6 +812,11 @@ export interface BearcodeApi {
   }
   workspace: {
     pick(): Promise<string | null>
+  }
+  // F3: worktree lifecycle beyond create. `discard` tears down the spawned
+  // worktrees (removes each + its branch) and resets the conversation to local.
+  worktree: {
+    discard(convId: string): Promise<void>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

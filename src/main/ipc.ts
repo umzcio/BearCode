@@ -32,6 +32,7 @@ import { runOfficeHtml, runOfficeRows } from './attachments/office'
 import { parseCsv } from './preview/csv'
 import { extractTextLane } from './attachments/extract'
 import * as db from './db'
+import { createWorktrees, removeWorktrees, gitAvailable } from './worktree/manager'
 import { jailPath } from './orchestrator/fsBackend'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
@@ -436,6 +437,46 @@ export function registerIpc(): void {
       throw new Error(`Invalid thinking: ${String(thinking)}`)
     }
     db.setThinking(id, thinking)
+  })
+  // F3: env is chosen at create and locked at first run. The renderer calls
+  // set-environment on the just-created conversation BEFORE the first run.
+  // Worktree provisioning (the `git worktree add`) happens here, main-side, so
+  // the renderer never shells out. A non-git project yields no worktrees and is
+  // recorded honestly as local.
+  ipcMain.handle(
+    'bearcode:conversations:set-environment',
+    async (_e, id: string, environment: unknown) => {
+      if (environment !== 'local' && environment !== 'worktree') {
+        throw new Error(`Invalid environment: ${String(environment)}`)
+      }
+      const meta = db.getConversationMeta(id)
+      if (!meta) throw new Error(`Unknown conversation: ${id}`)
+      if (environment === 'local' || !meta.projectPath) {
+        db.setEnvironment(id, 'local', [])
+        return db.getConversationMeta(id)
+      }
+      if (!(await gitAvailable())) {
+        throw new Error(
+          'Git is not available on this system, so Worktree mode is unavailable. Install git or use Local.'
+        )
+      }
+      const app = (await import('electron')).app
+      const worktrees = await createWorktrees(
+        app.getPath('userData'),
+        id,
+        meta.projectPath,
+        meta.title ?? 'work'
+      )
+      // A non-git project yields no worktrees: record honestly as local.
+      db.setEnvironment(id, worktrees.length > 0 ? 'worktree' : 'local', worktrees)
+      return db.getConversationMeta(id)
+    }
+  )
+  ipcMain.handle('bearcode:worktree:discard', async (_e, convId: string) => {
+    const meta = db.getConversationMeta(convId)
+    if (!meta) return
+    await removeWorktrees(meta.worktrees)
+    db.setEnvironment(convId, 'local', [])
   })
   // F9 (folder = project): per-folder settings keyed by workspace path. `list`
   // returns only folders that carry a stored settings row. `update` upserts the

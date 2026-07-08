@@ -18,7 +18,6 @@ import type {
   FolderProject,
   ProjectSettings,
   ProviderId,
-  WorktreeInfo,
   RunState,
   TranscribeMeta
 } from '../shared/types'
@@ -110,15 +109,10 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:conversations:set-effort', id, effort),
     setThinking: (id: string, thinking: boolean): Promise<void> =>
       ipcRenderer.invoke('bearcode:conversations:set-thinking', id, thinking),
-    // F3: wired to the `set-environment` IPC channel in Task 6, which also
-    // narrows this signature to (id, environment) once provisioning moves
-    // main-side. Kept here now only so BearcodeApi's shape typechecks.
-    setEnvironment: (
-      id: string,
-      environment: 'local' | 'worktree',
-      worktrees: WorktreeInfo[]
-    ): Promise<void> =>
-      ipcRenderer.invoke('bearcode:conversations:set-environment', id, environment, worktrees),
+    // F3: worktree provisioning happens main-side, so this passes only the
+    // chosen environment and returns the updated meta.
+    setEnvironment: (id: string, environment: 'local' | 'worktree'): Promise<ConversationMeta> =>
+      ipcRenderer.invoke('bearcode:conversations:set-environment', id, environment),
     setPinned: (id: string, pinned: boolean): Promise<void> =>
       ipcRenderer.invoke('bearcode:conversations:set-pinned', id, pinned),
     setArchived: (id: string, archived: boolean): Promise<void> =>
@@ -162,6 +156,10 @@ const bearcode: BearcodeApi = {
   },
   workspace: {
     pick: () => ipcRenderer.invoke('bearcode:workspace:pick')
+  },
+  worktree: {
+    discard: (convId: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:worktree:discard', convId)
   },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>
