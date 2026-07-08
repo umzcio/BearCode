@@ -45,7 +45,11 @@ export interface Convo {
   startedAt?: number
 }
 
-export type View = { kind: 'home' } | { kind: 'conversation'; id: string } | { kind: 'scheduled' }
+export type View =
+  | { kind: 'home' }
+  | { kind: 'conversation'; id: string }
+  | { kind: 'scheduled' }
+  | { kind: 'history' }
 
 // The Auxiliary Pane's target (Ba4 unification). ONE field for the ONE side
 // panel: an artifact (plan/walkthrough viewer) or a diff group (the virtual
@@ -198,6 +202,11 @@ interface AppState {
   // the id to create so already-picked attachments line up with the real
   // conversation. Cleared on goHome / after a successful startFromHome.
   draftConvoId: string | null
+  // F1 Conversation History: the event a content-search hit should jump to in
+  // the freshly-opened conversation. Transient -- set by openConvo(id, {focusEventId})
+  // and consumed (then cleared via clearFocusEvent) by ConversationView once it
+  // has scrolled to + highlighted the match. Null when no jump is pending.
+  focusEventId: string | null
 
   init(): void
   refreshProviders(): Promise<void>
@@ -208,7 +217,9 @@ interface AppState {
   toggleModelMenu(): void
   goHome(): void
   openScheduled(): void
-  openConvo(id: string): void
+  openHistory(): void
+  openConvo(id: string, opts?: { focusEventId?: string }): void
+  clearFocusEvent(): void
   startFromHome(
     text: string,
     command?: CommandRef | null,
@@ -399,6 +410,7 @@ export const useAppStore = create<AppState>((set, get) => {
     fileSuggestions: [],
     manualRules: [],
     draftConvoId: null,
+    focusEventId: null,
 
     init: () => {
       if (initialized) return
@@ -504,7 +516,10 @@ export const useAppStore = create<AppState>((set, get) => {
       })),
     openScheduled: () =>
       set({ view: { kind: 'scheduled' }, auxSelection: null, reviewFocusPath: null }),
-    openConvo: (id) => {
+    openHistory: () =>
+      set({ view: { kind: 'history' }, auxSelection: null, reviewFocusPath: null }),
+    clearFocusEvent: () => set({ focusEventId: null }),
+    openConvo: (id, opts) => {
       const prev = get().view
       // Ba4: the pane renders the CURRENT conversation's entries and
       // diffs.get is a global lookup, so any actual view-target change closes
@@ -514,6 +529,9 @@ export const useAppStore = create<AppState>((set, get) => {
       const switching = !(prev.kind === 'conversation' && prev.id === id)
       set({
         view: { kind: 'conversation', id },
+        // F1: a content-search hit passes the event to jump to; a plain open
+        // (no opts) clears any stale pending focus so it can't fire later.
+        focusEventId: opts?.focusEventId ?? null,
         ...(switching ? { auxSelection: null, reviewFocusPath: null } : {})
       })
       const convo = get().conversations[id]
