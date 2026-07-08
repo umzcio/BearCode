@@ -15,7 +15,7 @@ import { COMMAND_NAME_PATTERN, type CommandEntry } from '../../shared/types'
 
 // Fixed menu order, section 6.2 copy verbatim (no em dashes). `resume` is a
 // pure UI action (Task 4/5: opens the conversation picker, never reaches the
-// send path); `goal`/`grill-me` are the only sendable built-ins (Task 3's
+// send path); `goal`/`grill-me`/`compact` are the sendable built-ins (Task 3's
 // run:start boundary enforces this); the remaining four are visible but
 // coming-soon per the design's out-of-scope list.
 export const BUILTIN_COMMANDS: CommandEntry[] = [
@@ -28,6 +28,12 @@ export const BUILTIN_COMMANDS: CommandEntry[] = [
   {
     name: 'grill-me',
     description: 'Interview me to align on a plan.',
+    kind: 'builtin',
+    status: 'live'
+  },
+  {
+    name: 'compact',
+    description: 'Summarize older messages to free up the context window.',
     kind: 'builtin',
     status: 'live'
   },

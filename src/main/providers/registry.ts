@@ -139,6 +139,25 @@ export function getProvider(id: ProviderId): ProviderRegistryEntry {
   return entry
 }
 
+// Static curated context windows per provider, keyed for a synchronous lookup
+// (the summarizer trigger needs the real window at agent-build time). Ollama
+// and the curated OpenRouter subset carry no window and resolve to `null`.
+const STATIC_MODELS: Partial<Record<ProviderId, ModelInfo[]>> = {
+  anthropic: ANTHROPIC_MODELS,
+  openai: OPENAI_MODELS,
+  google: GOOGLE_MODELS,
+  openrouter: OPENROUTER_MODELS
+}
+
+// The model's real context window (tokens) for a "provider/modelId" ref, or
+// `null` when unknown (Ollama, OpenRouter, or an id absent from the curated
+// list). Never throws for an unknown model id — only an unparseable ref does.
+export function contextWindowFor(ref: string): number | null {
+  const { provider, modelId } = parseModelRef(ref)
+  const info = STATIC_MODELS[provider]?.find((m) => m.id === modelId)
+  return info?.contextWindow ?? null
+}
+
 export function parseModelRef(ref: string): { provider: ProviderId; modelId: string } {
   const slash = ref.indexOf('/')
   if (slash < 1) throw new Error(`Invalid model ref: ${ref}`)

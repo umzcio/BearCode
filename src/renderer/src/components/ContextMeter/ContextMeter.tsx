@@ -54,9 +54,10 @@ export function ContextMeter(): React.JSX.Element | null {
     }
   }, [open])
 
-  const convo = view.kind === 'conversation' ? conversations[view.id] : null
+  const convoId = view.kind === 'conversation' ? view.id : null
+  const convo = convoId ? conversations[convoId] : null
   const ctxWindow = contextWindowFor(providers, modelRef)
-  if (!convo || !ctxWindow) return null
+  if (!convo || !convoId || !ctxWindow) return null
 
   // Prefer the provider's real last-turn prompt size; fall back to the char/4
   // estimate until any turn reports usage.

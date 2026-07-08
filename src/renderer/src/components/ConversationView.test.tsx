@@ -88,3 +88,71 @@ describe('ConversationView user bubble', () => {
     })
   })
 })
+
+describe('ConversationView compaction marker', () => {
+  const baseConvo = {
+    id: 'c1',
+    projectPath: '/p',
+    title: 'T',
+    modelRef: 'anthropic/claude-sonnet-5',
+    permissionMode: 'accept-edits',
+    updatedAt: 1,
+    loaded: true,
+    runState: 'idle'
+  }
+
+  it('renders the marker when the stream carries a compaction event', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      providers: [],
+      conversations: {
+        c1: {
+          ...baseConvo,
+          events: [
+            { type: 'user_message', id: 'u1', text: 'hello' },
+            { type: 'compaction', id: 'k1', summarizedCount: 12 }
+          ]
+        }
+      },
+      convoOrder: ['c1']
+    } as never)
+    render(<ConversationView convoId="c1" />)
+    expect(screen.getByText('Compacted 12 earlier messages')).toBeTruthy()
+  })
+
+  it('singularizes the label for a single summarized message', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      providers: [],
+      conversations: {
+        c1: {
+          ...baseConvo,
+          events: [{ type: 'compaction', id: 'k1', summarizedCount: 1 }]
+        }
+      },
+      convoOrder: ['c1']
+    } as never)
+    render(<ConversationView convoId="c1" />)
+    expect(screen.getByText('Compacted 1 earlier message')).toBeTruthy()
+  })
+
+  it('renders nothing compaction-related when no compaction event is present', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      providers: [],
+      conversations: {
+        c1: {
+          ...baseConvo,
+          events: [{ type: 'user_message', id: 'u1', text: 'hello' }]
+        }
+      },
+      convoOrder: ['c1']
+    } as never)
+    const { container } = render(<ConversationView convoId="c1" />)
+    expect(screen.queryByText(/Compacted .* earlier message/)).toBeNull()
+    expect(container.querySelector('.compaction-marker')).toBeNull()
+  })
+})

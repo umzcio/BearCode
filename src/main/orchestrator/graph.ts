@@ -59,6 +59,19 @@ import { parseModelRef, supportsNativePdf } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
 import { makeModel } from './models'
+import { compactionAdvanced } from './compaction'
+import {
+  COMPACT_ACK_DIRECTIVE,
+  commandForcesCompact,
+  consumeForceCompact,
+  markForceCompact
+} from './forceCompact'
+import {
+  buildTunedSummarization,
+  defaultStateBackendFactory,
+  excludeDefaultSummarization,
+  tunesSummarization
+} from './summarizer'
 import { orchestratorSystemPrompt } from './systemPrompt'
 import { textDeltaEvent, thinkingDeltaEvent } from './bridge'
 import { makeTurnUsage, readUsage, type TurnUsageAccumulator } from './usage'
@@ -171,7 +184,12 @@ function reasoningTextOf(block: { type: string; reasoning?: string; value?: unkn
 // This cast is the documented workaround for calling it anyway.
 interface StateSnapshotLike {
   tasks: ReadonlyArray<{ interrupts: ReadonlyArray<{ id?: string; value?: unknown }> }>
-  values?: { messages?: ReadonlyArray<unknown> }
+  values?: {
+    messages?: ReadonlyArray<unknown>
+    // Set by the deepagents summarization middleware via Command.update when it
+    // folds the oldest `cutoffIndex` messages into a summary (auto-compaction).
+    _summarizationEvent?: { cutoffIndex?: number }
+  }
 }
 type GetStateCapable = { getState(config: unknown): Promise<StateSnapshotLike> }
 
@@ -1748,7 +1766,7 @@ async function settleTurn(
       recoverable: true
     })
   }
-  await closeOutTurn(ctx)
+  await closeOutTurn(agent, ctx)
   return false
 }
 
@@ -1934,8 +1952,26 @@ function buildAgentAndContext(
   } catch (err) {
     console.warn('[bearcode] @ mention additions skipped:', err)
   }
+  // Auto-compaction tuning (Task C3): replace deepagents' default
+  // summarization middleware with one tuned to THIS model — trigger at ~85% of
+  // the real context window, keep the recent half, summarize with a cheap fast
+  // model. For providers we tune (everything but Ollama, whose model class
+  // resolves to no harness profile) we exclude the default from the main
+  // agent's stack and pass our renamed replacement so exactly one runs. Ollama
+  // has no known window to tune against, so it keeps the default middleware.
+  // Manual "Compact now" (one-shot): if the user requested it, force this one
+  // turn's summarizer to fire on the next model call by consuming the flag here.
+  const force = consumeForceCompact(conversationId)
+  let summarizationMiddleware: ReturnType<typeof buildTunedSummarization>[] = []
+  if (tunesSummarization(modelRef)) {
+    excludeDefaultSummarization()
+    summarizationMiddleware = [
+      buildTunedSummarization(modelRef, backendFactory ?? defaultStateBackendFactory(), force)
+    ]
+  }
   const agent = createDeepAgent({
     model,
+    middleware: summarizationMiddleware,
     // meta is null only for a conversation deleted mid-flight (the run is
     // doomed either way). The plan-mode frame (mode-picker design §5, phase 2)
     // is keyed on the conversation's live permission mode: assembled per-turn,
@@ -2021,6 +2057,15 @@ export async function runGraph(opts: {
   sink.emit(conversationId, userEvent)
   appendEvent(conversationId, userEvent)
 
+  // /compact (D2 builtin): force the summarizer to fold the backlog on THIS
+  // turn. markForceCompact sets the one-shot flag that buildAgentAndContext
+  // consumes below (consumeForceCompact) to build an aggressive
+  // trigger+keep, so compaction fires on this model call — before the agent
+  // acks — rather than lowering the trigger for some later turn.
+  if (commandForcesCompact(command)) {
+    markForceCompact(conversationId)
+  }
+
   const built = buildAgentAndContext(
     conversationId,
     modelRef,
@@ -2054,12 +2099,20 @@ export async function runGraph(opts: {
   // transcript), but drive() must never receive an empty user message. This
   // also covers retryRun's edge (store.ts resends lastUser.text, which can be
   // '', dropping the command per Task 4 -- that resend gets 'Proceed.').
+  // Bare /compact (no trailing prose): the forced summarizer runs inside this
+  // turn's model call, so instead of a generic 'Proceed.' inject the honest
+  // ack directive. It keys the reply off whether a summary is actually present
+  // in context, so the acknowledgement is truthful whether or not there was
+  // enough history to compact (see COMPACT_ACK_DIRECTIVE). Trailing prose after
+  // /compact runs verbatim (compaction still attempted; flag set before build).
   const modelText =
     userText.trim() !== ''
       ? userText
-      : command?.kind === 'workflow'
-        ? 'Run the workflow.'
-        : 'Proceed.'
+      : command?.kind === 'builtin' && command.name === 'compact'
+        ? COMPACT_ACK_DIRECTIVE
+        : command?.kind === 'workflow'
+          ? 'Run the workflow.'
+          : 'Proceed.'
 
   try {
     const pdfNative = supportsNativePdf(parseModelRef(modelRef).provider)
@@ -2229,7 +2282,42 @@ export async function rehydratePausedRun(
   return true
 }
 
-async function closeOutTurn(ctx: DriveContext): Promise<void> {
+async function closeOutTurn(
+  agent: ReturnType<typeof createDeepAgent>,
+  ctx: DriveContext
+): Promise<void> {
+  // Auto-compaction marker: the summarization middleware records how many of
+  // the oldest messages it folded into a summary in state._summarizationEvent.
+  // If that cutoff advanced past the last marker we surfaced, emit a fresh
+  // `compaction` event. Fully guarded — any read failure or an
+  // absent/unchanged cutoff emits nothing and never disturbs the turn.
+  try {
+    const snapshot = await (agent as GetStateCapable).getState({
+      configurable: { thread_id: ctx.conversationId }
+    })
+    const prevCutoff = getEvents(ctx.conversationId).reduce<number | null>(
+      (acc, ev) => (ev.type === 'compaction' ? ev.summarizedCount : acc),
+      null
+    )
+    const { advanced, summarizedCount } = compactionAdvanced(
+      prevCutoff,
+      snapshot.values?._summarizationEvent
+    )
+    if (advanced) {
+      const compaction: Event = {
+        type: 'compaction',
+        id: randomUUID(),
+        summarizedCount,
+        createdAt: Date.now()
+      }
+      appendEvent(ctx.conversationId, compaction)
+      ctx.sink.emit(ctx.conversationId, compaction)
+    }
+  } catch {
+    // getState can throw on some provider/graph states; the marker is a
+    // best-effort surface, never load-bearing for the turn.
+  }
+
   if (ctx.backend.stagedFiles.length > 0) {
     emitAndPersist(ctx.conversationId, ctx.sink, {
       type: 'file_diff',
