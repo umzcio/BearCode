@@ -98,8 +98,9 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
 
   it('defaults to the General page', () => {
     render(<SettingsModal />)
-    // General page's intentional WIP placeholder.
-    expect(screen.getByText('Profile & Custom Instructions')).toBeTruthy()
+    // General page shows the Profile + Custom Instructions sections.
+    expect(screen.getByText('Custom Instructions')).toBeTruthy()
+    expect(screen.getByPlaceholderText('Your name')).toBeTruthy()
   })
 
   it('has no Account, Projects, or Conversations nav entries', () => {
@@ -164,14 +165,17 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
 })
 
 describe('SettingsModal General page', () => {
-  it('shows the data Location, a Delete-all control, and the profile placeholder', () => {
+  it('shows the Profile fields, Custom Instructions, the data Location, and Delete-all', () => {
     render(<GeneralPage />)
+    // Profile fields
+    expect(screen.getByPlaceholderText('Your name')).toBeTruthy()
+    expect(screen.getByPlaceholderText('e.g. Zach')).toBeTruthy()
+    // Custom Instructions section
+    expect(screen.getByText('Custom Instructions')).toBeTruthy()
     // Data card: the storage location (from settings.dataPath)
     expect(screen.getByText('/tmp/data')).toBeTruthy()
     // Delete All conversations control
     expect(screen.getByRole('button', { name: /delete/i })).toBeTruthy()
-    // Intentional WIP placeholder for the account/profile content
-    expect(screen.getByText('Profile & Custom Instructions')).toBeTruthy()
   })
 })
 
