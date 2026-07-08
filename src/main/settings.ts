@@ -8,7 +8,7 @@ import type {
   ProviderId,
   SettingsInfo
 } from '../shared/types'
-import { isSttBackend } from '../shared/types'
+import { isSttBackend, isSecurityPreset, isFileAccessPolicy, isTerminalAutoExec } from '../shared/types'
 import type { PricingMap } from '../shared/pricing'
 import { isEffortLevel } from '../shared/effort'
 import {
@@ -53,7 +53,10 @@ const DEFAULTS: AppSettings = {
   profileCallMe: '',
   customInstructions: '',
   disabledModels: [],
-  customModels: []
+  customModels: [],
+  securityPreset: 'custom',
+  fileAccessPolicy: 'deny',
+  terminalAutoExec: 'auto'
 }
 
 // Custom models may only target the four first-party curated providers. Ollama
@@ -195,6 +198,12 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   // malformed customModels collapses to [] so the registry merge stays safe.
   merged.disabledModels = coerceStringArray(s['disabledModels'])
   merged.customModels = coerceCustomModels(s['customModels'])
+  // F8 Agent Settings: coerce each enum to a valid value, falling back to the
+  // BEHAVIOR-PRESERVING defaults (custom / deny / auto) so a malformed or
+  // downgraded settings.json can never loosen the security posture.
+  if (!isSecurityPreset(merged.securityPreset)) merged.securityPreset = 'custom'
+  if (!isFileAccessPolicy(merged.fileAccessPolicy)) merged.fileAccessPolicy = 'deny'
+  if (!isTerminalAutoExec(merged.terminalAutoExec)) merged.terminalAutoExec = 'auto'
   return merged
 }
 
@@ -260,6 +269,17 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.disabledModels !== undefined) {
     patch = { ...patch, disabledModels: coerceStringArray(patch.disabledModels) }
+  }
+  // F8 Agent Settings: reject an unknown enum at the boundary so a bad value
+  // (never a loosened one) can't be persisted.
+  if (patch.securityPreset !== undefined && !isSecurityPreset(patch.securityPreset)) {
+    throw new Error(`Invalid securityPreset: ${String(patch.securityPreset)}`)
+  }
+  if (patch.fileAccessPolicy !== undefined && !isFileAccessPolicy(patch.fileAccessPolicy)) {
+    throw new Error(`Invalid fileAccessPolicy: ${String(patch.fileAccessPolicy)}`)
+  }
+  if (patch.terminalAutoExec !== undefined && !isTerminalAutoExec(patch.terminalAutoExec)) {
+    throw new Error(`Invalid terminalAutoExec: ${String(patch.terminalAutoExec)}`)
   }
   const next = { ...getSettings(), ...patch }
   cache = next

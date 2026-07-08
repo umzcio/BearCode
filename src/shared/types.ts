@@ -520,6 +520,27 @@ export const STT_BACKENDS: readonly SttBackend[] = ['openai', 'local']
 export const isSttBackend = (v: unknown): v is SttBackend =>
   typeof v === 'string' && (STT_BACKENDS as readonly string[]).includes(v)
 
+// F8 Agent Settings — a friendly layer over the existing PermissionMode + rules.
+// SecurityPreset is a named bundle configuring the three primitives below;
+// editing any individual control flips the preset to 'custom'.
+export type SecurityPreset = 'default' | 'full-autonomy' | 'custom'
+// Effect for file actions whose resolved path is OUTSIDE the project root.
+// Governs READS only (writes are always jailed to the root); the hard security
+// floor (.env/.git denies, jail containment for writes) is never overridden.
+export type FileAccessPolicy = 'deny' | 'ask' | 'allow'
+// Whether run_command auto-executes under auto mode, or the auto fallback is
+// downgraded to the approval card. Only ever tightens the auto-mode fallback.
+export type TerminalAutoExec = 'require-review' | 'auto'
+export const SECURITY_PRESETS: readonly SecurityPreset[] = ['default', 'full-autonomy', 'custom']
+export const FILE_ACCESS_POLICIES: readonly FileAccessPolicy[] = ['deny', 'ask', 'allow']
+export const TERMINAL_AUTO_EXECS: readonly TerminalAutoExec[] = ['require-review', 'auto']
+export const isSecurityPreset = (v: unknown): v is SecurityPreset =>
+  typeof v === 'string' && (SECURITY_PRESETS as readonly string[]).includes(v)
+export const isFileAccessPolicy = (v: unknown): v is FileAccessPolicy =>
+  typeof v === 'string' && (FILE_ACCESS_POLICIES as readonly string[]).includes(v)
+export const isTerminalAutoExec = (v: unknown): v is TerminalAutoExec =>
+  typeof v === 'string' && (TERMINAL_AUTO_EXECS as readonly string[]).includes(v)
+
 // Discriminated payload for the voice:transcribe IPC. The OpenAI path sends the
 // recorded container bytes verbatim ('webm'); the local path decodes to raw
 // 16 kHz mono PCM in the RENDERER (Chromium decodes Opus; Node main cannot) and
@@ -581,6 +602,11 @@ export interface AppSettings {
   disabledModels?: string[]
   // User-added models merged into the curated lists (custom wins on id collision).
   customModels?: CustomModel[]
+  // F8 Agent Settings (global defaults; per-project overrides = F9). Optional &
+  // additive: absent → behavior-preserving defaults (custom / deny / auto).
+  securityPreset?: SecurityPreset
+  fileAccessPolicy?: FileAccessPolicy
+  terminalAutoExec?: TerminalAutoExec
 }
 
 export interface SettingsInfo extends AppSettings {
