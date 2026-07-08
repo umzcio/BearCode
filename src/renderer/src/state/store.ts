@@ -177,7 +177,7 @@ interface AppState {
   // for a group's color/icon/name and a new conversation's inherited defaults.
   folderSettings: FolderProject[]
   // The folder path whose Project Settings modal is open, or null. Mirrors the
-  // settingsOpen/searchOpen modal-flag idiom.
+  // settingsOpen modal-flag idiom.
   projectSettingsPath: string | null
   settings: SettingsInfo | null
   // Permissions manager read model; null until the Settings section first loads it.
@@ -187,7 +187,6 @@ interface AppState {
   // Which settings page to open on (e.g. 'providers' for the missing-key flow);
   // null → default page. Consumed once by SettingsModal on open.
   settingsInitialPage: string | null
-  searchOpen: boolean
   auxSelection: AuxSelection | null
   // File path the diff viewer should focus when it opens (chip/step clicks).
   reviewFocusPath: string | null
@@ -300,9 +299,6 @@ interface AppState {
   toggleProjectMenu(): void
   openSettings(page?: string): void
   closeSettings(): void
-  openSearch(): void
-  closeSearch(): void
-  toggleSearch(): void
   saveKey(provider: ProviderId, key: string): Promise<void>
   saveSettings(patch: Partial<AppSettings>): Promise<void>
   deleteAllConversations(): Promise<void>
@@ -445,7 +441,6 @@ export const useAppStore = create<AppState>((set, get) => {
     workspacePath: null,
     settingsOpen: false,
     settingsInitialPage: null,
-    searchOpen: false,
     auxSelection: null,
     reviewFocusPath: null,
     artifactComments: {},
@@ -1020,9 +1015,6 @@ export const useAppStore = create<AppState>((set, get) => {
 
     openSettings: (page) => set({ settingsOpen: true, settingsInitialPage: page ?? null }),
     closeSettings: () => set({ settingsOpen: false }),
-    openSearch: () => set({ searchOpen: true }),
-    closeSearch: () => set({ searchOpen: false }),
-    toggleSearch: () => set((s) => ({ searchOpen: !s.searchOpen })),
 
     saveKey: async (provider, key) => {
       await window.bearcode.keys.set(provider, key)

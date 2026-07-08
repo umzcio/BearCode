@@ -6,7 +6,6 @@ import { ConversationView } from './components/ConversationView'
 import { AuxiliaryPane } from './components/AuxiliaryPane'
 import { ResizeHandle } from './components/ResizeHandle'
 import { SettingsModal } from './components/Settings/SettingsModal'
-import { SearchModal } from './components/Search/SearchModal'
 import { ProjectSettingsModal } from './components/ProjectSettings/ProjectSettingsModal'
 import { Hint } from './components/Hint'
 import { IconPanel } from './components/icons'
@@ -84,7 +83,7 @@ function App(): React.JSX.Element {
           break
         case 'k':
           e.preventDefault()
-          s.toggleSearch()
+          s.openHistory()
           break
         case 'l': {
           e.preventDefault()
@@ -127,7 +126,6 @@ function App(): React.JSX.Element {
         {view.kind === 'history' ? <HistoryView /> : null}
         {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}
         <SettingsModal />
-        <SearchModal />
         <ProjectSettingsModal />
       </div>
       {auxSelection ? (

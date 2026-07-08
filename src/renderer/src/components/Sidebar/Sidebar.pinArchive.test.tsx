@@ -44,7 +44,6 @@ beforeEach(() => {
     openConvo: vi.fn(),
     deleteConvo: vi.fn(),
     openSettings: vi.fn(),
-    openSearch: vi.fn(),
     showToast: vi.fn(),
     setPinned,
     setArchived,
