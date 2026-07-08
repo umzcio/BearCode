@@ -980,13 +980,19 @@ export const useAppStore = create<AppState>((set, get) => {
       })
       await window.bearcode.conversations.setMode(meta.id, d.permissionMode)
       await window.bearcode.conversations.setEffort(meta.id, d.effort)
+      // Only adopt the project's default model if it is still usable (key
+      // configured + present in the effective list). A since-removed key or an
+      // F7-disabled model falls back to the current selection, mirroring the
+      // refConfigured guard in openConvo/ensureDefaultModel — never silently
+      // start a run on an unconfigured model.
+      const modelRef = refConfigured(get().providers, d.modelRef) ? d.modelRef : get().modelRef
       const convo = {
         ...fromMeta(meta),
         projectId,
         loaded: true,
         permissionMode: d.permissionMode,
         effort: d.effort,
-        modelRef: d.modelRef
+        modelRef
       }
       set((s) => {
         const conversations = { ...s.conversations, [meta.id]: convo }
@@ -995,7 +1001,7 @@ export const useAppStore = create<AppState>((set, get) => {
           convoOrder: orderByRecency(conversations),
           view: { kind: 'conversation', id: meta.id },
           // Reflect the inherited defaults in the composer for the new session.
-          modelRef: d.modelRef,
+          modelRef,
           permissionMode: d.permissionMode,
           effort: d.effort
         }

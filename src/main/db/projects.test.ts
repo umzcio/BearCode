@@ -138,6 +138,30 @@ describe('db projects', () => {
     expect(c!.args[0]).toBe(null)
     expect(c!.args[1]).toBe(null)
   })
+  it("SECURITY: 'bypass' is never a valid project default — coerced to null on write and read", () => {
+    updateProjectSettings('p1', { defaultPermissionMode: 'bypass' })
+    const c = calls.find((c) => /UPDATE projects SET/.test(c.sql))
+    expect(c!.args[0]).toBe(null) // bypass dropped, not persisted
+    // …and on read from a hand-edited column.
+    getRow = {
+      id: 'p1',
+      name: 'A',
+      color: null,
+      icon: null,
+      default_model_ref: null,
+      default_effort: null,
+      default_permission_mode: 'bypass',
+      created_at: 1,
+      updated_at: 2
+    }
+    expect(getProject('p1')?.defaultPermissionMode).toBeNull()
+  })
+  it('updateProjectSettings coerces a non-string color/icon to null', () => {
+    updateProjectSettings('p1', { color: 42 as never, icon: {} as never })
+    const c = calls.find((c) => /UPDATE projects SET/.test(c.sql))
+    expect(c!.args[0]).toBe(null)
+    expect(c!.args[1]).toBe(null)
+  })
   it('updateProjectSettings with no settable keys is a no-op (no UPDATE)', () => {
     updateProjectSettings('p1', {})
     expect(calls.some((c) => /UPDATE projects SET/.test(c.sql))).toBe(false)

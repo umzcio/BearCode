@@ -86,4 +86,11 @@ describe('F9 newProjectDefaults coercion', () => {
     })
     expect(out.newProjectDefaults).toEqual({ defaultEffort: 'low' })
   })
+  it("SECURITY: drops 'bypass' from the new-project template (never a default)", () => {
+    const s = migrateSettings({
+      newProjectDefaults: { defaultPermissionMode: 'bypass', defaultEffort: 'high' }
+    })
+    expect(s.newProjectDefaults).toEqual({ defaultEffort: 'high' })
+    expect(s.newProjectDefaults?.defaultPermissionMode).toBeUndefined()
+  })
 })

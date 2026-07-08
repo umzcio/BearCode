@@ -17,7 +17,7 @@ import {
 } from '../shared/types'
 import type { PricingMap } from '../shared/pricing'
 import { isEffortLevel } from '../shared/effort'
-import { isPermissionMode } from '../shared/permissionMode'
+import { isSelectableDefaultMode } from '../shared/permissionMode'
 import {
   isThemeMode,
   isFontSize,
@@ -120,7 +120,11 @@ function coerceProjectSettings(raw: unknown): ProjectSettings | undefined {
     out.defaultModelRef = r.defaultModelRef as string | null
   }
   if (isEffortLevel(r.defaultEffort)) out.defaultEffort = r.defaultEffort
-  if (isPermissionMode(r.defaultPermissionMode)) out.defaultPermissionMode = r.defaultPermissionMode
+  // Selectable-default guard, NOT isPermissionMode: 'bypass' can never be a
+  // default, so it (and garbage) is dropped from the new-project template.
+  if (isSelectableDefaultMode(r.defaultPermissionMode)) {
+    out.defaultPermissionMode = r.defaultPermissionMode
+  }
   return out
 }
 

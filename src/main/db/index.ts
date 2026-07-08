@@ -21,7 +21,7 @@ import type {
   ProjectSettings
 } from '../../shared/types'
 import { isEffortLevel } from '../../shared/effort'
-import { isPermissionMode } from '../../shared/permissionMode'
+import { isSelectableDefaultMode } from '../../shared/permissionMode'
 import { getSettings } from '../settings'
 import { extractSearchText } from './searchText'
 
@@ -598,7 +598,9 @@ function rowToProject(r: ProjectRow): Project {
     icon: r.icon ?? null,
     defaultModelRef: r.default_model_ref ?? null,
     defaultEffort: isEffortLevel(r.default_effort) ? r.default_effort : null,
-    defaultPermissionMode: isPermissionMode(r.default_permission_mode)
+    // 'bypass' is never a valid default (design §5): coerce it (and garbage) to
+    // null so a hand-edited column can't start conversations in bypass.
+    defaultPermissionMode: isSelectableDefaultMode(r.default_permission_mode)
       ? r.default_permission_mode
       : null,
     createdAt: r.created_at,
@@ -629,16 +631,22 @@ export function updateProjectSettings(id: string, patch: ProjectSettings): void 
     cols.push(`${col} = ?`)
     vals.push(v)
   }
-  if (patch.color !== undefined) set('color', patch.color)
-  if (patch.icon !== undefined) set('icon', patch.icon)
-  if (patch.defaultModelRef !== undefined) set('default_model_ref', patch.defaultModelRef)
+  // A string column coerces a non-string, non-null value to null rather than
+  // binding a number/object (which SQLite would happily store and then read
+  // back typed as string).
+  const setStr = (col: string, v: unknown): void => set(col, typeof v === 'string' ? v : null)
+  if (patch.color !== undefined) setStr('color', patch.color)
+  if (patch.icon !== undefined) setStr('icon', patch.icon)
+  if (patch.defaultModelRef !== undefined) setStr('default_model_ref', patch.defaultModelRef)
   if (patch.defaultEffort !== undefined) {
     set('default_effort', isEffortLevel(patch.defaultEffort) ? patch.defaultEffort : null)
   }
   if (patch.defaultPermissionMode !== undefined) {
+    // Selectable-default guard, NOT isPermissionMode: 'bypass' can never be a
+    // per-project default, so it (and garbage) coerces to null on write.
     set(
       'default_permission_mode',
-      isPermissionMode(patch.defaultPermissionMode) ? patch.defaultPermissionMode : null
+      isSelectableDefaultMode(patch.defaultPermissionMode) ? patch.defaultPermissionMode : null
     )
   }
   if (cols.length === 0) return

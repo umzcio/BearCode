@@ -851,6 +851,18 @@ describe('F9 project settings + inheritance', () => {
       projectSettingsId: null,
       conversations: {},
       convoOrder: [],
+      modelRef: null,
+      // The global default model configured, so it can be adopted (refConfigured).
+      providers: [
+        {
+          id: 'anthropic',
+          displayName: 'Anthropic',
+          color: '#c96',
+          keyConfigured: true,
+          reachable: true,
+          models: [{ id: 'claude-opus-4-8', label: 'Opus' }]
+        }
+      ] as never,
       settings: {
         defaultModelRef: 'anthropic/claude-opus-4-8',
         defaultEffort: 'adaptive',
@@ -874,6 +886,17 @@ describe('F9 project settings + inheritance', () => {
 
   it('newConversationInProject inherits the project overrides (effort/mode/model)', async () => {
     useAppStore.setState({
+      // gpt-5.1 must be usable for the inherited model to be adopted (refConfigured).
+      providers: [
+        {
+          id: 'openai',
+          displayName: 'OpenAI',
+          color: '#9ad0b7',
+          keyConfigured: true,
+          reachable: true,
+          models: [{ id: 'gpt-5.1', label: 'GPT-5.1' }]
+        }
+      ] as never,
       projects: [
         {
           id: 'p1',
@@ -894,6 +917,34 @@ describe('F9 project settings + inheritance', () => {
     expect(s.modelRef).toBe('openai/gpt-5.1')
     expect(s.permissionMode).toBe('plan')
     expect(s.effort).toBe('high')
+  })
+
+  it('does NOT adopt an unusable project default model (falls back to current selection)', async () => {
+    useAppStore.setState({
+      modelRef: 'anthropic/claude-opus-4-8',
+      providers: [
+        {
+          id: 'openai',
+          displayName: 'OpenAI',
+          color: '#9ad0b7',
+          keyConfigured: false, // no key → gpt-5.1 not usable
+          reachable: true,
+          models: [{ id: 'gpt-5.1', label: 'GPT-5.1' }]
+        }
+      ] as never,
+      projects: [
+        {
+          id: 'p1',
+          name: 'P',
+          color: null,
+          defaultModelRef: 'openai/gpt-5.1',
+          createdAt: 1,
+          updatedAt: 1
+        }
+      ] as never
+    })
+    await useAppStore.getState().newConversationInProject('p1')
+    expect(useAppStore.getState().modelRef).toBe('anthropic/claude-opus-4-8')
   })
 
   it('newConversationInProject falls back to global defaults when the project has no overrides', async () => {
