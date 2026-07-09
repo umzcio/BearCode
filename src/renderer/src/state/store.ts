@@ -298,6 +298,7 @@ interface AppState {
     sidebarGroupBy?: AppSettings['sidebarGroupBy']
     sidebarSort?: AppSettings['sidebarSort']
     sidebarShowArchived?: AppSettings['sidebarShowArchived']
+    sidebarSubtitle?: AppSettings['sidebarSubtitle']
   }): Promise<void>
   setAppearance(patch: Partial<AppSettings>): Promise<void>
   syncPricing(): Promise<{ syncedCount: number; unmatched: string[]; syncedAt: number }>

@@ -43,6 +43,7 @@ const DEFAULTS: AppSettings = {
   sidebarGroupBy: 'project',
   sidebarSort: 'updated',
   sidebarShowArchived: false,
+  sidebarSubtitle: 'none',
   theme: 'dark',
   customColors: DEFAULT_CUSTOM_COLORS,
   fontSize: 'medium',
@@ -188,10 +189,12 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   if (!isEffortLevel(merged.defaultEffort)) merged.defaultEffort = 'adaptive'
   merged.defaultThinking =
     (seeded as Record<string, unknown>)['defaultThinking'] === false ? false : true
-  const groupByOk = ['project', 'none']
+  const groupByOk = ['project', 'environment', 'status', 'none']
   const sortOk = ['updated', 'alpha', 'created']
+  const subtitleOk = ['none', 'worktree']
   if (!groupByOk.includes(merged.sidebarGroupBy)) merged.sidebarGroupBy = 'project'
   if (!sortOk.includes(merged.sidebarSort)) merged.sidebarSort = 'updated'
+  if (!subtitleOk.includes(merged.sidebarSubtitle)) merged.sidebarSubtitle = 'none'
   merged.sidebarShowArchived = (seeded as Record<string, unknown>)['sidebarShowArchived'] === true
   // Appearance: coerce each field to a valid enum/shape, falling back to the
   // dark defaults so a malformed settings.json can never wedge the theme.

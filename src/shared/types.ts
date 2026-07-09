@@ -614,12 +614,17 @@ export interface AppSettings {
   defaultEffort: EffortLevel
   defaultThinking: boolean
   // Sidebar Display Options (E3). Persisted per-user.
-  sidebarGroupBy: 'project' | 'none'
+  // F3: widened to group by 'environment' (Local/Worktree) or 'status'
+  // (Active/Idle/Error) buckets.
+  sidebarGroupBy: 'project' | 'environment' | 'status' | 'none'
   sidebarSort: 'updated' | 'alpha' | 'created'
   // Show archived conversations in the sidebar (E7c). Default false: archived
   // conversations are hidden from every group (today's behavior) until the
   // user opts in via Display Options.
   sidebarShowArchived: boolean
+  // F3: sidebar row subtitle. 'worktree' shows the conversation's worktree
+  // branch under the title. Default 'none'.
+  sidebarSubtitle: 'none' | 'worktree'
   // Appearance (theme + display). Applied live in the renderer by the appearance
   // apply module; persisted per-user. See src/shared/appearance.ts.
   theme: ThemeMode

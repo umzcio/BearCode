@@ -28,6 +28,7 @@ export function Sidebar(): React.JSX.Element {
   const groupBy = useAppStore((s) => s.settings?.sidebarGroupBy ?? 'project')
   const sort = useAppStore((s) => s.settings?.sidebarSort ?? 'updated')
   const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
+  const subtitle = useAppStore((s) => s.settings?.sidebarSubtitle ?? 'none')
 
   const groups = groupConversations(convoOrder, conversations, {
     groupBy,
@@ -87,12 +88,18 @@ export function Sidebar(): React.JSX.Element {
           const fp = path ? folderSettings.find((f) => f.path === path) : undefined
           const Icon = projectIcon(fp?.icon)
           const label = group.kind === 'folder' ? (fp?.name ?? group.label) : ''
+          // F3: stable per-kind key so switching Group By re-keys cleanly.
+          const key =
+            group.kind === 'all'
+              ? 'all'
+              : group.kind === 'folder'
+                ? 'folder:' + (path ?? 'none')
+                : group.kind === 'environment'
+                  ? 'env:' + group.env
+                  : 'status:' + group.bucket
           return (
-            <div
-              className="proj-group"
-              key={group.kind === 'all' ? 'all' : 'folder:' + (path ?? 'none')}
-            >
-              {group.kind !== 'all' ? (
+            <div className="proj-group" key={key}>
+              {group.kind === 'folder' ? (
                 <div className="proj-label">
                   {fp?.color ? (
                     <span className="proj-dot" style={{ background: fp.color }} />
@@ -125,6 +132,12 @@ export function Sidebar(): React.JSX.Element {
                     </span>
                   ) : null}
                 </div>
+              ) : group.kind === 'environment' || group.kind === 'status' ? (
+                // F3: Environment/Status buckets are simple label rows — no
+                // gear/+ (those are folder-only project actions).
+                <div className="proj-label">
+                  <span>{group.label}</span>
+                </div>
               ) : null}
               {group.convoIds.map((id) => {
                 const convo = conversations[id]
@@ -132,6 +145,13 @@ export function Sidebar(): React.JSX.Element {
                 const running =
                   convo.runState === 'running' || convo.runState === 'awaiting-approval'
                 const selected = view.kind === 'conversation' && view.id === id
+                // F3: show the worktree branch under the title when the
+                // Worktree subtitle is on and this convo has a worktree
+                // (first repo drives the subtitle line for multi-repo).
+                const branch =
+                  subtitle === 'worktree' && convo.environment === 'worktree'
+                    ? convo.worktrees[0]?.branch
+                    : undefined
                 return (
                   <div
                     key={id}
@@ -141,7 +161,10 @@ export function Sidebar(): React.JSX.Element {
                     onClick={() => openConvo(id)}
                   >
                     {convo.pinned ? <IconPin size={11} /> : null}
-                    <span className="name">{convo.title}</span>
+                    <span className="name-wrap">
+                      <span className="name">{convo.title}</span>
+                      {branch ? <span className="convo-sub">{branch}</span> : null}
+                    </span>
                     {running ? (
                       <span className="dot" />
                     ) : (
