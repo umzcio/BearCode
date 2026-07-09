@@ -71,7 +71,13 @@ export type View = { kind: 'home' } | { kind: 'conversation'; id: string } | { k
 // exclusion is structural -- the old reviewDiffId/reviewArtifactId pair kept
 // it by hand across three actions.
 export type AuxSelection =
-  { kind: 'artifact'; artifactId: string } | { kind: 'diff'; diffId: string }
+  | { kind: 'artifact'; artifactId: string }
+  | { kind: 'diff'; diffId: string }
+  // F4: the embedded browser pane. Self-contained (no DB lookup) -- the
+  // WebContentsView is a main-side singleton keyed by conversation; the aux
+  // pane just carries which conversation opened it so the placeholder rect
+  // reports its bounds for the view to paint over.
+  | { kind: 'browser'; conversationId: string }
 
 // Auto-surface the newest diff group. Returns true when a fresh file_diff
 // arrives for the conversation you're viewing AND the review pane is already
@@ -334,6 +340,8 @@ interface AppState {
   openReviewForFile(convoId: string, path: string): void
   openFile(path: string): void
   openArtifactPane(artifactId: string, focusFeedback?: boolean): void
+  // F4: open the embedded browser pane for a conversation.
+  openBrowserPane(conversationId: string): void
   loadArtifactComments(artifactId: string): Promise<void>
   addArtifactComment(artifactId: string, quote: string | null, body: string): Promise<void>
   resolvePlanReview(callId: string, proceed: boolean, message?: string): Promise<boolean>
@@ -1183,6 +1191,13 @@ export const useAppStore = create<AppState>((set, get) => {
         artifactPaneFocusFeedback: focusFeedback
           ? s.artifactPaneFocusFeedback + 1
           : s.artifactPaneFocusFeedback
+      })),
+
+    openBrowserPane: (conversationId) =>
+      set((s) => ({
+        auxSelection: { kind: 'browser', conversationId },
+        reviewFocusPath: null,
+        auxPaneOpenTick: s.auxPaneOpenTick + 1
       })),
 
     loadArtifactComments: async (artifactId) => {

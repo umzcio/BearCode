@@ -3,6 +3,7 @@ import type { Event, FileDiff, FileDiffFile } from '@shared/types'
 import { useAppStore, type AuxSelection } from '../state/store'
 import { useCmdHeld } from '../lib/useCmdHeld'
 import { ArtifactViewer } from './ArtifactViewer'
+import { BrowserPane } from './Browser/BrowserPane'
 import { FilePreview } from './FilePreview/FilePreview'
 import { deriveRailEntries, versionsOfType, type ArtifactEvent } from '../lib/auxRail'
 import { ARTIFACT_STATUS_LABELS, ARTIFACT_TYPE_LABELS } from './events/ArtifactCard'
@@ -112,6 +113,28 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [closeReview])
+
+  // F4: the browser target is self-contained -- no DB/events lookup needed. The
+  // WebContentsView is a main-side singleton; the pane just reports its bounds.
+  // Render it before the convo guard so it survives while events are loading.
+  if (target.kind === 'browser') {
+    return (
+      <div className="ap-panel" style={{ flexBasis: auxPaneWidth }}>
+        <div className="ap-row ap-row-top">
+          <ApBrand />
+          <div className="ap-spacer" />
+          <div className="ap-actions">
+            <button aria-label="Close panel" title="Close panel" onClick={closeReview}>
+              <IconClose />
+            </button>
+          </div>
+        </div>
+        <div className="ap-browser-body">
+          <BrowserPane />
+        </div>
+      </div>
+    )
+  }
 
   const convo = view.kind === 'conversation' ? conversations[view.id] : null
   if (!convo) return null
@@ -224,13 +247,7 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
   )
 }
 
-function DiffPanel({
-  diffId,
-  rail
-}: {
-  diffId: string
-  rail: React.ReactNode
-}): React.JSX.Element {
+function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }): React.JSX.Element {
   const closeReview = useAppStore((s) => s.closeReview)
   const focusPath = useAppStore((s) => s.reviewFocusPath)
   const view = useAppStore((s) => s.view)

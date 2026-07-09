@@ -3,20 +3,18 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { bootResumeInterruptedRuns, registerIpc } from './ipc'
 import { runDevSmoke } from './devSmoke'
+import { REMOTE_DEBUG_PORT, setMainWindow } from './mainWindow'
 import icon from '../../resources/icon.png?asset'
 
 // F4: expose a CDP endpoint so BrowserManager can drive an embedded
-// WebContentsView with Playwright connectOverCDP. Bound to loopback only.
-export const REMOTE_DEBUG_PORT = 9333
+// WebContentsView with Playwright connectOverCDP. Bound to loopback only. The
+// port + window ref live in ./mainWindow (a side-effect-free module) so
+// consumers like BrowserManager don't drag this app-bootstrap module — which
+// runs app.commandLine.* at import — into their graph. Re-exported here for
+// callers that expect the F4 window API off the app entry point.
+export { REMOTE_DEBUG_PORT, getMainWindow } from './mainWindow'
 app.commandLine.appendSwitch('remote-debugging-port', String(REMOTE_DEBUG_PORT))
 app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1')
-
-// F4: the browser view attaches to the main window, so BrowserManager needs a
-// handle to it. createWindow() stores it here; getMainWindow() exposes it.
-let mainWindow: BrowserWindow | null = null
-export function getMainWindow(): BrowserWindow | null {
-  return mainWindow
-}
 
 // `ready-to-show` re-fires on renderer reloads (e.g. a dev-server restart,
 // same caveat as `runDevSmoke`'s own guard in devSmoke.ts); the crash-resume
@@ -31,9 +29,9 @@ function runBootResumeOnce(): void {
 }
 
 function createWindow(): void {
-  // Use a local non-null handle inside this function; assigning through the
-  // module-level `mainWindow` (nulled in the `closed` handler below) would lose
-  // narrowing across these closures.
+  // Use a local non-null handle inside this function; the shared ref (nulled in
+  // the `closed` handler below via setMainWindow) would lose narrowing across
+  // these closures.
   const win = new BrowserWindow({
     width: 1480,
     height: 920,
@@ -60,7 +58,7 @@ function createWindow(): void {
       backgroundThrottling: false
     }
   })
-  mainWindow = win
+  setMainWindow(win)
 
   win.on('ready-to-show', () => {
     win.show()
@@ -69,7 +67,7 @@ function createWindow(): void {
   })
 
   win.on('closed', () => {
-    mainWindow = null
+    setMainWindow(null)
   })
 
   win.webContents.setWindowOpenHandler((details) => {

@@ -842,6 +842,18 @@ export interface BearcodeApi {
     // env picker's grayed-out state.
     available(path: string): Promise<boolean>
   }
+  // F4: the embedded browser pane. The WebContentsView is a main-side singleton
+  // driven by Playwright over CDP (browserManager). The renderer owns only the
+  // pane's geometry (`setBounds` from the placeholder rect) and visibility
+  // (`show`/`hide` on mount/unmount); `status` backs the Settings tab, and
+  // `clearSession` wipes the per-conversation browsing data.
+  browser: {
+    status(): Promise<{ installed: boolean; connected: boolean; conversationId: string | null }>
+    clearSession(): Promise<void>
+    setBounds(b: { x: number; y: number; width: number; height: number }): Promise<void>
+    show(): Promise<void>
+    hide(): Promise<void>
+  }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void
   onConversationMeta(cb: (meta: ConversationMeta) => void): () => void

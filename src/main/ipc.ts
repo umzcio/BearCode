@@ -34,6 +34,7 @@ import { parseCsv } from './preview/csv'
 import { extractTextLane } from './attachments/extract'
 import * as db from './db'
 import { createWorktrees, removeWorktrees, gitAvailable, discoverRepos } from './worktree/manager'
+import { browserManager } from './browser/manager'
 import {
   commitWorktree,
   mergeToBase,
@@ -611,4 +612,19 @@ export function registerIpc(): void {
     })
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
   })
+
+  // F4: browser pane geometry + lifecycle. The WebContentsView is a main-side
+  // singleton (browserManager); the renderer only reports the placeholder
+  // rect's bounds and toggles visibility on mount/unmount. `status` backs the
+  // Settings Browser tab; `clear-session` wipes per-conversation browsing data.
+  ipcMain.handle('bearcode:browser:status', () => browserManager.status())
+  ipcMain.handle('bearcode:browser:clear-session', () => browserManager.clearSession())
+  ipcMain.handle(
+    'bearcode:browser:set-bounds',
+    (_e, b: { x: number; y: number; width: number; height: number }) => {
+      browserManager.setBounds(b)
+    }
+  )
+  ipcMain.handle('bearcode:browser:show', () => browserManager.show())
+  ipcMain.handle('bearcode:browser:hide', () => browserManager.hide())
 }

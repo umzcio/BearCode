@@ -176,6 +176,18 @@ const bearcode: BearcodeApi = {
     available: (path: string): Promise<boolean> =>
       ipcRenderer.invoke('bearcode:worktree:available', path)
   },
+  browser: {
+    status: (): Promise<{
+      installed: boolean
+      connected: boolean
+      conversationId: string | null
+    }> => ipcRenderer.invoke('bearcode:browser:status'),
+    clearSession: (): Promise<void> => ipcRenderer.invoke('bearcode:browser:clear-session'),
+    setBounds: (b: { x: number; y: number; width: number; height: number }): Promise<void> =>
+      ipcRenderer.invoke('bearcode:browser:set-bounds', b),
+    show: (): Promise<void> => ipcRenderer.invoke('bearcode:browser:show'),
+    hide: (): Promise<void> => ipcRenderer.invoke('bearcode:browser:hide')
+  },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>
       cb(conversationId, event)

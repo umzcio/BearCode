@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 
-// This module reaches into Electron main (WebContentsView) and the app bootstrap
-// (../index runs app.commandLine.* at import) — neither exists under plain
-// vitest. Mock them so the module RESOLVES and start() fails fast at the
+// This module reaches into Electron main (WebContentsView) and the main-window
+// ref (../mainWindow) — neither is populated under plain vitest. Mock them so
+// the module RESOLVES and start() fails fast at the
 // "no main window" guard (below), which sets live=false and skips the live
 // assertions. ./install is mocked so the guarded start() never triggers a real
 // ~150 MB Chromium download in CI. The real gate is a headed-Electron harness,
 // which reaches these same assertions against a genuine window.
 vi.mock('electron', () => ({ WebContentsView: class {} }))
-vi.mock('../index', () => ({ getMainWindow: () => null, REMOTE_DEBUG_PORT: 9333 }))
+vi.mock('../mainWindow', () => ({ getMainWindow: () => null, REMOTE_DEBUG_PORT: 9333 }))
 vi.mock('./install', () => ({
   ensureChromium: async (): Promise<void> => {},
   chromiumInstalled: (): boolean => false

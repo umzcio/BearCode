@@ -1,6 +1,6 @@
 import { WebContentsView } from 'electron'
 import { chromium, type Browser, type Page } from 'playwright'
-import { getMainWindow, REMOTE_DEBUG_PORT } from '../index'
+import { getMainWindow, REMOTE_DEBUG_PORT } from '../mainWindow'
 import { ensureChromium, chromiumInstalled } from './install'
 import { matchBrowserTarget, type CdpTarget } from './policy'
 

@@ -1032,6 +1032,16 @@
   display: flex;
 }
 
+/* F4: the browser pane body fills the panel below the header; the placeholder
+   rect inside reports its bounds so the main-side WebContentsView paints over
+   it exactly. */
+.ap-browser-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+
 /* --- Inline comment composer. An empty Monaco view zone reserves the gap;
    this overlay sits on top of it (always interactive, unlike view-zone content
    which Monaco's layers cover) and is styled flat so it reads as inline. --- */
