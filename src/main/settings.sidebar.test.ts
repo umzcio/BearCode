@@ -16,4 +16,16 @@ describe('sidebar display settings', () => {
     expect(migrateSettings({ sidebarGroupBy: 'none' }).sidebarGroupBy).toBe('none')
     expect(migrateSettings({ sidebarSort: 'alpha' }).sidebarSort).toBe('alpha')
   })
+  // F3: the group-by union widened to include environment/status and a new
+  // sidebarSubtitle was added. Guard the migration so a future refactor that
+  // narrows the allow-list back can't silently reset a user's grouping on reload.
+  it('keeps the F3 environment/status group-by across reload', () => {
+    expect(migrateSettings({ sidebarGroupBy: 'environment' }).sidebarGroupBy).toBe('environment')
+    expect(migrateSettings({ sidebarGroupBy: 'status' }).sidebarGroupBy).toBe('status')
+  })
+  it('defaults sidebarSubtitle to none and keeps/coerces it', () => {
+    expect(migrateSettings({}).sidebarSubtitle).toBe('none')
+    expect(migrateSettings({ sidebarSubtitle: 'worktree' }).sidebarSubtitle).toBe('worktree')
+    expect(migrateSettings({ sidebarSubtitle: 'garbage' }).sidebarSubtitle).toBe('none')
+  })
 })
