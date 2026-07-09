@@ -113,6 +113,23 @@ class BrowserManager {
       await this.teardown()
       throw err instanceof Error ? err : new Error(String(err))
     }
+    // THEME FIX (confirmed via probe): connectOverCDP applies Playwright's
+    // default colorScheme:'light' emulation to EVERY attached page — including
+    // BearCode's own renderer — which flips the app UI to light in System theme
+    // (before=dark → afterStart=light → restored only on teardown). Clear the
+    // media override on every attached page that is NOT our browser view so the
+    // app's own theme is never touched. Best-effort: a theme cosmetic must never
+    // break the session. The view page keeps Playwright's default (fine for the
+    // browsed content).
+    try {
+      for (const ctx of this.browser?.contexts() ?? []) {
+        for (const p of ctx.pages()) {
+          if (p !== this.page) await p.emulateMedia({ colorScheme: null })
+        }
+      }
+    } catch {
+      /* leave app theme as-is if the reset fails */
+    }
     // finding 4: if Playwright disconnects mid-session, tear the session DOWN
     // (detach + destroy the view) rather than only nulling the page — otherwise
     // status() reports a stranded view against a dead connection.
