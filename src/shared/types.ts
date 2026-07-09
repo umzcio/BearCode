@@ -464,6 +464,15 @@ export interface FolderProject {
   defaultPermissionMode: PermissionMode | null
 }
 
+// F3: an isolated git worktree spawned for a conversation running in Worktree
+// mode. One per discovered repo; empty for Local mode (or a non-git project).
+export interface WorktreeInfo {
+  repoPath: string
+  worktreePath: string
+  branch: string
+  baseBranch: string
+}
+
 // ---- Conversations ----
 
 export interface ConversationMeta {
@@ -493,6 +502,13 @@ export interface ConversationMeta {
   // conversation has no user message yet, or when the meta wasn't built with a
   // preview (e.g. single-conversation reads that don't need it).
   preview?: string | null
+  // F3: execution environment, chosen at creation and locked after start.
+  // 'local' runs in the project folder; 'worktree' runs in isolated git
+  // worktrees (see `worktrees`). Defaults to 'local'.
+  environment: 'local' | 'worktree'
+  // F3: the spawned worktrees for this conversation (empty in local mode, or
+  // when the project has no git repo so worktree mode fell back to local).
+  worktrees: WorktreeInfo[]
 }
 
 // ---- Conversation history search (F1) ----
@@ -598,12 +614,17 @@ export interface AppSettings {
   defaultEffort: EffortLevel
   defaultThinking: boolean
   // Sidebar Display Options (E3). Persisted per-user.
-  sidebarGroupBy: 'project' | 'none'
+  // F3: widened to group by 'environment' (Local/Worktree) or 'status'
+  // (Active/Idle/Error) buckets.
+  sidebarGroupBy: 'project' | 'environment' | 'status' | 'none'
   sidebarSort: 'updated' | 'alpha' | 'created'
   // Show archived conversations in the sidebar (E7c). Default false: archived
   // conversations are hidden from every group (today's behavior) until the
   // user opts in via Display Options.
   sidebarShowArchived: boolean
+  // F3: sidebar row subtitle. 'worktree' shows the conversation's worktree
+  // branch under the title. Default 'none'.
+  sidebarSubtitle: 'none' | 'worktree'
   // Appearance (theme + display). Applied live in the renderer by the appearance
   // apply module; persisted per-user. See src/shared/appearance.ts.
   theme: ThemeMode
@@ -753,6 +774,10 @@ export interface BearcodeApi {
     setMode(id: string, mode: PermissionMode): Promise<void>
     setEffort(id: string, effort: EffortLevel): Promise<void>
     setThinking(id: string, thinking: boolean): Promise<void>
+    // F3: chosen at create, locked at first run. Worktrees are provisioned
+    // main-side (the renderer never shells out), so this takes only the
+    // environment and returns the updated meta with the resolved worktrees.
+    setEnvironment(id: string, environment: 'local' | 'worktree'): Promise<ConversationMeta>
     setPinned(id: string, pinned: boolean): Promise<void>
     setArchived(id: string, archived: boolean): Promise<void>
     rename(id: string, title: string): Promise<void>
@@ -792,6 +817,30 @@ export interface BearcodeApi {
   }
   workspace: {
     pick(): Promise<string | null>
+  }
+  // F3: worktree lifecycle beyond create. `discard` tears down the spawned
+  // worktrees (removes each + its branch) and resets the conversation to local.
+  worktree: {
+    // F3: merge this repo's worktree branch into its base branch (per-repo so
+    // multi-repo merges are independent). 'conflict' returns the conflicted
+    // files for the resolver; the merge is left in progress in the base repo.
+    merge(
+      convId: string,
+      repoPath: string
+    ): Promise<{ status: 'clean' | 'conflict'; conflictedFiles: string[] }>
+    // F3: read a conflicted file's current (marker-laden) text from the base repo.
+    readConflict(convId: string, repoPath: string, file: string): Promise<{ merged: string }>
+    // F3: write the user's resolved content for a conflicted file + `git add` it.
+    resolveFile(convId: string, repoPath: string, file: string, content: string): Promise<void>
+    // F3: commit the in-progress merge once all conflicts are resolved.
+    completeMerge(convId: string, repoPath: string): Promise<void>
+    // F3: abort the in-progress merge, restoring the base repo's pre-merge state.
+    abort(convId: string, repoPath: string): Promise<void>
+    discard(convId: string): Promise<void>
+    // F3: whether New-Worktree mode is offerable for a folder — git is present
+    // AND the folder (or an immediate child) is a git repo. Drives the composer
+    // env picker's grayed-out state.
+    available(path: string): Promise<boolean>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

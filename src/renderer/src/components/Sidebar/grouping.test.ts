@@ -10,6 +10,9 @@ type Convo = {
   createdAt: number
   pinned: boolean
   archived: boolean
+  runState: string
+  environment: 'local' | 'worktree'
+  worktrees: { branch: string }[]
 }
 
 const c = (
@@ -22,6 +25,9 @@ const c = (
     createdAt?: number
     pinned?: boolean
     archived?: boolean
+    runState?: string
+    environment?: 'local' | 'worktree'
+    worktrees?: { branch: string }[]
   } = {}
 ): Convo => ({
   id,
@@ -31,7 +37,10 @@ const c = (
   updatedAt: extra.updatedAt ?? 0,
   createdAt: extra.createdAt ?? 0,
   pinned: extra.pinned ?? false,
-  archived: extra.archived ?? false
+  archived: extra.archived ?? false,
+  runState: extra.runState ?? 'idle',
+  environment: extra.environment ?? 'local',
+  worktrees: extra.worktrees ?? []
 })
 
 describe('groupConversations (folder = project)', () => {

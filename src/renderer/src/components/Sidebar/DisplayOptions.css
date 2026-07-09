@@ -23,20 +23,9 @@
   padding: 6px 10px;
   font-size: 13px;
 }
-.display-menu .menu-item.disabled {
-  opacity: 0.45;
-  cursor: default;
-}
 .display-menu .check {
   color: var(--accent);
   font-size: 12px;
-}
-.display-menu .badge {
-  font-size: 10px;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0 5px;
 }
 .display-sep {
   height: 1px;

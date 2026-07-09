@@ -12,6 +12,7 @@
 // filesystem backend (risk 5).
 import { randomUUID } from 'crypto'
 import { relative } from 'path'
+import { existsSync } from 'fs'
 import { createDeepAgent } from 'deepagents'
 import { Command } from '@langchain/langgraph'
 import type { AIMessageChunk, BaseMessageChunk, ToolMessageChunk } from '@langchain/core/messages'
@@ -1902,10 +1903,25 @@ function buildAgentAndContext(
   const { provider: providerId, modelId } = parseModelRef(modelRef)
   const meta = getConversationMeta(conversationId)
   const projectPath = meta?.projectPath ?? null
+  // F3: in worktree mode, hand the backend the repoPath→worktreePath redirect
+  // table. resolveWorktreeMappings verifies each worktree still exists on disk;
+  // a resumed conversation whose worktree was deleted must fail loudly, never
+  // silently write to the project tree.
+  const worktreeMappings =
+    meta?.environment === 'worktree' && meta.worktrees.length > 0
+      ? meta.worktrees.map((w) => ({ repoPath: w.repoPath, worktreePath: w.worktreePath }))
+      : []
+  for (const m of worktreeMappings) {
+    if (!existsSync(m.worktreePath)) {
+      throw new Error(
+        `Worktree missing for this conversation: ${m.worktreePath}. It may have been deleted or moved. Discard this conversation's worktrees and start a new one.`
+      )
+    }
+  }
   const model = makeModel(modelRef, { effort: meta?.effort, thinking: meta?.thinking })
   const diffGroupId = randomUUID()
   const backend = projectPath
-    ? new DiffFsBackend(conversationId, projectPath, diffGroupId)
+    ? new DiffFsBackend(conversationId, projectPath, diffGroupId, worktreeMappings)
     : undefined
   // createDeepAgent gets a FACTORY (resolved per builtin-tool invocation, so
   // the Bb3 edit gate sees each call's provider tool-call id) while ctx.backend
@@ -2024,7 +2040,13 @@ function buildAgentAndContext(
     ...(backendFactory
       ? {
           backend: backendFactory,
-          tools: buildTools(projectPath as string, conversationId, sink, diffGroupId)
+          tools: buildTools(
+            projectPath as string,
+            conversationId,
+            sink,
+            diffGroupId,
+            worktreeMappings
+          )
         }
       : {})
   })

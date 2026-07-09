@@ -86,6 +86,14 @@ export const IconMonitor = icon(
     <line x1="8" y1="20" x2="16" y2="20" />
   </>
 )
+export const IconGitBranch = icon(
+  <>
+    <line x1="6" y1="3" x2="6" y2="15" />
+    <circle cx="18" cy="6" r="3" />
+    <circle cx="6" cy="18" r="3" />
+    <path d="M18 9a9 9 0 0 1-9 9" />
+  </>
+)
 export const IconFile = icon(
   <>
     <path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6H8z" />

@@ -22,7 +22,8 @@ import type {
   ProviderId,
   ProviderModels,
   RunState,
-  SettingsInfo
+  SettingsInfo,
+  WorktreeInfo
 } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
 import { resolveProjectDefaults } from '@shared/projectDefaults'
@@ -46,6 +47,15 @@ export interface Convo {
   loaded: boolean
   events: Event[]
   runState: ConvoRunState
+  // F3: execution environment, chosen at creation and locked at first run.
+  // 'local' runs in the project folder; 'worktree' runs in isolated git
+  // worktrees. Mirrors ConversationMeta.environment; defaults to 'local'.
+  environment: 'local' | 'worktree'
+  // F3: the spawned worktrees (one per discovered repo) for this conversation.
+  // Empty in local mode, or when the project had no git repo so worktree mode
+  // fell back to local. Mirrors ConversationMeta.worktrees; drives the
+  // per-conversation Worktree action bar (Merge/Discard).
+  worktrees: WorktreeInfo[]
   startedAt?: number
   // First-user-message snippet from the DB (F1 History browse), so a preview
   // shows even before the conversation's events are loaded this session. null
@@ -141,6 +151,8 @@ function fromMeta(meta: ConversationMeta): Convo {
     loaded: false,
     events: [],
     runState: 'idle',
+    environment: meta.environment,
+    worktrees: meta.worktrees ?? [],
     preview: meta.preview ?? null
   }
 }
@@ -229,6 +241,15 @@ interface AppState {
   // display order. Drives the "N of M" jump navigator; stepFocus walks it. Empty
   // (or length 1) hides the navigator -- a lone hit needs no next/prev.
   focusMatches: string[]
+  // F3: the environment drafted in the Home composer's Local/New-Worktree
+  // picker, applied to the conversation at create (before its first run) and
+  // then locked. Reset to 'local' on goHome.
+  composerEnvironment: 'local' | 'worktree'
+  // F3: an in-progress merge that hit conflicts, driving the Monaco conflict
+  // resolver (Task 12). Set by mergeWorktree when the per-repo merge returns
+  // 'conflict'; the resolver walks `files` one at a time via `index`. null when
+  // no merge is being resolved.
+  conflict: { convId: string; repoPath: string; files: string[]; index: number } | null
 
   init(): void
   refreshProviders(): Promise<void>
@@ -277,12 +298,19 @@ interface AppState {
     sidebarGroupBy?: AppSettings['sidebarGroupBy']
     sidebarSort?: AppSettings['sidebarSort']
     sidebarShowArchived?: AppSettings['sidebarShowArchived']
+    sidebarSubtitle?: AppSettings['sidebarSubtitle']
   }): Promise<void>
   setAppearance(patch: Partial<AppSettings>): Promise<void>
   syncPricing(): Promise<{ syncedCount: number; unmatched: string[]; syncedAt: number }>
   setPermissionMode(mode: PermissionMode): void
   setEffort(effort: EffortLevel): void
   setThinking(thinking: boolean): void
+  setComposerEnvironment(v: 'local' | 'worktree'): void
+  // F3: merge one repo's worktree branch into its base branch. On a clean merge
+  // it toasts; on conflict it opens the resolver by setting `conflict`.
+  mergeWorktree(convId: string, repoPath: string): Promise<void>
+  // F3: tear down all of a conversation's worktrees and reset it to local.
+  discardWorktree(convId: string): Promise<void>
   // F9 (folder = project) settings, keyed by workspace path.
   refreshProjectSettings(): Promise<void>
   updateProject(path: string, patch: ProjectSettings): Promise<void>
@@ -454,6 +482,8 @@ export const useAppStore = create<AppState>((set, get) => {
     draftConvoId: null,
     focusEventId: null,
     focusMatches: [],
+    composerEnvironment: 'local',
+    conflict: null,
 
     init: () => {
       if (initialized) return
@@ -618,7 +648,10 @@ export const useAppStore = create<AppState>((set, get) => {
         // Abandoning Home drops any attachments already picked under the draft
         // id (a minor on-disk orphan, acceptable for v1 -- see D4 design note);
         // the next Home visit mints a fresh draft id on first Media use.
-        draftConvoId: null
+        draftConvoId: null,
+        // F3: a New-Worktree pick belongs to the conversation being left; the
+        // next new conversation starts back at Local unless re-chosen.
+        composerEnvironment: 'local'
       })),
     openHistory: () =>
       set({ view: { kind: 'history' }, auxSelection: null, reviewFocusPath: null }),
@@ -745,6 +778,17 @@ export const useAppStore = create<AppState>((set, get) => {
         await window.bearcode.conversations.setMode(meta.id, permissionMode)
         await window.bearcode.conversations.setEffort(meta.id, effort)
         await window.bearcode.conversations.setThinking(meta.id, thinking)
+        // F3: lock the chosen environment before the first run. Worktree
+        // provisioning happens main-side; a non-git folder degrades to local.
+        const env = get().composerEnvironment
+        if (env === 'worktree') {
+          try {
+            const updated = await window.bearcode.conversations.setEnvironment(meta.id, 'worktree')
+            patchConvo(meta.id, { environment: updated.environment })
+          } catch (e) {
+            get().showToast(e instanceof Error ? e.message : 'Could not create worktree')
+          }
+        }
         await window.bearcode.run.start(
           meta.id,
           text,
@@ -916,6 +960,41 @@ export const useAppStore = create<AppState>((set, get) => {
         void window.bearcode.conversations.setThinking(id, thinking).catch(() => {})
       }
     },
+    // F3: pure draft state for the Home composer's env picker. The environment
+    // is only committed (main-side provisioning) at create in startFromHome /
+    // newConversationInProject, then locked -- so this never touches IPC.
+    setComposerEnvironment: (v) => set({ composerEnvironment: v }),
+
+    // F3: merge a single repo's worktree branch into its base branch. Per-repo
+    // so multi-repo merges are independent. A clean merge toasts; a conflict
+    // opens the Monaco resolver (Task 12) by seeding the `conflict` slice with
+    // the conflicted files to walk.
+    mergeWorktree: async (convId, repoPath) => {
+      try {
+        const res = await window.bearcode.worktree.merge(convId, repoPath)
+        if (res.status === 'conflict') {
+          set({ conflict: { convId, repoPath, files: res.conflictedFiles, index: 0 } })
+        } else {
+          get().showToast('Merged to ' + (repoPath.split('/').pop() || repoPath))
+        }
+      } catch (e) {
+        // git() rejects on any non-zero exit (dirty base repo, a merge already
+        // in progress, lock contention, …). Surface it instead of leaving the
+        // Merge button a silent no-op.
+        get().showToast(e instanceof Error ? e.message : 'Merge failed')
+      }
+    },
+
+    // F3: discard the whole conversation's worktrees (removes each + its branch,
+    // main-side) and reset it to local so the action bar disappears.
+    discardWorktree: async (convId) => {
+      try {
+        await window.bearcode.worktree.discard(convId)
+        patchConvo(convId, { environment: 'local', worktrees: [] })
+      } catch (e) {
+        get().showToast(e instanceof Error ? e.message : 'Could not discard worktree')
+      }
+    },
 
     refreshProjectSettings: async () => {
       const folderSettings = await window.bearcode.projects.list()
@@ -977,6 +1056,18 @@ export const useAppStore = create<AppState>((set, get) => {
       })
       await window.bearcode.conversations.setMode(meta.id, d.permissionMode)
       await window.bearcode.conversations.setEffort(meta.id, d.effort)
+      // F3: honor the composer's env pick on the sidebar "+" path too, locking
+      // it before the first run (worktree provisioning is main-side; a non-git
+      // folder degrades to local). A failure toasts and stays local.
+      let newEnv: 'local' | 'worktree' = 'local'
+      if (get().composerEnvironment === 'worktree') {
+        try {
+          const updated = await window.bearcode.conversations.setEnvironment(meta.id, 'worktree')
+          newEnv = updated.environment
+        } catch (e) {
+          get().showToast(e instanceof Error ? e.message : 'Could not create worktree')
+        }
+      }
       // Only adopt the folder's default model if it is still usable (key
       // configured + present in the effective list). A since-removed key or an
       // F7-disabled model falls back to the current selection, mirroring the
@@ -988,6 +1079,7 @@ export const useAppStore = create<AppState>((set, get) => {
         loaded: true,
         permissionMode: d.permissionMode,
         effort: d.effort,
+        environment: newEnv,
         modelRef
       }
       set((s) => {

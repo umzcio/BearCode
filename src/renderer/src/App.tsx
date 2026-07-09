@@ -7,6 +7,7 @@ import { AuxiliaryPane } from './components/AuxiliaryPane'
 import { ResizeHandle } from './components/ResizeHandle'
 import { SettingsModal } from './components/Settings/SettingsModal'
 import { ProjectSettingsModal } from './components/ProjectSettings/ProjectSettingsModal'
+import { ConflictResolver } from './components/Worktree/ConflictResolver'
 import { Hint } from './components/Hint'
 import { IconPanel } from './components/icons'
 import { useAppStore } from './state/store'
@@ -127,6 +128,7 @@ function App(): React.JSX.Element {
         {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}
         <SettingsModal />
         <ProjectSettingsModal />
+        <ConflictResolver />
       </div>
       {auxSelection ? (
         <ResizeHandle onDrag={(dx) => setAuxPaneWidth(useAppStore.getState().auxPaneWidth - dx)} />

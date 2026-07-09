@@ -7,13 +7,16 @@ import './DisplayOptions.css'
 type GroupBy = AppSettings['sidebarGroupBy']
 type Sort = AppSettings['sidebarSort']
 
-const GROUP_OPTIONS: { id: GroupBy | 'environment' | 'status'; label: string; enabled: boolean }[] =
-  [
-    { id: 'project', label: 'Project', enabled: true },
-    { id: 'environment', label: 'Environment', enabled: false },
-    { id: 'status', label: 'Status', enabled: false },
-    { id: 'none', label: 'None', enabled: true }
-  ]
+const GROUP_OPTIONS: { id: GroupBy; label: string }[] = [
+  { id: 'project', label: 'Project' },
+  { id: 'environment', label: 'Environment' },
+  { id: 'status', label: 'Status' },
+  { id: 'none', label: 'None' }
+]
+const SUBTITLE_OPTIONS: { id: AppSettings['sidebarSubtitle']; label: string }[] = [
+  { id: 'none', label: 'No Subtitle' },
+  { id: 'worktree', label: 'Worktree' }
+]
 const SORT_OPTIONS: { id: Sort; label: string }[] = [
   { id: 'updated', label: 'Last Updated' },
   { id: 'alpha', label: 'Alphabetical (A–Z)' },
@@ -27,6 +30,7 @@ export function DisplayOptions(): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null)
   const groupBy: GroupBy = settings?.sidebarGroupBy ?? 'project'
   const sort: Sort = settings?.sidebarSort ?? 'updated'
+  const subtitle: AppSettings['sidebarSubtitle'] = settings?.sidebarSubtitle ?? 'none'
 
   useEffect(() => {
     if (!open) return undefined
@@ -55,21 +59,11 @@ export function DisplayOptions(): React.JSX.Element {
           {GROUP_OPTIONS.map((o) => (
             <div
               key={o.id}
-              className={
-                'menu-item' +
-                (o.enabled ? '' : ' disabled') +
-                (o.enabled && o.id === groupBy ? ' selected' : '')
-              }
-              onClick={() => {
-                if (o.enabled) void setSidebarView({ sidebarGroupBy: o.id as GroupBy })
-              }}
+              className={'menu-item' + (o.id === groupBy ? ' selected' : '')}
+              onClick={() => void setSidebarView({ sidebarGroupBy: o.id })}
             >
               <span>{o.label}</span>
-              {!o.enabled ? (
-                <span className="badge">coming soon</span>
-              ) : o.id === groupBy ? (
-                <span className="check">✓</span>
-              ) : null}
+              {o.id === groupBy ? <span className="check">✓</span> : null}
             </div>
           ))}
           <div className="display-sep" />
@@ -86,14 +80,16 @@ export function DisplayOptions(): React.JSX.Element {
           ))}
           <div className="display-sep" />
           <div className="menu-group-label">Subtitles</div>
-          <div className="menu-item selected">
-            <span>No Subtitle</span>
-            <span className="check">✓</span>
-          </div>
-          <div className="menu-item disabled">
-            <span>Worktree</span>
-            <span className="badge">coming soon</span>
-          </div>
+          {SUBTITLE_OPTIONS.map((o) => (
+            <div
+              key={o.id}
+              className={'menu-item' + (o.id === subtitle ? ' selected' : '')}
+              onClick={() => void setSidebarView({ sidebarSubtitle: o.id })}
+            >
+              <span>{o.label}</span>
+              {o.id === subtitle ? <span className="check">✓</span> : null}
+            </div>
+          ))}
           <div className="display-sep" />
           <div className="menu-group-label">Filter</div>
           <div

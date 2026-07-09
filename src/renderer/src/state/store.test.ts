@@ -118,7 +118,9 @@ const convoMeta: ConversationMeta = {
   thinking: true,
   projectId: null,
   pinned: false,
-  archived: false
+  archived: false,
+  environment: 'local',
+  worktrees: []
 }
 
 const convo = (over: Partial<Convo> = {}): Convo => ({
@@ -133,11 +135,13 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   loaded: true,
   events: [],
   runState: 'idle',
+  environment: 'local',
   effort: 'adaptive',
   thinking: true,
   projectId: null,
   pinned: false,
   archived: false,
+  worktrees: [],
   ...over
 })
 

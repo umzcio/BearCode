@@ -19,7 +19,8 @@ import type {
   HistoryHit,
   Project,
   ProjectSettings,
-  FolderProject
+  FolderProject,
+  WorktreeInfo
 } from '../../shared/types'
 import { isEffortLevel } from '../../shared/effort'
 import { isSelectableDefaultMode } from '../../shared/permissionMode'
@@ -168,6 +169,19 @@ function getDb(): Database.Database {
   } catch {
     // column already exists
   }
+  // F3: execution environment ('local' | 'worktree') + spawned worktrees (JSON
+  // WorktreeInfo[]). Same idempotent-guarded ALTER idiom. NULL environment reads
+  // as 'local'; NULL/malformed worktrees reads as [].
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN environment TEXT`)
+  } catch {
+    // column already exists
+  }
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN worktrees TEXT`)
+  } catch {
+    // column already exists
+  }
   // F9: per-project settings columns (NULL = inherit global). Same
   // idempotent-guarded ALTER idiom; old DBs upgrade in place.
   for (const col of [
@@ -309,6 +323,8 @@ interface ConversationRow {
   project_id: string | null
   pinned: number | null
   archived: number | null
+  environment: string | null
+  worktrees: string | null
 }
 
 // A malformed active_rules value (hand-edited DB, partial write) must never
@@ -317,6 +333,17 @@ function parseActiveRules(raw: string | null): string[] {
   try {
     const parsed = JSON.parse(raw ?? '[]') as unknown
     return Array.isArray(parsed) ? parsed.filter((n): n is string => typeof n === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+// A malformed worktrees value must never break conversation reads: parse
+// failures resolve to [].
+function parseWorktrees(raw: string | null): WorktreeInfo[] {
+  try {
+    const parsed = JSON.parse(raw ?? '[]') as unknown
+    return Array.isArray(parsed) ? (parsed as WorktreeInfo[]) : []
   } catch {
     return []
   }
@@ -341,6 +368,8 @@ function toMeta(
     projectId: row.project_id ?? null,
     pinned: row.pinned === 1,
     archived: row.archived === 1,
+    environment: row.environment === 'worktree' ? 'worktree' : 'local',
+    worktrees: parseWorktrees(row.worktrees),
     preview: preview ?? null
   }
 }
@@ -360,7 +389,9 @@ export function createConversation(projectPath: string | null, id?: string): Con
     thinking: null,
     project_id: null,
     pinned: null,
-    archived: null
+    archived: null,
+    environment: null,
+    worktrees: null
   }
   getDb()
     .prepare(
@@ -574,6 +605,20 @@ export function setPermissionMode(conversationId: string, mode: PermissionMode):
   getDb()
     .prepare(`UPDATE conversations SET permission_mode = ?, updated_at = ? WHERE id = ?`)
     .run(mode, Date.now(), conversationId)
+}
+
+// F3: persist the conversation's execution environment + spawned worktrees.
+// Called once when worktree provisioning completes (or immediately for Local
+// mode); env is locked after creation, so this is not exposed as a general
+// "switch environment" toggle.
+export function setEnvironment(
+  id: string,
+  environment: 'local' | 'worktree',
+  worktrees: WorktreeInfo[]
+): void {
+  getDb()
+    .prepare(`UPDATE conversations SET environment = ?, worktrees = ?, updated_at = ? WHERE id = ?`)
+    .run(environment, JSON.stringify(worktrees), Date.now(), id)
 }
 
 export function setEffort(conversationId: string, effort: EffortLevel): void {

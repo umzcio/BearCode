@@ -27,15 +27,29 @@ describe('DisplayOptions', () => {
     fireEvent.click(screen.getByText('Alphabetical (A–Z)'))
     expect(settingsSet).toHaveBeenCalledWith({ sidebarSort: 'alpha' })
   })
-  it('greyed options do not persist', () => {
+  it('Environment + Status group-by are enabled (no "coming soon") and persist', () => {
     render(<DisplayOptions />)
     fireEvent.click(screen.getByTitle('Display options'))
+    expect(screen.queryByText('coming soon')).toBeNull()
     fireEvent.click(screen.getByText('Environment'))
-    expect(settingsSet).not.toHaveBeenCalled()
+    expect(settingsSet).toHaveBeenCalledWith({ sidebarGroupBy: 'environment' })
+    settingsSet.mockClear()
+    fireEvent.click(screen.getByText('Status'))
+    expect(settingsSet).toHaveBeenCalledWith({ sidebarGroupBy: 'status' })
+  })
+  it('Worktree subtitle option toggles sidebarSubtitle', () => {
+    render(<DisplayOptions />)
+    fireEvent.click(screen.getByTitle('Display options'))
+    fireEvent.click(screen.getByText('Worktree'))
+    expect(settingsSet).toHaveBeenCalledWith({ sidebarSubtitle: 'worktree' })
   })
   it('shows a Show archived item and persists via settings.set when clicked', () => {
     useAppStore.setState({
-      settings: { sidebarGroupBy: 'project', sidebarSort: 'updated', sidebarShowArchived: false } as never
+      settings: {
+        sidebarGroupBy: 'project',
+        sidebarSort: 'updated',
+        sidebarShowArchived: false
+      } as never
     })
     render(<DisplayOptions />)
     fireEvent.click(screen.getByTitle('Display options'))

@@ -15,7 +15,8 @@ import type {
   ProjectSettings,
   ProviderId,
   RunState,
-  TranscribeMeta
+  TranscribeMeta,
+  WorktreeInfo
 } from '../shared/types'
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
@@ -32,6 +33,15 @@ import { runOfficeHtml, runOfficeRows } from './attachments/office'
 import { parseCsv } from './preview/csv'
 import { extractTextLane } from './attachments/extract'
 import * as db from './db'
+import { createWorktrees, removeWorktrees, gitAvailable, discoverRepos } from './worktree/manager'
+import {
+  commitWorktree,
+  mergeToBase,
+  readConflict,
+  writeResolved,
+  completeMerge,
+  abortMerge
+} from './worktree/merge'
 import { jailPath } from './orchestrator/fsBackend'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
@@ -414,8 +424,17 @@ export function registerIpc(): void {
     if (id !== undefined) assertValidConversationId(id)
     return db.createConversation(projectPath, id)
   })
-  ipcMain.handle('bearcode:conversations:delete', (_e, id: string) => {
+  ipcMain.handle('bearcode:conversations:delete', async (_e, id: string) => {
     forgetRunOrchestrator(id)
+    // F3: a worktree conversation owns a worktree dir under userData PLUS a
+    // bearcode/* branch + worktree registration in the user's repo. Deleting it
+    // must reclaim them (design: delete → removeWorktrees), or the orphaned
+    // branch bricks future worktree creation for that project. Read meta BEFORE
+    // deleteConversation drops the row.
+    const meta = db.getConversationMeta(id)
+    if (meta && meta.worktrees.length > 0) {
+      await removeWorktrees(meta.worktrees)
+    }
     void pruneCheckpoints(id)
     db.deleteConversation(id)
   })
@@ -436,6 +455,90 @@ export function registerIpc(): void {
       throw new Error(`Invalid thinking: ${String(thinking)}`)
     }
     db.setThinking(id, thinking)
+  })
+  // F3: env is chosen at create and locked at first run. The renderer calls
+  // set-environment on the just-created conversation BEFORE the first run.
+  // Worktree provisioning (the `git worktree add`) happens here, main-side, so
+  // the renderer never shells out. A non-git project yields no worktrees and is
+  // recorded honestly as local.
+  ipcMain.handle(
+    'bearcode:conversations:set-environment',
+    async (_e, id: string, environment: unknown) => {
+      if (environment !== 'local' && environment !== 'worktree') {
+        throw new Error(`Invalid environment: ${String(environment)}`)
+      }
+      const meta = db.getConversationMeta(id)
+      if (!meta) throw new Error(`Unknown conversation: ${id}`)
+      if (environment === 'local' || !meta.projectPath) {
+        db.setEnvironment(id, 'local', [])
+        return db.getConversationMeta(id)
+      }
+      if (!(await gitAvailable())) {
+        throw new Error(
+          'Git is not available on this system, so Worktree mode is unavailable. Install git or use Local.'
+        )
+      }
+      const app = (await import('electron')).app
+      // The branch is bearcode/<slug>; the title is null at create (both create
+      // paths make untitled conversations), so a title-only slug would be
+      // 'work' for EVERY worktree conversation in a project and the second
+      // `git worktree add -b bearcode/work` would fail. Fold a convId fragment
+      // into the slug so each conversation gets a unique branch.
+      const slug = `${meta.title ?? 'work'} ${id.slice(0, 8)}`
+      const worktrees = await createWorktrees(app.getPath('userData'), id, meta.projectPath, slug)
+      // A non-git project yields no worktrees: record honestly as local.
+      db.setEnvironment(id, worktrees.length > 0 ? 'worktree' : 'local', worktrees)
+      return db.getConversationMeta(id)
+    }
+  )
+  ipcMain.handle('bearcode:worktree:discard', async (_e, convId: string) => {
+    const meta = db.getConversationMeta(convId)
+    if (!meta) return
+    await removeWorktrees(meta.worktrees)
+    db.setEnvironment(convId, 'local', [])
+  })
+  // F3: per-repo merge flow. Each handler resolves the conversation meta, finds
+  // the WorktreeInfo for the given repoPath (throwing a clear error if missing),
+  // then drives the merge engine — merges run in the base repo, per-repo so
+  // multi-repo merges stay independent.
+  const findWorktree = (convId: string, repoPath: string): WorktreeInfo => {
+    const meta = db.getConversationMeta(convId)
+    const w = meta?.worktrees.find((x) => x.repoPath === repoPath)
+    if (!w) throw new Error(`No worktree for repo ${repoPath} in conversation ${convId}`)
+    return w
+  }
+  ipcMain.handle('bearcode:worktree:merge', async (_e, convId: string, repoPath: string) => {
+    const w = findWorktree(convId, repoPath)
+    await commitWorktree(w, `BearCode: merge conversation ${convId}`)
+    return mergeToBase(w)
+  })
+  ipcMain.handle(
+    'bearcode:worktree:read-conflict',
+    (_e, convId: string, repoPath: string, file: string) =>
+      readConflict(findWorktree(convId, repoPath), file)
+  )
+  ipcMain.handle(
+    'bearcode:worktree:resolve-file',
+    (_e, convId: string, repoPath: string, file: string, content: unknown) => {
+      if (typeof content !== 'string') throw new Error('Invalid resolved content')
+      return writeResolved(findWorktree(convId, repoPath), file, content)
+    }
+  )
+  ipcMain.handle('bearcode:worktree:complete-merge', (_e, convId: string, repoPath: string) =>
+    completeMerge(findWorktree(convId, repoPath))
+  )
+  ipcMain.handle('bearcode:worktree:abort', (_e, convId: string, repoPath: string) =>
+    abortMerge(findWorktree(convId, repoPath))
+  )
+  // F3: New-Worktree mode is offerable only when git is present AND the folder
+  // (or an immediate child) is a git repo — mirrors createWorktrees' discovery.
+  ipcMain.handle('bearcode:worktree:available', async (_e, path: unknown) => {
+    if (typeof path !== 'string' || path.length === 0) return false
+    try {
+      return (await gitAvailable()) && discoverRepos(path).length > 0
+    } catch {
+      return false
+    }
   })
   // F9 (folder = project): per-folder settings keyed by workspace path. `list`
   // returns only folders that carry a stored settings row. `update` upserts the

@@ -22,6 +22,7 @@ import {
   IconImage,
   IconMic,
   IconMonitor,
+  IconGitBranch,
   IconPlus,
   IconSlash,
   IconStop
@@ -59,7 +60,8 @@ export function Composer({
   running = false,
   onStop,
   showEnvRow = false,
-  autoFocus = false
+  autoFocus = false,
+  conversationId
 }: ComposerProps): React.JSX.Element {
   const providers = useAppStore((s) => s.providers)
   const modelRef = useAppStore((s) => s.modelRef)
@@ -76,6 +78,8 @@ export function Composer({
   const convoOrder = useAppStore((s) => s.convoOrder)
   const pickAttachments = useAppStore((s) => s.pickAttachments)
   const showToast = useAppStore((s) => s.showToast)
+  const composerEnvironment = useAppStore((s) => s.composerEnvironment)
+  const setComposerEnvironment = useAppStore((s) => s.setComposerEnvironment)
   const [value, setValue] = useState('')
   const [command, setCommand] = useState<CommandRef | null>(null)
   const [mentions, setMentions] = useState<MentionRef[]>([])
@@ -104,6 +108,16 @@ export function Composer({
   // send is valid, only an empty composer with no pill is not.
   const hasContent =
     value.trim() !== '' || command !== null || mentions.length > 0 || attachments.length > 0
+
+  // F3: the env picker is interactive only for a not-yet-started conversation
+  // (Home / a fresh convo with no events). Once a conversation has run, its
+  // environment is locked; the pill then reads from the convo's own
+  // environment rather than the shared draft field.
+  const activeConvo = conversationId ? conversations[conversationId] : undefined
+  const envLocked = activeConvo ? activeConvo.events.length > 0 : false
+  const displayEnv = envLocked && activeConvo ? activeConvo.environment : composerEnvironment
+  const workspacePath = useAppStore((s) => s.workspacePath)
+  const [worktreeAvailable, setWorktreeAvailable] = useState(false)
 
   // The menu opens only when the composer is otherwise empty and the very
   // first character typed is '/', and stays open while the text still starts
@@ -161,6 +175,25 @@ export function Composer({
     document.addEventListener('click', close)
     return () => document.removeEventListener('click', close)
   }, [envOpen])
+
+  // F3: New Worktree is offerable only for a git-repo folder (git present +
+  // repo discovered). When the current workspace can't host a worktree, gray the
+  // option out and never leave a stale 'worktree' selection standing.
+  useEffect(() => {
+    if (!showEnvRow) return undefined
+    let live = true
+    const probe = workspacePath
+      ? window.bearcode.worktree.available(workspacePath)
+      : Promise.resolve(false)
+    void probe.then((ok) => {
+      if (!live) return
+      setWorktreeAvailable(ok)
+      if (!ok) setComposerEnvironment('local')
+    })
+    return () => {
+      live = false
+    }
+  }, [showEnvRow, workspacePath, setComposerEnvironment])
 
   useEffect(() => {
     if (!addMenuOpen) return undefined
@@ -389,23 +422,45 @@ export function Composer({
       {showEnvRow ? (
         <div className="env-row">
           <div className="env-picker" ref={envRef}>
-            <button className="pill-btn" onClick={() => setEnvOpen((o) => !o)}>
-              <IconMonitor />
-              <span>Local</span>
-              <span className="chev">
-                <IconChevronDown />
-              </span>
+            <button className="pill-btn" onClick={() => setEnvOpen((o) => !o)} disabled={envLocked}>
+              {displayEnv === 'worktree' ? <IconGitBranch /> : <IconMonitor />}
+              <span>{displayEnv === 'worktree' ? 'New Worktree' : 'Local'}</span>
+              {!envLocked ? (
+                <span className="chev">
+                  <IconChevronDown />
+                </span>
+              ) : null}
             </button>
-            {envOpen ? (
+            {envOpen && !envLocked ? (
               <div className="menu env-menu">
-                <div className="menu-item selected">
+                <div
+                  className={'menu-item' + (composerEnvironment === 'local' ? ' selected' : '')}
+                  onClick={() => {
+                    setComposerEnvironment('local')
+                    setEnvOpen(false)
+                  }}
+                >
+                  <IconMonitor size={16} />
                   <span>Local</span>
-                  <span className="check">✓</span>
+                  {composerEnvironment === 'local' ? <span className="check">✓</span> : null}
                 </div>
-                <div className="menu-item disabled" title="Coming soon">
-                  <span>Remote sandbox</span>
-                  <span className="badge">coming soon</span>
+                <div
+                  className={
+                    'menu-item' +
+                    (composerEnvironment === 'worktree' ? ' selected' : '') +
+                    (worktreeAvailable ? '' : ' disabled')
+                  }
+                  onClick={() => {
+                    if (!worktreeAvailable) return
+                    setComposerEnvironment('worktree')
+                    setEnvOpen(false)
+                  }}
+                >
+                  <IconGitBranch size={16} />
+                  <span>New Worktree</span>
+                  {composerEnvironment === 'worktree' ? <span className="check">✓</span> : null}
                 </div>
+                <div className="env-hint">Worktrees are available for Git repositories</div>
               </div>
             ) : null}
           </div>

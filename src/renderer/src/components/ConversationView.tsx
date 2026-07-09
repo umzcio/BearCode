@@ -3,6 +3,7 @@ import type { AttachmentRef, Event } from '@shared/types'
 import { useAppStore, workedSecondsByTurn } from '../state/store'
 import { Composer } from './Composer/Composer'
 import { RunStatusBar } from './RunStatusBar/RunStatusBar'
+import { WorktreeBar } from './Worktree/WorktreeBar'
 import { WorkedGroup } from './events/WorkedGroup'
 import { AssistantText } from './events/AssistantText'
 import { ArtifactCard } from './events/ArtifactCard'
@@ -367,6 +368,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
           <RunStatusBar convoId={convoId} onJumpToApproval={jumpToApproval} />
         </div>
       </div>
+      <WorktreeBar convoId={convoId} />
       <div className="convo-composer">
         <div className="composer-wrap">
           <Composer

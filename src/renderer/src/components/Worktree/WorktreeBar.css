@@ -1,0 +1,63 @@
+/* F3: per-conversation worktree action bar, mounted just above the composer.
+   Matches the composer's env-row treatment (wash background, soft top border)
+   so it reads as part of the conversation chrome, not the transcript. */
+.worktree-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 14px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--wash);
+  font-size: 13px;
+}
+.worktree-repos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  flex: 1;
+  min-width: 0;
+}
+.worktree-repo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.worktree-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-mid);
+  min-width: 0;
+}
+.worktree-branch svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.worktree-repo-name {
+  color: var(--text);
+  font-weight: 500;
+}
+.worktree-branch-name {
+  font-family: var(--mono, ui-monospace, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.worktree-merge {
+  font-size: 12.5px;
+  color: var(--accent);
+}
+.worktree-merge:hover {
+  background: var(--accent-wash, var(--bg-hover));
+  color: var(--accent-strong, var(--accent));
+}
+.worktree-discard {
+  font-size: 12.5px;
+  color: var(--text-mid);
+}
+.worktree-discard:hover {
+  color: var(--danger, var(--text));
+}

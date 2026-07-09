@@ -152,8 +152,21 @@
   flex-shrink: 0;
   box-shadow: 0 0 6px var(--accent);
 }
-.convo .name {
+.convo .name-wrap {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.convo .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.convo .convo-sub {
+  color: var(--text-dim);
+  font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

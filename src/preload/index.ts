@@ -109,6 +109,10 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:conversations:set-effort', id, effort),
     setThinking: (id: string, thinking: boolean): Promise<void> =>
       ipcRenderer.invoke('bearcode:conversations:set-thinking', id, thinking),
+    // F3: worktree provisioning happens main-side, so this passes only the
+    // chosen environment and returns the updated meta.
+    setEnvironment: (id: string, environment: 'local' | 'worktree'): Promise<ConversationMeta> =>
+      ipcRenderer.invoke('bearcode:conversations:set-environment', id, environment),
     setPinned: (id: string, pinned: boolean): Promise<void> =>
       ipcRenderer.invoke('bearcode:conversations:set-pinned', id, pinned),
     setArchived: (id: string, archived: boolean): Promise<void> =>
@@ -152,6 +156,25 @@ const bearcode: BearcodeApi = {
   },
   workspace: {
     pick: () => ipcRenderer.invoke('bearcode:workspace:pick')
+  },
+  worktree: {
+    merge: (
+      convId: string,
+      repoPath: string
+    ): Promise<{ status: 'clean' | 'conflict'; conflictedFiles: string[] }> =>
+      ipcRenderer.invoke('bearcode:worktree:merge', convId, repoPath),
+    readConflict: (convId: string, repoPath: string, file: string): Promise<{ merged: string }> =>
+      ipcRenderer.invoke('bearcode:worktree:read-conflict', convId, repoPath, file),
+    resolveFile: (convId: string, repoPath: string, file: string, content: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:worktree:resolve-file', convId, repoPath, file, content),
+    completeMerge: (convId: string, repoPath: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:worktree:complete-merge', convId, repoPath),
+    abort: (convId: string, repoPath: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:worktree:abort', convId, repoPath),
+    discard: (convId: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:worktree:discard', convId),
+    available: (path: string): Promise<boolean> =>
+      ipcRenderer.invoke('bearcode:worktree:available', path)
   },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>
