@@ -13,7 +13,11 @@ class BrowserManager {
   private page: Page | null = null
   private convId: string | null = null
   private tearingDown = false
-  private bounds: Bounds = { x: 0, y: 0, width: 0, height: 0 }
+  // Default OFF-SCREEN but non-zero-sized: an attached view must have a real
+  // width/height or Playwright screenshots fail ("0 width"), yet it must not
+  // paint over the app UI before the renderer pane reports its on-screen bounds.
+  // The BrowserPane's ResizeObserver overrides this with real bounds on mount.
+  private bounds: Bounds = { x: -10000, y: 0, width: 1280, height: 800 }
 
   status(): { installed: boolean; connected: boolean; conversationId: string | null } {
     return { installed: chromiumInstalled(), connected: !!this.page, conversationId: this.convId }
