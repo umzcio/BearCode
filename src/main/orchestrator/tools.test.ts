@@ -247,22 +247,17 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
     }
   }
 
-  it('registers both tools alongside run_command (F4 appends the browser_* tools)', () => {
+  it('registers both tools alongside run_command (browser_* tools moved to buildBrowserTools)', () => {
+    // F4 decoupling: the browser_* tools no longer live in buildTools -- they
+    // moved to buildBrowserTools (its own suite: tools.browser.test.ts) so
+    // browsing works whether or not a project folder is open.
     const names = allTools(makeSink()).map((t) => t.name)
     expect(names).toEqual([
       'run_command',
       'submit_plan',
       'submit_walkthrough',
       'activate_rule',
-      'generate_document',
-      'browser_navigate',
-      'browser_read',
-      'browser_screenshot',
-      'browser_scroll',
-      'browser_wait',
-      'browser_click',
-      'browser_type',
-      'browser_evaluate'
+      'generate_document'
     ])
   })
 

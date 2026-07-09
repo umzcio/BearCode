@@ -288,8 +288,10 @@ function runCommand(
   })
 }
 
-// buildTools(projectPath, conversationId, sink, diffGroupId) returns the LangChain tool array
-// passed to createDeepAgent's `tools` option (in addition to its always-on built-ins).
+// buildTools(projectPath, conversationId, sink, diffGroupId) returns the project-scoped
+// LangChain tool array passed to createDeepAgent's `tools` option (in addition to its
+// always-on built-ins). Only wired when a project folder is open. See buildBrowserTools
+// below for the folder-independent F4 browser_* tools.
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- Zod-inferred `tool()` return type is not writable by hand without narrowing away the actual generic
 export function buildTools(
   projectPath: string,
@@ -660,20 +662,37 @@ export function buildTools(
     }
   )
 
-  // ── F4 browser_* tools ────────────────────────────────────────────────────
-  // A live embedded browser (WebContentsView driven by Playwright over CDP,
-  // Task 4's browserManager) surfaced as flat tools on the main agent. The
-  // 4-layer guard chain (design §L0–L3) runs entirely here:
-  //   L0 enable   — every tool refuses unless Settings.browserEnabled === true.
-  //   L1 consent  — the first navigate/mutation prompts once per conversation.
-  //   L2 domain   — navigate consults the allow/blocklist (originDecision).
-  //   L3 mode     — mutations (click/type/evaluate) respect the permission mode
-  //                 exactly like run_command: plan blocks, ask prompts,
-  //                 accept-edits/auto/bypass allow. Reads run completely free.
-  // browserEnabled/browserAllowlist/browserBlocklist are real AppSettings
-  // fields (F4 Task 11), migrated/validated in settings.ts. See the manager for
-  // the a11y-ref contract: browser_read('a11y') returns an ariaSnapshot with
-  // `[ref=e<N>]` handles that click/type address.
+  return [
+    runCommandTool,
+    submitPlanTool,
+    submitWalkthroughTool,
+    activateRuleTool,
+    generateDocumentTool
+  ]
+}
+
+// buildBrowserTools(conversationId) returns the F4 browser_* tool array. Unlike
+// buildTools, this has NO project-folder dependency (no projectPath, sink,
+// diffGroupId, or worktreeMappings) — the browser works whether or not a
+// project folder is open, so graph.ts wires this in unconditionally while
+// buildTools stays folder-gated.
+//
+// ── F4 browser_* tools ────────────────────────────────────────────────────
+// A live embedded browser (WebContentsView driven by Playwright over CDP,
+// Task 4's browserManager) surfaced as flat tools on the main agent. The
+// 4-layer guard chain (design §L0–L3) runs entirely here:
+//   L0 enable   — every tool refuses unless Settings.browserEnabled === true.
+//   L1 consent  — the first navigate/mutation prompts once per conversation.
+//   L2 domain   — navigate consults the allow/blocklist (originDecision).
+//   L3 mode     — mutations (click/type/evaluate) respect the permission mode
+//                 exactly like run_command: plan blocks, ask prompts,
+//                 accept-edits/auto/bypass allow. Reads run completely free.
+// browserEnabled/browserAllowlist/browserBlocklist are real AppSettings
+// fields (F4 Task 11), migrated/validated in settings.ts. See the manager for
+// the a11y-ref contract: browser_read('a11y') returns an ariaSnapshot with
+// `[ref=e<N>]` handles that click/type address.
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- Zod-inferred tool() return type
+export function buildBrowserTools(conversationId: string) {
   const browserEnabled = (): boolean => getSettings().browserEnabled === true
   const browserPolicy = (): DomainPolicy => {
     const s = getSettings()
@@ -947,11 +966,6 @@ export function buildTools(
   )
 
   return [
-    runCommandTool,
-    submitPlanTool,
-    submitWalkthroughTool,
-    activateRuleTool,
-    generateDocumentTool,
     browserNavigateTool,
     browserReadTool,
     browserScreenshotTool,

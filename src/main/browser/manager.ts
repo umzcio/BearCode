@@ -6,6 +6,23 @@ import { ensureChromium, chromiumInstalled } from './install'
 import { indexOfPageWithToken, type DomainPolicy } from './policy'
 import { navigationBlockedByPolicy } from './guard'
 
+// Playwright locator errors embed ANSI color codes and a long "Call log:" retry
+// dump that render as unreadable noise ("[2m … [22m") in the tool error card.
+// Strip the ANSI and keep only the first line (the actual failure) so the agent
+// + the card get a clean message.
+async function cleanPlaywrightError<T>(op: () => Promise<T>): Promise<T> {
+  try {
+    return await op()
+  } catch (e) {
+    const raw = e instanceof Error ? e.message : String(e)
+    const firstLine = raw
+      .split('\n')[0]
+      .replace(/\[[0-9;]*m/g, '')
+      .trim()
+    throw new Error(firstLine || raw)
+  }
+}
+
 type Bounds = { x: number; y: number; width: number; height: number }
 
 class BrowserManager {
@@ -20,12 +37,13 @@ class BrowserManager {
   // The BrowserPane's ResizeObserver overrides this with real bounds on mount.
   private bounds: Bounds = { x: -10000, y: 0, width: 1280, height: 800 }
   // L2 domain policy provider (F4 finding 2). The tool layer wires this to the
-  // live Settings-derived policy (tools.ts buildTools) so the navigation
-  // interceptor below always consults the current allow/blocklist. Defaults to
-  // an EMPTY policy that blocks nothing — but the interceptor is a hard gate
-  // only for what the policy names, and buildTools sets the real provider
-  // before any browser tool can call start(), so this default never governs a
-  // live session.
+  // live Settings-derived policy in tools.ts `buildBrowserTools` (which graph.ts
+  // wires UNCONDITIONALLY — folder or not — so the provider is always installed),
+  // so the navigation interceptor below always consults the current
+  // allow/blocklist. Defaults to an EMPTY policy that blocks nothing — but the
+  // interceptor is a hard gate only for what the policy names, and
+  // buildBrowserTools sets the real provider before any browser tool can call
+  // start(), so this default never governs a live session.
   private policyProvider: () => DomainPolicy = () => ({ allowlist: [], blocklist: [] })
   setPolicyProvider(provider: () => DomainPolicy): void {
     this.policyProvider = provider
@@ -115,10 +133,29 @@ class BrowserManager {
     }
     // finding 4: if Playwright disconnects mid-session, tear the session DOWN
     // (detach + destroy the view) rather than only nulling the page — otherwise
-    // status() reports a stranded view against a dead connection.
+    // status() reports a stranded view against a dead connection. Registered
+    // BEFORE the awaited emulateMedia loop below (polish review): if the
+    // connection drops mid-loop, 'disconnected' must still reach a live handler.
     this.browser?.on('disconnected', () => {
       void this.teardown()
     })
+    // THEME FIX (confirmed via probe): connectOverCDP applies Playwright's
+    // default colorScheme:'light' emulation to EVERY attached page — including
+    // BearCode's own renderer — which flips the app UI to light in System theme
+    // (before=dark → afterStart=light → restored only on teardown). Clear the
+    // media override on every attached page that is NOT our browser view so the
+    // app's own theme is never touched. Best-effort: a theme cosmetic must never
+    // break the session. The view page keeps Playwright's default (fine for the
+    // browsed content).
+    try {
+      for (const ctx of this.browser?.contexts() ?? []) {
+        for (const p of ctx.pages()) {
+          if (p !== this.page) await p.emulateMedia({ colorScheme: null })
+        }
+      }
+    } catch {
+      /* leave app theme as-is if the reset fails */
+    }
   }
 
   // Connect to the CDP endpoint and resolve our view's page, retrying ONCE
@@ -197,12 +234,14 @@ class BrowserManager {
     return `data:image/png;base64,${buf.toString('base64')}`
   }
   async click(ref: string): Promise<void> {
-    await refLocator(this.requirePage(), ref).click({ timeout: 10000 })
+    await cleanPlaywrightError(() => refLocator(this.requirePage(), ref).click({ timeout: 10000 }))
   }
   async type(ref: string, text: string, submit = false): Promise<void> {
-    const loc = refLocator(this.requirePage(), ref)
-    await loc.fill(text, { timeout: 10000 })
-    if (submit) await loc.press('Enter')
+    await cleanPlaywrightError(async () => {
+      const loc = refLocator(this.requirePage(), ref)
+      await loc.fill(text, { timeout: 10000 })
+      if (submit) await loc.press('Enter')
+    })
   }
   async scroll(dir: 'up' | 'down'): Promise<void> {
     await this.requirePage().mouse.wheel(0, dir === 'down' ? 600 : -600)
