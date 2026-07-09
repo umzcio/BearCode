@@ -24,7 +24,7 @@ export { REMOTE_DEBUG_PORT, getMainWindow } from './mainWindow'
 // enabling the feature requires an app relaunch (documented in Browser settings).
 function browserEnabledAtBoot(): boolean {
   try {
-    return (getSettings() as { browserEnabled?: boolean }).browserEnabled === true
+    return getSettings().browserEnabled === true
   } catch {
     return false
   }

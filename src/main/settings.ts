@@ -60,7 +60,10 @@ const DEFAULTS: AppSettings = {
   customModels: [],
   securityPreset: 'custom',
   fileAccessPolicy: 'deny',
-  terminalAutoExec: 'auto'
+  terminalAutoExec: 'auto',
+  browserEnabled: false,
+  browserAllowlist: [],
+  browserBlocklist: []
 }
 
 // Custom models may only target the four first-party curated providers. Ollama
@@ -233,6 +236,12 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   if (!isTerminalAutoExec(merged.terminalAutoExec)) merged.terminalAutoExec = 'auto'
   // F9 new-project template: coerce to a clean ProjectSettings or drop entirely.
   merged.newProjectDefaults = coerceProjectSettings(s['newProjectDefaults'])
+  // F4 browser tool: the L0 enable gate is a strict boolean (off by default, so
+  // a malformed/garbage persisted value can never accidentally enable the live
+  // browser). The domain lists collapse to [] on anything but a string array.
+  merged.browserEnabled = s['browserEnabled'] === true
+  merged.browserAllowlist = coerceStringArray(s['browserAllowlist'])
+  merged.browserBlocklist = coerceStringArray(s['browserBlocklist'])
   return merged
 }
 
@@ -314,6 +323,17 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   // persist (drops unknown/invalid keys rather than throwing at the boundary).
   if (patch.newProjectDefaults !== undefined) {
     patch = { ...patch, newProjectDefaults: coerceProjectSettings(patch.newProjectDefaults) }
+  }
+  // F4 browser tool: never persist a non-boolean enable flag or a malformed
+  // domain list -- coerce the patch before write, same pattern as disabledModels.
+  if (patch.browserEnabled !== undefined) {
+    patch = { ...patch, browserEnabled: patch.browserEnabled === true }
+  }
+  if (patch.browserAllowlist !== undefined) {
+    patch = { ...patch, browserAllowlist: coerceStringArray(patch.browserAllowlist) }
+  }
+  if (patch.browserBlocklist !== undefined) {
+    patch = { ...patch, browserBlocklist: coerceStringArray(patch.browserBlocklist) }
   }
   const next = { ...getSettings(), ...patch }
   cache = next

@@ -671,6 +671,15 @@ export interface AppSettings {
   // F9 template applied to every newly created project ("set as default for new
   // projects"). Optional & additive.
   newProjectDefaults?: ProjectSettings
+  // F4 browser tool: the L0 enable gate (design §L0). Off by default — the
+  // embedded browser never launches, and every browser_* tool refuses, until
+  // the user explicitly opts in. Optional & additive.
+  browserEnabled?: boolean
+  // F4 browser tool: the L2 domain policy (design §L2). An empty allowlist
+  // means "allow all but blocklist"; a non-empty allowlist restricts navigate
+  // to those origins. Optional & additive: absent -> [] (allow-all-but-block).
+  browserAllowlist?: string[]
+  browserBlocklist?: string[]
 }
 
 export interface SettingsInfo extends AppSettings {

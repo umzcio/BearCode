@@ -670,18 +670,16 @@ export function buildTools(
   //   L3 mode     — mutations (click/type/evaluate) respect the permission mode
   //                 exactly like run_command: plan blocks, ask prompts,
   //                 accept-edits/auto/bypass allow. Reads run completely free.
-  // browserEnabled/browserAllowlist/browserBlocklist are AppSettings fields that
-  // do not formally exist until B4; read them defensively (migrateSettings
-  // spreads unknown keys through, so a manually-set settings.json value already
-  // flows here). See the manager for the a11y-ref contract: browser_read('a11y')
-  // returns an ariaSnapshot with `[ref=e<N>]` handles that click/type address.
-  const browserEnabled = (): boolean =>
-    (getSettings() as { browserEnabled?: boolean }).browserEnabled === true
+  // browserEnabled/browserAllowlist/browserBlocklist are real AppSettings
+  // fields (F4 Task 11), migrated/validated in settings.ts. See the manager for
+  // the a11y-ref contract: browser_read('a11y') returns an ariaSnapshot with
+  // `[ref=e<N>]` handles that click/type address.
+  const browserEnabled = (): boolean => getSettings().browserEnabled === true
   const browserPolicy = (): DomainPolicy => {
-    const s = getSettings() as { browserAllowlist?: unknown; browserBlocklist?: unknown }
+    const s = getSettings()
     return {
-      allowlist: Array.isArray(s.browserAllowlist) ? (s.browserAllowlist as string[]) : [],
-      blocklist: Array.isArray(s.browserBlocklist) ? (s.browserBlocklist as string[]) : []
+      allowlist: s.browserAllowlist ?? [],
+      blocklist: s.browserBlocklist ?? []
     }
   }
   const browserToolCallId = (config: unknown): string | undefined =>
