@@ -52,6 +52,7 @@ import {
   clearAllPlanReviewPending,
   clearDeniedReplayPins,
   pinDeniedReplays,
+  takeDeniedBrowserReplayPin,
   takeDeniedEditReplayPin,
   takeDeniedReplayPin,
   tryEnterPlanReview
@@ -167,6 +168,37 @@ describe('denied-replay pins for edits (takeDeniedEditReplayPin)', () => {
     expect(takeDeniedReplayPin('convo', undefined, 'make')).toBe(false)
     expect(takeDeniedReplayPin('convo', undefined, 'a.txt')).toBe(true)
     expect(takeDeniedEditReplayPin('convo', undefined, 'make')).toBe(true)
+  })
+})
+
+describe('denied-replay pins for browser actions (takeDeniedBrowserReplayPin)', () => {
+  it('returns false when nothing is pinned', () => {
+    expect(takeDeniedBrowserReplayPin('convo', 'tc1', 'click e12')).toBe(false)
+  })
+
+  it('consumes a toolCallId pin exactly once', () => {
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1', browserAction: 'click e12' }])
+    expect(takeDeniedBrowserReplayPin('convo', 'tc1', 'click e12')).toBe(true)
+    expect(takeDeniedBrowserReplayPin('convo', 'tc1', 'click e12')).toBe(false)
+  })
+
+  it('falls back to the action multiset only for id-less pins and id-less calls', () => {
+    pinDeniedReplays('convo', [{ browserAction: 'click e12' }, { browserAction: 'click e12' }])
+    // A call carrying a toolCallId never claims an id-less pin.
+    expect(takeDeniedBrowserReplayPin('convo', 'tc1', 'click e12')).toBe(false)
+    expect(takeDeniedBrowserReplayPin('convo', undefined, 'click e12')).toBe(true)
+    expect(takeDeniedBrowserReplayPin('convo', undefined, 'click e12')).toBe(true)
+    expect(takeDeniedBrowserReplayPin('convo', undefined, 'click e12')).toBe(false)
+  })
+
+  it('keeps the browser-action namespace separate from command and edit-path', () => {
+    // A browser action string equal to a command / path must never cross-claim.
+    pinDeniedReplays('convo', [{ command: 'click e12' }, { editPath: 'click e12' }])
+    expect(takeDeniedBrowserReplayPin('convo', undefined, 'click e12')).toBe(false)
+    pinDeniedReplays('convo', [{ browserAction: 'make' }])
+    expect(takeDeniedReplayPin('convo', undefined, 'make')).toBe(false)
+    expect(takeDeniedEditReplayPin('convo', undefined, 'make')).toBe(false)
+    expect(takeDeniedBrowserReplayPin('convo', undefined, 'make')).toBe(true)
   })
 })
 

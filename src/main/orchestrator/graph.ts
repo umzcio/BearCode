@@ -86,6 +86,8 @@ import {
   pinDeniedReplays,
   type PlanReviewResolution
 } from './tools'
+import { browserManager } from '../browser/manager'
+import { browserActionLabel } from '../browser/guard'
 
 // The tuple shape yielded by `.stream(..., { streamMode: "messages", subgraphs: true })`
 // with a single (non-array) streamMode: [namespace, [chunk, metadata]]. (The
@@ -832,8 +834,13 @@ export function resolvedToolCallEvents(
 // too, matching buildResumeMap's fail-safe-to-denied. Exported for tests.
 export function deniedReplayPinsOf(
   items: ReadonlyMap<string, ApprovalItem>
-): Array<{ toolCallId?: string; command?: string; editPath?: string }> {
-  const pins: Array<{ toolCallId?: string; command?: string; editPath?: string }> = []
+): Array<{ toolCallId?: string; command?: string; editPath?: string; browserAction?: string }> {
+  const pins: Array<{
+    toolCallId?: string
+    command?: string
+    editPath?: string
+    browserAction?: string
+  }> = []
   for (const item of items.values()) {
     // NO pin analog for plan_review (decided): pins exist solely so a Denied
     // command/edit replay cannot re-evaluate to run/apply and EXECUTE.
@@ -844,7 +851,20 @@ export function deniedReplayPinsOf(
     // toolCallId in the shared pin set.
     if (item.planReview) continue
     if (item.decision === true) continue
-    if (item.tool === 'write_file' || item.tool === 'edit_file') {
+    if (item.tool.startsWith('browser_')) {
+      // Browser mutation/navigation cards pin under their canonical action
+      // label (browserActionLabel) so tools.ts takeDeniedBrowserReplayPin keys
+      // its id-less fallback on the SAME string the replayed tool re-derives
+      // from its args. Without this a denied browser action whose decision
+      // later flips to 'allow' (mode→auto, session consent granted, origin
+      // allowlisted) would replay past interrupt() and EXECUTE — the exact
+      // hole run_command's pin closes. byToolCallId still covers id-carrying
+      // providers; browserAction is the id-less namespace.
+      pins.push({
+        toolCallId: item.toolCallId,
+        browserAction: browserActionLabel(item.tool, item.input)
+      })
+    } else if (item.tool === 'write_file' || item.tool === 'edit_file') {
       const input = item.input as
         { file_path?: unknown; requested_path?: unknown; path?: unknown } | null | undefined
       const raw = input?.requested_path ?? input?.file_path ?? input?.path
@@ -1056,6 +1076,36 @@ function textOf(content: ToolMessageChunk['content']): string {
   return String(content)
 }
 
+// The tool_result output persisted/streamed for the CARD, derived from the
+// model-facing tool return `modelText`. Two behaviors:
+//  (1) browser_screenshot: `modelText` is only a short placeholder (the tool
+//      keeps the base64 image out of the model's context); the real PNG data
+//      URL was stashed on the browserManager keyed by the provider tool-call
+//      id. Splice it back in here so the step card renders the <img>. Data URLs
+//      bypass the text budget — slicing base64 yields a broken image. `take`
+//      distinguishes the authoritative persist (consume the stash, take-once)
+//      from the live streaming preview (peek, so the persist still finds it).
+//  (2) everything else: the existing 50000-char budget (matches run_command).
+// Exported for tests.
+export function toolResultOutput(
+  toolName: string | undefined,
+  tcId: string,
+  modelText: string,
+  take: boolean
+): { output: string; truncated: boolean } {
+  if (toolName === 'browser_screenshot') {
+    const shot = take
+      ? browserManager.takeStashedScreenshot(tcId)
+      : browserManager.peekStashedScreenshot(tcId)
+    if (shot !== undefined) return { output: shot, truncated: false }
+  }
+  const truncated = modelText.length > 50000
+  return {
+    output: truncated ? modelText.slice(0, 50000) + '\n… output truncated' : modelText,
+    truncated
+  }
+}
+
 // One streamed invocation of the graph: either the initial user turn, or a
 // resume-with-Command after an approval decision. Returns whether execution
 // paused at a new interrupt (risk 4) so the caller can park it, or ran to
@@ -1201,13 +1251,17 @@ async function drive(
             resultId = randomUUID()
             resultIdByTc.set(tcId, resultId)
           }
-          const out = textOf(merged.content)
-          const truncated = out.length > 50000
+          const { output, truncated } = toolResultOutput(
+            info.name,
+            tcId,
+            textOf(merged.content),
+            false
+          )
           ctx.sink.emit(ctx.conversationId, {
             type: 'tool_result',
             id: resultId,
             callId: localId,
-            output: truncated ? out.slice(0, 50000) + '\n… output truncated' : out,
+            output,
             durationMs: 0,
             truncated,
             agentId: agentId ?? info.agentId
@@ -1327,10 +1381,9 @@ async function drive(
         agentId: msgAgentId
       })
     }
-    const output = textOf(toolResult.content)
     const stats =
       tc.name === 'write_file' || tc.name === 'edit_file' ? nextStagedStats(ctx) : undefined
-    const truncated = output.length > 50000
+    const { output, truncated } = toolResultOutput(tc.name, tc.id, textOf(toolResult.content), true)
     // Reuse the id the live emit used (if any) so this authoritative row -- now
     // carrying stats -- UPSERTS over the live one in the renderer instead of
     // appearing as a second result.
@@ -1338,7 +1391,7 @@ async function drive(
       type: 'tool_result',
       id: resultIdByTc.get(tc.id) ?? randomUUID(),
       callId: localId,
-      output: truncated ? output.slice(0, 50000) + '\n… output truncated' : output,
+      output,
       durationMs: 0,
       truncated,
       stats,

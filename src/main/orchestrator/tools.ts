@@ -46,7 +46,7 @@ import { docGenGateMessage } from '../docgen/gate'
 import { recordBinaryCreation } from '../diffs'
 import { getSettings } from '../settings'
 import { browserManager } from '../browser/manager'
-import { evaluateBrowserAction } from '../browser/guard'
+import { evaluateBrowserAction, browserActionLabel } from '../browser/guard'
 import type { DomainPolicy } from '../browser/policy'
 
 const commandSchema = z.object({
@@ -91,18 +91,25 @@ interface DeniedPinSet {
   byToolCallId: Set<string>
   byCommand: Map<string, number>
   byEditPath: Map<string, number>
+  byBrowserAction: Map<string, number>
 }
 const deniedReplayPins = new Map<string, DeniedPinSet>()
 
 export function pinDeniedReplays(
   conversationId: string,
-  pins: ReadonlyArray<{ toolCallId?: string; command?: string; editPath?: string }>
+  pins: ReadonlyArray<{
+    toolCallId?: string
+    command?: string
+    editPath?: string
+    browserAction?: string
+  }>
 ): void {
   if (pins.length === 0) return
   const set: DeniedPinSet = {
     byToolCallId: new Set(),
     byCommand: new Map(),
-    byEditPath: new Map()
+    byEditPath: new Map(),
+    byBrowserAction: new Map()
   }
   for (const pin of pins) {
     if (pin.toolCallId !== undefined) {
@@ -111,6 +118,11 @@ export function pinDeniedReplays(
       set.byCommand.set(pin.command, (set.byCommand.get(pin.command) ?? 0) + 1)
     } else if (pin.editPath !== undefined) {
       set.byEditPath.set(pin.editPath, (set.byEditPath.get(pin.editPath) ?? 0) + 1)
+    } else if (pin.browserAction !== undefined) {
+      set.byBrowserAction.set(
+        pin.browserAction,
+        (set.byBrowserAction.get(pin.browserAction) ?? 0) + 1
+      )
     }
   }
   deniedReplayPins.set(conversationId, set)
@@ -161,6 +173,35 @@ export function takeDeniedEditReplayPin(
   if (n === undefined) return false
   if (n <= 1) set.byEditPath.delete(rawPath)
   else set.byEditPath.set(rawPath, n - 1)
+  return true
+}
+
+// The browser analog of takeDeniedReplayPin, consulted at the TOP of
+// gateBrowserAction (before the block/prompt/consent decision) so a Denied
+// browser card always wins over any decision flip between park and keyed-resume
+// replay. The flip vectors this closes: the conversation's first parallel
+// mutations approve one and deny the other while the folded session-consent
+// prompt is parked (the approved task grants consent, so the denied task would
+// otherwise replay in auto mode with consent already cached and never
+// interrupt); a mode change (ask→auto) with consent already granted; and a
+// navigate whose origin the user adds to the allowlist while its prompt is
+// parked. Same discipline as the command/edit takes: byToolCallId is exact and
+// take-once; the id-less fallback lives in its OWN namespace (byBrowserAction,
+// never byCommand/byEditPath) so a browser action string can never cross-claim
+// a command or path pin. `action` is browserActionLabel(tool, input) — the same
+// string graph.ts deniedReplayPinsOf stored the pin under.
+export function takeDeniedBrowserReplayPin(
+  conversationId: string,
+  toolCallId: string | undefined,
+  action: string
+): boolean {
+  const set = deniedReplayPins.get(conversationId)
+  if (!set) return false
+  if (toolCallId !== undefined) return set.byToolCallId.delete(toolCallId)
+  const n = set.byBrowserAction.get(action)
+  if (n === undefined) return false
+  if (n <= 1) set.byBrowserAction.delete(action)
+  else set.byBrowserAction.set(action, n - 1)
   return true
 }
 
@@ -661,13 +702,23 @@ export function buildTools(
     action: string,
     config: unknown
   ): string | null => {
+    const toolCallId = browserToolCallId(config)
+    // BEFORE the block/prompt/consent decision: on a keyed-resume replay a
+    // recorded Denial must win even when the decision has since flipped to
+    // 'allow' (mode→auto, session consent granted by an approved sibling, or
+    // the origin added to the allowlist) and would otherwise skip interrupt()
+    // and execute the action the user explicitly denied — the run_command
+    // deniedReplayPins contract, applied to browser mutations/navigation.
+    if (takeDeniedBrowserReplayPin(conversationId, toolCallId, action)) {
+      return 'User denied this browser action.'
+    }
     if (decision === 'block') return blockedMessage
     const needsConsent = !browserSessionConsent.has(conversationId)
     if (decision === 'prompt' || needsConsent) {
       const approval = interrupt({
         kind: 'browser',
         action,
-        toolCallId: browserToolCallId(config)
+        toolCallId
       }) as { approved?: boolean } | null | undefined
       if (!approval?.approved) return 'User denied this browser action.'
       browserSessionConsent.add(conversationId)
@@ -691,7 +742,7 @@ export function buildTools(
       const refusal = gateBrowserAction(
         decision,
         `Blocked: ${url} is not permitted by the browser domain policy (blocklist).`,
-        `navigate ${url}`,
+        browserActionLabel('browser_navigate', { url }),
         config
       )
       if (refusal) return refusal
@@ -727,16 +778,32 @@ export function buildTools(
   )
 
   const browserScreenshotTool = tool(
-    async (): Promise<string> => {
+    async (_args: unknown, config?: unknown): Promise<string> => {
       if (!browserEnabled()) return BROWSER_DISABLED_MESSAGE
       await browserManager.start(conversationId)
-      return browserManager.screenshot()
+      const dataUrl = await browserManager.screenshot()
+      // Keep the base64 image OUT of the model's context. A full-page PNG data
+      // URL is ~150K–1.5M chars (~100K+ tokens as text) and would (a) be sliced
+      // mid-base64 by graph.ts's 50000-char tool_result budget into a BROKEN
+      // <img>, and (b) flood/derail the very conversation driving the browser
+      // on every subsequent turn. Instead we stash the data URL on the manager
+      // keyed by the provider tool-call id; graph.ts splices it into the
+      // PERSISTED tool_result output so the step card still renders the image,
+      // while the model sees only this short placeholder — mirroring
+      // run_command's bounded text budget. Id-less providers (no tool-call id to
+      // key the stash by) fall back to inlining the data URL; the card still
+      // renders and the residual flood is accepted for that rarer case.
+      const toolCallId = browserToolCallId(config)
+      if (toolCallId === undefined) return dataUrl
+      browserManager.stashScreenshot(toolCallId, dataUrl)
+      return `Screenshot captured (~${Math.round(dataUrl.length / 1024)} KB); rendered in the browser step for the user.`
     },
     {
       name: 'browser_screenshot',
       description:
-        'Capture a PNG screenshot of the current page (returned as a data URL the UI renders inline). ' +
-        'Use it to show progress or to see the page visually. Never requires approval.',
+        'Capture a PNG screenshot of the current page. The image is shown to the user inline in the ' +
+        'browser step; you receive a short confirmation (not the raw image). Use it to show progress. ' +
+        'Never requires approval.',
       schema: z.object({})
     }
   )
@@ -781,7 +848,7 @@ export function buildTools(
       const refusal = gateBrowserAction(
         decision,
         'Plan mode is read-only; browser clicks are blocked. Submit a plan and wait for approval first.',
-        `click ${ref}`,
+        browserActionLabel('browser_click', { ref }),
         config
       )
       if (refusal) return refusal
@@ -811,7 +878,7 @@ export function buildTools(
       const refusal = gateBrowserAction(
         decision,
         'Plan mode is read-only; browser typing is blocked. Submit a plan and wait for approval first.',
-        `type into ${ref}`,
+        browserActionLabel('browser_type', { ref }),
         config
       )
       if (refusal) return refusal
@@ -840,7 +907,7 @@ export function buildTools(
       const refusal = gateBrowserAction(
         decision,
         'Plan mode is read-only; running JavaScript in the page is blocked. Submit a plan and wait for approval first.',
-        'evaluate JavaScript in the page',
+        browserActionLabel('browser_evaluate', {}),
         config
       )
       if (refusal) return refusal

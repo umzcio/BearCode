@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { evaluateBrowserAction } from './guard'
+import { evaluateBrowserAction, browserActionLabel } from './guard'
 import type { DomainPolicy } from './policy'
 
 const policy: DomainPolicy = {
@@ -84,5 +84,23 @@ describe('evaluateBrowserAction — navigate (domain-policy gated)', () => {
     expect(
       evaluateBrowserAction({ kind: 'navigate', mode: 'plan', url: 'https://evil.com', policy })
     ).toBe('block')
+  })
+})
+
+describe('browserActionLabel — canonical action string (denied-replay pin key)', () => {
+  it('derives the same label the tool and graph.ts both pin on', () => {
+    expect(browserActionLabel('browser_navigate', { url: 'https://x.com/a' })).toBe(
+      'navigate https://x.com/a'
+    )
+    expect(browserActionLabel('browser_click', { ref: 'e12' })).toBe('click e12')
+    expect(browserActionLabel('browser_type', { ref: 'e7', text: 'hi' })).toBe('type into e7')
+    expect(browserActionLabel('browser_evaluate', { script: 'x' })).toBe(
+      'evaluate JavaScript in the page'
+    )
+  })
+  it('tolerates missing/garbage input without throwing', () => {
+    expect(browserActionLabel('browser_click', null)).toBe('click ')
+    expect(browserActionLabel('browser_navigate', {})).toBe('navigate ')
+    expect(browserActionLabel('browser_read', { mode: 'a11y' })).toBe('browser_read')
   })
 })

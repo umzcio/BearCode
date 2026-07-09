@@ -166,6 +166,28 @@ class BrowserManager {
     return typeof out === 'string' ? out : JSON.stringify(out)
   }
 
+  // Out-of-band screenshot channel (finding: keep base64 out of the model's
+  // context). browser_screenshot stashes the full data URL here keyed by the
+  // provider tool-call id and returns a short placeholder to the model; the
+  // drive loop (graph.ts) splices the stashed image into the PERSISTED
+  // tool_result output so the step card renders the <img>. Bounded — a handful
+  // of entries per conversation — and cleared on teardown.
+  private screenshots = new Map<string, string>()
+  stashScreenshot(toolCallId: string, dataUrl: string): void {
+    this.screenshots.set(toolCallId, dataUrl)
+  }
+  // Non-consuming (live streaming emit) — the authoritative persist consumes.
+  peekStashedScreenshot(toolCallId: string): string | undefined {
+    return this.screenshots.get(toolCallId)
+  }
+  // Consuming take-once (authoritative persist), so a reused tool-call id can
+  // never resurface a stale image.
+  takeStashedScreenshot(toolCallId: string): string | undefined {
+    const url = this.screenshots.get(toolCallId)
+    this.screenshots.delete(toolCallId)
+    return url
+  }
+
   setBounds(b: Bounds): void {
     this.bounds = b
     this.view?.setBounds(b)
@@ -185,6 +207,7 @@ class BrowserManager {
     // land here concurrently. Null the refs up front and bail on re-entry.
     if (this.tearingDown) return
     this.tearingDown = true
+    this.screenshots.clear()
     try {
       const browser = this.browser
       const view = this.view

@@ -47,3 +47,29 @@ export function evaluateBrowserAction(input: BrowserActionInput): 'allow' | 'pro
       return 'prompt'
   }
 }
+
+// The canonical human-readable label for a browser action, derived purely from
+// the tool name + its call input. It is the SINGLE source of truth for the
+// action string on both sides of the denied-replay pin: the tool layer passes
+// it into the interrupt payload / gate (tools.ts gateBrowserAction), and
+// graph.ts deniedReplayPinsOf reconstructs the identical string from a parked
+// card's { tool, input } so an id-less browser denial keys its pin under the
+// same value the replayed tool consults. Keep the two producers in lockstep by
+// routing both through here.
+export function browserActionLabel(tool: string, input: unknown): string {
+  const o = (input ?? {}) as { ref?: unknown; url?: unknown }
+  const ref = typeof o.ref === 'string' ? o.ref : ''
+  const url = typeof o.url === 'string' ? o.url : ''
+  switch (tool) {
+    case 'browser_navigate':
+      return `navigate ${url}`
+    case 'browser_click':
+      return `click ${ref}`
+    case 'browser_type':
+      return `type into ${ref}`
+    case 'browser_evaluate':
+      return 'evaluate JavaScript in the page'
+    default:
+      return tool
+  }
+}

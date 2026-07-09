@@ -27,6 +27,7 @@ vi.mock('../browser/manager', () => ({
     navigate: vi.fn(async () => ({ url: 'https://example.com/', title: 'Example' })),
     read: vi.fn(async () => 'PAGE TEXT HERE'),
     screenshot: vi.fn(async () => 'data:image/png;base64,AAAA'),
+    stashScreenshot: vi.fn(),
     click: vi.fn(async () => {}),
     type: vi.fn(async () => {}),
     scroll: vi.fn(async () => {}),
@@ -45,7 +46,7 @@ import { getSettings } from '../settings'
 import { browserManager } from '../browser/manager'
 import { interrupt } from '@langchain/langgraph'
 import type { RunSink } from '../sink'
-import { buildTools, clearBrowserConsent } from './tools'
+import { buildTools, clearBrowserConsent, clearDeniedReplayPins, pinDeniedReplays } from './tools'
 
 const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
 
@@ -62,6 +63,7 @@ const browserTools = (): Record<string, InvokableTool> => {
 
 beforeEach(() => {
   clearBrowserConsent()
+  clearDeniedReplayPins('convo')
   vi.mocked(resolveConversationMode).mockReturnValue('accept-edits')
   vi.mocked(getSettings).mockReturnValue({
     browserEnabled: true,
@@ -73,6 +75,7 @@ beforeEach(() => {
   vi.mocked(browserManager.navigate).mockClear()
   vi.mocked(browserManager.read).mockClear()
   vi.mocked(browserManager.screenshot).mockClear()
+  vi.mocked(browserManager.stashScreenshot).mockClear()
   vi.mocked(browserManager.click).mockClear()
   vi.mocked(browserManager.type).mockClear()
   vi.mocked(browserManager.evaluate).mockClear()
@@ -111,9 +114,25 @@ describe('reads run free (no interrupt, no mode/consent gate)', () => {
     expect(interrupt).not.toHaveBeenCalled()
   })
 
-  it('browser_screenshot returns the PNG data URL', async () => {
+  it('browser_screenshot inlines the data URL for an id-less call (no stash key)', async () => {
+    // With no toolCallId the manager can't be keyed, so the tool falls back to
+    // inlining the data URL (the card still renders); the rarer residual flood
+    // is accepted only for id-less providers.
     const out = await browserTools().browser_screenshot.invoke({})
     expect(out).toBe('data:image/png;base64,AAAA')
+    expect(browserManager.stashScreenshot).not.toHaveBeenCalled()
+  })
+
+  it('browser_screenshot returns a short placeholder and stashes the image when keyed', async () => {
+    const out = await browserTools().browser_screenshot.invoke({}, { toolCallId: 'tcShot' })
+    // The base64 image never reaches the model — it gets a short confirmation.
+    expect(out.startsWith('data:image/')).toBe(false)
+    expect(out.toLowerCase()).toContain('screenshot')
+    // The full data URL is stashed for graph.ts to splice into the card.
+    expect(browserManager.stashScreenshot).toHaveBeenCalledWith(
+      'tcShot',
+      'data:image/png;base64,AAAA'
+    )
   })
 })
 
@@ -196,6 +215,38 @@ describe('L2 domain policy on navigate', () => {
     expect(interrupt).toHaveBeenCalled()
     expect(browserManager.navigate).not.toHaveBeenCalled()
     expect(out.toLowerCase()).toContain('denied')
+  })
+})
+
+describe('denied-replay pin wins over a decision flip (like run_command)', () => {
+  it('a pinned browser mutation is refused on replay without interrupting or acting', async () => {
+    // The flip vector: auto mode + consent already granted (an approved sibling
+    // in the same batch), so evaluateBrowserAction now returns 'allow' and the
+    // folded-consent prompt is skipped — the denied click would replay straight
+    // into browserManager.click without the pin.
+    clearBrowserConsent()
+    vi.mocked(resolveConversationMode).mockReturnValue('auto')
+    pinDeniedReplays('convo', [{ toolCallId: 'tcClick', browserAction: 'click e12' }])
+    const out = await browserTools().browser_click.invoke({ ref: 'e12' }, { toolCallId: 'tcClick' })
+    expect(out).toBe('User denied this browser action.')
+    expect(interrupt).not.toHaveBeenCalled()
+    expect(browserManager.click).not.toHaveBeenCalled()
+  })
+
+  it('an id-less denied navigate is refused via the browser-action namespace on replay', async () => {
+    // The navigate flip: the user adds the origin to the allowlist while the
+    // prompt is parked, so originDecision now returns 'allow'; the id-less pin
+    // (browserAction) must still refuse the replay.
+    vi.mocked(getSettings).mockReturnValue({
+      browserEnabled: true,
+      browserAllowlist: ['https://other.com'],
+      browserBlocklist: []
+    } as unknown as ReturnType<typeof getSettings>)
+    pinDeniedReplays('convo', [{ browserAction: 'navigate https://other.com/x' }])
+    const out = await browserTools().browser_navigate.invoke({ url: 'https://other.com/x' })
+    expect(out).toBe('User denied this browser action.')
+    expect(interrupt).not.toHaveBeenCalled()
+    expect(browserManager.navigate).not.toHaveBeenCalled()
   })
 })
 

@@ -35,6 +35,7 @@ import {
   deniedToolCallEvents,
   resolvedToolCallEvents,
   deniedReplayPinsOf,
+  toolResultOutput,
   synthesizedApprovalCard,
   pairedApprovalInput,
   isRehydratableInterrupt,
@@ -48,6 +49,7 @@ import {
   type ApprovalItem
 } from './graph'
 import type { PlanReviewResolution } from './tools'
+import { browserManager } from '../browser/manager'
 import type { RunSink } from '../sink'
 import type { AttachmentRef } from '../../shared/types'
 
@@ -893,6 +895,92 @@ describe('approval decision collection (collect-then-resume)', () => {
           ])
         )
       ).toEqual([])
+    })
+
+    const deniedBrowser = (input: unknown, toolCallId?: string): ApprovalItem => ({
+      interruptId: 'ib',
+      tool: 'browser_click',
+      input,
+      toolCallId,
+      decision: false
+    })
+
+    it('pins a denied browser card under its canonical action label', () => {
+      // The pin key must equal browserActionLabel(tool, input) so the replayed
+      // tool's takeDeniedBrowserReplayPin (id-less fallback) matches it.
+      const pins = deniedReplayPinsOf(items(['c1', deniedBrowser({ ref: 'e12' }, 'tc2')]))
+      expect(pins).toEqual([{ toolCallId: 'tc2', browserAction: 'click e12' }])
+    })
+
+    it('pins an id-less denied browser card under browserAction only', () => {
+      const pins = deniedReplayPinsOf(
+        items([
+          'c1',
+          {
+            interruptId: 'ib',
+            tool: 'browser_navigate',
+            input: { url: 'https://x.com/a' },
+            decision: false
+          }
+        ])
+      )
+      expect(pins).toEqual([{ toolCallId: undefined, browserAction: 'navigate https://x.com/a' }])
+    })
+
+    it('never pins an approved browser card', () => {
+      expect(
+        deniedReplayPinsOf(
+          items(['c1', { ...deniedBrowser({ ref: 'e1' }, 'tc9'), decision: true }])
+        )
+      ).toEqual([])
+    })
+  })
+
+  describe('toolResultOutput (card output vs. model text)', () => {
+    it('applies the 50000-char budget to a normal tool result', () => {
+      const big = 'x'.repeat(60000)
+      const { output, truncated } = toolResultOutput('run_command', 'tc1', big, true)
+      expect(truncated).toBe(true)
+      expect(output.endsWith('… output truncated')).toBe(true)
+      expect(output.length).toBeLessThan(60000)
+    })
+
+    it('passes a short result through untouched', () => {
+      expect(toolResultOutput('run_command', 'tc1', 'ok', true)).toEqual({
+        output: 'ok',
+        truncated: false
+      })
+    })
+
+    it('splices a stashed screenshot into the persisted output, bypassing truncation', () => {
+      const dataUrl = 'data:image/png;base64,' + 'A'.repeat(200000)
+      browserManager.stashScreenshot('tcShot', dataUrl)
+      // take=true (authoritative persist) consumes the stash and returns the
+      // FULL data URL — never truncated — while the model only ever saw the
+      // placeholder passed as modelText.
+      const { output, truncated } = toolResultOutput(
+        'browser_screenshot',
+        'tcShot',
+        'Screenshot captured (~150 KB); rendered in the browser step for the user.',
+        true
+      )
+      expect(output).toBe(dataUrl)
+      expect(truncated).toBe(false)
+      // Take-once: a second read finds nothing stashed and falls back to the
+      // model text (budgeted).
+      expect(toolResultOutput('browser_screenshot', 'tcShot', 'placeholder', true).output).toBe(
+        'placeholder'
+      )
+    })
+
+    it('peek (live stream) leaves the stash for the authoritative persist to consume', () => {
+      const dataUrl = 'data:image/png;base64,ZZZ'
+      browserManager.stashScreenshot('tcPeek', dataUrl)
+      expect(toolResultOutput('browser_screenshot', 'tcPeek', 'x', false).output).toBe(dataUrl)
+      // Still present for the take.
+      expect(toolResultOutput('browser_screenshot', 'tcPeek', 'x', true).output).toBe(dataUrl)
+      // Now consumed.
+      expect(toolResultOutput('browser_screenshot', 'tcPeek', 'x', true).output).toBe('x')
     })
   })
 })
