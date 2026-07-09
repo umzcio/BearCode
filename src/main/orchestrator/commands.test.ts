@@ -24,6 +24,11 @@ describe('listCommands', () => {
     expect(result).toEqual(BUILTIN_COMMANDS)
   })
 
+  it('reports the browser built-in as live (F4)', () => {
+    const browser = BUILTIN_COMMANDS.find((c) => c.name === 'browser')
+    expect(browser?.status).toBe('live')
+  })
+
   it('lists non-erroring workflows alphabetically after the built-ins', () => {
     const b = workflow({ name: 'beta', description: 'second' })
     const a = workflow({ name: 'alpha', description: 'first' })

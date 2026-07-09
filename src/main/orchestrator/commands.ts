@@ -47,7 +47,7 @@ export const BUILTIN_COMMANDS: CommandEntry[] = [
     name: 'browser',
     description: 'Delegate the task to the browser subagent in a live browser.',
     kind: 'builtin',
-    status: 'coming-soon'
+    status: 'live'
   },
   {
     name: 'teamwork-preview',

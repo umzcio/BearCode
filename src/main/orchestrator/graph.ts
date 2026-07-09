@@ -112,6 +112,25 @@ const RESEARCHER_SUBAGENT = {
     'factual summary. Do not ask clarifying questions; answer with what you know.'
 }
 
+// F4: the browser subagent — the /browser path. It drives the embedded browser
+// through the flat `browser_*` tools (buildTools). Not scoped to a tools subset
+// here: like RESEARCHER_SUBAGENT it inherits the main toolset (deepagents
+// defaults to the parent's tools when `tools` is omitted), so the browser_*
+// tools — already present on the main agent — are available, and the guard
+// chain (mode/domain/enable) gates them identically whether the main agent or
+// this subagent calls them.
+const BROWSER_SUBAGENT = {
+  name: 'browser',
+  description:
+    'Operates a live web browser to accomplish web tasks (navigate, read, click, ' +
+    'type, screenshot). Use the task tool with subagent_type "browser" whenever the ' +
+    'user asks you to browse, open a site, or interact with a web page.',
+  systemPrompt:
+    'You control a real browser via the browser_* tools. Read the page (prefer ' +
+    'browser_read a11y) before acting; click/type by ref; screenshot to show ' +
+    'progress. Report findings concisely.'
+}
+
 // Known subagent names. Includes our one named subagent PLUS deepagents'
 // built-in "general-purpose" subagent (GENERAL_PURPOSE_SUBAGENT.name,
 // deepagents/dist/langsmith-wdF8zG42.js ~2286).
@@ -133,7 +152,7 @@ const RESEARCHER_SUBAGENT = {
 // instead of trying to disable it, so a "general-purpose" delegation gets
 // its own attributed pill rather than silently merging into the main
 // agent's stream.
-const SUBAGENT_NAMES = new Set([RESEARCHER_SUBAGENT.name, 'general-purpose'])
+const SUBAGENT_NAMES = new Set([RESEARCHER_SUBAGENT.name, BROWSER_SUBAGENT.name, 'general-purpose'])
 
 // Derive the producing agent's id from a streamed chunk's metadata (and, as
 // documentation, its namespace). VERIFIED LIVE (BEARCODE_DEBUG_NS, Task 8):
@@ -2089,7 +2108,7 @@ function buildAgentAndContext(
       commandAdditions +
       mentionAdditions,
     checkpointer: getCheckpointer(),
-    subagents: [RESEARCHER_SUBAGENT],
+    subagents: [RESEARCHER_SUBAGENT, BROWSER_SUBAGENT],
     ...(backendFactory
       ? {
           backend: backendFactory,

@@ -144,6 +144,22 @@ export function assembleCommandAdditions(
     if (command.name === 'compact') {
       return { systemAdditions: [] }
     }
+    // /browser (F4): steer this turn through the browser subagent rather than
+    // letting the main agent drive the browser_* tools inline, so the work is
+    // attributed to the browser subagent's stream. The delegation rides via the
+    // built-in `task` tool with subagent_type "browser".
+    if (command.name === 'browser') {
+      return {
+        systemAdditions: [
+          '',
+          'Turn modifier: /browser. Accomplish this task using a live web browser by',
+          'delegating to the browser subagent: call the `task` tool with',
+          'subagent_type "browser" and a clear instruction describing the web task.',
+          'Do not answer from memory; drive the real browser through the subagent.',
+          ...PRECEDENCE_LINES
+        ]
+      }
+    }
     return { systemAdditions: [], error: `Unknown command: /${command.name}` }
   }
 

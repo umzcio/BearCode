@@ -233,9 +233,22 @@ describe('assembleCommandAdditions', () => {
   })
 
   it('errors on an unknown or non-sendable builtin', () => {
+    const command: CommandRef = { name: 'teamwork-preview', kind: 'builtin' }
+    const result = assembleCommandAdditions(command, [])
+    expect(result).toEqual({ systemAdditions: [], error: 'Unknown command: /teamwork-preview' })
+  })
+
+  it('produces the /browser delegation block steering to the browser subagent', () => {
     const command: CommandRef = { name: 'browser', kind: 'builtin' }
     const result = assembleCommandAdditions(command, [])
-    expect(result).toEqual({ systemAdditions: [], error: 'Unknown command: /browser' })
+    expect(result.error).toBeUndefined()
+    const joined = result.systemAdditions.join('\n')
+    expect(joined).toContain('Turn modifier: /browser.')
+    expect(joined).toContain('browser subagent')
+    expect(joined).toContain('task')
+    expect(joined).toContain('subagent_type')
+    expect(joined).toContain('browser')
+    expect(joined).toContain(PRECEDENCE_SUBSTRING)
   })
 
   it('produces a workflow frame with numbered resolved steps, the write_todos bootstrap, and the precedence line', () => {
