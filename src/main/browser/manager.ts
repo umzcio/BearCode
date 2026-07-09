@@ -3,7 +3,8 @@ import { WebContentsView } from 'electron'
 import { chromium, type Browser, type Page } from 'playwright'
 import { getMainWindow, REMOTE_DEBUG_PORT, browserDebuggingEnabled } from '../mainWindow'
 import { ensureChromium, chromiumInstalled } from './install'
-import { indexOfPageWithToken } from './policy'
+import { indexOfPageWithToken, type DomainPolicy } from './policy'
+import { navigationBlockedByPolicy } from './guard'
 
 type Bounds = { x: number; y: number; width: number; height: number }
 
@@ -18,6 +19,17 @@ class BrowserManager {
   // paint over the app UI before the renderer pane reports its on-screen bounds.
   // The BrowserPane's ResizeObserver overrides this with real bounds on mount.
   private bounds: Bounds = { x: -10000, y: 0, width: 1280, height: 800 }
+  // L2 domain policy provider (F4 finding 2). The tool layer wires this to the
+  // live Settings-derived policy (tools.ts buildTools) so the navigation
+  // interceptor below always consults the current allow/blocklist. Defaults to
+  // an EMPTY policy that blocks nothing — but the interceptor is a hard gate
+  // only for what the policy names, and buildTools sets the real provider
+  // before any browser tool can call start(), so this default never governs a
+  // live session.
+  private policyProvider: () => DomainPolicy = () => ({ allowlist: [], blocklist: [] })
+  setPolicyProvider(provider: () => DomainPolicy): void {
+    this.policyProvider = provider
+  }
 
   status(): {
     installed: boolean
@@ -73,6 +85,21 @@ class BrowserManager {
     this.view.webContents.on('render-process-gone', () => {
       void this.teardown()
     })
+    // L2 hard gate on EVERY navigation (F4 finding 2), not just the
+    // browser_navigate tool: browser_evaluate setting location.href, an in-page
+    // link click, and server 302 redirects all reach a new origin WITHOUT
+    // passing the tool's L2 check. will-navigate covers renderer-initiated
+    // navigations (links, location changes); will-redirect covers server
+    // redirect hops. A blocklisted destination is cancelled outright; 'allow'
+    // and 'prompt' origins pass (prompting/consent is the tool layer's job —
+    // there is no way to raise an approval mid-navigation). Our own
+    // page.goto in navigate() already cleared L2 at the tool, so re-checking it
+    // here is at worst a no-op (it can only be allow/prompt, never block).
+    const guardNavigation = (event: { preventDefault: () => void }, targetUrl: string): void => {
+      if (navigationBlockedByPolicy(targetUrl, this.policyProvider())) event.preventDefault()
+    }
+    this.view.webContents.on('will-navigate', guardNavigation)
+    this.view.webContents.on('will-redirect', guardNavigation)
     // finding 4: never leave a zombie view attached if connect/target-select
     // throws (port squatted, target list unsettled, CDP flake). Tear the whole
     // session down and surface the error.

@@ -48,6 +48,20 @@ export function evaluateBrowserAction(input: BrowserActionInput): 'allow' | 'pro
   }
 }
 
+// The navigation-interceptor decision (F4 finding 2). browser_navigate is not
+// the only way the embedded view reaches a new origin: browser_evaluate can set
+// location.href, an in-page link click navigates, and an allowlisted page can
+// 302-redirect elsewhere — none of which pass through the browser_navigate
+// tool's L2 check. The manager therefore attaches this to EVERY main-frame
+// navigation (will-navigate / will-redirect) so L2 is a true mode-independent
+// hard gate. Only a BLOCKLIST match cancels the navigation here: 'prompt' and
+// 'allow' pass through because L1 session consent and L2 prompting are the tool
+// layer's job (there is no way to raise an approval mid-navigation), while the
+// blocklist is precisely the set of origins the browser may never visit.
+export function navigationBlockedByPolicy(url: string, policy: DomainPolicy): boolean {
+  return originDecision(url, policy) === 'block'
+}
+
 // The canonical human-readable label for a browser action, derived purely from
 // the tool name + its call input. It is the SINGLE source of truth for the
 // action string on both sides of the denied-replay pin: the tool layer passes

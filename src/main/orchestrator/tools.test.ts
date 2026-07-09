@@ -27,7 +27,7 @@ vi.mock('../agentsDir', () => ({
 vi.mock('../settings', () => ({
   getSettings: vi.fn(() => ({ browserEnabled: false, browserAllowlist: [], browserBlocklist: [] }))
 }))
-vi.mock('../browser/manager', () => ({ browserManager: {} }))
+vi.mock('../browser/manager', () => ({ browserManager: { setPolicyProvider: vi.fn() } }))
 // Spread-importOriginal: only `interrupt` is stubbed, everything else
 // @langchain/langgraph exports (Command, etc.) stays live for this file.
 vi.mock('@langchain/langgraph', async (importOriginal) => ({

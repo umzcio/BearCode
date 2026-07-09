@@ -23,6 +23,7 @@ vi.mock('../settings', () => ({
 }))
 vi.mock('../browser/manager', () => ({
   browserManager: {
+    setPolicyProvider: vi.fn(),
     start: vi.fn(async () => {}),
     navigate: vi.fn(async () => ({ url: 'https://example.com/', title: 'Example' })),
     read: vi.fn(async () => 'PAGE TEXT HERE'),
@@ -155,13 +156,38 @@ describe('mutations respect the permission mode (like run_command)', () => {
     vi.mocked(resolveConversationMode).mockReturnValue('ask')
     vi.mocked(interrupt).mockReturnValue({ approved: false })
     const out = await browserTools().browser_click.invoke({ ref: 'e12' }, { toolCallId: 'tc1' })
+    // The payload carries the REAL tool + call input (F4 finding 1) so a
+    // crash-resumed approval re-surfaces as its true browser card, not an empty
+    // run_command card whose approval would execute this action.
     expect(interrupt).toHaveBeenCalledWith({
       kind: 'browser',
       action: 'click e12',
+      tool: 'browser_click',
+      input: { ref: 'e12' },
       toolCallId: 'tc1'
     })
     expect(out).toBe('User denied this browser action.')
     expect(browserManager.click).not.toHaveBeenCalled()
+  })
+
+  it('browser_evaluate carries tool + the script input in the interrupt payload', async () => {
+    // F4 finding 1: the evaluate payload must preserve the script so a
+    // crash-resumed approval shows what will run. The action LABEL stays
+    // script-agnostic (matches the denied-replay pin key), but the input does
+    // not — the parked card renders the actual JavaScript.
+    vi.mocked(resolveConversationMode).mockReturnValue('ask')
+    vi.mocked(interrupt).mockReturnValue({ approved: false })
+    await browserTools().browser_evaluate.invoke(
+      { script: 'location.href="https://evil.com"' },
+      { toolCallId: 'tcEval' }
+    )
+    expect(interrupt).toHaveBeenCalledWith({
+      kind: 'browser',
+      action: 'evaluate JavaScript in the page',
+      tool: 'browser_evaluate',
+      input: { script: 'location.href="https://evil.com"' },
+      toolCallId: 'tcEval'
+    })
   })
 
   it('browser_click proceeds on {approved:true}', async () => {

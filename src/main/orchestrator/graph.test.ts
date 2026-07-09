@@ -300,6 +300,28 @@ describe('interruptBelongsToToolCall (pending-interrupt attribution)', () => {
     ).toBe(true)
     expect(interruptBelongsToToolCall(undefined, { name: 'run_command', args: {} })).toBe(true)
   })
+
+  it('a browser payload never claims a run_command candidate (F4 finding 1)', () => {
+    // The crash-resume dangling scan is run_command-only. Without the browser
+    // branch an id-less browser payload hit the terminal `return true` and
+    // claimed an unrelated run_command call, mislabeling the re-surfaced card.
+    const browserValue = { kind: 'browser', tool: 'browser_evaluate', input: { script: 'x' } }
+    expect(
+      interruptBelongsToToolCall(browserValue, {
+        id: 'tc1',
+        name: 'run_command',
+        args: { command: 'ls' }
+      })
+    ).toBe(false)
+  })
+
+  it('a browser payload pairs to its browser_* call by toolCallId, never a fallback', () => {
+    const v = { kind: 'browser', tool: 'browser_click', input: { ref: 'e1' }, toolCallId: 'tcB' }
+    expect(interruptBelongsToToolCall(v, { id: 'tcB', name: 'browser_click' })).toBe(true)
+    // id-less browser candidate: no fallback pairing (must match by toolCallId).
+    const idless = { kind: 'browser', tool: 'browser_click', input: { ref: 'e1' } }
+    expect(interruptBelongsToToolCall(idless, { id: 'x', name: 'browser_click' })).toBe(false)
+  })
 })
 
 describe('edit interrupt pairing', () => {
@@ -515,6 +537,32 @@ describe('synthesizedApprovalCard (call:null synthesis and edit rehydration)', (
       synthesizedApprovalCard({ kind: 'edit_file', tool: 'run_command', path: 'a' }).tool
     ).toBe('write_file')
   })
+
+  it('synthesizes a browser card from the payload tool + input (never an empty run_command)', () => {
+    // F4 finding 1: a crash-resumed browser approval must re-surface as its REAL
+    // browser card. Before the fix it fell through to the run_command default,
+    // and approving that empty-command card resumed and EXECUTED the parked
+    // action (here arbitrary in-page JS via evaluate).
+    expect(
+      synthesizedApprovalCard({
+        kind: 'browser',
+        action: 'evaluate JavaScript in the page',
+        tool: 'browser_evaluate',
+        input: { script: 'location.href="https://evil.example"' },
+        toolCallId: 'tcEval'
+      })
+    ).toEqual({
+      tool: 'browser_evaluate',
+      input: { script: 'location.href="https://evil.example"' },
+      toolCallId: 'tcEval'
+    })
+  })
+
+  it('degrades a malformed browser payload to browser_navigate, never escaping to another tool', () => {
+    const card = synthesizedApprovalCard({ kind: 'browser', tool: 'run_command', input: {} })
+    expect(card.tool).toBe('browser_navigate')
+    expect(card.input).toEqual({})
+  })
 })
 
 describe('pairedApprovalInput (live paired-card input enrichment)', () => {
@@ -564,6 +612,13 @@ describe('isRehydratableInterrupt (crash-resume kind filter)', () => {
   it('accepts both approval-bearing kinds', () => {
     expect(isRehydratableInterrupt({ kind: 'run_command', command: 'ls' })).toBe(true)
     expect(isRehydratableInterrupt({ kind: 'edit_file', tool: 'write_file', path: 'a' })).toBe(true)
+  })
+
+  it('accepts plan_review and browser (they survive a crash/restart)', () => {
+    expect(isRehydratableInterrupt({ kind: 'plan_review', artifactId: 'a' })).toBe(true)
+    expect(
+      isRehydratableInterrupt({ kind: 'browser', tool: 'browser_evaluate', input: { script: 'x' } })
+    ).toBe(true)
   })
 
   it('rejects unknown kinds and malformed values', () => {
@@ -719,6 +774,40 @@ describe('pairInterruptsToCalls (interrupt-to-tool_call pairing)', () => {
       [ls]
     )
     expect(out[0].call).toBeNull()
+  })
+
+  it('crash-resume: a browser interrupt pairs to NO run_command candidate, then synthesizes its real card (F4 finding 1)', () => {
+    // This is exactly the composition rehydratePausedRun runs: the dangling
+    // scan is run_command-only, so a parked browser approval must pair to null
+    // and re-park from synthesizedApprovalCard — the REAL browser card, not the
+    // empty run_command fallback whose approval would EXECUTE the parked action.
+    const evalInterrupt = {
+      interruptId: 'ib',
+      value: {
+        kind: 'browser',
+        action: 'evaluate JavaScript in the page',
+        tool: 'browser_evaluate',
+        input: { script: 'fetch("/steal")' },
+        toolCallId: 'tcEval'
+      }
+    }
+    const dangling = findDanglingRunCommandCalls([
+      {
+        tool_calls: [
+          { id: 'tcEval', name: 'browser_evaluate', args: { script: 'fetch("/steal")' } }
+        ]
+      }
+    ])
+    // The browser call is NOT a run_command, so the scan yields nothing.
+    expect(dangling).toEqual([])
+    const out = pairInterruptsToCalls([evalInterrupt], dangling)
+    expect(out[0].call).toBeNull()
+    const card = synthesizedApprovalCard(out[0].value)
+    expect(card).toEqual({
+      tool: 'browser_evaluate',
+      input: { script: 'fetch("/steal")' },
+      toolCallId: 'tcEval'
+    })
   })
 })
 

@@ -539,6 +539,18 @@ export function interruptBelongsToToolCall(
     // the zod-parsed title the tool received, verbatim).
     return (tc.args as { title?: unknown } | null | undefined)?.title === value.title
   }
+  if (value?.kind === 'browser') {
+    // F4 finding 1: a browser approval pairs ONLY to a browser_* call, and live
+    // that call always carries a toolCallId. The crash-resume dangling scan
+    // (findDanglingRunCommandCalls) yields run_command candidates only, so
+    // without this branch a browser payload fell through to the terminal
+    // `return true` below and CLAIMED an unrelated run_command candidate on the
+    // id-less fallback path — mislabeling the re-surfaced card. Reject any
+    // non-browser candidate; pair by toolCallId when present, never a fallback.
+    if (typeof tc.name !== 'string' || !tc.name.startsWith('browser_')) return false
+    if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
+    return false
+  }
   return true
 }
 
@@ -647,6 +659,7 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
         kind?: string
         command?: string
         tool?: string
+        input?: unknown
         path?: string
         resolvedPath?: string
         artifactId?: unknown
@@ -656,6 +669,22 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
     | null
     | undefined
   const toolCallId = typeof value?.toolCallId === 'string' ? value.toolCallId : undefined
+  if (value?.kind === 'browser') {
+    // F4 finding 1: re-surface a parked browser approval as its REAL browser
+    // card, never the empty run_command fallback below. The interrupt payload
+    // carries the true tool name + call input (tools.ts gateBrowserAction), so
+    // the rehydrated card shows exactly the action that will execute on
+    // approval, and deniedReplayPinsOf reconstructs the identical browserAction
+    // key (browserActionLabel of tool+input) the replayed tool consults. A
+    // malformed payload whose tool is not a browser_* name degrades to
+    // browser_navigate rather than escaping into another tool's card.
+    const tool = (
+      typeof value.tool === 'string' && value.tool.startsWith('browser_')
+        ? value.tool
+        : 'browser_navigate'
+    ) as ToolName
+    return { tool, input: value.input ?? {}, toolCallId }
+  }
   if (value?.kind === 'plan_review') {
     // The card is built from the payload alone: title for the copy, artifactId
     // so the renderer can pair the card with the pane's plan viewer (and the
@@ -2363,6 +2392,22 @@ export async function rehydratePausedRun(
       // file_diff), not toolMsgById -- an approved write's replay still lands
       // on disk and stages its diff regardless. Cost: the crash-resumed
       // edit's tool_result row is absent from history, a cosmetic gap.
+      const card = synthesizedApprovalCard(pairing.value)
+      tool = card.tool
+      input = card.input
+      toolCallId = card.toolCallId
+    } else if ((pairing.value as { kind?: string } | null | undefined)?.kind === 'browser') {
+      // F4 finding 1: browser approvals re-park from the payload like edits.
+      // The dangling scan is run_command-only so pairing.call is always null
+      // here (and interruptBelongsToToolCall now rejects run_command candidates
+      // for a browser payload), so synthesizedApprovalCard reconstructs the REAL
+      // browser card — tool + input from the payload — instead of the empty
+      // run_command fallback whose innocuous-looking approval would resume and
+      // EXECUTE the parked action (e.g. arbitrary in-page JS via evaluate). No
+      // ctx seeding (the Bb3 edit precedent): the replayed browser tool
+      // re-executes from its interrupt() and returns its own result; the
+      // crash-resumed tool_result row is a cosmetic history gap. Deny stays safe
+      // — the toolCallId is preserved so the pin lands in byToolCallId.
       const card = synthesizedApprovalCard(pairing.value)
       tool = card.tool
       input = card.input

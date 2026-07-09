@@ -19,7 +19,7 @@ import { createHash, randomUUID } from 'crypto'
 import { interrupt } from '@langchain/langgraph'
 import { tool } from 'langchain'
 import { z } from 'zod'
-import type { Artifact, Event } from '../../shared/types'
+import type { Artifact, Event, ToolName } from '../../shared/types'
 import { appendOrReplaceEvent } from '../db'
 import {
   approvePlanArtifact,
@@ -682,6 +682,14 @@ export function buildTools(
       blocklist: s.browserBlocklist ?? []
     }
   }
+  // F4 finding 2: hand the manager the live Settings-derived policy so its
+  // navigation interceptor (will-navigate/will-redirect) enforces L2 as a hard
+  // gate on EVERY navigation — browser_evaluate location changes, in-page link
+  // clicks, and server redirects — not just the browser_navigate tool. Set here
+  // (agent-build time) so the provider is always installed before any browser
+  // tool can call browserManager.start(). browserPolicy reads getSettings fresh
+  // each call, so the interceptor always sees the current allow/blocklist.
+  browserManager.setPolicyProvider(browserPolicy)
   const browserToolCallId = (config: unknown): string | undefined =>
     (config as { toolCallId?: string } | null | undefined)?.toolCallId
 
@@ -697,10 +705,19 @@ export function buildTools(
   const gateBrowserAction = (
     decision: 'allow' | 'prompt' | 'block',
     blockedMessage: string,
-    action: string,
+    // The REAL tool name + its call input. The canonical action label is
+    // derived from them (browserActionLabel) for the pin key, and both ride the
+    // interrupt payload so a crash-resumed browser approval re-surfaces as its
+    // true browser card (graph.ts synthesizedApprovalCard) instead of a
+    // mislabeled empty run_command card whose approval would execute this action
+    // (F4 finding 1). Keep tool+input in lockstep with the streamed call args so
+    // the rehydrated card shows exactly what will run.
+    tool: ToolName,
+    input: unknown,
     config: unknown
   ): string | null => {
     const toolCallId = browserToolCallId(config)
+    const action = browserActionLabel(tool, input)
     // BEFORE the block/prompt/consent decision: on a keyed-resume replay a
     // recorded Denial must win even when the decision has since flipped to
     // 'allow' (mode→auto, session consent granted by an approved sibling, or
@@ -716,6 +733,8 @@ export function buildTools(
       const approval = interrupt({
         kind: 'browser',
         action,
+        tool,
+        input,
         toolCallId
       }) as { approved?: boolean } | null | undefined
       if (!approval?.approved) return 'User denied this browser action.'
@@ -740,7 +759,8 @@ export function buildTools(
       const refusal = gateBrowserAction(
         decision,
         `Blocked: ${url} is not permitted by the browser domain policy (blocklist).`,
-        browserActionLabel('browser_navigate', { url }),
+        'browser_navigate',
+        { url },
         config
       )
       if (refusal) return refusal
@@ -846,7 +866,8 @@ export function buildTools(
       const refusal = gateBrowserAction(
         decision,
         'Plan mode is read-only; browser clicks are blocked. Submit a plan and wait for approval first.',
-        browserActionLabel('browser_click', { ref }),
+        'browser_click',
+        { ref },
         config
       )
       if (refusal) return refusal
@@ -876,7 +897,8 @@ export function buildTools(
       const refusal = gateBrowserAction(
         decision,
         'Plan mode is read-only; browser typing is blocked. Submit a plan and wait for approval first.',
-        browserActionLabel('browser_type', { ref }),
+        'browser_type',
+        { ref, text, submit: submit ?? false },
         config
       )
       if (refusal) return refusal
@@ -905,7 +927,8 @@ export function buildTools(
       const refusal = gateBrowserAction(
         decision,
         'Plan mode is read-only; running JavaScript in the page is blocked. Submit a plan and wait for approval first.',
-        browserActionLabel('browser_evaluate', {}),
+        'browser_evaluate',
+        { script },
         config
       )
       if (refusal) return refusal
