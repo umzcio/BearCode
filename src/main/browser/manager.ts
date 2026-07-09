@@ -20,12 +20,13 @@ class BrowserManager {
   // The BrowserPane's ResizeObserver overrides this with real bounds on mount.
   private bounds: Bounds = { x: -10000, y: 0, width: 1280, height: 800 }
   // L2 domain policy provider (F4 finding 2). The tool layer wires this to the
-  // live Settings-derived policy (tools.ts buildTools) so the navigation
-  // interceptor below always consults the current allow/blocklist. Defaults to
-  // an EMPTY policy that blocks nothing — but the interceptor is a hard gate
-  // only for what the policy names, and buildTools sets the real provider
-  // before any browser tool can call start(), so this default never governs a
-  // live session.
+  // live Settings-derived policy in tools.ts `buildBrowserTools` (which graph.ts
+  // wires UNCONDITIONALLY — folder or not — so the provider is always installed),
+  // so the navigation interceptor below always consults the current
+  // allow/blocklist. Defaults to an EMPTY policy that blocks nothing — but the
+  // interceptor is a hard gate only for what the policy names, and
+  // buildBrowserTools sets the real provider before any browser tool can call
+  // start(), so this default never governs a live session.
   private policyProvider: () => DomainPolicy = () => ({ allowlist: [], blocklist: [] })
   setPolicyProvider(provider: () => DomainPolicy): void {
     this.policyProvider = provider
@@ -113,6 +114,14 @@ class BrowserManager {
       await this.teardown()
       throw err instanceof Error ? err : new Error(String(err))
     }
+    // finding 4: if Playwright disconnects mid-session, tear the session DOWN
+    // (detach + destroy the view) rather than only nulling the page — otherwise
+    // status() reports a stranded view against a dead connection. Registered
+    // BEFORE the awaited emulateMedia loop below (polish review): if the
+    // connection drops mid-loop, 'disconnected' must still reach a live handler.
+    this.browser?.on('disconnected', () => {
+      void this.teardown()
+    })
     // THEME FIX (confirmed via probe): connectOverCDP applies Playwright's
     // default colorScheme:'light' emulation to EVERY attached page — including
     // BearCode's own renderer — which flips the app UI to light in System theme
@@ -130,12 +139,6 @@ class BrowserManager {
     } catch {
       /* leave app theme as-is if the reset fails */
     }
-    // finding 4: if Playwright disconnects mid-session, tear the session DOWN
-    // (detach + destroy the view) rather than only nulling the page — otherwise
-    // status() reports a stranded view against a dead connection.
-    this.browser?.on('disconnected', () => {
-      void this.teardown()
-    })
   }
 
   // Connect to the CDP endpoint and resolve our view's page, retrying ONCE
