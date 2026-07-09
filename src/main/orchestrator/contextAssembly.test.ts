@@ -240,7 +240,7 @@ describe('assembleCommandAdditions', () => {
 
   it('produces the /browser delegation block steering to the browser subagent', () => {
     const command: CommandRef = { name: 'browser', kind: 'builtin' }
-    const result = assembleCommandAdditions(command, [], true)
+    const result = assembleCommandAdditions(command, [])
     expect(result.error).toBeUndefined()
     const joined = result.systemAdditions.join('\n')
     expect(joined).toContain('Turn modifier: /browser.')
@@ -251,24 +251,15 @@ describe('assembleCommandAdditions', () => {
     expect(joined).toContain(PRECEDENCE_SUBSTRING)
   })
 
-  it('defaults to allowing /browser (hasProjectFolder defaults to true)', () => {
-    // Existing callers/tests pass only (command, workflows); the folder gate
-    // must not break them.
+  it('allows /browser with no project folder open (browser tools are folder-independent)', () => {
+    // The browser_* tools live in buildBrowserTools, which graph.ts wires in
+    // unconditionally -- browsing has no project-folder dependency (session
+    // data keys off conversationId, not projectPath). /browser must never
+    // refuse for lack of a folder.
     const command: CommandRef = { name: 'browser', kind: 'builtin' }
     const result = assembleCommandAdditions(command, [])
     expect(result.error).toBeUndefined()
     expect(result.systemAdditions.join('\n')).toContain('Turn modifier: /browser.')
-  })
-
-  it('refuses /browser with an actionable error when no project folder is open (Fable B3 finding 1)', () => {
-    // The browser_* tools live in buildTools, which graph.ts only wires when a
-    // project backend exists. Without a folder the delegation would land on a
-    // toolless subagent that silently cannot browse -- refuse the turn instead.
-    const command: CommandRef = { name: 'browser', kind: 'builtin' }
-    const result = assembleCommandAdditions(command, [], false)
-    expect(result.systemAdditions).toEqual([])
-    expect(result.error).toBeTruthy()
-    expect(result.error).toContain('folder')
   })
 
   it('produces a workflow frame with numbered resolved steps, the write_todos bootstrap, and the precedence line', () => {

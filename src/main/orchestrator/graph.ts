@@ -80,6 +80,7 @@ import { getCheckpointer } from './checkpointer'
 import { DiffFsBackend, GatedDiffFsBackend } from './fsBackend'
 import {
   buildTools,
+  buildBrowserTools,
   clearAllPlanReviewPending,
   clearDeniedReplayPins,
   clearPlanReviewPending,
@@ -113,12 +114,12 @@ const RESEARCHER_SUBAGENT = {
 }
 
 // F4: the browser subagent — the /browser path. It drives the embedded browser
-// through the flat `browser_*` tools (buildTools). Not scoped to a tools subset
-// here: like RESEARCHER_SUBAGENT it inherits the main toolset (deepagents
+// through the flat `browser_*` tools (buildBrowserTools). Not scoped to a tools
+// subset here: like RESEARCHER_SUBAGENT it inherits the main toolset (deepagents
 // defaults to the parent's tools when `tools` is omitted), so the browser_*
-// tools — already present on the main agent — are available, and the guard
-// chain (mode/domain/enable) gates them identically whether the main agent or
-// this subagent calls them.
+// tools — always present on the main agent, folder-independent — are
+// available, and the guard chain (mode/domain/enable) gates them identically
+// whether the main agent or this subagent calls them.
 const BROWSER_SUBAGENT = {
   name: 'browser',
   description:
@@ -2074,7 +2075,7 @@ function buildAgentAndContext(
   // policies that must never share a catch. loadAgentsContent already ran
   // above for the rules; `workflows` rides that same call (possibly [] if it
   // threw), so this never does extra IO.
-  const cmd = assembleCommandAdditions(command, workflows, projectPath != null)
+  const cmd = assembleCommandAdditions(command, workflows)
   if (cmd.error) return { refusal: cmd.error }
   const commandAdditions =
     cmd.systemAdditions.length > 0 ? '\n\n' + cmd.systemAdditions.join('\n\n') : ''
@@ -2138,18 +2139,17 @@ function buildAgentAndContext(
       mentionAdditions,
     checkpointer: getCheckpointer(),
     subagents: [RESEARCHER_SUBAGENT, BROWSER_SUBAGENT],
-    ...(backendFactory
-      ? {
-          backend: backendFactory,
-          tools: buildTools(
-            projectPath as string,
-            conversationId,
-            sink,
-            diffGroupId,
-            worktreeMappings
-          )
-        }
-      : {})
+    ...(backendFactory ? { backend: backendFactory } : {}),
+    // F4 decoupling: browser_* tools (buildBrowserTools) are ALWAYS present —
+    // browsing has no project-folder dependency (session data keys off
+    // conversationId, not projectPath). Project-scoped tools (buildTools) stay
+    // folder-gated behind backendFactory, exactly as before.
+    tools: [
+      ...(backendFactory
+        ? buildTools(projectPath as string, conversationId, sink, diffGroupId, worktreeMappings)
+        : []),
+      ...buildBrowserTools(conversationId)
+    ]
   })
   const ctx: DriveContext = {
     conversationId,

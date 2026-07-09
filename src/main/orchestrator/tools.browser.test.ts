@@ -46,20 +46,20 @@ import { resolveConversationMode } from '../permissions'
 import { getSettings } from '../settings'
 import { browserManager } from '../browser/manager'
 import { interrupt } from '@langchain/langgraph'
-import type { RunSink } from '../sink'
-import { buildTools, clearBrowserConsent, clearDeniedReplayPins, pinDeniedReplays } from './tools'
-
-const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
+import {
+  buildBrowserTools,
+  clearBrowserConsent,
+  clearDeniedReplayPins,
+  pinDeniedReplays
+} from './tools'
 
 interface InvokableTool {
   name: string
   invoke: (input: unknown, config?: unknown) => Promise<string>
 }
 const browserTools = (): Record<string, InvokableTool> => {
-  const tools = buildTools('/tmp', 'convo', makeSink(), 'group-1') as unknown as InvokableTool[]
-  return Object.fromEntries(
-    tools.filter((t) => t.name.startsWith('browser_')).map((t) => [t.name, t])
-  )
+  const tools = buildBrowserTools('convo') as unknown as InvokableTool[]
+  return Object.fromEntries(tools.map((t) => [t.name, t]))
 }
 
 beforeEach(() => {
@@ -83,7 +83,7 @@ beforeEach(() => {
 })
 
 describe('browser_* tools registration', () => {
-  it('appends all eight browser tools to buildTools', () => {
+  it('buildBrowserTools returns all eight browser tools', () => {
     const names = Object.keys(browserTools()).sort()
     expect(names).toEqual([
       'browser_click',

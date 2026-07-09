@@ -107,13 +107,7 @@ const PRECEDENCE_LINES = [
 
 export function assembleCommandAdditions(
   command: CommandRef | null,
-  workflows: Workflow[],
-  // F4 (Fable B3 finding 1): the browser_* tools live in buildTools, which
-  // graph.ts only wires when a project backend exists (projectPath set).
-  // Without a folder, /browser would delegate to a toolless subagent that
-  // silently can't browse -- so gate it here. Defaults to true so every other
-  // caller/test (which don't touch the browser) is unaffected.
-  hasProjectFolder = true
+  workflows: Workflow[]
 ): CommandAdditions {
   if (!command) return { systemAdditions: [] }
 
@@ -153,15 +147,10 @@ export function assembleCommandAdditions(
     // /browser (F4): steer this turn through the browser subagent rather than
     // letting the main agent drive the browser_* tools inline, so the work is
     // attributed to the browser subagent's stream. The delegation rides via the
-    // built-in `task` tool with subagent_type "browser".
+    // built-in `task` tool with subagent_type "browser". The browser_* tools
+    // (buildBrowserTools) are folder-independent, so /browser works with or
+    // without a project folder open -- no refusal here anymore.
     if (command.name === 'browser') {
-      if (!hasProjectFolder) {
-        return {
-          systemAdditions: [],
-          error:
-            'The browser tool needs an open project folder (it stores per-conversation session data and downloads under the project). Open a folder for this conversation, then run /browser again.'
-        }
-      }
       return {
         systemAdditions: [
           '',
