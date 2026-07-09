@@ -6,6 +6,23 @@ import { ensureChromium, chromiumInstalled } from './install'
 import { indexOfPageWithToken, type DomainPolicy } from './policy'
 import { navigationBlockedByPolicy } from './guard'
 
+// Playwright locator errors embed ANSI color codes and a long "Call log:" retry
+// dump that render as unreadable noise ("[2m … [22m") in the tool error card.
+// Strip the ANSI and keep only the first line (the actual failure) so the agent
+// + the card get a clean message.
+async function cleanPlaywrightError<T>(op: () => Promise<T>): Promise<T> {
+  try {
+    return await op()
+  } catch (e) {
+    const raw = e instanceof Error ? e.message : String(e)
+    const firstLine = raw
+      .split('\n')[0]
+      .replace(/\[[0-9;]*m/g, '')
+      .trim()
+    throw new Error(firstLine || raw)
+  }
+}
+
 type Bounds = { x: number; y: number; width: number; height: number }
 
 class BrowserManager {
@@ -217,12 +234,14 @@ class BrowserManager {
     return `data:image/png;base64,${buf.toString('base64')}`
   }
   async click(ref: string): Promise<void> {
-    await refLocator(this.requirePage(), ref).click({ timeout: 10000 })
+    await cleanPlaywrightError(() => refLocator(this.requirePage(), ref).click({ timeout: 10000 }))
   }
   async type(ref: string, text: string, submit = false): Promise<void> {
-    const loc = refLocator(this.requirePage(), ref)
-    await loc.fill(text, { timeout: 10000 })
-    if (submit) await loc.press('Enter')
+    await cleanPlaywrightError(async () => {
+      const loc = refLocator(this.requirePage(), ref)
+      await loc.fill(text, { timeout: 10000 })
+      if (submit) await loc.press('Enter')
+    })
   }
   async scroll(dir: 'up' | 'down'): Promise<void> {
     await this.requirePage().mouse.wheel(0, dir === 'down' ? 600 : -600)
