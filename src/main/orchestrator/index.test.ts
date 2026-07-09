@@ -24,7 +24,7 @@ vi.mock('../db', () => ({
 }))
 vi.mock('./checkpointer', () => ({ pruneCheckpoints: vi.fn() }))
 
-import { assertValidMentions } from './index'
+import { assertValidCommand, assertValidMentions } from './index'
 
 describe('assertValidMentions', () => {
   it('returns [] for null and undefined', () => {
@@ -64,5 +64,36 @@ describe('assertValidMentions', () => {
   it('throws when the array is too large', () => {
     const big = Array.from({ length: 51 }, () => ({ kind: 'file', name: 'a' }))
     expect(() => assertValidMentions(big)).toThrow(/too many/)
+  })
+})
+
+describe('assertValidCommand', () => {
+  it('returns null for null and undefined', () => {
+    expect(assertValidCommand(null)).toBeNull()
+    expect(assertValidCommand(undefined)).toBeNull()
+  })
+
+  it('passes the sendable built-ins through', () => {
+    expect(assertValidCommand({ name: 'goal', kind: 'builtin' })).toEqual({
+      name: 'goal',
+      kind: 'builtin'
+    })
+    expect(assertValidCommand({ name: 'compact', kind: 'builtin' })).toEqual({
+      name: 'compact',
+      kind: 'builtin'
+    })
+  })
+
+  it('passes the browser built-in through (F4: /browser is sendable)', () => {
+    expect(assertValidCommand({ name: 'browser', kind: 'builtin' })).toEqual({
+      name: 'browser',
+      kind: 'builtin'
+    })
+  })
+
+  it('rejects a non-sendable built-in', () => {
+    expect(() => assertValidCommand({ name: 'learn', kind: 'builtin' })).toThrow(
+      /cannot be sent as a command/
+    )
   })
 })

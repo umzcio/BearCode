@@ -176,10 +176,11 @@ export function assertValidPlanReviewResolution(proceed: unknown, message: unkno
 // The sendable built-ins (D2 Task 3, design 6.2): `resume` is a pure UI
 // action that never reaches run:start and the remaining coming-soon built-ins
 // are menu entries only. `compact` is sendable — it forces summarization on
-// the turn it is invoked. Mirrors BUILTIN_COMMANDS' status field (commands.ts)
-// without importing it, so this boundary check never needs a live
-// AgentsContent to run.
-const SENDABLE_BUILTINS = new Set(['goal', 'grill-me', 'compact'])
+// the turn it is invoked. `browser` (F4) is sendable — it delegates the turn
+// to the browser subagent. Mirrors BUILTIN_COMMANDS' status field
+// (commands.ts) without importing it, so this boundary check never needs a
+// live AgentsContent to run.
+const SENDABLE_BUILTINS = new Set(['goal', 'grill-me', 'compact', 'browser'])
 
 // Wire-boundary guard for bearcode:run:start's optional `command` argument
 // (src/main/ipc.ts). Same posture as assertValidPlanReviewResolution above:

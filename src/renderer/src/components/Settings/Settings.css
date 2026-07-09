@@ -714,3 +714,100 @@
   color: var(--red, #e5484d);
   border-color: var(--red, #e5484d);
 }
+
+/* ---------- Browser tab (F4) ---------- */
+/* A domain-list row spans the full width instead of the title/control split. */
+.set-row-editor {
+  display: block;
+  padding-top: 0;
+}
+.domain-editor {
+  width: 100%;
+}
+.domain-add {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.domain-add .set-input {
+  flex: 1;
+  min-width: 0;
+}
+.domain-add .pill-btn {
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.domain-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.domain-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 6px 4px 12px;
+  font-size: 12.5px;
+  color: var(--text);
+  max-width: 100%;
+}
+.domain-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.domain-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 999px;
+  flex-shrink: 0;
+  padding: 0;
+}
+.domain-chip-x:hover {
+  color: var(--red, #e5484d);
+  background: var(--border-soft);
+}
+.domain-empty {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.browser-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.browser-status .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--text-dim);
+  flex-shrink: 0;
+}
+.browser-status .status-dot.ok {
+  background: var(--green, #46a758);
+}
+.browser-relaunch-note {
+  margin: 10px 16px 14px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--amber-border, rgba(224, 168, 0, 0.35));
+  background: var(--amber-wash, rgba(224, 168, 0, 0.1));
+  color: var(--text, inherit);
+  font-size: 12.5px;
+  line-height: 1.45;
+}

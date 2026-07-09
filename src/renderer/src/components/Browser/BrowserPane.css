@@ -1,0 +1,8 @@
+/* F4: placeholder rect the main-side WebContentsView paints over. Fills the
+   aux pane column; the wash keeps a neutral backdrop while the view loads or
+   when it is hidden. */
+.browser-pane {
+  width: 100%;
+  height: 100%;
+  background: var(--wash);
+}

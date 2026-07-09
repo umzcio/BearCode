@@ -270,8 +270,8 @@ export function Composer({
   // conversation -- OR, on Home (no conversationId yet), under a lazily-minted
   // draft conversation id that startFromHome later creates the conversation
   // as (store.ts ensureDraftConvoId), so Media works before the first send.
-  // Mentions opens the @ menu; Actions opens the / menu; Browser is coming
-  // soon. The @/ menus already key off the textarea contents (mentionQuery /
+  // Mentions opens the @ menu; Actions opens the / menu; Browser drops the
+  // /browser command chip. The @/ menus already key off the textarea contents (mentionQuery /
   // value[0] === '/'), so those two just seed + focus.
   const onMedia = async (): Promise<void> => {
     setAddMenuOpen(false)
@@ -295,6 +295,13 @@ export function Composer({
     setValue('/')
     setMenuDismissed(false)
     setPendingCaret(1)
+  }
+  // F4: Browser drops the /browser command chip (routes the turn through the
+  // browser subagent). One command per turn, so it no-ops if a pill is present.
+  const onBrowser = (): void => {
+    setAddMenuOpen(false)
+    if (command !== null) return
+    setCommand({ name: 'browser', kind: 'builtin' })
   }
 
   // Splice a voice transcript into the composer at the caret, reusing the
@@ -599,10 +606,9 @@ export function Composer({
                   <IconSlash size={16} />
                   <span>Actions</span>
                 </div>
-                <div className="menu-item disabled" title="Coming soon">
+                <div className="menu-item" onClick={onBrowser}>
                   <IconGlobe size={16} />
                   <span>Browser</span>
-                  <span className="badge">coming soon</span>
                 </div>
               </div>
             ) : null}

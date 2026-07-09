@@ -8,7 +8,13 @@ import type {
   PermissionRulesInfo,
   PlanReviewResolveResult
 } from '@shared/types'
-import { useAppStore, shouldFollowNewDiff, refConfigured, type Convo } from './store'
+import {
+  useAppStore,
+  shouldFollowNewDiff,
+  shouldOpenBrowserPane,
+  refConfigured,
+  type Convo
+} from './store'
 import type { ProviderModels } from '@shared/types'
 
 const info: PermissionRulesInfo = {
@@ -271,6 +277,76 @@ describe('auxiliary pane selection (Ba4): one field, deep-link ticks, reset on s
     it('ignores non-file_diff events', () => {
       const msg = { type: 'assistant_text', id: 'ev-x', text: 'hi' } as unknown as Event
       expect(shouldFollowNewDiff(base, 'c1', msg)).toBe(false)
+    })
+  })
+
+  describe('shouldOpenBrowserPane (F4: auto-open the browser pane on a browser_* tool call)', () => {
+    const browserCall = {
+      type: 'tool_call',
+      id: 'ev-b1',
+      tool: 'browser_navigate',
+      input: {},
+      approvalState: 'auto'
+    } as unknown as Event
+    const base = {
+      view: { kind: 'conversation', id: 'c1' } as { kind: string; id?: string },
+      auxSelection: null as ReturnType<typeof useAppStore.getState>['auxSelection']
+    }
+
+    it('opens the pane when a browser_* tool call arrives for the active conversation', () => {
+      expect(shouldOpenBrowserPane(base, 'c1', browserCall)).toBe(true)
+    })
+    it('opens for every browser_* tool (e.g. browser_read, not just navigate)', () => {
+      const read = { ...browserCall, id: 'ev-b2', tool: 'browser_read' } as unknown as Event
+      expect(shouldOpenBrowserPane(base, 'c1', read)).toBe(true)
+    })
+    it('does NOT open for a non-browser tool call', () => {
+      const run = { ...browserCall, id: 'ev-r1', tool: 'run_command' } as unknown as Event
+      expect(shouldOpenBrowserPane(base, 'c1', run)).toBe(false)
+    })
+    it('does NOT open for a non-active conversation', () => {
+      expect(
+        shouldOpenBrowserPane(
+          { ...base, view: { kind: 'conversation', id: 'c2' } },
+          'c1',
+          browserCall
+        )
+      ).toBe(false)
+    })
+    it('does NOT re-open when the pane already shows this conversation browser', () => {
+      const already = { ...base, auxSelection: { kind: 'browser' as const, conversationId: 'c1' } }
+      expect(shouldOpenBrowserPane(already, 'c1', browserCall)).toBe(false)
+    })
+    it('DOES open when the browser pane is showing a DIFFERENT conversation', () => {
+      const other = { ...base, auxSelection: { kind: 'browser' as const, conversationId: 'c2' } }
+      expect(shouldOpenBrowserPane(other, 'c1', browserCall)).toBe(true)
+    })
+    it('ignores non-tool_call events', () => {
+      const msg = { type: 'assistant_text', id: 'ev-x', text: 'hi' } as unknown as Event
+      expect(shouldOpenBrowserPane(base, 'c1', msg)).toBe(false)
+    })
+
+    // Fable B3 finding 2: once a conversation has auto-opened the browser pane
+    // (latch), a later browser_* step in the SAME turn must NOT yank the pane
+    // back open -- the user may have moved the pane to a diff/artifact to read
+    // while the agent works. The latch is the `openedConvos` set.
+    it('does NOT re-open once the conversation has already auto-opened (latched), even if the user moved the pane to a diff', () => {
+      const onDiff = { ...base, auxSelection: { kind: 'diff' as const, diffId: 'd1' } }
+      const latched = new Set(['c1'])
+      expect(shouldOpenBrowserPane(onDiff, 'c1', browserCall, latched)).toBe(false)
+    })
+    it('does NOT re-open when latched even if the pane moved to an artifact', () => {
+      const onArtifact = { ...base, auxSelection: { kind: 'artifact' as const, artifactId: 'a1' } }
+      const latched = new Set(['c1'])
+      expect(shouldOpenBrowserPane(onArtifact, 'c1', browserCall, latched)).toBe(false)
+    })
+    it('DOES open the first time (not yet latched) even if the pane currently shows a diff', () => {
+      const onDiff = { ...base, auxSelection: { kind: 'diff' as const, diffId: 'd1' } }
+      expect(shouldOpenBrowserPane(onDiff, 'c1', browserCall, new Set())).toBe(true)
+    })
+    it('a latch on a DIFFERENT conversation does not suppress this one', () => {
+      const latchedOther = new Set(['c2'])
+      expect(shouldOpenBrowserPane(base, 'c1', browserCall, latchedOther)).toBe(true)
     })
   })
 

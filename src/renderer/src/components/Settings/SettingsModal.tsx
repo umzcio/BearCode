@@ -20,6 +20,7 @@ import { GeneralPage } from './pages/GeneralPage'
 import { ProvidersPage } from './pages/ProvidersPage'
 import { ModelsPage } from './pages/ModelsPage'
 import { PermissionsPage } from './pages/PermissionsPage'
+import { BrowserPage } from './pages/BrowserPage'
 import { SettingPlaceholder } from './SettingPlaceholder'
 import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
 import type { SettingsPageId } from './SettingsNav'
@@ -75,10 +76,6 @@ const PLACEHOLDERS: Record<string, { title: string; description: string }> = {
   integrations: {
     title: 'Integrations',
     description: 'Link BearCode to the services you already use — arriving in a future update.'
-  },
-  browser: {
-    title: 'Browser',
-    description: 'Give the agent controlled access to a real browser — arriving in a future update.'
   }
 }
 
@@ -305,6 +302,8 @@ function SettingsPanel({
           ) : null}
 
           {page === 'models' ? <ModelsPage /> : null}
+
+          {page === 'browser' ? <BrowserPage /> : null}
 
           {PLACEHOLDERS[page] ? (
             <SettingPlaceholder

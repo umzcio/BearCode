@@ -35,6 +35,7 @@ import {
   deniedToolCallEvents,
   resolvedToolCallEvents,
   deniedReplayPinsOf,
+  toolResultOutput,
   synthesizedApprovalCard,
   pairedApprovalInput,
   isRehydratableInterrupt,
@@ -48,6 +49,7 @@ import {
   type ApprovalItem
 } from './graph'
 import type { PlanReviewResolution } from './tools'
+import { browserManager } from '../browser/manager'
 import type { RunSink } from '../sink'
 import type { AttachmentRef } from '../../shared/types'
 
@@ -298,6 +300,28 @@ describe('interruptBelongsToToolCall (pending-interrupt attribution)', () => {
     ).toBe(true)
     expect(interruptBelongsToToolCall(undefined, { name: 'run_command', args: {} })).toBe(true)
   })
+
+  it('a browser payload never claims a run_command candidate (F4 finding 1)', () => {
+    // The crash-resume dangling scan is run_command-only. Without the browser
+    // branch an id-less browser payload hit the terminal `return true` and
+    // claimed an unrelated run_command call, mislabeling the re-surfaced card.
+    const browserValue = { kind: 'browser', tool: 'browser_evaluate', input: { script: 'x' } }
+    expect(
+      interruptBelongsToToolCall(browserValue, {
+        id: 'tc1',
+        name: 'run_command',
+        args: { command: 'ls' }
+      })
+    ).toBe(false)
+  })
+
+  it('a browser payload pairs to its browser_* call by toolCallId, never a fallback', () => {
+    const v = { kind: 'browser', tool: 'browser_click', input: { ref: 'e1' }, toolCallId: 'tcB' }
+    expect(interruptBelongsToToolCall(v, { id: 'tcB', name: 'browser_click' })).toBe(true)
+    // id-less browser candidate: no fallback pairing (must match by toolCallId).
+    const idless = { kind: 'browser', tool: 'browser_click', input: { ref: 'e1' } }
+    expect(interruptBelongsToToolCall(idless, { id: 'x', name: 'browser_click' })).toBe(false)
+  })
 })
 
 describe('edit interrupt pairing', () => {
@@ -513,6 +537,32 @@ describe('synthesizedApprovalCard (call:null synthesis and edit rehydration)', (
       synthesizedApprovalCard({ kind: 'edit_file', tool: 'run_command', path: 'a' }).tool
     ).toBe('write_file')
   })
+
+  it('synthesizes a browser card from the payload tool + input (never an empty run_command)', () => {
+    // F4 finding 1: a crash-resumed browser approval must re-surface as its REAL
+    // browser card. Before the fix it fell through to the run_command default,
+    // and approving that empty-command card resumed and EXECUTED the parked
+    // action (here arbitrary in-page JS via evaluate).
+    expect(
+      synthesizedApprovalCard({
+        kind: 'browser',
+        action: 'evaluate JavaScript in the page',
+        tool: 'browser_evaluate',
+        input: { script: 'location.href="https://evil.example"' },
+        toolCallId: 'tcEval'
+      })
+    ).toEqual({
+      tool: 'browser_evaluate',
+      input: { script: 'location.href="https://evil.example"' },
+      toolCallId: 'tcEval'
+    })
+  })
+
+  it('degrades a malformed browser payload to browser_navigate, never escaping to another tool', () => {
+    const card = synthesizedApprovalCard({ kind: 'browser', tool: 'run_command', input: {} })
+    expect(card.tool).toBe('browser_navigate')
+    expect(card.input).toEqual({})
+  })
 })
 
 describe('pairedApprovalInput (live paired-card input enrichment)', () => {
@@ -562,6 +612,13 @@ describe('isRehydratableInterrupt (crash-resume kind filter)', () => {
   it('accepts both approval-bearing kinds', () => {
     expect(isRehydratableInterrupt({ kind: 'run_command', command: 'ls' })).toBe(true)
     expect(isRehydratableInterrupt({ kind: 'edit_file', tool: 'write_file', path: 'a' })).toBe(true)
+  })
+
+  it('accepts plan_review and browser (they survive a crash/restart)', () => {
+    expect(isRehydratableInterrupt({ kind: 'plan_review', artifactId: 'a' })).toBe(true)
+    expect(
+      isRehydratableInterrupt({ kind: 'browser', tool: 'browser_evaluate', input: { script: 'x' } })
+    ).toBe(true)
   })
 
   it('rejects unknown kinds and malformed values', () => {
@@ -717,6 +774,40 @@ describe('pairInterruptsToCalls (interrupt-to-tool_call pairing)', () => {
       [ls]
     )
     expect(out[0].call).toBeNull()
+  })
+
+  it('crash-resume: a browser interrupt pairs to NO run_command candidate, then synthesizes its real card (F4 finding 1)', () => {
+    // This is exactly the composition rehydratePausedRun runs: the dangling
+    // scan is run_command-only, so a parked browser approval must pair to null
+    // and re-park from synthesizedApprovalCard — the REAL browser card, not the
+    // empty run_command fallback whose approval would EXECUTE the parked action.
+    const evalInterrupt = {
+      interruptId: 'ib',
+      value: {
+        kind: 'browser',
+        action: 'evaluate JavaScript in the page',
+        tool: 'browser_evaluate',
+        input: { script: 'fetch("/steal")' },
+        toolCallId: 'tcEval'
+      }
+    }
+    const dangling = findDanglingRunCommandCalls([
+      {
+        tool_calls: [
+          { id: 'tcEval', name: 'browser_evaluate', args: { script: 'fetch("/steal")' } }
+        ]
+      }
+    ])
+    // The browser call is NOT a run_command, so the scan yields nothing.
+    expect(dangling).toEqual([])
+    const out = pairInterruptsToCalls([evalInterrupt], dangling)
+    expect(out[0].call).toBeNull()
+    const card = synthesizedApprovalCard(out[0].value)
+    expect(card).toEqual({
+      tool: 'browser_evaluate',
+      input: { script: 'fetch("/steal")' },
+      toolCallId: 'tcEval'
+    })
   })
 })
 
@@ -893,6 +984,92 @@ describe('approval decision collection (collect-then-resume)', () => {
           ])
         )
       ).toEqual([])
+    })
+
+    const deniedBrowser = (input: unknown, toolCallId?: string): ApprovalItem => ({
+      interruptId: 'ib',
+      tool: 'browser_click',
+      input,
+      toolCallId,
+      decision: false
+    })
+
+    it('pins a denied browser card under its canonical action label', () => {
+      // The pin key must equal browserActionLabel(tool, input) so the replayed
+      // tool's takeDeniedBrowserReplayPin (id-less fallback) matches it.
+      const pins = deniedReplayPinsOf(items(['c1', deniedBrowser({ ref: 'e12' }, 'tc2')]))
+      expect(pins).toEqual([{ toolCallId: 'tc2', browserAction: 'click e12' }])
+    })
+
+    it('pins an id-less denied browser card under browserAction only', () => {
+      const pins = deniedReplayPinsOf(
+        items([
+          'c1',
+          {
+            interruptId: 'ib',
+            tool: 'browser_navigate',
+            input: { url: 'https://x.com/a' },
+            decision: false
+          }
+        ])
+      )
+      expect(pins).toEqual([{ toolCallId: undefined, browserAction: 'navigate https://x.com/a' }])
+    })
+
+    it('never pins an approved browser card', () => {
+      expect(
+        deniedReplayPinsOf(
+          items(['c1', { ...deniedBrowser({ ref: 'e1' }, 'tc9'), decision: true }])
+        )
+      ).toEqual([])
+    })
+  })
+
+  describe('toolResultOutput (card output vs. model text)', () => {
+    it('applies the 50000-char budget to a normal tool result', () => {
+      const big = 'x'.repeat(60000)
+      const { output, truncated } = toolResultOutput('run_command', 'tc1', big, true)
+      expect(truncated).toBe(true)
+      expect(output.endsWith('… output truncated')).toBe(true)
+      expect(output.length).toBeLessThan(60000)
+    })
+
+    it('passes a short result through untouched', () => {
+      expect(toolResultOutput('run_command', 'tc1', 'ok', true)).toEqual({
+        output: 'ok',
+        truncated: false
+      })
+    })
+
+    it('splices a stashed screenshot into the persisted output, bypassing truncation', () => {
+      const dataUrl = 'data:image/png;base64,' + 'A'.repeat(200000)
+      browserManager.stashScreenshot('tcShot', dataUrl)
+      // take=true (authoritative persist) consumes the stash and returns the
+      // FULL data URL — never truncated — while the model only ever saw the
+      // placeholder passed as modelText.
+      const { output, truncated } = toolResultOutput(
+        'browser_screenshot',
+        'tcShot',
+        'Screenshot captured (~150 KB); rendered in the browser step for the user.',
+        true
+      )
+      expect(output).toBe(dataUrl)
+      expect(truncated).toBe(false)
+      // Take-once: a second read finds nothing stashed and falls back to the
+      // model text (budgeted).
+      expect(toolResultOutput('browser_screenshot', 'tcShot', 'placeholder', true).output).toBe(
+        'placeholder'
+      )
+    })
+
+    it('peek (live stream) leaves the stash for the authoritative persist to consume', () => {
+      const dataUrl = 'data:image/png;base64,ZZZ'
+      browserManager.stashScreenshot('tcPeek', dataUrl)
+      expect(toolResultOutput('browser_screenshot', 'tcPeek', 'x', false).output).toBe(dataUrl)
+      // Still present for the take.
+      expect(toolResultOutput('browser_screenshot', 'tcPeek', 'x', true).output).toBe(dataUrl)
+      // Now consumed.
+      expect(toolResultOutput('browser_screenshot', 'tcPeek', 'x', true).output).toBe('x')
     })
   })
 })

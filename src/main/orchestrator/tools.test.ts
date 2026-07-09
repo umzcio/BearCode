@@ -20,6 +20,14 @@ vi.mock('../artifacts/store', () => ({
 vi.mock('../agentsDir', () => ({
   loadAgentsContent: vi.fn(() => ({ rules: [], workflows: [] }))
 }))
+// F4: tools.ts now imports ../settings (electron) and ../browser/manager
+// (electron + playwright) for the browser_* tools; mock both so this suite's
+// import chain never pulls electron. The browser tools have their own suite
+// (tools.browser.test.ts); here they only need to not break module load.
+vi.mock('../settings', () => ({
+  getSettings: vi.fn(() => ({ browserEnabled: false, browserAllowlist: [], browserBlocklist: [] }))
+}))
+vi.mock('../browser/manager', () => ({ browserManager: { setPolicyProvider: vi.fn() } }))
 // Spread-importOriginal: only `interrupt` is stubbed, everything else
 // @langchain/langgraph exports (Command, etc.) stays live for this file.
 vi.mock('@langchain/langgraph', async (importOriginal) => ({
@@ -44,6 +52,7 @@ import {
   clearAllPlanReviewPending,
   clearDeniedReplayPins,
   pinDeniedReplays,
+  takeDeniedBrowserReplayPin,
   takeDeniedEditReplayPin,
   takeDeniedReplayPin,
   tryEnterPlanReview
@@ -162,6 +171,37 @@ describe('denied-replay pins for edits (takeDeniedEditReplayPin)', () => {
   })
 })
 
+describe('denied-replay pins for browser actions (takeDeniedBrowserReplayPin)', () => {
+  it('returns false when nothing is pinned', () => {
+    expect(takeDeniedBrowserReplayPin('convo', 'tc1', 'click e12')).toBe(false)
+  })
+
+  it('consumes a toolCallId pin exactly once', () => {
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1', browserAction: 'click e12' }])
+    expect(takeDeniedBrowserReplayPin('convo', 'tc1', 'click e12')).toBe(true)
+    expect(takeDeniedBrowserReplayPin('convo', 'tc1', 'click e12')).toBe(false)
+  })
+
+  it('falls back to the action multiset only for id-less pins and id-less calls', () => {
+    pinDeniedReplays('convo', [{ browserAction: 'click e12' }, { browserAction: 'click e12' }])
+    // A call carrying a toolCallId never claims an id-less pin.
+    expect(takeDeniedBrowserReplayPin('convo', 'tc1', 'click e12')).toBe(false)
+    expect(takeDeniedBrowserReplayPin('convo', undefined, 'click e12')).toBe(true)
+    expect(takeDeniedBrowserReplayPin('convo', undefined, 'click e12')).toBe(true)
+    expect(takeDeniedBrowserReplayPin('convo', undefined, 'click e12')).toBe(false)
+  })
+
+  it('keeps the browser-action namespace separate from command and edit-path', () => {
+    // A browser action string equal to a command / path must never cross-claim.
+    pinDeniedReplays('convo', [{ command: 'click e12' }, { editPath: 'click e12' }])
+    expect(takeDeniedBrowserReplayPin('convo', undefined, 'click e12')).toBe(false)
+    pinDeniedReplays('convo', [{ browserAction: 'make' }])
+    expect(takeDeniedReplayPin('convo', undefined, 'make')).toBe(false)
+    expect(takeDeniedEditReplayPin('convo', undefined, 'make')).toBe(false)
+    expect(takeDeniedBrowserReplayPin('convo', undefined, 'make')).toBe(true)
+  })
+})
+
 describe('run_command deny gate (replayed tool honors the recorded denial)', () => {
   it('returns the denied message without consulting the rules engine when pinned', async () => {
     // The finding's repro: 'always allow git *' saved from a sibling card
@@ -207,14 +247,22 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
     }
   }
 
-  it('registers both tools alongside run_command', () => {
+  it('registers both tools alongside run_command (F4 appends the browser_* tools)', () => {
     const names = allTools(makeSink()).map((t) => t.name)
     expect(names).toEqual([
       'run_command',
       'submit_plan',
       'submit_walkthrough',
       'activate_rule',
-      'generate_document'
+      'generate_document',
+      'browser_navigate',
+      'browser_read',
+      'browser_screenshot',
+      'browser_scroll',
+      'browser_wait',
+      'browser_click',
+      'browser_type',
+      'browser_evaluate'
     ])
   })
 

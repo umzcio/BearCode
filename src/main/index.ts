@@ -3,7 +3,38 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { bootResumeInterruptedRuns, registerIpc } from './ipc'
 import { runDevSmoke } from './devSmoke'
+import { REMOTE_DEBUG_PORT, setMainWindow, setBrowserDebuggingEnabled } from './mainWindow'
+import { getSettings } from './settings'
 import icon from '../../resources/icon.png?asset'
+
+// F4: expose a CDP endpoint so BrowserManager can drive an embedded
+// WebContentsView with Playwright connectOverCDP. Bound to loopback only. The
+// port + window ref live in ./mainWindow (a side-effect-free module) so
+// consumers like BrowserManager don't drag this app-bootstrap module — which
+// runs app.commandLine.* at import — into their graph. Re-exported here for
+// callers that expect the F4 window API off the app entry point.
+export { REMOTE_DEBUG_PORT, getMainWindow } from './mainWindow'
+
+// F4 finding 2 (SECURITY): open the CDP remote-debugging endpoint ONLY when the
+// Browser feature is enabled in settings. Opening it unconditionally would let
+// any same-user local process connect to the loopback port, enumerate targets,
+// and Runtime.evaluate inside BearCode's OWN renderer (which holds window.bearcode
+// IPC) — undermining the "off by default" L0 gate for every user who never
+// touches the browser. The value is read once at boot (persisted setting), so
+// enabling the feature requires an app relaunch (documented in Browser settings).
+function browserEnabledAtBoot(): boolean {
+  try {
+    return getSettings().browserEnabled === true
+  } catch {
+    return false
+  }
+}
+const cdpEnabled = browserEnabledAtBoot()
+setBrowserDebuggingEnabled(cdpEnabled)
+if (cdpEnabled) {
+  app.commandLine.appendSwitch('remote-debugging-port', String(REMOTE_DEBUG_PORT))
+  app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1')
+}
 
 // `ready-to-show` re-fires on renderer reloads (e.g. a dev-server restart,
 // same caveat as `runDevSmoke`'s own guard in devSmoke.ts); the crash-resume
@@ -18,7 +49,10 @@ function runBootResumeOnce(): void {
 }
 
 function createWindow(): void {
-  const mainWindow = new BrowserWindow({
+  // Use a local non-null handle inside this function; the shared ref (nulled in
+  // the `closed` handler below via setMainWindow) would lose narrowing across
+  // these closures.
+  const win = new BrowserWindow({
     width: 1480,
     height: 920,
     minWidth: 960,
@@ -44,22 +78,27 @@ function createWindow(): void {
       backgroundThrottling: false
     }
   })
+  setMainWindow(win)
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+  win.on('ready-to-show', () => {
+    win.show()
     runBootResumeOnce()
-    runDevSmoke(mainWindow)
+    runDevSmoke(win)
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  win.on('closed', () => {
+    setMainWindow(null)
+  })
+
+  win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 

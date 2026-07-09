@@ -169,6 +169,14 @@ export type ToolName =
   | 'task'
   | 'submit_plan'
   | 'submit_walkthrough'
+  | 'browser_navigate'
+  | 'browser_read'
+  | 'browser_screenshot'
+  | 'browser_scroll'
+  | 'browser_wait'
+  | 'browser_click'
+  | 'browser_type'
+  | 'browser_evaluate'
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
@@ -663,6 +671,15 @@ export interface AppSettings {
   // F9 template applied to every newly created project ("set as default for new
   // projects"). Optional & additive.
   newProjectDefaults?: ProjectSettings
+  // F4 browser tool: the L0 enable gate (design §L0). Off by default — the
+  // embedded browser never launches, and every browser_* tool refuses, until
+  // the user explicitly opts in. Optional & additive.
+  browserEnabled?: boolean
+  // F4 browser tool: the L2 domain policy (design §L2). An empty allowlist
+  // means "allow all but blocklist"; a non-empty allowlist restricts navigate
+  // to those origins. Optional & additive: absent -> [] (allow-all-but-block).
+  browserAllowlist?: string[]
+  browserBlocklist?: string[]
 }
 
 export interface SettingsInfo extends AppSettings {
@@ -841,6 +858,25 @@ export interface BearcodeApi {
     // AND the folder (or an immediate child) is a git repo. Drives the composer
     // env picker's grayed-out state.
     available(path: string): Promise<boolean>
+  }
+  // F4: the embedded browser pane. The WebContentsView is a main-side singleton
+  // driven by Playwright over CDP (browserManager). The renderer owns only the
+  // pane's geometry (`setBounds` from the placeholder rect) and visibility
+  // (`show`/`hide` on mount/unmount); `status` backs the Settings tab, and
+  // `clearSession` wipes the per-conversation browsing data.
+  browser: {
+    status(): Promise<{
+      installed: boolean
+      connected: boolean
+      conversationId: string | null
+      // Whether the CDP endpoint was opened at boot; diverges from the live
+      // `browserEnabled` setting after a toggle, gating the relaunch note.
+      debuggingEnabled: boolean
+    }>
+    clearSession(): Promise<void>
+    setBounds(b: { x: number; y: number; width: number; height: number }): Promise<void>
+    show(): Promise<void>
+    hide(): Promise<void>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

@@ -113,6 +113,11 @@
 .step-body.md {
   white-space: normal;
 }
+.browser-shot {
+  max-width: 100%;
+  border-radius: 6px;
+  display: block;
+}
 .step-body.term {
   font-family: var(--mono);
   font-size: 12px;

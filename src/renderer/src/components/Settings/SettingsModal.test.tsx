@@ -26,7 +26,16 @@ beforeEach(() => {
   ;(window as unknown as { bearcode: unknown }).bearcode = {
     settings: { set: setSpy },
     permissions: { list: vi.fn(() => Promise.resolve({ userRules: [], builtins: [] })) },
-    models: { list: vi.fn(() => Promise.resolve([])), manageable: vi.fn(() => Promise.resolve([])) }
+    models: {
+      list: vi.fn(() => Promise.resolve([])),
+      manageable: vi.fn(() => Promise.resolve([]))
+    },
+    browser: {
+      status: vi.fn(() =>
+        Promise.resolve({ installed: false, connected: false, conversationId: null })
+      ),
+      clearSession: vi.fn(() => Promise.resolve())
+    }
   }
   useAppStore.setState({
     settingsOpen: true,
@@ -136,12 +145,20 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
     expect(screen.getByPlaceholderText('sk-ant-…')).toBeTruthy()
   })
 
-  it('each Customize tab shows an intentional placeholder', () => {
+  it('each remaining Customize tab shows an intentional placeholder', () => {
     render(<SettingsModal />)
-    for (const label of ['Skills', 'Connectors', 'Memory', 'Integrations', 'Browser']) {
+    // Browser is now a real page (F4); the rest of Customize is still WIP.
+    for (const label of ['Skills', 'Connectors', 'Memory', 'Integrations']) {
       fireEvent.click(screen.getByText(label))
       expect(document.querySelector('.coming-block')).toBeTruthy()
     }
+  })
+
+  it('the Browser tab renders the real Browser page (not a placeholder)', () => {
+    render(<SettingsModal />)
+    fireEvent.click(within(rail()).getByText('Browser'))
+    expect(document.querySelector('.coming-block')).toBeNull()
+    expect(screen.getByRole('switch', { name: /enable browser/i })).toBeTruthy()
   })
 
   it('never renders the text "coming soon"', () => {

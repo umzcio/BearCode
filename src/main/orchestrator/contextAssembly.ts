@@ -107,7 +107,13 @@ const PRECEDENCE_LINES = [
 
 export function assembleCommandAdditions(
   command: CommandRef | null,
-  workflows: Workflow[]
+  workflows: Workflow[],
+  // F4 (Fable B3 finding 1): the browser_* tools live in buildTools, which
+  // graph.ts only wires when a project backend exists (projectPath set).
+  // Without a folder, /browser would delegate to a toolless subagent that
+  // silently can't browse -- so gate it here. Defaults to true so every other
+  // caller/test (which don't touch the browser) is unaffected.
+  hasProjectFolder = true
 ): CommandAdditions {
   if (!command) return { systemAdditions: [] }
 
@@ -143,6 +149,29 @@ export function assembleCommandAdditions(
     // other built-ins, just with an empty contribution.
     if (command.name === 'compact') {
       return { systemAdditions: [] }
+    }
+    // /browser (F4): steer this turn through the browser subagent rather than
+    // letting the main agent drive the browser_* tools inline, so the work is
+    // attributed to the browser subagent's stream. The delegation rides via the
+    // built-in `task` tool with subagent_type "browser".
+    if (command.name === 'browser') {
+      if (!hasProjectFolder) {
+        return {
+          systemAdditions: [],
+          error:
+            'The browser tool needs an open project folder (it stores per-conversation session data and downloads under the project). Open a folder for this conversation, then run /browser again.'
+        }
+      }
+      return {
+        systemAdditions: [
+          '',
+          'Turn modifier: /browser. Accomplish this task using a live web browser by',
+          'delegating to the browser subagent: call the `task` tool with',
+          'subagent_type "browser" and a clear instruction describing the web task.',
+          'Do not answer from memory; drive the real browser through the subagent.',
+          ...PRECEDENCE_LINES
+        ]
+      }
     }
     return { systemAdditions: [], error: `Unknown command: /${command.name}` }
   }

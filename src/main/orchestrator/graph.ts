@@ -86,6 +86,8 @@ import {
   pinDeniedReplays,
   type PlanReviewResolution
 } from './tools'
+import { browserManager } from '../browser/manager'
+import { browserActionLabel } from '../browser/guard'
 
 // The tuple shape yielded by `.stream(..., { streamMode: "messages", subgraphs: true })`
 // with a single (non-array) streamMode: [namespace, [chunk, metadata]]. (The
@@ -110,6 +112,25 @@ const RESEARCHER_SUBAGENT = {
     'factual summary. Do not ask clarifying questions; answer with what you know.'
 }
 
+// F4: the browser subagent — the /browser path. It drives the embedded browser
+// through the flat `browser_*` tools (buildTools). Not scoped to a tools subset
+// here: like RESEARCHER_SUBAGENT it inherits the main toolset (deepagents
+// defaults to the parent's tools when `tools` is omitted), so the browser_*
+// tools — already present on the main agent — are available, and the guard
+// chain (mode/domain/enable) gates them identically whether the main agent or
+// this subagent calls them.
+const BROWSER_SUBAGENT = {
+  name: 'browser',
+  description:
+    'Operates a live web browser to accomplish web tasks (navigate, read, click, ' +
+    'type, screenshot). Use the task tool with subagent_type "browser" whenever the ' +
+    'user asks you to browse, open a site, or interact with a web page.',
+  systemPrompt:
+    'You control a real browser via the browser_* tools. Read the page (prefer ' +
+    'browser_read a11y) before acting; click/type by ref; screenshot to show ' +
+    'progress. Report findings concisely.'
+}
+
 // Known subagent names. Includes our one named subagent PLUS deepagents'
 // built-in "general-purpose" subagent (GENERAL_PURPOSE_SUBAGENT.name,
 // deepagents/dist/langsmith-wdF8zG42.js ~2286).
@@ -131,7 +152,7 @@ const RESEARCHER_SUBAGENT = {
 // instead of trying to disable it, so a "general-purpose" delegation gets
 // its own attributed pill rather than silently merging into the main
 // agent's stream.
-const SUBAGENT_NAMES = new Set([RESEARCHER_SUBAGENT.name, 'general-purpose'])
+const SUBAGENT_NAMES = new Set([RESEARCHER_SUBAGENT.name, BROWSER_SUBAGENT.name, 'general-purpose'])
 
 // Derive the producing agent's id from a streamed chunk's metadata (and, as
 // documentation, its namespace). VERIFIED LIVE (BEARCODE_DEBUG_NS, Task 8):
@@ -518,6 +539,18 @@ export function interruptBelongsToToolCall(
     // the zod-parsed title the tool received, verbatim).
     return (tc.args as { title?: unknown } | null | undefined)?.title === value.title
   }
+  if (value?.kind === 'browser') {
+    // F4 finding 1: a browser approval pairs ONLY to a browser_* call, and live
+    // that call always carries a toolCallId. The crash-resume dangling scan
+    // (findDanglingRunCommandCalls) yields run_command candidates only, so
+    // without this branch a browser payload fell through to the terminal
+    // `return true` below and CLAIMED an unrelated run_command candidate on the
+    // id-less fallback path — mislabeling the re-surfaced card. Reject any
+    // non-browser candidate; pair by toolCallId when present, never a fallback.
+    if (typeof tc.name !== 'string' || !tc.name.startsWith('browser_')) return false
+    if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
+    return false
+  }
   return true
 }
 
@@ -626,6 +659,7 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
         kind?: string
         command?: string
         tool?: string
+        input?: unknown
         path?: string
         resolvedPath?: string
         artifactId?: unknown
@@ -635,6 +669,22 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
     | null
     | undefined
   const toolCallId = typeof value?.toolCallId === 'string' ? value.toolCallId : undefined
+  if (value?.kind === 'browser') {
+    // F4 finding 1: re-surface a parked browser approval as its REAL browser
+    // card, never the empty run_command fallback below. The interrupt payload
+    // carries the true tool name + call input (tools.ts gateBrowserAction), so
+    // the rehydrated card shows exactly the action that will execute on
+    // approval, and deniedReplayPinsOf reconstructs the identical browserAction
+    // key (browserActionLabel of tool+input) the replayed tool consults. A
+    // malformed payload whose tool is not a browser_* name degrades to
+    // browser_navigate rather than escaping into another tool's card.
+    const tool = (
+      typeof value.tool === 'string' && value.tool.startsWith('browser_')
+        ? value.tool
+        : 'browser_navigate'
+    ) as ToolName
+    return { tool, input: value.input ?? {}, toolCallId }
+  }
   if (value?.kind === 'plan_review') {
     // The card is built from the payload alone: title for the copy, artifactId
     // so the renderer can pair the card with the pane's plan viewer (and the
@@ -832,8 +882,13 @@ export function resolvedToolCallEvents(
 // too, matching buildResumeMap's fail-safe-to-denied. Exported for tests.
 export function deniedReplayPinsOf(
   items: ReadonlyMap<string, ApprovalItem>
-): Array<{ toolCallId?: string; command?: string; editPath?: string }> {
-  const pins: Array<{ toolCallId?: string; command?: string; editPath?: string }> = []
+): Array<{ toolCallId?: string; command?: string; editPath?: string; browserAction?: string }> {
+  const pins: Array<{
+    toolCallId?: string
+    command?: string
+    editPath?: string
+    browserAction?: string
+  }> = []
   for (const item of items.values()) {
     // NO pin analog for plan_review (decided): pins exist solely so a Denied
     // command/edit replay cannot re-evaluate to run/apply and EXECUTE.
@@ -844,7 +899,20 @@ export function deniedReplayPinsOf(
     // toolCallId in the shared pin set.
     if (item.planReview) continue
     if (item.decision === true) continue
-    if (item.tool === 'write_file' || item.tool === 'edit_file') {
+    if (item.tool.startsWith('browser_')) {
+      // Browser mutation/navigation cards pin under their canonical action
+      // label (browserActionLabel) so tools.ts takeDeniedBrowserReplayPin keys
+      // its id-less fallback on the SAME string the replayed tool re-derives
+      // from its args. Without this a denied browser action whose decision
+      // later flips to 'allow' (mode→auto, session consent granted, origin
+      // allowlisted) would replay past interrupt() and EXECUTE — the exact
+      // hole run_command's pin closes. byToolCallId still covers id-carrying
+      // providers; browserAction is the id-less namespace.
+      pins.push({
+        toolCallId: item.toolCallId,
+        browserAction: browserActionLabel(item.tool, item.input)
+      })
+    } else if (item.tool === 'write_file' || item.tool === 'edit_file') {
       const input = item.input as
         { file_path?: unknown; requested_path?: unknown; path?: unknown } | null | undefined
       const raw = input?.requested_path ?? input?.file_path ?? input?.path
@@ -1056,6 +1124,36 @@ function textOf(content: ToolMessageChunk['content']): string {
   return String(content)
 }
 
+// The tool_result output persisted/streamed for the CARD, derived from the
+// model-facing tool return `modelText`. Two behaviors:
+//  (1) browser_screenshot: `modelText` is only a short placeholder (the tool
+//      keeps the base64 image out of the model's context); the real PNG data
+//      URL was stashed on the browserManager keyed by the provider tool-call
+//      id. Splice it back in here so the step card renders the <img>. Data URLs
+//      bypass the text budget — slicing base64 yields a broken image. `take`
+//      distinguishes the authoritative persist (consume the stash, take-once)
+//      from the live streaming preview (peek, so the persist still finds it).
+//  (2) everything else: the existing 50000-char budget (matches run_command).
+// Exported for tests.
+export function toolResultOutput(
+  toolName: string | undefined,
+  tcId: string,
+  modelText: string,
+  take: boolean
+): { output: string; truncated: boolean } {
+  if (toolName === 'browser_screenshot') {
+    const shot = take
+      ? browserManager.takeStashedScreenshot(tcId)
+      : browserManager.peekStashedScreenshot(tcId)
+    if (shot !== undefined) return { output: shot, truncated: false }
+  }
+  const truncated = modelText.length > 50000
+  return {
+    output: truncated ? modelText.slice(0, 50000) + '\n… output truncated' : modelText,
+    truncated
+  }
+}
+
 // One streamed invocation of the graph: either the initial user turn, or a
 // resume-with-Command after an approval decision. Returns whether execution
 // paused at a new interrupt (risk 4) so the caller can park it, or ran to
@@ -1201,13 +1299,17 @@ async function drive(
             resultId = randomUUID()
             resultIdByTc.set(tcId, resultId)
           }
-          const out = textOf(merged.content)
-          const truncated = out.length > 50000
+          const { output, truncated } = toolResultOutput(
+            info.name,
+            tcId,
+            textOf(merged.content),
+            false
+          )
           ctx.sink.emit(ctx.conversationId, {
             type: 'tool_result',
             id: resultId,
             callId: localId,
-            output: truncated ? out.slice(0, 50000) + '\n… output truncated' : out,
+            output,
             durationMs: 0,
             truncated,
             agentId: agentId ?? info.agentId
@@ -1327,10 +1429,9 @@ async function drive(
         agentId: msgAgentId
       })
     }
-    const output = textOf(toolResult.content)
     const stats =
       tc.name === 'write_file' || tc.name === 'edit_file' ? nextStagedStats(ctx) : undefined
-    const truncated = output.length > 50000
+    const { output, truncated } = toolResultOutput(tc.name, tc.id, textOf(toolResult.content), true)
     // Reuse the id the live emit used (if any) so this authoritative row -- now
     // carrying stats -- UPSERTS over the live one in the renderer instead of
     // appearing as a second result.
@@ -1338,7 +1439,7 @@ async function drive(
       type: 'tool_result',
       id: resultIdByTc.get(tc.id) ?? randomUUID(),
       callId: localId,
-      output: truncated ? output.slice(0, 50000) + '\n… output truncated' : output,
+      output,
       durationMs: 0,
       truncated,
       stats,
@@ -1973,7 +2074,7 @@ function buildAgentAndContext(
   // policies that must never share a catch. loadAgentsContent already ran
   // above for the rules; `workflows` rides that same call (possibly [] if it
   // threw), so this never does extra IO.
-  const cmd = assembleCommandAdditions(command, workflows)
+  const cmd = assembleCommandAdditions(command, workflows, projectPath != null)
   if (cmd.error) return { refusal: cmd.error }
   const commandAdditions =
     cmd.systemAdditions.length > 0 ? '\n\n' + cmd.systemAdditions.join('\n\n') : ''
@@ -2036,7 +2137,7 @@ function buildAgentAndContext(
       commandAdditions +
       mentionAdditions,
     checkpointer: getCheckpointer(),
-    subagents: [RESEARCHER_SUBAGENT],
+    subagents: [RESEARCHER_SUBAGENT, BROWSER_SUBAGENT],
     ...(backendFactory
       ? {
           backend: backendFactory,
@@ -2196,7 +2297,12 @@ export async function runGraph(opts: {
 // Exported for tests.
 export function isRehydratableInterrupt(value: unknown): boolean {
   const kind = (value as { kind?: string } | null | undefined)?.kind
-  return kind === 'run_command' || kind === 'edit_file' || kind === 'plan_review'
+  // F4: browser approvals (incl. the folded first-use session-consent prompt)
+  // resume with the same {approved} shape, so they survive a crash/restart and
+  // don't drag an otherwise-rehydratable parallel batch down to 'cancelled'.
+  return (
+    kind === 'run_command' || kind === 'edit_file' || kind === 'plan_review' || kind === 'browser'
+  )
 }
 
 // Full crash-resume (A2). Called at boot for a dangling conversation: rebuilds
@@ -2286,6 +2392,22 @@ export async function rehydratePausedRun(
       // file_diff), not toolMsgById -- an approved write's replay still lands
       // on disk and stages its diff regardless. Cost: the crash-resumed
       // edit's tool_result row is absent from history, a cosmetic gap.
+      const card = synthesizedApprovalCard(pairing.value)
+      tool = card.tool
+      input = card.input
+      toolCallId = card.toolCallId
+    } else if ((pairing.value as { kind?: string } | null | undefined)?.kind === 'browser') {
+      // F4 finding 1: browser approvals re-park from the payload like edits.
+      // The dangling scan is run_command-only so pairing.call is always null
+      // here (and interruptBelongsToToolCall now rejects run_command candidates
+      // for a browser payload), so synthesizedApprovalCard reconstructs the REAL
+      // browser card — tool + input from the payload — instead of the empty
+      // run_command fallback whose innocuous-looking approval would resume and
+      // EXECUTE the parked action (e.g. arbitrary in-page JS via evaluate). No
+      // ctx seeding (the Bb3 edit precedent): the replayed browser tool
+      // re-executes from its interrupt() and returns its own result; the
+      // crash-resumed tool_result row is a cosmetic history gap. Deny stays safe
+      // — the toolCallId is preserved so the pin lands in byToolCallId.
       const card = synthesizedApprovalCard(pairing.value)
       tool = card.tool
       input = card.input

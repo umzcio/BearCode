@@ -19,7 +19,7 @@ import { createHash, randomUUID } from 'crypto'
 import { interrupt } from '@langchain/langgraph'
 import { tool } from 'langchain'
 import { z } from 'zod'
-import type { Artifact, Event } from '../../shared/types'
+import type { Artifact, Event, ToolName } from '../../shared/types'
 import { appendOrReplaceEvent } from '../db'
 import {
   approvePlanArtifact,
@@ -44,6 +44,10 @@ import type { WorktreeMapping } from '../worktree/paths'
 import { generateDocument, type DocFormat } from '../docgen/generate'
 import { docGenGateMessage } from '../docgen/gate'
 import { recordBinaryCreation } from '../diffs'
+import { getSettings } from '../settings'
+import { browserManager } from '../browser/manager'
+import { evaluateBrowserAction, browserActionLabel } from '../browser/guard'
+import type { DomainPolicy } from '../browser/policy'
 
 const commandSchema = z.object({
   command: z.string().describe('Shell command to run in the workspace folder.'),
@@ -87,18 +91,25 @@ interface DeniedPinSet {
   byToolCallId: Set<string>
   byCommand: Map<string, number>
   byEditPath: Map<string, number>
+  byBrowserAction: Map<string, number>
 }
 const deniedReplayPins = new Map<string, DeniedPinSet>()
 
 export function pinDeniedReplays(
   conversationId: string,
-  pins: ReadonlyArray<{ toolCallId?: string; command?: string; editPath?: string }>
+  pins: ReadonlyArray<{
+    toolCallId?: string
+    command?: string
+    editPath?: string
+    browserAction?: string
+  }>
 ): void {
   if (pins.length === 0) return
   const set: DeniedPinSet = {
     byToolCallId: new Set(),
     byCommand: new Map(),
-    byEditPath: new Map()
+    byEditPath: new Map(),
+    byBrowserAction: new Map()
   }
   for (const pin of pins) {
     if (pin.toolCallId !== undefined) {
@@ -107,6 +118,11 @@ export function pinDeniedReplays(
       set.byCommand.set(pin.command, (set.byCommand.get(pin.command) ?? 0) + 1)
     } else if (pin.editPath !== undefined) {
       set.byEditPath.set(pin.editPath, (set.byEditPath.get(pin.editPath) ?? 0) + 1)
+    } else if (pin.browserAction !== undefined) {
+      set.byBrowserAction.set(
+        pin.browserAction,
+        (set.byBrowserAction.get(pin.browserAction) ?? 0) + 1
+      )
     }
   }
   deniedReplayPins.set(conversationId, set)
@@ -160,6 +176,35 @@ export function takeDeniedEditReplayPin(
   return true
 }
 
+// The browser analog of takeDeniedReplayPin, consulted at the TOP of
+// gateBrowserAction (before the block/prompt/consent decision) so a Denied
+// browser card always wins over any decision flip between park and keyed-resume
+// replay. The flip vectors this closes: the conversation's first parallel
+// mutations approve one and deny the other while the folded session-consent
+// prompt is parked (the approved task grants consent, so the denied task would
+// otherwise replay in auto mode with consent already cached and never
+// interrupt); a mode change (ask→auto) with consent already granted; and a
+// navigate whose origin the user adds to the allowlist while its prompt is
+// parked. Same discipline as the command/edit takes: byToolCallId is exact and
+// take-once; the id-less fallback lives in its OWN namespace (byBrowserAction,
+// never byCommand/byEditPath) so a browser action string can never cross-claim
+// a command or path pin. `action` is browserActionLabel(tool, input) — the same
+// string graph.ts deniedReplayPinsOf stored the pin under.
+export function takeDeniedBrowserReplayPin(
+  conversationId: string,
+  toolCallId: string | undefined,
+  action: string
+): boolean {
+  const set = deniedReplayPins.get(conversationId)
+  if (!set) return false
+  if (toolCallId !== undefined) return set.byToolCallId.delete(toolCallId)
+  const n = set.byBrowserAction.get(action)
+  if (n === undefined) return false
+  if (n <= 1) set.byBrowserAction.delete(action)
+  else set.byBrowserAction.set(action, n - 1)
+  return true
+}
+
 // The truthy resume-object contract for a plan_review interrupt (design 3.1).
 // BOTH variants are truthy objects -- LangGraph's mapCommand drops falsy
 // resume values (see the run_command interrupt comment below). `comments` on
@@ -193,6 +238,23 @@ export function clearPlanReviewPending(conversationId: string): void {
 export function clearAllPlanReviewPending(): void {
   planReviewInFlight.clear()
 }
+
+// F4 L1 session consent: the first browser navigation/mutation in a
+// conversation prompts once ("allow BearCode to drive a browser here?"), folded
+// into that first prompt; the grant is cached here per conversation so no later
+// browser action re-prompts for consent. Module-level (not per-buildTools) so it
+// survives across turns for the conversation's lifetime, exactly like
+// planReviewInFlight above. Reads run free and never touch this — consent
+// attaches to navigate/mutate only (design §L1: one prompt per conversation).
+const browserSessionConsent = new Set<string>()
+
+// Test-only reset (mirrors clearAllPlanReviewPending); also useful if a
+// conversation is cleared. Never called on the hot path.
+export function clearBrowserConsent(): void {
+  browserSessionConsent.clear()
+}
+
+const BROWSER_DISABLED_MESSAGE = 'Browser tool is disabled in Settings — enable it and relaunch.'
 
 function runCommand(
   command: string,
@@ -598,11 +660,305 @@ export function buildTools(
     }
   )
 
+  // ── F4 browser_* tools ────────────────────────────────────────────────────
+  // A live embedded browser (WebContentsView driven by Playwright over CDP,
+  // Task 4's browserManager) surfaced as flat tools on the main agent. The
+  // 4-layer guard chain (design §L0–L3) runs entirely here:
+  //   L0 enable   — every tool refuses unless Settings.browserEnabled === true.
+  //   L1 consent  — the first navigate/mutation prompts once per conversation.
+  //   L2 domain   — navigate consults the allow/blocklist (originDecision).
+  //   L3 mode     — mutations (click/type/evaluate) respect the permission mode
+  //                 exactly like run_command: plan blocks, ask prompts,
+  //                 accept-edits/auto/bypass allow. Reads run completely free.
+  // browserEnabled/browserAllowlist/browserBlocklist are real AppSettings
+  // fields (F4 Task 11), migrated/validated in settings.ts. See the manager for
+  // the a11y-ref contract: browser_read('a11y') returns an ariaSnapshot with
+  // `[ref=e<N>]` handles that click/type address.
+  const browserEnabled = (): boolean => getSettings().browserEnabled === true
+  const browserPolicy = (): DomainPolicy => {
+    const s = getSettings()
+    return {
+      allowlist: s.browserAllowlist ?? [],
+      blocklist: s.browserBlocklist ?? []
+    }
+  }
+  // F4 finding 2: hand the manager the live Settings-derived policy so its
+  // navigation interceptor (will-navigate/will-redirect) enforces L2 as a hard
+  // gate on EVERY navigation — browser_evaluate location changes, in-page link
+  // clicks, and server redirects — not just the browser_navigate tool. Set here
+  // (agent-build time) so the provider is always installed before any browser
+  // tool can call browserManager.start(). browserPolicy reads getSettings fresh
+  // each call, so the interceptor always sees the current allow/blocklist.
+  browserManager.setPolicyProvider(browserPolicy)
+  const browserToolCallId = (config: unknown): string | undefined =>
+    (config as { toolCallId?: string } | null | undefined)?.toolCallId
+
+  // The L1-consent-or-L3-prompt gate for a navigation/mutation. Returns a
+  // refusal string to hand back to the model, or null to proceed. `decision`
+  // is the L2/L3 outcome for the action; consent is FOLDED into the first
+  // prompt (design §L1: "fold consent into the first navigate prompt") so a
+  // conversation's first navigate/mutation always pauses once even in auto mode
+  // — the deliberate session-consent boundary — while later actions only pause
+  // when their own decision says 'prompt'. On any keyed-resume replay this
+  // whole tool re-executes from the top, re-derives the same decision, and
+  // interrupt() returns the recorded { approved } (run_command's contract).
+  const gateBrowserAction = (
+    decision: 'allow' | 'prompt' | 'block',
+    blockedMessage: string,
+    // The REAL tool name + its call input. The canonical action label is
+    // derived from them (browserActionLabel) for the pin key, and both ride the
+    // interrupt payload so a crash-resumed browser approval re-surfaces as its
+    // true browser card (graph.ts synthesizedApprovalCard) instead of a
+    // mislabeled empty run_command card whose approval would execute this action
+    // (F4 finding 1). Keep tool+input in lockstep with the streamed call args so
+    // the rehydrated card shows exactly what will run.
+    tool: ToolName,
+    input: unknown,
+    config: unknown
+  ): string | null => {
+    const toolCallId = browserToolCallId(config)
+    const action = browserActionLabel(tool, input)
+    // BEFORE the block/prompt/consent decision: on a keyed-resume replay a
+    // recorded Denial must win even when the decision has since flipped to
+    // 'allow' (mode→auto, session consent granted by an approved sibling, or
+    // the origin added to the allowlist) and would otherwise skip interrupt()
+    // and execute the action the user explicitly denied — the run_command
+    // deniedReplayPins contract, applied to browser mutations/navigation.
+    if (takeDeniedBrowserReplayPin(conversationId, toolCallId, action)) {
+      return 'User denied this browser action.'
+    }
+    if (decision === 'block') return blockedMessage
+    const needsConsent = !browserSessionConsent.has(conversationId)
+    if (decision === 'prompt' || needsConsent) {
+      const approval = interrupt({
+        kind: 'browser',
+        action,
+        tool,
+        input,
+        toolCallId
+      }) as { approved?: boolean } | null | undefined
+      if (!approval?.approved) return 'User denied this browser action.'
+      browserSessionConsent.add(conversationId)
+    }
+    return null
+  }
+
+  const browserNavigateTool = tool(
+    async ({ url }: { url: string }, config?: unknown): Promise<string> => {
+      if (!browserEnabled()) return BROWSER_DISABLED_MESSAGE
+      // L2 domain policy first: a blocklisted origin is refused before we ever
+      // launch the browser or ask for consent (there is nothing to consent to).
+      // navigate is read-class — the mode never blocks it (the guard's navigate
+      // branch ignores mode), but BrowserActionInput requires the field.
+      const decision = evaluateBrowserAction({
+        kind: 'navigate',
+        url,
+        policy: browserPolicy(),
+        mode: resolveConversationMode(conversationId)
+      })
+      const refusal = gateBrowserAction(
+        decision,
+        `Blocked: ${url} is not permitted by the browser domain policy (blocklist).`,
+        'browser_navigate',
+        { url },
+        config
+      )
+      if (refusal) return refusal
+      await browserManager.start(conversationId)
+      const { url: landed, title } = await browserManager.navigate(url)
+      return `Navigated to ${landed}${title ? ` — "${title}"` : ''}.`
+    },
+    {
+      name: 'browser_navigate',
+      description:
+        'Open a URL in the live browser. May pause for approval if the site is not on the allowlist. ' +
+        'After navigating, call browser_read (mode "a11y") to get the page structure with [ref=e<N>] handles before clicking or typing.',
+      schema: z.object({
+        url: z.string().describe('The absolute URL to open (include the scheme).')
+      })
+    }
+  )
+
+  const browserReadTool = tool(
+    async ({ mode }: { mode?: 'text' | 'a11y' | 'html' }): Promise<string> => {
+      if (!browserEnabled()) return BROWSER_DISABLED_MESSAGE
+      await browserManager.start(conversationId)
+      return browserManager.read(mode ?? 'a11y')
+    },
+    {
+      name: 'browser_read',
+      description:
+        'Read the current page. mode "a11y" (default) returns an accessibility tree tagged with ' +
+        '[ref=e<N>] handles — use those refs with browser_click/browser_type. mode "text" returns ' +
+        'the visible text; mode "html" returns the raw HTML. Reading never requires approval.',
+      schema: z.object({ mode: z.enum(['text', 'a11y', 'html']).optional() })
+    }
+  )
+
+  const browserScreenshotTool = tool(
+    async (_args: unknown, config?: unknown): Promise<string> => {
+      if (!browserEnabled()) return BROWSER_DISABLED_MESSAGE
+      await browserManager.start(conversationId)
+      const dataUrl = await browserManager.screenshot()
+      // Keep the base64 image OUT of the model's context. A full-page PNG data
+      // URL is ~150K–1.5M chars (~100K+ tokens as text) and would (a) be sliced
+      // mid-base64 by graph.ts's 50000-char tool_result budget into a BROKEN
+      // <img>, and (b) flood/derail the very conversation driving the browser
+      // on every subsequent turn. Instead we stash the data URL on the manager
+      // keyed by the provider tool-call id; graph.ts splices it into the
+      // PERSISTED tool_result output so the step card still renders the image,
+      // while the model sees only this short placeholder — mirroring
+      // run_command's bounded text budget. Id-less providers (no tool-call id to
+      // key the stash by) fall back to inlining the data URL; the card still
+      // renders and the residual flood is accepted for that rarer case.
+      const toolCallId = browserToolCallId(config)
+      if (toolCallId === undefined) return dataUrl
+      browserManager.stashScreenshot(toolCallId, dataUrl)
+      return `Screenshot captured (~${Math.round(dataUrl.length / 1024)} KB); rendered in the browser step for the user.`
+    },
+    {
+      name: 'browser_screenshot',
+      description:
+        'Capture a PNG screenshot of the current page. The image is shown to the user inline in the ' +
+        'browser step; you receive a short confirmation (not the raw image). Use it to show progress. ' +
+        'Never requires approval.',
+      schema: z.object({})
+    }
+  )
+
+  const browserScrollTool = tool(
+    async ({ direction }: { direction?: 'up' | 'down' }): Promise<string> => {
+      if (!browserEnabled()) return BROWSER_DISABLED_MESSAGE
+      await browserManager.start(conversationId)
+      const dir = direction ?? 'down'
+      await browserManager.scroll(dir)
+      return `Scrolled ${dir}.`
+    },
+    {
+      name: 'browser_scroll',
+      description: 'Scroll the current page up or down (default down). Never requires approval.',
+      schema: z.object({ direction: z.enum(['up', 'down']).optional() })
+    }
+  )
+
+  const browserWaitTool = tool(
+    async ({ state }: { state?: 'load' | 'networkidle' }): Promise<string> => {
+      if (!browserEnabled()) return BROWSER_DISABLED_MESSAGE
+      await browserManager.start(conversationId)
+      const s = state ?? 'load'
+      await browserManager.waitFor(s)
+      return `Waited for ${s}.`
+    },
+    {
+      name: 'browser_wait',
+      description:
+        'Wait for the page to reach a load state ("load" or "networkidle", default "load"). ' +
+        'Never requires approval.',
+      schema: z.object({ state: z.enum(['load', 'networkidle']).optional() })
+    }
+  )
+
+  const browserClickTool = tool(
+    async ({ ref }: { ref: string }, config?: unknown): Promise<string> => {
+      if (!browserEnabled()) return BROWSER_DISABLED_MESSAGE
+      const mode = resolveConversationMode(conversationId)
+      const decision = evaluateBrowserAction({ kind: 'mutate', mode })
+      const refusal = gateBrowserAction(
+        decision,
+        'Plan mode is read-only; browser clicks are blocked. Submit a plan and wait for approval first.',
+        'browser_click',
+        { ref },
+        config
+      )
+      if (refusal) return refusal
+      await browserManager.start(conversationId)
+      await browserManager.click(ref)
+      return `Clicked ${ref}.`
+    },
+    {
+      name: 'browser_click',
+      description:
+        'Click an element by its a11y ref (an e<N> handle from browser_read mode "a11y"). ' +
+        'Requires approval in ask mode; blocked in plan mode.',
+      schema: z.object({
+        ref: z.string().describe('An element ref, e.g. "e12", from browser_read.')
+      })
+    }
+  )
+
+  const browserTypeTool = tool(
+    async (
+      { ref, text, submit }: { ref: string; text: string; submit?: boolean },
+      config?: unknown
+    ): Promise<string> => {
+      if (!browserEnabled()) return BROWSER_DISABLED_MESSAGE
+      const mode = resolveConversationMode(conversationId)
+      const decision = evaluateBrowserAction({ kind: 'mutate', mode })
+      const refusal = gateBrowserAction(
+        decision,
+        'Plan mode is read-only; browser typing is blocked. Submit a plan and wait for approval first.',
+        'browser_type',
+        { ref, text, submit: submit ?? false },
+        config
+      )
+      if (refusal) return refusal
+      await browserManager.start(conversationId)
+      await browserManager.type(ref, text, submit ?? false)
+      return `Typed into ${ref}${submit ? ' and submitted' : ''}.`
+    },
+    {
+      name: 'browser_type',
+      description:
+        'Type text into an element by its a11y ref (an e<N> handle from browser_read mode "a11y"). ' +
+        'Set submit=true to press Enter afterward. Requires approval in ask mode; blocked in plan mode.',
+      schema: z.object({
+        ref: z.string().describe('An element ref, e.g. "e7", from browser_read.'),
+        text: z.string().describe('The text to type.'),
+        submit: z.boolean().optional().describe('Press Enter after typing.')
+      })
+    }
+  )
+
+  const browserEvaluateTool = tool(
+    async ({ script }: { script: string }, config?: unknown): Promise<string> => {
+      if (!browserEnabled()) return BROWSER_DISABLED_MESSAGE
+      const mode = resolveConversationMode(conversationId)
+      const decision = evaluateBrowserAction({ kind: 'mutate', mode })
+      const refusal = gateBrowserAction(
+        decision,
+        'Plan mode is read-only; running JavaScript in the page is blocked. Submit a plan and wait for approval first.',
+        'browser_evaluate',
+        { script },
+        config
+      )
+      if (refusal) return refusal
+      await browserManager.start(conversationId)
+      return browserManager.evaluate(script)
+    },
+    {
+      name: 'browser_evaluate',
+      description:
+        'Run a JavaScript expression in the current page and return its result. This is a mutation: ' +
+        'requires approval in ask mode; blocked in plan mode.',
+      schema: z.object({
+        script: z.string().describe('A JavaScript expression to evaluate in the page.')
+      })
+    }
+  )
+
   return [
     runCommandTool,
     submitPlanTool,
     submitWalkthroughTool,
     activateRuleTool,
-    generateDocumentTool
+    generateDocumentTool,
+    browserNavigateTool,
+    browserReadTool,
+    browserScreenshotTool,
+    browserScrollTool,
+    browserWaitTool,
+    browserClickTool,
+    browserTypeTool,
+    browserEvaluateTool
   ]
 }
