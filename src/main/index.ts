@@ -118,6 +118,13 @@ app.on('second-instance', () => {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.bearcode.app')
 
+  // In a packaged build the Dock/taskbar icon comes from build/icon.icns. During
+  // `electron-vite dev` there is no bundle, so macOS shows the default Electron
+  // icon — set it explicitly so the app looks like itself while developing.
+  if (process.platform === 'darwin' && is.dev) {
+    app.dock?.setIcon(icon)
+  }
+
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
