@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { mkdtempSync, writeFileSync, readFileSync } from 'fs'
+import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { git, gitAvailable, createWorktrees } from './manager'
@@ -90,5 +90,15 @@ describe('merge engine (real git)', () => {
     await mergeToBase(w)
     await abortMerge(w)
     expect(readFileSync(join(proj, 'a.txt'), 'utf8')).toBe('base-side\n')
+  })
+
+  it('writeResolved jails a ../ path to the repo root (no escape)', async () => {
+    if (!hasGit) return
+    const ud = mkdtempSync(join(tmpdir(), 'bc-ud4-'))
+    const proj = mkdtempSync(join(tmpdir(), 'bc-proj4-'))
+    await makeRepo(proj)
+    const [w] = await createWorktrees(ud, 'c4', proj, 'feature')
+    await expect(writeResolved(w, '../escape.txt', 'nope')).rejects.toThrow()
+    expect(existsSync(join(proj, '..', 'escape.txt'))).toBe(false)
   })
 })

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'fs'
-import { join } from 'path'
 import { git } from './git'
+import { jailPath } from '../orchestrator/fsBackend'
 import type { WorktreeInfo } from '../../shared/types'
 
 export async function commitWorktree(
@@ -56,12 +56,19 @@ export async function mergeToBase(
 }
 
 export async function readConflict(w: WorktreeInfo, file: string): Promise<{ merged: string }> {
-  return { merged: readFileSync(join(w.repoPath, file), 'utf8') }
+  // SECURITY: `file` is renderer-supplied (the conflicted path from the resolver);
+  // jail it to the repo root so a crafted `../` can never read outside the repo.
+  return { merged: readFileSync(jailPath(w.repoPath, file), 'utf8') }
 }
 
 export async function writeResolved(w: WorktreeInfo, file: string, content: string): Promise<void> {
-  writeFileSync(join(w.repoPath, file), content)
-  await git(['add', file], w.repoPath)
+  // SECURITY: jail the renderer-supplied path to the repo root before writing +
+  // staging (no `../` escape) — matches the writes-always-jailed guard elsewhere.
+  const abs = jailPath(w.repoPath, file)
+  writeFileSync(abs, content)
+  // `abs` is the jailed absolute path inside the repo; git add accepts it with
+  // cwd at the repo root (no fragile relative() against a realpath'd root).
+  await git(['add', abs], w.repoPath)
 }
 
 export async function completeMerge(w: WorktreeInfo): Promise<void> {
