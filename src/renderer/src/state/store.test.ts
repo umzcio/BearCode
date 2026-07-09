@@ -141,6 +141,7 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   projectId: null,
   pinned: false,
   archived: false,
+  worktrees: [],
   ...over
 })
 

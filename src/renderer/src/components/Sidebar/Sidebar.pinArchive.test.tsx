@@ -28,7 +28,8 @@ const convo: Convo = {
   loaded: true,
   events: [],
   runState: 'idle',
-  environment: 'local'
+  environment: 'local',
+  worktrees: []
 }
 
 beforeEach(() => {

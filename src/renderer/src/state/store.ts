@@ -22,7 +22,8 @@ import type {
   ProviderId,
   ProviderModels,
   RunState,
-  SettingsInfo
+  SettingsInfo,
+  WorktreeInfo
 } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
 import { resolveProjectDefaults } from '@shared/projectDefaults'
@@ -50,6 +51,11 @@ export interface Convo {
   // 'local' runs in the project folder; 'worktree' runs in isolated git
   // worktrees. Mirrors ConversationMeta.environment; defaults to 'local'.
   environment: 'local' | 'worktree'
+  // F3: the spawned worktrees (one per discovered repo) for this conversation.
+  // Empty in local mode, or when the project had no git repo so worktree mode
+  // fell back to local. Mirrors ConversationMeta.worktrees; drives the
+  // per-conversation Worktree action bar (Merge/Discard).
+  worktrees: WorktreeInfo[]
   startedAt?: number
   // First-user-message snippet from the DB (F1 History browse), so a preview
   // shows even before the conversation's events are loaded this session. null
@@ -146,6 +152,7 @@ function fromMeta(meta: ConversationMeta): Convo {
     events: [],
     runState: 'idle',
     environment: meta.environment,
+    worktrees: meta.worktrees ?? [],
     preview: meta.preview ?? null
   }
 }
@@ -238,6 +245,11 @@ interface AppState {
   // picker, applied to the conversation at create (before its first run) and
   // then locked. Reset to 'local' on goHome.
   composerEnvironment: 'local' | 'worktree'
+  // F3: an in-progress merge that hit conflicts, driving the Monaco conflict
+  // resolver (Task 12). Set by mergeWorktree when the per-repo merge returns
+  // 'conflict'; the resolver walks `files` one at a time via `index`. null when
+  // no merge is being resolved.
+  conflict: { convId: string; repoPath: string; files: string[]; index: number } | null
 
   init(): void
   refreshProviders(): Promise<void>
@@ -293,6 +305,11 @@ interface AppState {
   setEffort(effort: EffortLevel): void
   setThinking(thinking: boolean): void
   setComposerEnvironment(v: 'local' | 'worktree'): void
+  // F3: merge one repo's worktree branch into its base branch. On a clean merge
+  // it toasts; on conflict it opens the resolver by setting `conflict`.
+  mergeWorktree(convId: string, repoPath: string): Promise<void>
+  // F3: tear down all of a conversation's worktrees and reset it to local.
+  discardWorktree(convId: string): Promise<void>
   // F9 (folder = project) settings, keyed by workspace path.
   refreshProjectSettings(): Promise<void>
   updateProject(path: string, patch: ProjectSettings): Promise<void>
@@ -465,6 +482,7 @@ export const useAppStore = create<AppState>((set, get) => {
     focusEventId: null,
     focusMatches: [],
     composerEnvironment: 'local',
+    conflict: null,
 
     init: () => {
       if (initialized) return
@@ -945,6 +963,26 @@ export const useAppStore = create<AppState>((set, get) => {
     // is only committed (main-side provisioning) at create in startFromHome /
     // newConversationInProject, then locked -- so this never touches IPC.
     setComposerEnvironment: (v) => set({ composerEnvironment: v }),
+
+    // F3: merge a single repo's worktree branch into its base branch. Per-repo
+    // so multi-repo merges are independent. A clean merge toasts; a conflict
+    // opens the Monaco resolver (Task 12) by seeding the `conflict` slice with
+    // the conflicted files to walk.
+    mergeWorktree: async (convId, repoPath) => {
+      const res = await window.bearcode.worktree.merge(convId, repoPath)
+      if (res.status === 'conflict') {
+        set({ conflict: { convId, repoPath, files: res.conflictedFiles, index: 0 } })
+      } else {
+        get().showToast('Merged to ' + (repoPath.split('/').pop() || repoPath))
+      }
+    },
+
+    // F3: discard the whole conversation's worktrees (removes each + its branch,
+    // main-side) and reset it to local so the action bar disappears.
+    discardWorktree: async (convId) => {
+      await window.bearcode.worktree.discard(convId)
+      patchConvo(convId, { environment: 'local', worktrees: [] })
+    },
 
     refreshProjectSettings: async () => {
       const folderSettings = await window.bearcode.projects.list()
