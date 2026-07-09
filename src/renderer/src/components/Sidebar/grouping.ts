@@ -7,20 +7,35 @@ type ConvoLike = {
   createdAt: number
   pinned: boolean
   archived: boolean
+  runState: string
+  environment: 'local' | 'worktree'
+  worktrees: { branch: string }[]
 }
 
 // F9 (folder = project): every distinct workspace folder is a project group,
 // keyed by its full path (basename collisions across different paths stay
 // separate). A null path is the "No folder" group. Display color/icon/name come
 // from the folder-settings row, looked up by path in the Sidebar.
+// F3: 'environment' groups by local/worktree; 'status' groups by run-state
+// bucket (Active/Idle/Error), computed via `statusBucket`.
 export type SidebarGroup = (
-  { kind: 'folder'; path: string | null; label: string } | { kind: 'all' }
+  | { kind: 'folder'; path: string | null; label: string }
+  | { kind: 'environment'; env: 'local' | 'worktree'; label: string }
+  | { kind: 'status'; bucket: 'active' | 'idle' | 'error'; label: string }
+  | { kind: 'all' }
 ) & { convoIds: string[] }
 
 export type GroupOpts = {
-  groupBy: 'project' | 'none'
+  groupBy: 'project' | 'environment' | 'status' | 'none'
   sort: 'updated' | 'alpha' | 'created'
   showArchived: boolean
+}
+
+// F3: maps a conversation's run state to its sidebar status bucket.
+export function statusBucket(runState: string): 'active' | 'idle' | 'error' {
+  if (runState === 'running' || runState === 'awaiting-approval') return 'active'
+  if (runState === 'error') return 'error'
+  return 'idle'
 }
 
 const DEFAULT_OPTS: GroupOpts = { groupBy: 'project', sort: 'updated', showArchived: false }
@@ -55,6 +70,45 @@ export function groupConversations(
   if (opts.groupBy === 'none') {
     const ids = order.filter(visible)
     return [{ kind: 'all', convoIds: sortIds(ids, convos, opts.sort) }]
+  }
+
+  if (opts.groupBy === 'status') {
+    const order3: ('active' | 'idle' | 'error')[] = ['active', 'idle', 'error']
+    const labels = { active: 'Active', idle: 'Idle', error: 'Error' } as const
+    const buckets = new Map<string, string[]>()
+    for (const id of order) {
+      const c = convos[id]
+      if (!c || !visible(id)) continue
+      const b = statusBucket(c.runState)
+      ;(buckets.get(b) ?? buckets.set(b, []).get(b)!).push(id)
+    }
+    return order3
+      .filter((b) => buckets.has(b))
+      .map((b) => ({
+        kind: 'status' as const,
+        bucket: b,
+        label: labels[b],
+        convoIds: sortIds(buckets.get(b)!, convos, opts.sort)
+      }))
+  }
+
+  if (opts.groupBy === 'environment') {
+    const order2: ('worktree' | 'local')[] = ['worktree', 'local']
+    const labels = { local: 'Local', worktree: 'Worktree' } as const
+    const buckets = new Map<string, string[]>()
+    for (const id of order) {
+      const c = convos[id]
+      if (!c || !visible(id)) continue
+      ;(buckets.get(c.environment) ?? buckets.set(c.environment, []).get(c.environment)!).push(id)
+    }
+    return order2
+      .filter((e) => buckets.has(e))
+      .map((e) => ({
+        kind: 'environment' as const,
+        env: e,
+        label: labels[e],
+        convoIds: sortIds(buckets.get(e)!, convos, opts.sort)
+      }))
   }
 
   // Key by path directly; the null ("No folder") path is its own Map key, so it
