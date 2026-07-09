@@ -5,6 +5,19 @@ import { bootResumeInterruptedRuns, registerIpc } from './ipc'
 import { runDevSmoke } from './devSmoke'
 import icon from '../../resources/icon.png?asset'
 
+// F4: expose a CDP endpoint so BrowserManager can drive an embedded
+// WebContentsView with Playwright connectOverCDP. Bound to loopback only.
+export const REMOTE_DEBUG_PORT = 9333
+app.commandLine.appendSwitch('remote-debugging-port', String(REMOTE_DEBUG_PORT))
+app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1')
+
+// F4: the browser view attaches to the main window, so BrowserManager needs a
+// handle to it. createWindow() stores it here; getMainWindow() exposes it.
+let mainWindow: BrowserWindow | null = null
+export function getMainWindow(): BrowserWindow | null {
+  return mainWindow
+}
+
 // `ready-to-show` re-fires on renderer reloads (e.g. a dev-server restart,
 // same caveat as `runDevSmoke`'s own guard in devSmoke.ts); the crash-resume
 // scan (risk 6) must only ever run once per process.
@@ -18,7 +31,10 @@ function runBootResumeOnce(): void {
 }
 
 function createWindow(): void {
-  const mainWindow = new BrowserWindow({
+  // Use a local non-null handle inside this function; assigning through the
+  // module-level `mainWindow` (nulled in the `closed` handler below) would lose
+  // narrowing across these closures.
+  const win = new BrowserWindow({
     width: 1480,
     height: 920,
     minWidth: 960,
@@ -44,22 +60,27 @@ function createWindow(): void {
       backgroundThrottling: false
     }
   })
+  mainWindow = win
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+  win.on('ready-to-show', () => {
+    win.show()
     runBootResumeOnce()
-    runDevSmoke(mainWindow)
+    runDevSmoke(win)
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  win.on('closed', () => {
+    mainWindow = null
+  })
+
+  win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
