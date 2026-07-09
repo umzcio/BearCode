@@ -801,3 +801,13 @@
 .browser-status .status-dot.ok {
   background: var(--green, #46a758);
 }
+.browser-relaunch-note {
+  margin: 10px 16px 14px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--amber-border, rgba(224, 168, 0, 0.35));
+  background: var(--amber-wash, rgba(224, 168, 0, 0.1));
+  color: var(--text, inherit);
+  font-size: 12.5px;
+  line-height: 1.45;
+}

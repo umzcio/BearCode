@@ -92,7 +92,12 @@ function DomainListEditor({
   )
 }
 
-type BrowserStatus = { installed: boolean; connected: boolean; conversationId: string | null }
+type BrowserStatus = {
+  installed: boolean
+  connected: boolean
+  conversationId: string | null
+  debuggingEnabled: boolean
+}
 
 export function BrowserPage(): JSX.Element | null {
   const settings = useAppStore((s) => s.settings)
@@ -117,6 +122,18 @@ export function BrowserPage(): JSX.Element | null {
   const allowlist = settings.browserAllowlist ?? []
   const blocklist = settings.browserBlocklist ?? []
 
+  // The CDP remote-debugging endpoint is opened ONCE at boot from the persisted
+  // setting (see src/main/index.ts / mainWindow.ts). Toggling Enable here writes
+  // the setting immediately, but the endpoint state only changes on relaunch —
+  // so the toggle can diverge from what's actually live. Surface a relaunch note
+  // whenever they differ, in BOTH directions:
+  //  · enabled now, endpoint still closed → tools refuse until relaunch.
+  //  · disabled now, endpoint still open  → port stays reachable until relaunch.
+  const needsRelaunch = status !== null && enabled !== status.debuggingEnabled
+  const relaunchMsg = enabled
+    ? 'Relaunch BearCode to finish enabling the browser — it stays inactive until you do.'
+    : 'Relaunch BearCode to finish turning the browser off — its debugging port stays open until you do.'
+
   const clearSession = (): void => {
     void window.bearcode.browser.clearSession().then(() => {
       setCleared(true)
@@ -135,7 +152,7 @@ export function BrowserPage(): JSX.Element | null {
       <div className="set-card">
         <Row
           title="Enable Browser"
-          desc="Let the agent drive an embedded browser via the /browser command and browser_* tools. When off, the browser never launches and every browser action is refused."
+          desc="Let the agent drive an embedded browser via the /browser command and browser_* tools. When off, the browser never launches and every browser action is refused. Changes take effect after you relaunch BearCode."
         >
           <Toggle
             ariaLabel="Enable browser"
@@ -143,6 +160,11 @@ export function BrowserPage(): JSX.Element | null {
             onChange={(on) => void saveSettings({ browserEnabled: on })}
           />
         </Row>
+        {needsRelaunch ? (
+          <div className="browser-relaunch-note" role="status">
+            {relaunchMsg}
+          </div>
+        ) : null}
       </div>
 
       <div className="set-group-title">Domain Policy</div>

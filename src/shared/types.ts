@@ -865,7 +865,14 @@ export interface BearcodeApi {
   // (`show`/`hide` on mount/unmount); `status` backs the Settings tab, and
   // `clearSession` wipes the per-conversation browsing data.
   browser: {
-    status(): Promise<{ installed: boolean; connected: boolean; conversationId: string | null }>
+    status(): Promise<{
+      installed: boolean
+      connected: boolean
+      conversationId: string | null
+      // Whether the CDP endpoint was opened at boot; diverges from the live
+      // `browserEnabled` setting after a toggle, gating the relaunch note.
+      debuggingEnabled: boolean
+    }>
     clearSession(): Promise<void>
     setBounds(b: { x: number; y: number; width: number; height: number }): Promise<void>
     show(): Promise<void>

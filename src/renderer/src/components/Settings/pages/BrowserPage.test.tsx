@@ -15,7 +15,12 @@ const setSpy = vi.fn((patch: Record<string, unknown>) =>
   Promise.resolve({ ...baseSettings, ...patch })
 )
 const statusSpy = vi.fn(() =>
-  Promise.resolve({ installed: true, connected: false, conversationId: null })
+  Promise.resolve({
+    installed: true,
+    connected: false,
+    conversationId: null,
+    debuggingEnabled: false
+  })
 )
 const clearSessionSpy = vi.fn(() => Promise.resolve())
 
@@ -33,7 +38,12 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 beforeEach(() => {
-  statusSpy.mockResolvedValue({ installed: true, connected: false, conversationId: null })
+  statusSpy.mockResolvedValue({
+    installed: true,
+    connected: false,
+    conversationId: null,
+    debuggingEnabled: false
+  })
 })
 
 describe('BrowserPage (F4)', () => {
@@ -100,5 +110,38 @@ describe('BrowserPage (F4)', () => {
     mount()
     await waitFor(() => expect(statusSpy).toHaveBeenCalled())
     expect(await screen.findByText(/installed/i)).toBeTruthy()
+  })
+
+  it('documents the relaunch-to-take-effect posture on the Enable row', () => {
+    mount()
+    expect(screen.getByText(/take effect after you relaunch/i)).toBeTruthy()
+  })
+
+  it('shows a relaunch note when enabled but the endpoint was closed at boot', async () => {
+    // setting = ON, boot endpoint = OFF → tools refuse until relaunch.
+    mount({ browserEnabled: true })
+    await waitFor(() => expect(statusSpy).toHaveBeenCalled())
+    expect(await screen.findByText(/finish enabling the browser/i)).toBeTruthy()
+  })
+
+  it('shows a relaunch note when disabled but the endpoint stayed open from boot', async () => {
+    // setting = OFF, boot endpoint = ON → debug port open until relaunch.
+    statusSpy.mockResolvedValue({
+      installed: true,
+      connected: false,
+      conversationId: null,
+      debuggingEnabled: true
+    })
+    mount({ browserEnabled: false })
+    await waitFor(() => expect(statusSpy).toHaveBeenCalled())
+    expect(await screen.findByText(/debugging port stays open/i)).toBeTruthy()
+  })
+
+  it('shows no relaunch note when the toggle matches the boot endpoint state', async () => {
+    // setting = OFF, boot endpoint = OFF → in sync, no note.
+    mount({ browserEnabled: false })
+    await waitFor(() => expect(statusSpy).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByText(/installed/i)).toBeTruthy())
+    expect(screen.queryByText(/finish (enabling|turning)/i)).toBeNull()
   })
 })

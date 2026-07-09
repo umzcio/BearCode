@@ -181,6 +181,7 @@ const bearcode: BearcodeApi = {
       installed: boolean
       connected: boolean
       conversationId: string | null
+      debuggingEnabled: boolean
     }> => ipcRenderer.invoke('bearcode:browser:status'),
     clearSession: (): Promise<void> => ipcRenderer.invoke('bearcode:browser:clear-session'),
     setBounds: (b: { x: number; y: number; width: number; height: number }): Promise<void> =>

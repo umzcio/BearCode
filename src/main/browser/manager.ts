@@ -19,8 +19,22 @@ class BrowserManager {
   // The BrowserPane's ResizeObserver overrides this with real bounds on mount.
   private bounds: Bounds = { x: -10000, y: 0, width: 1280, height: 800 }
 
-  status(): { installed: boolean; connected: boolean; conversationId: string | null } {
-    return { installed: chromiumInstalled(), connected: !!this.page, conversationId: this.convId }
+  status(): {
+    installed: boolean
+    connected: boolean
+    conversationId: string | null
+    debuggingEnabled: boolean
+  } {
+    // debuggingEnabled = whether the CDP endpoint was opened at BOOT (finding 2).
+    // It's read once at boot from the persisted setting, so it can diverge from
+    // the live `browserEnabled` setting after the user toggles the feature —
+    // the Settings UI compares the two to show a "relaunch required" note.
+    return {
+      installed: chromiumInstalled(),
+      connected: !!this.page,
+      conversationId: this.convId,
+      debuggingEnabled: browserDebuggingEnabled()
+    }
   }
   currentUrl(): string {
     return this.view?.webContents.getURL() ?? 'about:blank'
