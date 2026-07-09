@@ -8,7 +8,13 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 // ~150 MB Chromium download in CI. The real gate is a headed-Electron harness,
 // which reaches these same assertions against a genuine window.
 vi.mock('electron', () => ({ WebContentsView: class {} }))
-vi.mock('../mainWindow', () => ({ getMainWindow: () => null, REMOTE_DEBUG_PORT: 9333 }))
+vi.mock('../mainWindow', () => ({
+  getMainWindow: () => null,
+  REMOTE_DEBUG_PORT: 9333,
+  // Enabled so start() proceeds past the endpoint gate to the "no main window"
+  // guard (which is what sets live=false and skips the live assertions).
+  browserDebuggingEnabled: () => true
+}))
 vi.mock('./install', () => ({
   ensureChromium: async (): Promise<void> => {},
   chromiumInstalled: (): boolean => false

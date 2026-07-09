@@ -3,7 +3,8 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { bootResumeInterruptedRuns, registerIpc } from './ipc'
 import { runDevSmoke } from './devSmoke'
-import { REMOTE_DEBUG_PORT, setMainWindow } from './mainWindow'
+import { REMOTE_DEBUG_PORT, setMainWindow, setBrowserDebuggingEnabled } from './mainWindow'
+import { getSettings } from './settings'
 import icon from '../../resources/icon.png?asset'
 
 // F4: expose a CDP endpoint so BrowserManager can drive an embedded
@@ -13,8 +14,27 @@ import icon from '../../resources/icon.png?asset'
 // runs app.commandLine.* at import — into their graph. Re-exported here for
 // callers that expect the F4 window API off the app entry point.
 export { REMOTE_DEBUG_PORT, getMainWindow } from './mainWindow'
-app.commandLine.appendSwitch('remote-debugging-port', String(REMOTE_DEBUG_PORT))
-app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1')
+
+// F4 finding 2 (SECURITY): open the CDP remote-debugging endpoint ONLY when the
+// Browser feature is enabled in settings. Opening it unconditionally would let
+// any same-user local process connect to the loopback port, enumerate targets,
+// and Runtime.evaluate inside BearCode's OWN renderer (which holds window.bearcode
+// IPC) — undermining the "off by default" L0 gate for every user who never
+// touches the browser. The value is read once at boot (persisted setting), so
+// enabling the feature requires an app relaunch (documented in Browser settings).
+function browserEnabledAtBoot(): boolean {
+  try {
+    return (getSettings() as { browserEnabled?: boolean }).browserEnabled === true
+  } catch {
+    return false
+  }
+}
+const cdpEnabled = browserEnabledAtBoot()
+setBrowserDebuggingEnabled(cdpEnabled)
+if (cdpEnabled) {
+  app.commandLine.appendSwitch('remote-debugging-port', String(REMOTE_DEBUG_PORT))
+  app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1')
+}
 
 // `ready-to-show` re-fires on renderer reloads (e.g. a dev-server restart,
 // same caveat as `runDevSmoke`'s own guard in devSmoke.ts); the crash-resume

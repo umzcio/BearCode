@@ -1,8 +1,9 @@
+import { randomUUID } from 'crypto'
 import { WebContentsView } from 'electron'
 import { chromium, type Browser, type Page } from 'playwright'
-import { getMainWindow, REMOTE_DEBUG_PORT } from '../mainWindow'
+import { getMainWindow, REMOTE_DEBUG_PORT, browserDebuggingEnabled } from '../mainWindow'
 import { ensureChromium, chromiumInstalled } from './install'
-import { matchBrowserTarget, type CdpTarget } from './policy'
+import { indexOfPageWithToken } from './policy'
 
 type Bounds = { x: number; y: number; width: number; height: number }
 
@@ -11,6 +12,7 @@ class BrowserManager {
   private browser: Browser | null = null
   private page: Page | null = null
   private convId: string | null = null
+  private tearingDown = false
   private bounds: Bounds = { x: 0, y: 0, width: 0, height: 0 }
 
   status(): { installed: boolean; connected: boolean; conversationId: string | null } {
@@ -24,48 +26,101 @@ class BrowserManager {
     if (this.page && this.convId === conversationId) return
     await this.teardown()
     await ensureChromium()
+    // finding 2: the CDP endpoint is only open when the feature was enabled at
+    // boot. Fail with an actionable message rather than blindly dialling a port
+    // that isn't ours (or isn't listening at all).
+    if (!browserDebuggingEnabled()) {
+      throw new Error(
+        'The browser debugging endpoint is disabled. Enable Browser in Settings and relaunch BearCode.'
+      )
+    }
     const win = getMainWindow()
     if (!win) throw new Error('No main window to attach the browser view to.')
     this.convId = conversationId
+    // finding 1: mint a unique per-session token and embed it in the view's
+    // initial URL. resolvePage() selects the CDP page by this token, so it can
+    // ONLY ever attach to our WebContentsView — never the app's own renderer,
+    // another BearCode instance sharing the (silently-collided) port, or a
+    // squatter's fake endpoint. Any of those yields no token match → we refuse.
+    const token = randomUUID()
     this.view = new WebContentsView({
       webPreferences: { sandbox: true, partition: `browser:${conversationId}` }
     })
     win.contentView.addChildView(this.view)
     this.view.setBounds(this.bounds)
-    await this.view.webContents.loadURL('about:blank')
-    // Connect Playwright to the app's CDP endpoint and select ONLY our view.
-    this.browser = await chromium.connectOverCDP(`http://127.0.0.1:${REMOTE_DEBUG_PORT}`)
-    this.page = await this.resolvePage()
+    await this.view.webContents.loadURL(
+      `data:text/html,<!--bearcode-${token}--><title>bearcode</title>`
+    )
     // Recover if the view's renderer dies mid-session.
     this.view.webContents.on('render-process-gone', () => {
       void this.teardown()
     })
-    this.browser.on('disconnected', () => {
-      this.page = null
+    // finding 4: never leave a zombie view attached if connect/target-select
+    // throws (port squatted, target list unsettled, CDP flake). Tear the whole
+    // session down and surface the error.
+    try {
+      this.page = await this.connectAndResolve(token)
+    } catch (err) {
+      await this.teardown()
+      throw err instanceof Error ? err : new Error(String(err))
+    }
+    // finding 4: if Playwright disconnects mid-session, tear the session DOWN
+    // (detach + destroy the view) rather than only nulling the page — otherwise
+    // status() reports a stranded view against a dead connection.
+    this.browser?.on('disconnected', () => {
+      void this.teardown()
     })
   }
 
-  // Match the CDP page target to our view's current URL (never the app renderer).
-  private async resolvePage(): Promise<Page> {
-    if (!this.browser || !this.view) throw new Error('Browser not started.')
-    const viewUrl = this.view.webContents.getURL()
-    for (const ctx of this.browser.contexts()) {
-      for (const p of ctx.pages()) {
-        if (p.url() === viewUrl) return p
+  // Connect to the CDP endpoint and resolve our view's page, retrying ONCE
+  // (design: "retries once then reports; never leaves a zombie view attached").
+  private async connectAndResolve(token: string): Promise<Page> {
+    let lastErr: unknown
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        // Discard a browser handle left over from a failed prior attempt.
+        try {
+          await this.browser?.close()
+        } catch {
+          /* already gone */
+        }
+        this.browser = await chromium.connectOverCDP(`http://127.0.0.1:${REMOTE_DEBUG_PORT}`)
+        return await this.resolvePage(token)
+      } catch (err) {
+        lastErr = err
       }
     }
-    // Fall back to CDP target list via the matcher (same-origin) if the page
-    // object list hasn't settled; re-query pages after a microtask.
-    await new Promise((r) => setImmediate(r))
-    const pages = this.browser.contexts().flatMap((c) => c.pages())
-    const targets: CdpTarget[] = pages.map((p, i) => ({
-      url: p.url(),
-      type: 'page',
-      id: String(i)
-    }))
-    const match = matchBrowserTarget(targets, viewUrl)
-    if (!match) throw new Error('Could not attach Playwright to the browser view target.')
-    return pages[Number(match.id)]
+    throw lastErr instanceof Error
+      ? lastErr
+      : new Error('Could not attach Playwright to the browser view target.')
+  }
+
+  // SECURITY-CRITICAL: select the CDP page carrying our unique session token —
+  // never positionally. No match → throw; we refuse to drive any other target
+  // (the app's own renderer, another instance, a squatter, a stale zombie).
+  private async resolvePage(token: string): Promise<Page> {
+    if (!this.browser) throw new Error('Browser not started.')
+    const find = (): Page | null => {
+      const pages = this.browser!.contexts().flatMap((c) => c.pages())
+      const idx = indexOfPageWithToken(
+        pages.map((p) => p.url()),
+        token
+      )
+      return idx >= 0 ? pages[idx] : null
+    }
+    let page = find()
+    if (!page) {
+      // The page object list may not have settled immediately after connect;
+      // re-query once on the next tick.
+      await new Promise((r) => setImmediate(r))
+      page = find()
+    }
+    if (!page) {
+      throw new Error(
+        'Could not attach Playwright to the browser view (no CDP page matched this session token). Refusing to drive any other target.'
+      )
+    }
+    return page
   }
 
   private requirePage(): Page {
@@ -125,23 +180,42 @@ class BrowserManager {
     await this.view?.webContents.session.clearStorageData()
   }
   async teardown(): Promise<void> {
+    // Re-entrancy guard: browser.close() below fires 'disconnected', whose
+    // handler calls teardown() again; the view's 'render-process-gone' can also
+    // land here concurrently. Null the refs up front and bail on re-entry.
+    if (this.tearingDown) return
+    this.tearingDown = true
     try {
-      await this.browser?.close()
-    } catch {
-      /* already gone */
-    }
-    if (this.view) {
-      const win = getMainWindow()
+      const browser = this.browser
+      const view = this.view
+      this.browser = null
+      this.page = null
+      this.view = null
+      this.convId = null
       try {
-        win?.contentView.removeChildView(this.view)
+        await browser?.close()
       } catch {
-        /* detached */
+        /* already gone */
       }
+      if (view) {
+        const win = getMainWindow()
+        try {
+          win?.contentView.removeChildView(view)
+        } catch {
+          /* detached */
+        }
+        // finding 3: removeChildView only DETACHES — the webContents lives until
+        // GC, leaking a renderer process and lingering as a CDP data-url target
+        // the next start() could ambiguously attach to. Destroy it explicitly.
+        try {
+          view.webContents.close()
+        } catch {
+          /* already destroyed */
+        }
+      }
+    } finally {
+      this.tearingDown = false
     }
-    this.view = null
-    this.browser = null
-    this.page = null
-    this.convId = null
   }
 }
 
