@@ -27,6 +27,10 @@ const MARKER = [
   'line 2'
 ].join('\n')
 
+// The store is a singleton; a test that overrides showToast would leak the mock
+// into later tests, so capture the pristine action and restore it each time.
+const realShowToast = useAppStore.getState().showToast
+
 let merge: ReturnType<typeof vi.fn>
 let readConflict: ReturnType<typeof vi.fn>
 let resolveFile: ReturnType<typeof vi.fn>
@@ -48,7 +52,7 @@ beforeEach(() => {
   ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
     worktree: { merge, readConflict, resolveFile, completeMerge, abort, discard: vi.fn() }
   } as unknown as BearcodeApi
-  useAppStore.setState({ conflict: null } as never)
+  useAppStore.setState({ conflict: null, showToast: realShowToast } as never)
 })
 afterEach(cleanup)
 
@@ -113,7 +117,7 @@ describe('ConflictResolver', () => {
   it('walks multiple files before offering Complete merge', async () => {
     seedConflict(['a.txt', 'b.txt'])
     render(<ConflictResolver />)
-    await waitFor(() => expect(readConflict).toHaveBeenCalledWith('c1', '/proj/repo-a', 'a.txt'))
+    await waitFor(() => expect(editor().value).toBe(MARKER))
     fireEvent.click(screen.getByRole('button', { name: /accept ours/i }))
     fireEvent.click(screen.getByRole('button', { name: /mark resolved/i }))
     // Second file loads; no Complete merge yet.
@@ -121,13 +125,86 @@ describe('ConflictResolver', () => {
     expect(screen.queryByRole('button', { name: /complete merge/i })).toBeNull()
   })
 
-  it('Abort aborts the merge and clears the conflict', async () => {
+  it('Abort with nothing resolved aborts without confirmation', async () => {
     seedConflict()
     render(<ConflictResolver />)
     await waitFor(() => expect(editor().value).toBe(MARKER))
-    // Exact name to disambiguate from the header's "Abort merge" close button.
     fireEvent.click(screen.getByRole('button', { name: 'Abort' }))
     await waitFor(() => expect(abort).toHaveBeenCalledWith('c1', '/proj/repo-a'))
     await waitFor(() => expect(useAppStore.getState().conflict).toBeNull())
+  })
+
+  // Finding 1: scrim-click is a harmless dismiss in every other modal; here it
+  // must NOT run `git merge --abort` (which discards resolved content).
+  it('clicking the scrim dismisses without aborting the merge', async () => {
+    seedConflict()
+    const { container } = render(<ConflictResolver />)
+    await waitFor(() => expect(editor().value).toBe(MARKER))
+    fireEvent.click(container.querySelector('.modal-overlay') as HTMLElement)
+    expect(abort).not.toHaveBeenCalled()
+    await waitFor(() => expect(useAppStore.getState().conflict).toBeNull())
+  })
+
+  it('the header close button dismisses without aborting the merge', async () => {
+    seedConflict()
+    render(<ConflictResolver />)
+    await waitFor(() => expect(editor().value).toBe(MARKER))
+    fireEvent.click(screen.getByRole('button', { name: /close/i }))
+    expect(abort).not.toHaveBeenCalled()
+    await waitFor(() => expect(useAppStore.getState().conflict).toBeNull())
+  })
+
+  it('Abort confirms once a file has been resolved, and aborts only on confirm', async () => {
+    seedConflict(['a.txt', 'b.txt'], 1) // one file already marked resolved
+    render(<ConflictResolver />)
+    await waitFor(() => expect(editor().value).toBe(MARKER))
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Abort' }))
+    expect(confirmSpy).toHaveBeenCalled()
+    await waitFor(() => expect(abort).toHaveBeenCalledWith('c1', '/proj/repo-a'))
+    confirmSpy.mockRestore()
+  })
+
+  it('cancelling the Abort confirm keeps the merge and every resolution', async () => {
+    seedConflict(['a.txt', 'b.txt'], 1)
+    render(<ConflictResolver />)
+    await waitFor(() => expect(editor().value).toBe(MARKER))
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Abort' }))
+    expect(abort).not.toHaveBeenCalled()
+    expect(useAppStore.getState().conflict).not.toBeNull()
+    confirmSpy.mockRestore()
+  })
+
+  // Finding 2: the resolve controls must stay disabled until the current file's
+  // readConflict lands, or a fast second click writes the previous file's
+  // buffer into the next file.
+  it('gates Mark resolved until the current file has finished loading', async () => {
+    let resolveRead!: (v: { merged: string }) => void
+    readConflict.mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          resolveRead = res
+        })
+    )
+    seedConflict(['a.txt'])
+    render(<ConflictResolver />)
+    const mark = (): HTMLButtonElement =>
+      screen.getByRole('button', { name: /mark resolved/i }) as HTMLButtonElement
+    expect(mark().disabled).toBe(true)
+    resolveRead({ merged: MARKER })
+    await waitFor(() => expect(mark().disabled).toBe(false))
+  })
+
+  it('surfaces a load failure and keeps resolution disabled for that file', async () => {
+    readConflict.mockRejectedValueOnce(new Error('missing in base tree'))
+    const showToast = vi.fn()
+    useAppStore.setState({ showToast } as never)
+    seedConflict(['a.txt'])
+    render(<ConflictResolver />)
+    await waitFor(() => expect(showToast).toHaveBeenCalled())
+    expect(
+      (screen.getByRole('button', { name: /mark resolved/i }) as HTMLButtonElement).disabled
+    ).toBe(true)
   })
 })

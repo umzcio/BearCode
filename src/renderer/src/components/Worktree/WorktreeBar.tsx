@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useAppStore } from '../../state/store'
 import { IconGitBranch } from '../icons'
 import './WorktreeBar.css'
@@ -17,10 +18,38 @@ export function WorktreeBar({ convoId }: { convoId: string }): React.JSX.Element
   const convo = useAppStore((s) => s.conversations[convoId])
   const mergeWorktree = useAppStore((s) => s.mergeWorktree)
   const discardWorktree = useAppStore((s) => s.discardWorktree)
+  // Per-repo in-flight guard: a double-click on one repo's Merge would launch a
+  // second concurrent merge in the same base repo (index.lock failure), so the
+  // button is disabled until its merge settles. Discard is disabled while any
+  // merge is in flight (and vice-versa) to keep the base repo consistent.
+  const [merging, setMerging] = useState<Record<string, boolean>>({})
+  const [discarding, setDiscarding] = useState(false)
 
   if (!convo || convo.environment !== 'worktree' || convo.worktrees.length === 0) return null
 
   const multi = convo.worktrees.length > 1
+  const anyMerging = Object.values(merging).some(Boolean)
+
+  const onMerge = async (repoPath: string): Promise<void> => {
+    if (merging[repoPath] || discarding) return
+    setMerging((m) => ({ ...m, [repoPath]: true }))
+    try {
+      await mergeWorktree(convoId, repoPath)
+    } finally {
+      setMerging((m) => ({ ...m, [repoPath]: false }))
+    }
+  }
+
+  const onDiscard = async (): Promise<void> => {
+    if (discarding || anyMerging) return
+    if (!window.confirm('Discard this conversation’s worktrees? Unmerged changes are lost.')) return
+    setDiscarding(true)
+    try {
+      await discardWorktree(convoId)
+    } finally {
+      setDiscarding(false)
+    }
+  }
 
   return (
     <div className="worktree-bar">
@@ -34,7 +63,8 @@ export function WorktreeBar({ convoId }: { convoId: string }): React.JSX.Element
             </span>
             <button
               className="pill-btn worktree-merge"
-              onClick={() => void mergeWorktree(convoId, w.repoPath)}
+              onClick={() => void onMerge(w.repoPath)}
+              disabled={!!merging[w.repoPath] || discarding}
             >
               Merge to main
             </button>
@@ -43,10 +73,8 @@ export function WorktreeBar({ convoId }: { convoId: string }): React.JSX.Element
       </div>
       <button
         className="pill-btn worktree-discard"
-        onClick={() => {
-          if (window.confirm('Discard this conversation’s worktrees? Unmerged changes are lost.'))
-            void discardWorktree(convoId)
-        }}
+        onClick={() => void onDiscard()}
+        disabled={discarding || anyMerging}
       >
         Discard worktree
       </button>

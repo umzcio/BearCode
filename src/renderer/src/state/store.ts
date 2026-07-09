@@ -969,19 +969,30 @@ export const useAppStore = create<AppState>((set, get) => {
     // opens the Monaco resolver (Task 12) by seeding the `conflict` slice with
     // the conflicted files to walk.
     mergeWorktree: async (convId, repoPath) => {
-      const res = await window.bearcode.worktree.merge(convId, repoPath)
-      if (res.status === 'conflict') {
-        set({ conflict: { convId, repoPath, files: res.conflictedFiles, index: 0 } })
-      } else {
-        get().showToast('Merged to ' + (repoPath.split('/').pop() || repoPath))
+      try {
+        const res = await window.bearcode.worktree.merge(convId, repoPath)
+        if (res.status === 'conflict') {
+          set({ conflict: { convId, repoPath, files: res.conflictedFiles, index: 0 } })
+        } else {
+          get().showToast('Merged to ' + (repoPath.split('/').pop() || repoPath))
+        }
+      } catch (e) {
+        // git() rejects on any non-zero exit (dirty base repo, a merge already
+        // in progress, lock contention, …). Surface it instead of leaving the
+        // Merge button a silent no-op.
+        get().showToast(e instanceof Error ? e.message : 'Merge failed')
       }
     },
 
     // F3: discard the whole conversation's worktrees (removes each + its branch,
     // main-side) and reset it to local so the action bar disappears.
     discardWorktree: async (convId) => {
-      await window.bearcode.worktree.discard(convId)
-      patchConvo(convId, { environment: 'local', worktrees: [] })
+      try {
+        await window.bearcode.worktree.discard(convId)
+        patchConvo(convId, { environment: 'local', worktrees: [] })
+      } catch (e) {
+        get().showToast(e instanceof Error ? e.message : 'Could not discard worktree')
+      }
     },
 
     refreshProjectSettings: async () => {

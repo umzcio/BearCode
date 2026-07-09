@@ -127,6 +127,33 @@ describe('WorktreeBar', () => {
     confirmSpy.mockRestore()
   })
 
+  it('disables the Merge button while a merge is in flight (no double-launch)', async () => {
+    seedConvo([wt({ repoPath: '/proj/repo-a' })])
+    let resolveMerge!: (v: { status: 'clean'; conflictedFiles: string[] }) => void
+    ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
+      worktree: {
+        merge: vi.fn(
+          () =>
+            new Promise<{ status: 'clean'; conflictedFiles: string[] }>((res) => {
+              resolveMerge = res
+            })
+        ),
+        discard: vi.fn(async () => {})
+      }
+    } as unknown as BearcodeApi
+    render(<WorktreeBar convoId="c1" />)
+    const btn = screen.getByRole('button', { name: /merge to main/i }) as HTMLButtonElement
+    fireEvent.click(btn)
+    await vi.waitFor(() => expect(btn.disabled).toBe(true))
+    // A second click while in flight must not launch a second merge.
+    fireEvent.click(btn)
+    resolveMerge({ status: 'clean', conflictedFiles: [] })
+    await vi.waitFor(() => expect(btn.disabled).toBe(false))
+    expect(
+      (window as unknown as { bearcode: BearcodeApi }).bearcode.worktree.merge
+    ).toHaveBeenCalledTimes(1)
+  })
+
   it('a conflicted merge opens the resolver by setting store.conflict (real action)', async () => {
     seedConvo([wt({ repoPath: '/proj/repo-a' })])
     ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {

@@ -94,6 +94,13 @@
   font-size: 13px;
 }
 
+.conflict-error {
+  padding: 16px;
+  color: var(--danger, #e5534b);
+  font-size: 13px;
+  word-break: break-word;
+}
+
 .conflict-done {
   flex: 1;
   display: flex;

@@ -52,6 +52,31 @@ describe('merge engine (real git)', () => {
     expect(readFileSync(join(proj, 'a.txt'), 'utf8')).toBe('resolved\n')
   })
 
+  it('recovers an in-progress merge (MERGE_HEAD) instead of restarting it', async () => {
+    if (!hasGit) return
+    const ud = mkdtempSync(join(tmpdir(), 'bc-ud4-'))
+    const proj = mkdtempSync(join(tmpdir(), 'bc-proj4-'))
+    await makeRepo(proj)
+    const [w] = await createWorktrees(ud, 'c4', proj, 'feature')
+    writeFileSync(join(proj, 'a.txt'), 'base-side\n')
+    await git(['commit', '-am', 'base edit'], proj)
+    writeFileSync(join(w.worktreePath, 'a.txt'), 'wt-side\n')
+    await commitWorktree(w, 'wt edit')
+    const first = await mergeToBase(w)
+    expect(first.status).toBe('conflict')
+    // Simulate an app quit/reload mid-resolution: the base repo still has
+    // MERGE_HEAD + a conflicted index. A second mergeToBase must NOT re-run
+    // `git checkout` (which would throw "resolve your current index first") —
+    // it re-seeds the resolver from the still-conflicted files.
+    const again = await mergeToBase(w)
+    expect(again.status).toBe('conflict')
+    expect(again.conflictedFiles).toContain('a.txt')
+    // The recovered merge can still be finished normally.
+    await writeResolved(w, 'a.txt', 'resolved\n')
+    await completeMerge(w)
+    expect(readFileSync(join(proj, 'a.txt'), 'utf8')).toBe('resolved\n')
+  })
+
   it('abort restores the pre-merge base state', async () => {
     if (!hasGit) return
     const ud = mkdtempSync(join(tmpdir(), 'bc-ud3-'))
