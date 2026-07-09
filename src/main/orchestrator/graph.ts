@@ -2249,7 +2249,12 @@ export async function runGraph(opts: {
 // Exported for tests.
 export function isRehydratableInterrupt(value: unknown): boolean {
   const kind = (value as { kind?: string } | null | undefined)?.kind
-  return kind === 'run_command' || kind === 'edit_file' || kind === 'plan_review'
+  // F4: browser approvals (incl. the folded first-use session-consent prompt)
+  // resume with the same {approved} shape, so they survive a crash/restart and
+  // don't drag an otherwise-rehydratable parallel batch down to 'cancelled'.
+  return (
+    kind === 'run_command' || kind === 'edit_file' || kind === 'plan_review' || kind === 'browser'
+  )
 }
 
 // Full crash-resume (A2). Called at boot for a dangling conversation: rebuilds
