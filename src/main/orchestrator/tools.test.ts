@@ -20,6 +20,14 @@ vi.mock('../artifacts/store', () => ({
 vi.mock('../agentsDir', () => ({
   loadAgentsContent: vi.fn(() => ({ rules: [], workflows: [] }))
 }))
+// F4: tools.ts now imports ../settings (electron) and ../browser/manager
+// (electron + playwright) for the browser_* tools; mock both so this suite's
+// import chain never pulls electron. The browser tools have their own suite
+// (tools.browser.test.ts); here they only need to not break module load.
+vi.mock('../settings', () => ({
+  getSettings: vi.fn(() => ({ browserEnabled: false, browserAllowlist: [], browserBlocklist: [] }))
+}))
+vi.mock('../browser/manager', () => ({ browserManager: {} }))
 // Spread-importOriginal: only `interrupt` is stubbed, everything else
 // @langchain/langgraph exports (Command, etc.) stays live for this file.
 vi.mock('@langchain/langgraph', async (importOriginal) => ({
@@ -207,14 +215,22 @@ describe('submit_plan / submit_walkthrough (Ba1 artifact substrate)', () => {
     }
   }
 
-  it('registers both tools alongside run_command', () => {
+  it('registers both tools alongside run_command (F4 appends the browser_* tools)', () => {
     const names = allTools(makeSink()).map((t) => t.name)
     expect(names).toEqual([
       'run_command',
       'submit_plan',
       'submit_walkthrough',
       'activate_rule',
-      'generate_document'
+      'generate_document',
+      'browser_navigate',
+      'browser_read',
+      'browser_screenshot',
+      'browser_scroll',
+      'browser_wait',
+      'browser_click',
+      'browser_type',
+      'browser_evaluate'
     ])
   })
 

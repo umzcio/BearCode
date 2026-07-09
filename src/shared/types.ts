@@ -169,6 +169,14 @@ export type ToolName =
   | 'task'
   | 'submit_plan'
   | 'submit_walkthrough'
+  | 'browser_navigate'
+  | 'browser_read'
+  | 'browser_screenshot'
+  | 'browser_scroll'
+  | 'browser_wait'
+  | 'browser_click'
+  | 'browser_type'
+  | 'browser_evaluate'
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
