@@ -325,6 +325,29 @@ describe('auxiliary pane selection (Ba4): one field, deep-link ticks, reset on s
       const msg = { type: 'assistant_text', id: 'ev-x', text: 'hi' } as unknown as Event
       expect(shouldOpenBrowserPane(base, 'c1', msg)).toBe(false)
     })
+
+    // Fable B3 finding 2: once a conversation has auto-opened the browser pane
+    // (latch), a later browser_* step in the SAME turn must NOT yank the pane
+    // back open -- the user may have moved the pane to a diff/artifact to read
+    // while the agent works. The latch is the `openedConvos` set.
+    it('does NOT re-open once the conversation has already auto-opened (latched), even if the user moved the pane to a diff', () => {
+      const onDiff = { ...base, auxSelection: { kind: 'diff' as const, diffId: 'd1' } }
+      const latched = new Set(['c1'])
+      expect(shouldOpenBrowserPane(onDiff, 'c1', browserCall, latched)).toBe(false)
+    })
+    it('does NOT re-open when latched even if the pane moved to an artifact', () => {
+      const onArtifact = { ...base, auxSelection: { kind: 'artifact' as const, artifactId: 'a1' } }
+      const latched = new Set(['c1'])
+      expect(shouldOpenBrowserPane(onArtifact, 'c1', browserCall, latched)).toBe(false)
+    })
+    it('DOES open the first time (not yet latched) even if the pane currently shows a diff', () => {
+      const onDiff = { ...base, auxSelection: { kind: 'diff' as const, diffId: 'd1' } }
+      expect(shouldOpenBrowserPane(onDiff, 'c1', browserCall, new Set())).toBe(true)
+    })
+    it('a latch on a DIFFERENT conversation does not suppress this one', () => {
+      const latchedOther = new Set(['c2'])
+      expect(shouldOpenBrowserPane(base, 'c1', browserCall, latchedOther)).toBe(true)
+    })
   })
 
   it('openArtifactPane selects the artifact, clears focusPath, bumps the open tick', () => {

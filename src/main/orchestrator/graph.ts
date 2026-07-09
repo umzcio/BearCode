@@ -2045,7 +2045,7 @@ function buildAgentAndContext(
   // policies that must never share a catch. loadAgentsContent already ran
   // above for the rules; `workflows` rides that same call (possibly [] if it
   // threw), so this never does extra IO.
-  const cmd = assembleCommandAdditions(command, workflows)
+  const cmd = assembleCommandAdditions(command, workflows, projectPath != null)
   if (cmd.error) return { refusal: cmd.error }
   const commandAdditions =
     cmd.systemAdditions.length > 0 ? '\n\n' + cmd.systemAdditions.join('\n\n') : ''

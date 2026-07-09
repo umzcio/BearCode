@@ -105,26 +105,36 @@ export function shouldFollowNewDiff(
   )
 }
 
-// F4: auto-open the embedded browser pane the moment the agent uses the
-// browser. An offscreen/0-size WebContentsView is never composited (screenshots
-// come back blank and the user sees nothing), so the pane MUST mount on-screen
-// -- its ResizeObserver then pushes real bounds to BrowserManager. Fires on the
-// FIRST browser_* tool_call for the conversation you're viewing, and only when
-// the pane isn't already showing this conversation's browser (so it never yanks
-// the pane open again on every subsequent browser step).
+// F4: auto-open the embedded browser pane the moment the agent first uses the
+// browser in a turn. An offscreen/0-size WebContentsView is never composited
+// (screenshots come back blank and the user sees nothing), so the pane MUST
+// mount on-screen once -- its ResizeObserver then pushes real bounds to
+// BrowserManager.
+//
+// Fires ONLY on the FIRST browser_* tool_call of a turn for the conversation
+// you're viewing, tracked by the `openedConvos` latch (a conversation is added
+// to it when the pane auto-opens and cleared when the user sends a new
+// message). After that first open it NEVER re-opens on subsequent browser steps
+// -- so if the user moves the pane to a diff/artifact to read while the agent
+// keeps browsing (or an approval re-emits a pending tool_call), the pane is not
+// yanked back (Fable B3 finding 2). This mirrors shouldFollowNewDiff's ethos of
+// never yanking you off what you're reading. A fresh user turn resets the latch
+// so a newly-requested browser task can re-open a pane the user had closed.
 export function shouldOpenBrowserPane(
   s: {
     view: { kind: string; id?: string }
     auxSelection: AuxSelection | null
   },
   convoId: string,
-  event: Event
+  event: Event,
+  openedConvos: ReadonlySet<string> = new Set()
 ): boolean {
   return (
     event.type === 'tool_call' &&
     event.tool.startsWith('browser_') &&
     s.view.kind === 'conversation' &&
     s.view.id === convoId &&
+    !openedConvos.has(convoId) &&
     !(s.auxSelection?.kind === 'browser' && s.auxSelection.conversationId === convoId)
   )
 }
@@ -157,6 +167,12 @@ function writeStoredWidth(key: string, w: number): void {
 // The working phase ends when prose starts streaming.
 export const workedSecondsByTurn = new Map<string, number>()
 const turnStartByConvo = new Map<string, { turnId: string; startedAt: number; frozen: boolean }>()
+
+// F4 (Fable B3 finding 2): conversations whose browser pane has already
+// auto-opened this turn. shouldOpenBrowserPane consults it so the pane opens
+// exactly once per turn and never yanks the user off a diff/artifact on later
+// browser steps. Cleared when a new user_message turn begins for the convo.
+const browserPaneAutoOpened = new Set<string>()
 
 function basename(p: string): string {
   const parts = p.replace(/\/$/, '').split('/')
@@ -448,16 +464,23 @@ export const useAppStore = create<AppState>((set, get) => {
     if (event.type === 'user_message') {
       turnStartByConvo.set(convoId, { turnId: event.id, startedAt: Date.now(), frozen: false })
       patchConvo(convoId, { startedAt: Date.now() })
+      // F4: a new turn resets the browser auto-open latch, so a freshly
+      // requested browser task can re-open a pane the user had closed.
+      browserPaneAutoOpened.delete(convoId)
     }
     // Auto-surface the newest diff group (design 2026-07-06): see
     // shouldFollowNewDiff. Decided BEFORE upsert so "already seen" is accurate.
     const follow = shouldFollowNewDiff(get(), convoId, event)
     // F4: decided BEFORE upsert so the "not already showing" check reflects the
-    // pane state as of this event's arrival.
-    const openBrowser = shouldOpenBrowserPane(get(), convoId, event)
+    // pane state as of this event's arrival. The latch (browserPaneAutoOpened)
+    // makes it fire once per turn and never yank the pane off a diff/artifact.
+    const openBrowser = shouldOpenBrowserPane(get(), convoId, event, browserPaneAutoOpened)
     upsertEvent(convoId, event)
     if (follow && event.type === 'file_diff') get().openReview(event.diffId)
-    if (openBrowser) get().openBrowserPane(convoId)
+    if (openBrowser) {
+      browserPaneAutoOpened.add(convoId)
+      get().openBrowserPane(convoId)
+    }
   }
 
   function ensureDefaultModel(): void {
