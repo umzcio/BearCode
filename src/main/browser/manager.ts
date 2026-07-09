@@ -100,6 +100,10 @@ class BrowserManager {
     }
     this.view.webContents.on('will-navigate', guardNavigation)
     this.view.webContents.on('will-redirect', guardNavigation)
+    // F4 (whole-branch review, popup escape): v1 is single-tab. A visited page's
+    // window.open()/target=_blank must NOT spawn a window outside the pane,
+    // Playwright's control, and the domain policy — deny all popups outright.
+    this.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     // finding 4: never leave a zombie view attached if connect/target-select
     // throws (port squatted, target list unsettled, CDP flake). Tear the whole
     // session down and surface the error.
