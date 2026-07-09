@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { statSync, readFileSync } from 'fs'
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import type {
   AddRuleInput,
   AppSettings,
@@ -626,5 +626,11 @@ export function registerIpc(): void {
     }
   )
   ipcMain.handle('bearcode:browser:show', () => browserManager.show())
+
+  // navigator.clipboard in the sandboxed renderer is blocked by our tight
+  // permission handlers (media-only), so copy went through main's clipboard.
+  ipcMain.handle('bearcode:clipboard:write', (_e, text: unknown) => {
+    clipboard.writeText(typeof text === 'string' ? text : String(text))
+  })
   ipcMain.handle('bearcode:browser:hide', () => browserManager.hide())
 }

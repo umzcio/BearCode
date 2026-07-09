@@ -835,6 +835,9 @@ export interface BearcodeApi {
   workspace: {
     pick(): Promise<string | null>
   }
+  clipboard: {
+    write(text: string): Promise<void>
+  }
   // F3: worktree lifecycle beyond create. `discard` tears down the spawned
   // worktrees (removes each + its branch) and resets the conversation to local.
   worktree: {

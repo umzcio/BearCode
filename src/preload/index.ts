@@ -157,6 +157,9 @@ const bearcode: BearcodeApi = {
   workspace: {
     pick: () => ipcRenderer.invoke('bearcode:workspace:pick')
   },
+  clipboard: {
+    write: (text: string): Promise<void> => ipcRenderer.invoke('bearcode:clipboard:write', text)
+  },
   worktree: {
     merge: (
       convId: string,

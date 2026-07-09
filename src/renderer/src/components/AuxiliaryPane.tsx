@@ -341,8 +341,10 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
 
   const copyActive = (): void => {
     if (!activeFile) return
-    void navigator.clipboard?.writeText(activeFile.afterText)
-    showToast(`Copied ${baseName(activeFile.path)}`)
+    const name = baseName(activeFile.path)
+    void window.bearcode.clipboard
+      .write(activeFile.afterText)
+      .then(() => showToast(`Copied ${name}`))
   }
 
   const body = activeFile ? viewFor(activeFile) : 'diff'

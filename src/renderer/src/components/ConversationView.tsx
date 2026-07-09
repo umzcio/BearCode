@@ -289,8 +289,9 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                       className="icon-btn"
                       title="Copy"
                       onClick={() => {
-                        void navigator.clipboard.writeText(turn.user.text)
-                        showToast('Copied')
+                        void window.bearcode.clipboard
+                          .write(turn.user.text)
+                          .then(() => showToast('Copied'))
                       }}
                     >
                       <IconCopy />
@@ -335,8 +336,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                         title="Copy"
                         onClick={() => {
                           const text = turn.texts.map((t) => t.text).join('\n\n')
-                          void navigator.clipboard.writeText(text)
-                          showToast('Copied')
+                          void window.bearcode.clipboard.write(text).then(() => showToast('Copied'))
                         }}
                       >
                         <IconCopy />
