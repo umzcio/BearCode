@@ -45,6 +45,7 @@
     "mammoth": "^1.12.0",
     "monaco-editor": "^0.55.1",
     "pdf-lib": "^1.17.1",
+    "playwright": "^1.61.1",
     "unpdf": "^1.6.2",
     "zod": "^4.4.3",
     "zustand": "^5.0.14"
