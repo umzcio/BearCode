@@ -816,6 +816,21 @@ export interface BearcodeApi {
   // F3: worktree lifecycle beyond create. `discard` tears down the spawned
   // worktrees (removes each + its branch) and resets the conversation to local.
   worktree: {
+    // F3: merge this repo's worktree branch into its base branch (per-repo so
+    // multi-repo merges are independent). 'conflict' returns the conflicted
+    // files for the resolver; the merge is left in progress in the base repo.
+    merge(
+      convId: string,
+      repoPath: string
+    ): Promise<{ status: 'clean' | 'conflict'; conflictedFiles: string[] }>
+    // F3: read a conflicted file's current (marker-laden) text from the base repo.
+    readConflict(convId: string, repoPath: string, file: string): Promise<{ merged: string }>
+    // F3: write the user's resolved content for a conflicted file + `git add` it.
+    resolveFile(convId: string, repoPath: string, file: string, content: string): Promise<void>
+    // F3: commit the in-progress merge once all conflicts are resolved.
+    completeMerge(convId: string, repoPath: string): Promise<void>
+    // F3: abort the in-progress merge, restoring the base repo's pre-merge state.
+    abort(convId: string, repoPath: string): Promise<void>
     discard(convId: string): Promise<void>
     // F3: whether New-Worktree mode is offerable for a folder — git is present
     // AND the folder (or an immediate child) is a git repo. Drives the composer

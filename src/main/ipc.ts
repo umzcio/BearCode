@@ -15,7 +15,8 @@ import type {
   ProjectSettings,
   ProviderId,
   RunState,
-  TranscribeMeta
+  TranscribeMeta,
+  WorktreeInfo
 } from '../shared/types'
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
@@ -33,6 +34,14 @@ import { parseCsv } from './preview/csv'
 import { extractTextLane } from './attachments/extract'
 import * as db from './db'
 import { createWorktrees, removeWorktrees, gitAvailable, discoverRepos } from './worktree/manager'
+import {
+  commitWorktree,
+  mergeToBase,
+  readConflict,
+  writeResolved,
+  completeMerge,
+  abortMerge
+} from './worktree/merge'
 import { jailPath } from './orchestrator/fsBackend'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
@@ -488,6 +497,39 @@ export function registerIpc(): void {
     await removeWorktrees(meta.worktrees)
     db.setEnvironment(convId, 'local', [])
   })
+  // F3: per-repo merge flow. Each handler resolves the conversation meta, finds
+  // the WorktreeInfo for the given repoPath (throwing a clear error if missing),
+  // then drives the merge engine — merges run in the base repo, per-repo so
+  // multi-repo merges stay independent.
+  const findWorktree = (convId: string, repoPath: string): WorktreeInfo => {
+    const meta = db.getConversationMeta(convId)
+    const w = meta?.worktrees.find((x) => x.repoPath === repoPath)
+    if (!w) throw new Error(`No worktree for repo ${repoPath} in conversation ${convId}`)
+    return w
+  }
+  ipcMain.handle('bearcode:worktree:merge', async (_e, convId: string, repoPath: string) => {
+    const w = findWorktree(convId, repoPath)
+    await commitWorktree(w, `BearCode: merge conversation ${convId}`)
+    return mergeToBase(w)
+  })
+  ipcMain.handle(
+    'bearcode:worktree:read-conflict',
+    (_e, convId: string, repoPath: string, file: string) =>
+      readConflict(findWorktree(convId, repoPath), file)
+  )
+  ipcMain.handle(
+    'bearcode:worktree:resolve-file',
+    (_e, convId: string, repoPath: string, file: string, content: unknown) => {
+      if (typeof content !== 'string') throw new Error('Invalid resolved content')
+      return writeResolved(findWorktree(convId, repoPath), file, content)
+    }
+  )
+  ipcMain.handle('bearcode:worktree:complete-merge', (_e, convId: string, repoPath: string) =>
+    completeMerge(findWorktree(convId, repoPath))
+  )
+  ipcMain.handle('bearcode:worktree:abort', (_e, convId: string, repoPath: string) =>
+    abortMerge(findWorktree(convId, repoPath))
+  )
   // F3: New-Worktree mode is offerable only when git is present AND the folder
   // (or an immediate child) is a git repo — mirrors createWorktrees' discovery.
   ipcMain.handle('bearcode:worktree:available', async (_e, path: unknown) => {

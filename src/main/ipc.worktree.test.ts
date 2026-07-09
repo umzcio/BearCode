@@ -35,6 +35,24 @@ vi.mock('./worktree/manager', () => ({
   gitAvailable
 }))
 
+const { commitWorktree, mergeToBase, readConflict, writeResolved, completeMerge, abortMerge } =
+  vi.hoisted(() => ({
+    commitWorktree: vi.fn(),
+    mergeToBase: vi.fn(),
+    readConflict: vi.fn(),
+    writeResolved: vi.fn(),
+    completeMerge: vi.fn(),
+    abortMerge: vi.fn()
+  }))
+vi.mock('./worktree/merge', () => ({
+  commitWorktree,
+  mergeToBase,
+  readConflict,
+  writeResolved,
+  completeMerge,
+  abortMerge
+}))
+
 import { registerIpc } from './ipc'
 
 const WT = [
@@ -154,5 +172,84 @@ describe('worktree IPC', () => {
     await handlers.get('bearcode:conversations:delete')!({}, 'c2')
     expect(removeWorktrees).not.toHaveBeenCalled()
     expect(deleteConversation).toHaveBeenCalledWith('c2')
+  })
+})
+
+describe('worktree merge IPC', () => {
+  it('merge finds the repo worktree, commits then merges to base', async () => {
+    getConversationMeta.mockReturnValue({
+      id: 'c1',
+      projectPath: '/proj',
+      environment: 'worktree',
+      worktrees: WT
+    })
+    mergeToBase.mockResolvedValue({ status: 'clean', conflictedFiles: [] })
+    const r = await handlers.get('bearcode:worktree:merge')!({}, 'c1', '/proj')
+    expect(commitWorktree).toHaveBeenCalledWith(WT[0], expect.stringContaining('c1'))
+    expect(mergeToBase).toHaveBeenCalledWith(WT[0])
+    expect(r).toEqual({ status: 'clean', conflictedFiles: [] })
+  })
+
+  it('read-conflict returns the merged text for the repo file', async () => {
+    getConversationMeta.mockReturnValue({
+      id: 'c1',
+      projectPath: '/proj',
+      environment: 'worktree',
+      worktrees: WT
+    })
+    readConflict.mockResolvedValue({ merged: '<<<<<<< HEAD\n' })
+    const r = await handlers.get('bearcode:worktree:read-conflict')!({}, 'c1', '/proj', 'a.txt')
+    expect(readConflict).toHaveBeenCalledWith(WT[0], 'a.txt')
+    expect(r).toEqual({ merged: '<<<<<<< HEAD\n' })
+  })
+
+  it('resolve-file writes the resolved content for the repo', async () => {
+    getConversationMeta.mockReturnValue({
+      id: 'c1',
+      projectPath: '/proj',
+      environment: 'worktree',
+      worktrees: WT
+    })
+    await handlers.get('bearcode:worktree:resolve-file')!({}, 'c1', '/proj', 'a.txt', 'resolved\n')
+    expect(writeResolved).toHaveBeenCalledWith(WT[0], 'a.txt', 'resolved\n')
+  })
+
+  it('resolve-file rejects non-string content', async () => {
+    getConversationMeta.mockReturnValue({
+      id: 'c1',
+      projectPath: '/proj',
+      environment: 'worktree',
+      worktrees: WT
+    })
+    expect(() =>
+      handlers.get('bearcode:worktree:resolve-file')!({}, 'c1', '/proj', 'a.txt', 42)
+    ).toThrow(/content/i)
+    expect(writeResolved).not.toHaveBeenCalled()
+  })
+
+  it('complete-merge and abort dispatch to the repo worktree', async () => {
+    getConversationMeta.mockReturnValue({
+      id: 'c1',
+      projectPath: '/proj',
+      environment: 'worktree',
+      worktrees: WT
+    })
+    await handlers.get('bearcode:worktree:complete-merge')!({}, 'c1', '/proj')
+    expect(completeMerge).toHaveBeenCalledWith(WT[0])
+    await handlers.get('bearcode:worktree:abort')!({}, 'c1', '/proj')
+    expect(abortMerge).toHaveBeenCalledWith(WT[0])
+  })
+
+  it('merge with an unknown repoPath throws', async () => {
+    getConversationMeta.mockReturnValue({
+      id: 'c1',
+      projectPath: '/proj',
+      environment: 'worktree',
+      worktrees: WT
+    })
+    await expect(handlers.get('bearcode:worktree:merge')!({}, 'c1', '/nope')).rejects.toThrow(
+      /no worktree/i
+    )
+    expect(commitWorktree).not.toHaveBeenCalled()
   })
 })

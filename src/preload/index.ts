@@ -158,6 +158,19 @@ const bearcode: BearcodeApi = {
     pick: () => ipcRenderer.invoke('bearcode:workspace:pick')
   },
   worktree: {
+    merge: (
+      convId: string,
+      repoPath: string
+    ): Promise<{ status: 'clean' | 'conflict'; conflictedFiles: string[] }> =>
+      ipcRenderer.invoke('bearcode:worktree:merge', convId, repoPath),
+    readConflict: (convId: string, repoPath: string, file: string): Promise<{ merged: string }> =>
+      ipcRenderer.invoke('bearcode:worktree:read-conflict', convId, repoPath, file),
+    resolveFile: (convId: string, repoPath: string, file: string, content: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:worktree:resolve-file', convId, repoPath, file, content),
+    completeMerge: (convId: string, repoPath: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:worktree:complete-merge', convId, repoPath),
+    abort: (convId: string, repoPath: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:worktree:abort', convId, repoPath),
     discard: (convId: string): Promise<void> =>
       ipcRenderer.invoke('bearcode:worktree:discard', convId),
     available: (path: string): Promise<boolean> =>
