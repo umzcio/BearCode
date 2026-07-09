@@ -114,12 +114,12 @@ const RESEARCHER_SUBAGENT = {
 }
 
 // F4: the browser subagent — the /browser path. It drives the embedded browser
-// through the flat `browser_*` tools (buildBrowserTools). Not scoped to a tools
-// subset here: like RESEARCHER_SUBAGENT it inherits the main toolset (deepagents
-// defaults to the parent's tools when `tools` is omitted), so the browser_*
-// tools — always present on the main agent, folder-independent — are
-// available, and the guard chain (mode/domain/enable) gates them identically
-// whether the main agent or this subagent calls them.
+// through the flat `browser_*` tools. Its `tools` are injected at build time in
+// buildAgentAndContext ({ ...BROWSER_SUBAGENT, tools: browserTools }) — deepagents
+// does NOT hand a subagent the parent's custom tools (SubAgent.tools defaults to
+// the built-in fs tools), so omitting them left this subagent unable to browse.
+// The guard chain (mode/domain/enable) gates every call identically whether the
+// main agent or this subagent invokes them.
 const BROWSER_SUBAGENT = {
   name: 'browser',
   description:
@@ -2124,6 +2124,9 @@ function buildAgentAndContext(
       buildTunedSummarization(modelRef, backendFactory ?? defaultStateBackendFactory(), force)
     ]
   }
+  // Built once and shared by BOTH the browser subagent's toolset and the main
+  // agent's tools array (folder-independent — see the decoupling note below).
+  const browserTools = buildBrowserTools(conversationId)
   const agent = createDeepAgent({
     model,
     middleware: summarizationMiddleware,
@@ -2138,7 +2141,13 @@ function buildAgentAndContext(
       commandAdditions +
       mentionAdditions,
     checkpointer: getCheckpointer(),
-    subagents: [RESEARCHER_SUBAGENT, BROWSER_SUBAGENT],
+    // F4: the /browser subagent MUST carry the browser_* tools explicitly.
+    // deepagents' SubAgent.tools defaults to `defaultTools` (the built-in fs
+    // tools) — NOT the parent's custom tools — so an omitted `tools` left the
+    // subagent with only ls/read/write/edit/glob/grep and it (correctly) said it
+    // had no browser access. Handing it browserTools scopes it to exactly the
+    // browsing surface (the guard chain still gates every call).
+    subagents: [RESEARCHER_SUBAGENT, { ...BROWSER_SUBAGENT, tools: browserTools }],
     ...(backendFactory ? { backend: backendFactory } : {}),
     // F4 decoupling: browser_* tools (buildBrowserTools) are ALWAYS present —
     // browsing has no project-folder dependency (session data keys off
@@ -2148,7 +2157,7 @@ function buildAgentAndContext(
       ...(backendFactory
         ? buildTools(projectPath as string, conversationId, sink, diffGroupId, worktreeMappings)
         : []),
-      ...buildBrowserTools(conversationId)
+      ...browserTools
     ]
   })
   const ctx: DriveContext = {
