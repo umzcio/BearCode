@@ -156,6 +156,33 @@ function summaryFor(
   }
 }
 
+// Human-readable action label for a browser_* tool_call, matching the
+// `action` strings the main-side gate passes to interrupt() (tools.ts
+// gateBrowserAction call sites: "navigate <url>", "click <ref>", etc.) so the
+// approval card and the resolved step row read the same phrase.
+function browserActionLabel(call: ToolCallEvent): string {
+  switch (call.tool) {
+    case 'browser_navigate':
+      return `navigate ${inputStr(call, 'url') ?? ''}`.trim()
+    case 'browser_read':
+      return `read page (${inputStr(call, 'mode') ?? 'a11y'})`
+    case 'browser_screenshot':
+      return 'screenshot'
+    case 'browser_scroll':
+      return `scroll ${inputStr(call, 'direction') ?? 'down'}`
+    case 'browser_wait':
+      return `wait for ${inputStr(call, 'state') ?? 'load'}`
+    case 'browser_click':
+      return `click ${inputStr(call, 'ref') ?? ''}`.trim()
+    case 'browser_type':
+      return `type into ${inputStr(call, 'ref') ?? ''}`.trim()
+    case 'browser_evaluate':
+      return 'evaluate JavaScript in the page'
+    default:
+      return call.tool
+  }
+}
+
 // Parallel approvals can put several pending cards on screen at once (any
 // mix of run_command and write_file/edit_file); the number-key hotkeys and
 // the jump-to-approval anchor id belong only to the FIRST pending tool_call
@@ -302,6 +329,48 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
               </>
             )}
           </span>
+        </div>
+      </div>
+    )
+  }
+
+  // F4: browser_* tools. Mutations (click/type/evaluate) can interrupt for
+  // approval exactly like run_command; reads/navigate never do. Modeled on
+  // the run_command body just above/below, but the action label varies per
+  // tool and a screenshot result renders as an <img> instead of text.
+  if (call.tool.startsWith('browser_')) {
+    const action = browserActionLabel(call)
+    if (call.approvalState === 'pending') {
+      return <PendingBrowserAction callId={call.id} action={action} convoId={convoId} />
+    }
+    if (call.approvalState === 'denied') {
+      return (
+        <div className="step">
+          <div className="step-row static">
+            <span>
+              Denied <span className="mono">{action}</span>
+            </span>
+          </div>
+        </div>
+      )
+    }
+    const output = result?.output
+    const isScreenshot = typeof output === 'string' && output.startsWith('data:image/')
+    return (
+      <div className={'step' + (open ? ' open' : '')}>
+        <div className="step-row" onClick={() => setOpen((o) => !o)}>
+          <span>{result ? 'Ran' : 'Running'}</span>
+          <span className="mono">{action}</span>
+          <span className="chev">
+            <IconChevronRightSmall />
+          </span>
+        </div>
+        <div className="step-body">
+          {isScreenshot ? (
+            <img className="browser-shot" src={output} alt="Browser screenshot" />
+          ) : (
+            (output ?? 'Working…')
+          )}
         </div>
       </div>
     )
@@ -540,6 +609,64 @@ function PendingRead({
         <button className="approval-opt" onClick={allow}>
           {isFirstPending ? <span className="opt-num">1</span> : null}
           Yes, allow this read
+        </button>
+        <button className="approval-opt" onClick={deny}>
+          {isFirstPending ? <span className="opt-num">2</span> : null}
+          No, deny it
+          <span className="opt-hint">the agent is told you declined</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// F4 browser mutation approval card ('ask' mode) or the folded session-consent
+// prompt (the first browser action in a conversation). Browser actions have
+// no rule grammar like run_command's "always allow this command" panel, so
+// this stays a plain allow-once / deny card, matching PendingRead's shape.
+function PendingBrowserAction({
+  callId,
+  action,
+  convoId
+}: {
+  callId: string
+  action: string
+  convoId: string
+}): React.JSX.Element {
+  const approveTool = useAppStore((s) => s.approveTool)
+  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+
+  const allow = (): void => approveTool(callId, true)
+  const deny = (): void => approveTool(callId, false)
+
+  useEffect(() => {
+    if (!isFirstPending) return undefined
+    const onKey = (e: KeyboardEvent): void => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === '1') allow()
+      else if (e.key === '2') deny()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId, isFirstPending])
+
+  return (
+    <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
+      <div className="step-row static">
+        <span>
+          Allow the agent to <span className="mono">{action}</span>?
+        </span>
+      </div>
+      <div className="waiting-note">Waiting for your input…</div>
+      <div className="approval-card pulse-once">
+        <div className="approval-title">Allow this browser action?</div>
+        <div className="approval-cmd">{action}</div>
+        <button className="approval-opt" onClick={allow}>
+          {isFirstPending ? <span className="opt-num">1</span> : null}
+          Yes, allow this time
         </button>
         <button className="approval-opt" onClick={deny}>
           {isFirstPending ? <span className="opt-num">2</span> : null}
