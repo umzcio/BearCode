@@ -105,6 +105,30 @@ export function shouldFollowNewDiff(
   )
 }
 
+// F4: auto-open the embedded browser pane the moment the agent uses the
+// browser. An offscreen/0-size WebContentsView is never composited (screenshots
+// come back blank and the user sees nothing), so the pane MUST mount on-screen
+// -- its ResizeObserver then pushes real bounds to BrowserManager. Fires on the
+// FIRST browser_* tool_call for the conversation you're viewing, and only when
+// the pane isn't already showing this conversation's browser (so it never yanks
+// the pane open again on every subsequent browser step).
+export function shouldOpenBrowserPane(
+  s: {
+    view: { kind: string; id?: string }
+    auxSelection: AuxSelection | null
+  },
+  convoId: string,
+  event: Event
+): boolean {
+  return (
+    event.type === 'tool_call' &&
+    event.tool.startsWith('browser_') &&
+    s.view.kind === 'conversation' &&
+    s.view.id === convoId &&
+    !(s.auxSelection?.kind === 'browser' && s.auxSelection.conversationId === convoId)
+  )
+}
+
 // Resizable pane bounds (px). Drag handles clamp to these; persisted widths
 // are re-clamped on read so a stored out-of-range value can't wedge a pane.
 export const SIDEBAR_MIN = 220
@@ -428,8 +452,12 @@ export const useAppStore = create<AppState>((set, get) => {
     // Auto-surface the newest diff group (design 2026-07-06): see
     // shouldFollowNewDiff. Decided BEFORE upsert so "already seen" is accurate.
     const follow = shouldFollowNewDiff(get(), convoId, event)
+    // F4: decided BEFORE upsert so the "not already showing" check reflects the
+    // pane state as of this event's arrival.
+    const openBrowser = shouldOpenBrowserPane(get(), convoId, event)
     upsertEvent(convoId, event)
     if (follow && event.type === 'file_diff') get().openReview(event.diffId)
+    if (openBrowser) get().openBrowserPane(convoId)
   }
 
   function ensureDefaultModel(): void {
