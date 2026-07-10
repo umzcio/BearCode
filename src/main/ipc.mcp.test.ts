@@ -124,7 +124,9 @@ describe('bearcode:mcp:* IPC surface (Task 8)', () => {
   it('list() merges store config + enabled + trust into McpServerView[]', () => {
     const handler = handlers.get('bearcode:mcp:list')!
     const result = handler(null, '/proj')
-    expect(result).toEqual([{ config: testConfig, enabled: true, status: { state: 'disabled' } }])
+    expect(result).toEqual([
+      { config: testConfig, enabled: true, status: { state: 'disabled' }, spawnConsented: false }
+    ])
   })
 
   it('rejects a malformed remove() source before touching the store', async () => {
@@ -132,6 +134,54 @@ describe('bearcode:mcp:* IPC surface (Task 8)', () => {
     const { removeServer } = await import('./mcp/store')
     expect(() => handler(null, 'gh', 'bogus', null)).toThrow(/source/i)
     expect(removeServer).not.toHaveBeenCalled()
+  })
+
+  it('add() moves a plaintext header secret into the vault before persisting', async () => {
+    const handler = handlers.get('bearcode:mcp:add')!
+    const { setVaultSecret } = await import('./keys')
+    const { upsertServer } = await import('./mcp/store')
+    handler(
+      null,
+      {
+        name: 'gh',
+        transport: 'http',
+        url: 'https://x',
+        source: 'global',
+        headers: { Authorization: 'Bearer ghp_secret' }
+      },
+      null
+    )
+    expect(setVaultSecret).toHaveBeenCalledWith('mcp:gh:headers:Authorization', 'Bearer ghp_secret')
+    const persisted = vi.mocked(upsertServer).mock.calls[0][0]
+    expect(persisted.headers).toEqual({
+      Authorization: '${VAULT:mcp:gh:headers:Authorization}'
+    })
+  })
+
+  it('add() leaves an existing ${VAULT:} reference untouched', async () => {
+    const handler = handlers.get('bearcode:mcp:add')!
+    const { setVaultSecret } = await import('./keys')
+    handler(
+      null,
+      {
+        name: 'gh',
+        transport: 'http',
+        url: 'https://x',
+        source: 'global',
+        headers: { Authorization: '${VAULT:mykey}' }
+      },
+      null
+    )
+    expect(setVaultSecret).not.toHaveBeenCalled()
+  })
+
+  it('add() rejects a config with no name (no servers[undefined] key)', async () => {
+    const handler = handlers.get('bearcode:mcp:add')!
+    const { upsertServer } = await import('./mcp/store')
+    expect(() => handler(null, { transport: 'http', url: 'x', source: 'global' }, null)).toThrow(
+      /name/i
+    )
+    expect(upsertServer).not.toHaveBeenCalled()
   })
 
   it('setSecret writes through keys.setVaultSecret (never a getter)', async () => {

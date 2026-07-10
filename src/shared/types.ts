@@ -263,6 +263,9 @@ export interface McpServerView {
   config: McpServerConfig
   enabled: boolean
   status: McpServerStatus
+  // Whether the user has granted one-time spawn consent for this (stdio)
+  // server, so the renderer can skip re-prompting on every enable toggle.
+  spawnConsented: boolean
 }
 // Smithery registry search hit (Task 11 fills in the client; the shape is
 // pinned here since the IPC/BearcodeApi surface (Task 8) needs it up front).
@@ -934,7 +937,7 @@ export interface BearcodeApi {
     list(projectPath: string | null): Promise<McpServerView[]>
     add(cfg: McpServerConfig, projectPath: string | null): Promise<void>
     remove(name: string, source: 'global' | 'project', projectPath: string | null): Promise<void>
-    setEnabled(name: string, on: boolean): Promise<McpServerStatus>
+    setEnabled(name: string, on: boolean, projectPath: string | null): Promise<McpServerStatus>
     trust(name: string, projectPath: string): Promise<McpServerStatus>
     spawnConsent(name: string): Promise<void>
     reconnect(name: string, projectPath: string | null): Promise<McpServerStatus>

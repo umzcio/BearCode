@@ -18,8 +18,9 @@ vi.mock('../settings', () => ({
 }))
 
 import { getSettings, setSettings } from '../settings'
-import { deleteRule, listRules } from '../db'
+import { deleteRule, insertRule, listRules } from '../db'
 import {
+  addUserRule,
   deleteUserRule,
   getEffectiveRules,
   listRulesInfo,
@@ -160,6 +161,39 @@ describe('settings-backed manager surface', () => {
     deleteUserRule('some-id')
     expect(deleteRule).toHaveBeenCalledWith('some-id')
   })
+  it('addUserRule REPLACES a same-scope/action/match rule instead of stacking a stale one', () => {
+    // The Connectors per-tool control re-adds a rule for the SAME subject when
+    // the user flips Allow->Ask. Without dedup both rules persisted and (allow
+    // being checked before ask) the decision stayed 'run' while the UI showed
+    // "Ask". The existing allow must be deleted before the new ask is inserted.
+    const stale: PermissionRule = {
+      id: 'stale-1',
+      scope: 'global',
+      action: 'mcp',
+      match: 'gh.get_issue',
+      effect: 'allow',
+      source: 'user'
+    }
+    vi.mocked(listRules).mockReturnValue([stale])
+    addUserRule({ scope: 'global', action: 'mcp', match: 'gh.get_issue', effect: 'ask' })
+    expect(deleteRule).toHaveBeenCalledWith('stale-1')
+    expect(insertRule).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'mcp', match: 'gh.get_issue', effect: 'ask' })
+    )
+  })
+  it('addUserRule leaves a different-scope rule with the same match untouched', () => {
+    const otherScope: PermissionRule = {
+      id: 'proj-1',
+      scope: { projectPath: '/a' },
+      action: 'mcp',
+      match: 'gh.get_issue',
+      effect: 'allow',
+      source: 'user'
+    }
+    vi.mocked(listRules).mockReturnValue([otherScope])
+    addUserRule({ scope: 'global', action: 'mcp', match: 'gh.get_issue', effect: 'ask' })
+    expect(deleteRule).not.toHaveBeenCalled()
+  })
   it('setBuiltinDisabled persists the toggled list for a known id', () => {
     // Explicit stub: vi.clearAllMocks clears calls but keeps a prior test's
     // mockReturnValue, so pin the starting settings here.
@@ -216,7 +250,11 @@ describe('settings-backed manager surface', () => {
       )
     ).toBe(true)
     expect(
-      evaluateEdit('.env', 'accept-edits', mergeRules([], null, afterCommandDisabled.disabledBuiltins))
+      evaluateEdit(
+        '.env',
+        'accept-edits',
+        mergeRules([], null, afterCommandDisabled.disabledBuiltins)
+      )
     ).toBe('block')
   })
 })

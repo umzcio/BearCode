@@ -32,6 +32,7 @@ import {
   setEnabled as setMcpServerEnabled,
   isTrusted as isMcpServerTrusted,
   trustProjectServer as trustMcpProjectServer,
+  hasSpawnConsent as hasMcpSpawnConsent,
   grantSpawnConsent as grantMcpSpawnConsent
 } from './mcp/store'
 import { mcpManager } from './mcp/manager'
@@ -650,15 +651,39 @@ export function registerIpc(): void {
   // registry client.
   const mcpServerView = (cfg: McpServerConfig, projectPath: string | null): McpServerView => {
     const enabled = isMcpServerEnabled(cfg.name)
-    const trusted = isMcpServerTrusted(cfg.name, projectPath)
+    const trusted = isMcpServerTrusted(cfg.name, cfg.source, projectPath)
     const status: McpServerStatus = !trusted
       ? { state: 'untrusted' }
       : !enabled
         ? { state: 'disabled' }
         : mcpManager.statusOf(cfg.name)
-    return { config: cfg, enabled, status }
+    return { config: cfg, enabled, status, spawnConsented: hasMcpSpawnConsent(cfg.name) }
   }
   const asProjectPath = (x: unknown): string | null => (typeof x === 'string' ? x : null)
+
+  // Moves every non-empty header/env value that isn't already a ${VAULT:} ref
+  // into the encrypted vault and returns the map with each such value replaced
+  // by its reference. Guarantees the persisted mcp.json never carries a
+  // plaintext secret (design §2). Values are keyed `mcp:<server>:<section>:<k>`.
+  const VAULT_REF_RE = /^\$\{VAULT:[^}]+\}$/
+  const scrubMcpSecretsToVault = (
+    server: string,
+    section: 'headers' | 'env',
+    values: Record<string, string> | undefined
+  ): Record<string, string> | undefined => {
+    if (!values) return values
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(values)) {
+      if (typeof v !== 'string' || v.length === 0 || VAULT_REF_RE.test(v)) {
+        out[k] = v
+        continue
+      }
+      const vaultKey = `mcp:${server}:${section}:${k}`
+      setVaultSecret(vaultKey, v)
+      out[k] = `\${VAULT:${vaultKey}}`
+    }
+    return out
+  }
 
   ipcMain.handle('bearcode:mcp:list', (_e, projectPath: unknown) => {
     const proj = asProjectPath(projectPath)
@@ -668,7 +693,29 @@ export function registerIpc(): void {
     if (cfg == null || typeof cfg !== 'object') {
       throw new Error(`Invalid MCP server config: ${String(cfg)}`)
     }
-    upsertMcpServer(cfg as McpServerConfig, asProjectPath(projectPath))
+    const c = cfg as Partial<McpServerConfig>
+    if (typeof c.name !== 'string' || c.name.trim().length === 0) {
+      throw new Error('MCP server config is missing a name')
+    }
+    if (c.transport !== 'http' && c.transport !== 'stdio') {
+      throw new Error(`Invalid MCP transport: ${String(c.transport)}`)
+    }
+    if (c.source !== 'global' && c.source !== 'project') {
+      throw new Error(`Invalid MCP server source: ${String(c.source)}`)
+    }
+    // No plaintext secret ever lands in mcp.json (design §2). Any header/env
+    // value the user typed that isn't ALREADY a ${VAULT:} reference is moved
+    // into the encrypted vault and replaced with a reference before we persist
+    // -- so the committed/synced file only ever carries indirections. This is
+    // the manual-add flow's vault path (previously absent, so plaintext tokens
+    // were written verbatim).
+    const scrubbed: McpServerConfig = {
+      ...(c as McpServerConfig),
+      name: c.name.trim(),
+      headers: scrubMcpSecretsToVault(c.name.trim(), 'headers', c.headers),
+      env: scrubMcpSecretsToVault(c.name.trim(), 'env', c.env)
+    }
+    upsertMcpServer(scrubbed, asProjectPath(projectPath))
   })
   ipcMain.handle(
     'bearcode:mcp:remove',
@@ -682,18 +729,25 @@ export function registerIpc(): void {
       removeMcpServer(name, source, asProjectPath(projectPath))
     }
   )
-  ipcMain.handle('bearcode:mcp:set-enabled', async (_e, name: unknown, on: unknown) => {
-    if (typeof name !== 'string' || name.length === 0) {
-      throw new Error(`Invalid MCP server name: ${String(name)}`)
+  ipcMain.handle(
+    'bearcode:mcp:set-enabled',
+    async (_e, name: unknown, on: unknown, projectPath: unknown) => {
+      if (typeof name !== 'string' || name.length === 0) {
+        throw new Error(`Invalid MCP server name: ${String(name)}`)
+      }
+      if (typeof on !== 'boolean') throw new Error(`Invalid MCP enabled flag: ${String(on)}`)
+      setMcpServerEnabled(name, on)
+      if (!on) {
+        await mcpManager.teardown(name)
+        return mcpManager.statusOf(name)
+      }
+      // Pass the project path so a project-scoped server actually resolves via
+      // loadServers(projectPath) -- enabling with a hardcoded null read GLOBAL
+      // only and failed every committed-project server with "unknown MCP
+      // server" (the entire project class could only be launched via Reconnect).
+      return mcpManager.enable(name, asProjectPath(projectPath))
     }
-    if (typeof on !== 'boolean') throw new Error(`Invalid MCP enabled flag: ${String(on)}`)
-    setMcpServerEnabled(name, on)
-    if (!on) {
-      await mcpManager.teardown(name)
-      return mcpManager.statusOf(name)
-    }
-    return mcpManager.enable(name, null)
-  })
+  )
   ipcMain.handle('bearcode:mcp:trust', (_e, name: unknown, projectPath: unknown) => {
     if (typeof name !== 'string' || name.length === 0) {
       throw new Error(`Invalid MCP server name: ${String(name)}`)
