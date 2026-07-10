@@ -5,11 +5,20 @@
 // The PAT path works with zero setup and is the recommended path until a
 // real client_id is shipped.
 import { loadIntegrationToken } from './store'
+import { getSettings } from '../settings'
 
 // Placeholder BearCode GitHub OAuth App client_id -- Device Flow requires a
 // real registered client_id to work live; PAT connect needs none. See
 // planning/2026-07-09-oauth-integrations-design.md §11.
 export const GITHUB_CLIENT_ID = 'Iv1.bearcode-placeholder-client-id'
+
+// The client_id device flow uses: a real BearCode GitHub OAuth App id dropped
+// into Settings (githubClientId) overrides the shipped placeholder. Public/
+// secret-free (device flow), so it's safe in settings.json. The PAT path needs
+// no client_id at all.
+function githubClientId(): string {
+  return getSettings().githubClientId?.trim() || GITHUB_CLIENT_ID
+}
 
 const GITHUB_API_BASE = 'https://api.github.com'
 
@@ -46,7 +55,7 @@ export async function githubDeviceStart(): Promise<GithubDeviceStart> {
   const res = await fetch('https://github.com/login/device/code', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: 'repo read:user' })
+    body: JSON.stringify({ client_id: githubClientId(), scope: 'repo read:user' })
   })
   if (!res.ok) {
     throw new Error(`GitHub device code request failed (${res.status})`)
@@ -94,14 +103,15 @@ export async function githubDevicePoll(
   deviceCode: string,
   interval: number
 ): Promise<GithubConnected> {
-  let waitMs = Math.max(1, interval) * 1000
+  let currentInterval = Math.max(1, interval)
+  let waitMs = currentInterval * 1000
   for (;;) {
     await sleep(waitMs)
     const res = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
-        client_id: GITHUB_CLIENT_ID,
+        client_id: githubClientId(),
         device_code: deviceCode,
         grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
       })
@@ -110,7 +120,8 @@ export async function githubDevicePoll(
 
     if (data.error === 'authorization_pending') continue
     if (data.error === 'slow_down') {
-      waitMs = Math.max(waitMs, (data.interval ?? interval + 5) * 1000)
+      currentInterval = data.interval ?? currentInterval + 5
+      waitMs = currentInterval * 1000
       continue
     }
     if (data.error === 'expired_token') {

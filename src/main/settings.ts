@@ -68,7 +68,8 @@ const DEFAULTS: AppSettings = {
   mcpEnabledServers: [],
   mcpTrustedProjectServers: {},
   mcpUntrustedGlobalServers: [],
-  mcpSpawnConsented: []
+  mcpSpawnConsented: [],
+  githubClientId: ''
 }
 
 // Custom models may only target the four first-party curated providers. Ollama
@@ -263,6 +264,7 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   merged.mcpTrustedProjectServers = coerceStringArrayMap(s['mcpTrustedProjectServers'])
   merged.mcpUntrustedGlobalServers = coerceStringArray(s['mcpUntrustedGlobalServers'])
   merged.mcpSpawnConsented = coerceStringArray(s['mcpSpawnConsented'])
+  merged.githubClientId = typeof s['githubClientId'] === 'string' ? s['githubClientId'] : ''
   return merged
 }
 
@@ -371,6 +373,9 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.mcpSpawnConsented !== undefined) {
     patch = { ...patch, mcpSpawnConsented: coerceStringArray(patch.mcpSpawnConsented) }
+  }
+  if (patch.githubClientId !== undefined) {
+    patch = { ...patch, githubClientId: typeof patch.githubClientId === 'string' ? patch.githubClientId : '' }
   }
   const next = { ...getSettings(), ...patch }
   cache = next

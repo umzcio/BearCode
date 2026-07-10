@@ -786,6 +786,9 @@ export interface AppSettings {
   // stay untrusted (L2 trust-gated) until the user explicitly trusts them.
   mcpUntrustedGlobalServers?: string[]
   mcpSpawnConsented?: string[]
+  // Optional override for the GitHub Device Flow OAuth App client_id (public/
+  // secret-free). Empty → the shipped placeholder; the PAT path needs none.
+  githubClientId?: string
 }
 
 export interface SettingsInfo extends AppSettings {

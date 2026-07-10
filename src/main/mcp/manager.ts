@@ -35,14 +35,14 @@ function cleanError(e: unknown): string {
 function isAuthChallenge(e: unknown): boolean {
   const code = (e as { code?: unknown })?.code
   if (code === 401) return true
+  // Narrowed to genuine 401 signals: mcp-adapters wraps every HTTP 401 as
+  // "Authentication failed for HTTP server …" (covers the gmail "Missing
+  // Authorization header" case) and preserves the "(HTTP 401)" marker. The
+  // broader substrings ('unauthorized'/'oauth'/'missing authorization') were
+  // dropped — they could spuriously launch a browser OAuth attempt against a
+  // non-OAuth server whose unrelated error merely mentioned those words.
   const msg = (e instanceof Error ? e.message : String(e)).toLowerCase()
-  return (
-    msg.includes('authentication failed') ||
-    msg.includes('unauthorized') ||
-    msg.includes('(http 401)') ||
-    msg.includes('oauth') ||
-    msg.includes('missing authorization')
-  )
+  return msg.includes('authentication failed') || msg.includes('(http 401)')
 }
 
 // Minimal surface this module needs from a langchain DynamicStructuredTool
