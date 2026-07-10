@@ -24,10 +24,10 @@ const rule = (overrides: Partial<Rule> = {}): Rule => ({
 })
 
 const input = (
-  content: AgentsContent,
+  content: Partial<AgentsContent>,
   overrides: Partial<RuleAssemblyInput> = {}
 ): RuleAssemblyInput => ({
-  content,
+  content: { rules: [], workflows: [], skills: [], ...content },
   pinnedManualRules: [],
   mentionPaths: [],
   touchedFiles: [],
@@ -161,7 +161,11 @@ describe('withoutModelRules', () => {
     const manual = rule({ name: 'm1', activation: 'manual' })
     const glob = rule({ name: 'g1', activation: 'glob', globs: ['*.ts'] })
     const model = rule({ name: 'mod1', activation: 'model', description: 'desc' })
-    const result = withoutModelRules({ rules: [always, manual, glob, model], workflows: [] })
+    const result = withoutModelRules({
+      rules: [always, manual, glob, model],
+      workflows: [],
+      skills: []
+    })
     expect(result.rules.map((r) => r.name)).toEqual(['a1', 'm1', 'g1'])
   })
 
@@ -170,20 +174,20 @@ describe('withoutModelRules', () => {
     const workflows: AgentsContent['workflows'] = [
       { name: 'wf', description: '', body: 'step', steps: ['step'], source: 'project' }
     ]
-    const result = withoutModelRules({ rules: [always], workflows })
+    const result = withoutModelRules({ rules: [always], workflows, skills: [] })
     expect(result.workflows).toBe(workflows)
   })
 
   it('never renders the "## Available rules" index once filtered', () => {
     const model = rule({ name: 'mod1', activation: 'model', description: 'desc' })
-    const filtered = withoutModelRules({ rules: [model], workflows: [] })
+    const filtered = withoutModelRules({ rules: [model], workflows: [], skills: [] })
     const result = assembleRuleAdditions(input(filtered))
     expect(result.systemAdditions).toEqual([])
   })
 
   it('is a no-op when there are no model rules', () => {
     const always = rule({ name: 'a1' })
-    const result = withoutModelRules({ rules: [always], workflows: [] })
+    const result = withoutModelRules({ rules: [always], workflows: [], skills: [] })
     expect(result.rules.map((r) => r.name)).toEqual(['a1'])
   })
 })

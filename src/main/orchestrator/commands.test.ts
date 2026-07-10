@@ -16,7 +16,7 @@ const workflow = (overrides: Partial<Workflow> = {}): Workflow => ({
   ...overrides
 })
 
-const content = (workflows: Workflow[]): AgentsContent => ({ rules: [], workflows })
+const content = (workflows: Workflow[]): AgentsContent => ({ rules: [], workflows, skills: [] })
 
 describe('listCommands', () => {
   it('lists the built-ins first, in fixed order, when there are no workflows', () => {

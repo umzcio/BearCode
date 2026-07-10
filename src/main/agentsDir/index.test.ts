@@ -81,7 +81,7 @@ describe('loadAgentsContent', () => {
 
   it('returns an empty rule and workflow list when all directories are missing', () => {
     const content = loadAgentsContent(projectDir)
-    expect(content).toEqual({ rules: [], workflows: [] })
+    expect(content).toEqual({ rules: [], workflows: [], skills: [] })
   })
 
   it('returns the same Rule object across two loads when nothing changed', () => {

@@ -43,7 +43,8 @@ describe('manualRuleInfos', () => {
         rule({ name: 'broken', activation: 'manual', error: 'bad' } as Partial<Rule>),
         rule({ name: 'model-rule', activation: 'model' })
       ],
-      workflows: []
+      workflows: [],
+      skills: []
     }
     expect(manualRuleInfos(content)).toEqual([{ name: 'style', firstLine: 'Use tabs.' }])
   })
@@ -51,7 +52,8 @@ describe('manualRuleInfos', () => {
   it('returns an empty firstLine when the body is blank', () => {
     const content: AgentsContent = {
       rules: [rule({ name: 'empty', activation: 'manual', body: '   \n' })],
-      workflows: []
+      workflows: [],
+      skills: []
     }
     expect(manualRuleInfos(content)).toEqual([{ name: 'empty', firstLine: '' }])
   })

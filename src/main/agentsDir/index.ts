@@ -269,7 +269,8 @@ export function loadAgentsContent(projectPath: string | null): AgentsContent {
 
   return {
     rules: Array.from(rulesByName.values()),
-    workflows: Array.from(workflowsByName.values())
+    workflows: Array.from(workflowsByName.values()),
+    skills: []
   }
 }
 

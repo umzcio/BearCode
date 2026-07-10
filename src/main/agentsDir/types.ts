@@ -35,7 +35,24 @@ export interface Workflow {
   warnings?: string[] // non-fatal issues (e.g. truncation), set at load time
 }
 
+// Skill types for the .agents/ skills pillar (agentskills.io folder-per-skill
+// convention). A Skill is the parsed shape of one <dir>/<name>/SKILL.md file
+// (project: `.agents/skills/<name>/SKILL.md`; global:
+// `~/.bearcode/agents/skills/<name>/SKILL.md`). Unlike Rule/Workflow, `name`
+// is optional in frontmatter (defaults to the folder name) and `description`
+// is REQUIRED -- a missing/blank description is a parse error and the skill
+// is never offered to the model (design 4.1/4.6).
+export interface Skill {
+  name: string // effective name: frontmatter `name` if present, else folder name
+  description: string // REQUIRED; '' only when error is set
+  body: string // markdown body after frontmatter, LF-normalized, NOT ref-resolved
+  source: 'project' | 'global'
+  error?: string // missing description / non-kebab name / malformed frontmatter
+  warnings?: string[] // e.g. truncation, set at load time
+}
+
 export interface AgentsContent {
   rules: Rule[]
   workflows: Workflow[]
+  skills: Skill[]
 }
