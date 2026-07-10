@@ -81,6 +81,7 @@ import { DiffFsBackend, GatedDiffFsBackend } from './fsBackend'
 import {
   buildTools,
   buildBrowserTools,
+  buildMcpTools,
   clearAllPlanReviewPending,
   clearDeniedReplayPins,
   clearPlanReviewPending,
@@ -88,6 +89,7 @@ import {
   type PlanReviewResolution
 } from './tools'
 import { browserManager } from '../browser/manager'
+import { mcpManager } from '../mcp/manager'
 import { browserActionLabel } from '../browser/guard'
 
 // The tuple shape yielded by `.stream(..., { streamMode: "messages", subgraphs: true })`
@@ -552,6 +554,16 @@ export function interruptBelongsToToolCall(
     if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
     return false
   }
+  if (value?.kind === 'mcp') {
+    // Mirror the browser branch: an MCP approval pairs ONLY to an mcp__* call,
+    // and live that call always carries a toolCallId (tools.ts buildMcpTools).
+    // Reject any non-mcp candidate so a dangling run_command in the crash-resume
+    // scan can never be CLAIMED by an MCP payload on the id-less fallback path;
+    // pair by toolCallId when present, never a fallback.
+    if (typeof tc.name !== 'string' || !tc.name.startsWith('mcp__')) return false
+    if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
+    return false
+  }
   return true
 }
 
@@ -686,6 +698,21 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
     ) as ToolName
     return { tool, input: value.input ?? {}, toolCallId }
   }
+  if (value?.kind === 'mcp') {
+    // Re-surface a parked MCP approval as its REAL mcp__* card, never the empty
+    // run_command fallback below. The interrupt payload carries the true tool
+    // name (mcp__<server>__<tool>) + call input (tools.ts buildMcpTools), so the
+    // rehydrated card shows exactly the tool that will execute on approval, and
+    // deniedReplayPinsOf reconstructs the identical mcpAction key the replayed
+    // tool consults. A malformed payload whose tool is not an mcp__ name degrades
+    // to a sentinel mcp__ name rather than escaping into another tool's card.
+    const tool = (
+      typeof value.tool === 'string' && value.tool.startsWith('mcp__')
+        ? value.tool
+        : 'mcp__unknown__unknown'
+    ) as ToolName
+    return { tool, input: value.input ?? {}, toolCallId }
+  }
   if (value?.kind === 'plan_review') {
     // The card is built from the payload alone: title for the copy, artifactId
     // so the renderer can pair the card with the pane's plan viewer (and the
@@ -771,6 +798,9 @@ export function pairedApprovalInput(interruptValue: unknown, args: unknown): unk
     // (the edit_file precedent above).
     return { ...base, artifactId: value.artifactId }
   }
+  // MCP cards carry the streamed tool args verbatim — the args ARE the faithful
+  // input (no jail-resolved path to reconcile, like browser), so pass through.
+  if (value?.kind === 'mcp') return args
   // edit_file and read_file (F8) share the resolved-path enrichment so the
   // paired live card also shows the TRUE target instead of the raw agent string
   // (a symlink inside the workspace can make an outside read look in-project).
@@ -881,14 +911,19 @@ export function resolvedToolCallEvents(
 // the input's file_path), since the raw string is what the replayed gate
 // call receives (fsBackend.ts takeDeniedEditReplayPin). Undecided items pin
 // too, matching buildResumeMap's fail-safe-to-denied. Exported for tests.
-export function deniedReplayPinsOf(
-  items: ReadonlyMap<string, ApprovalItem>
-): Array<{ toolCallId?: string; command?: string; editPath?: string; browserAction?: string }> {
+export function deniedReplayPinsOf(items: ReadonlyMap<string, ApprovalItem>): Array<{
+  toolCallId?: string
+  command?: string
+  editPath?: string
+  browserAction?: string
+  mcpAction?: string
+}> {
   const pins: Array<{
     toolCallId?: string
     command?: string
     editPath?: string
     browserAction?: string
+    mcpAction?: string
   }> = []
   for (const item of items.values()) {
     // NO pin analog for plan_review (decided): pins exist solely so a Denied
@@ -913,6 +948,19 @@ export function deniedReplayPinsOf(
         toolCallId: item.toolCallId,
         browserAction: browserActionLabel(item.tool, item.input)
       })
+    } else if (item.tool.startsWith('mcp__')) {
+      // MCP tool cards pin under their canonical action label (server.tool) so
+      // tools.ts takeDeniedMcpReplayPin keys its id-less fallback on the SAME
+      // string the replayed tool re-derives (`${server}.${tool}`). Without this
+      // a denied MCP call whose decision later flips to 'allow' (mode→auto, a
+      // matching allow rule added) would replay past interrupt() and EXECUTE —
+      // the exact hole run_command's / browser's pin closes. The name is
+      // mcp__<server>__<tool>; split on the first '__' after the prefix.
+      const rest = item.tool.slice('mcp__'.length)
+      const sep = rest.indexOf('__')
+      const server = sep === -1 ? rest : rest.slice(0, sep)
+      const toolName = sep === -1 ? '' : rest.slice(sep + 2)
+      pins.push({ toolCallId: item.toolCallId, mcpAction: `${server}.${toolName}` })
     } else if (item.tool === 'write_file' || item.tool === 'edit_file') {
       const input = item.input as
         { file_path?: unknown; requested_path?: unknown; path?: unknown } | null | undefined
@@ -1147,6 +1195,14 @@ export function toolResultOutput(
       ? browserManager.takeStashedScreenshot(tcId)
       : browserManager.peekStashedScreenshot(tcId)
     if (shot !== undefined) return { output: shot, truncated: false }
+  }
+  // MCP large-payload splice (mirror the browser screenshot stash): a tool whose
+  // full result was stashed by the manager returns the stashed payload verbatim
+  // and untruncated, so the model sees the complete output rather than the
+  // placeholder that rode the event stream.
+  if (toolName?.startsWith('mcp__')) {
+    const stashed = take ? mcpManager.takeStashedResult(tcId) : mcpManager.peekStashedResult(tcId)
+    if (stashed !== undefined) return { output: stashed, truncated: false }
   }
   const truncated = modelText.length > 50000
   return {
@@ -2127,6 +2183,12 @@ function buildAgentAndContext(
   // Built once and shared by BOTH the browser subagent's toolset and the main
   // agent's tools array (folder-independent — see the decoupling note below).
   const browserTools = buildBrowserTools(conversationId)
+  // MCP tools are exposed on the MAIN agent only (v1: MCP is not subagent-scoped
+  // — the browser subagent stays browsing-only). buildMcpTools returns [] unless
+  // the master gate (mcpEnabled) is on AND at least one enabled+trusted server
+  // has cached tools, so this append is unconditional like browserTools; every
+  // call still passes the per-tool permission gate inside the tool body.
+  const mcpTools = buildMcpTools(conversationId)
   const agent = createDeepAgent({
     model,
     middleware: summarizationMiddleware,
@@ -2157,7 +2219,11 @@ function buildAgentAndContext(
       ...(backendFactory
         ? buildTools(projectPath as string, conversationId, sink, diffGroupId, worktreeMappings)
         : []),
-      ...browserTools
+      ...browserTools,
+      // buildMcpTools' per-tool tool() carries a distinct zod-inferred generic,
+      // so its shared array is widened to unknown[] at the source; the elements
+      // are StructuredTools like browserTools, so re-narrow to that shape here.
+      ...(mcpTools as typeof browserTools)
     ]
   })
   const ctx: DriveContext = {
@@ -2309,8 +2375,14 @@ export function isRehydratableInterrupt(value: unknown): boolean {
   // F4: browser approvals (incl. the folded first-use session-consent prompt)
   // resume with the same {approved} shape, so they survive a crash/restart and
   // don't drag an otherwise-rehydratable parallel batch down to 'cancelled'.
+  // MCP approvals use the identical {approved} resume shape, so they are equally
+  // crash-resumable.
   return (
-    kind === 'run_command' || kind === 'edit_file' || kind === 'plan_review' || kind === 'browser'
+    kind === 'run_command' ||
+    kind === 'edit_file' ||
+    kind === 'plan_review' ||
+    kind === 'browser' ||
+    kind === 'mcp'
   )
 }
 
