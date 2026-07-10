@@ -84,6 +84,7 @@ import { DiffFsBackend, GatedDiffFsBackend } from './fsBackend'
 import {
   buildTools,
   buildBrowserTools,
+  buildSkillTools,
   buildMcpTools,
   buildIntegrationTools,
   clearAllPlanReviewPending,
@@ -2293,7 +2294,14 @@ function buildAgentAndContext(
       ...(mcpTools as typeof browserTools),
       // Integration tools share the same unknown[]→StructuredTool widening as
       // MCP (distinct zod-inferred generics collapsed at the source).
-      ...(integrationTools as typeof browserTools)
+      ...(integrationTools as typeof browserTools),
+      // activate_skill is folder-independent (global skills load with no
+      // project open), so it is appended unconditionally like browserTools.
+      // buildSkillTools' single-tool literal array infers a concrete
+      // DynamicStructuredTool type that doesn't structurally overlap with
+      // browserTools' union, so widen through unknown first (same pattern
+      // buildMcpTools/buildIntegrationTools hit at their source).
+      ...(buildSkillTools(conversationId, projectPath) as unknown as typeof browserTools)
     ]
   })
   const ctx: DriveContext = {

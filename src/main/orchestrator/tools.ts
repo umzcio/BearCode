@@ -742,6 +742,42 @@ export function buildTools(
   ]
 }
 
+const activateSkillSchema = z.object({
+  name: z.string().describe('The skill name from the Available skills index.')
+})
+
+// activate_skill is read-only by construction (twin of activate_rule) and, per
+// design 4.2, folder-independent: it must load global skills with NO project
+// open, so it is NOT wired inside folder-gated buildTools. graph.ts appends
+// buildSkillTools(...) unconditionally, like buildBrowserTools.
+// TODO(Task 5): replace this stub with the real isSkillEnabled from ../skills/state
+// once the persisted disabled-set lands.
+const isSkillEnabled = (_name: string, _source: string, _projectPath: string | null): boolean =>
+  true
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+export function buildSkillTools(_conversationId: string, projectPath: string | null) {
+  const activateSkillTool = tool(
+    async ({ name }: { name: string }): Promise<string> => {
+      const content = loadAgentsContent(projectPath)
+      const skills = content.skills.filter(
+        (s) => !s.error && isSkillEnabled(s.name, s.source, projectPath)
+      )
+      const exact = skills.find((s) => s.name === name)
+      const found = exact ?? skills.find((s) => s.name.toLowerCase() === name.toLowerCase())
+      if (found) return `Skill ${found.name}:\n${found.body}`
+      const candidates = skills.map((s) => s.name).join(', ')
+      return `Unknown skill: ${name}. Available skills: ${candidates}`
+    },
+    {
+      name: 'activate_skill',
+      description:
+        'Load the full instructions of an available skill by name. Use when a task matches a skill from the Available skills index.',
+      schema: activateSkillSchema
+    }
+  )
+  return [activateSkillTool]
+}
+
 // buildBrowserTools(conversationId) returns the F4 browser_* tool array. Unlike
 // buildTools, this has NO project-folder dependency (no projectPath, sink,
 // diffGroupId, or worktreeMappings) — the browser works whether or not a
