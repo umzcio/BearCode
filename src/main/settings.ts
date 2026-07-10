@@ -63,7 +63,11 @@ const DEFAULTS: AppSettings = {
   terminalAutoExec: 'auto',
   browserEnabled: false,
   browserAllowlist: [],
-  browserBlocklist: []
+  browserBlocklist: [],
+  mcpEnabled: false,
+  mcpEnabledServers: [],
+  mcpTrustedProjectServers: {},
+  mcpSpawnConsented: []
 }
 
 // Custom models may only target the four first-party curated providers. Ollama
@@ -103,8 +107,19 @@ function coerceCustomModels(raw: unknown): CustomModel[] {
   return out
 }
 
-function coerceStringArray(raw: unknown): string[] {
+export function coerceStringArray(raw: unknown): string[] {
   return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []
+}
+
+// Connectors/MCP: per-key string-array map, e.g. mcpTrustedProjectServers
+// (projectPath -> trusted server names). Non-object input -> {}; each value
+// is coerced independently via coerceStringArray so a malformed entry never
+// poisons the whole map.
+export function coerceStringArrayMap(raw: unknown): Record<string, string[]> {
+  if (raw == null || typeof raw !== 'object') return {}
+  const out: Record<string, string[]> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) out[k] = coerceStringArray(v)
+  return out
 }
 
 // F9: keep only well-formed ProjectSettings fields (the new-project template).
@@ -242,6 +257,10 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   merged.browserEnabled = s['browserEnabled'] === true
   merged.browserAllowlist = coerceStringArray(s['browserAllowlist'])
   merged.browserBlocklist = coerceStringArray(s['browserBlocklist'])
+  merged.mcpEnabled = s['mcpEnabled'] === true
+  merged.mcpEnabledServers = coerceStringArray(s['mcpEnabledServers'])
+  merged.mcpTrustedProjectServers = coerceStringArrayMap(s['mcpTrustedProjectServers'])
+  merged.mcpSpawnConsented = coerceStringArray(s['mcpSpawnConsented'])
   return merged
 }
 
@@ -334,6 +353,19 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.browserBlocklist !== undefined) {
     patch = { ...patch, browserBlocklist: coerceStringArray(patch.browserBlocklist) }
+  }
+  // Connectors/MCP: same coercion guarantee as the browser flags above.
+  if (patch.mcpEnabled !== undefined) {
+    patch = { ...patch, mcpEnabled: patch.mcpEnabled === true }
+  }
+  if (patch.mcpEnabledServers !== undefined) {
+    patch = { ...patch, mcpEnabledServers: coerceStringArray(patch.mcpEnabledServers) }
+  }
+  if (patch.mcpTrustedProjectServers !== undefined) {
+    patch = { ...patch, mcpTrustedProjectServers: coerceStringArrayMap(patch.mcpTrustedProjectServers) }
+  }
+  if (patch.mcpSpawnConsented !== undefined) {
+    patch = { ...patch, mcpSpawnConsented: coerceStringArray(patch.mcpSpawnConsented) }
   }
   const next = { ...getSettings(), ...patch }
   cache = next

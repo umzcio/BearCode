@@ -236,6 +236,35 @@ export interface PermissionRulesInfo {
   builtins: BuiltinRuleInfo[]
 }
 
+// ---- MCP (Connectors) ----
+
+export type McpTransport = 'http' | 'stdio'
+export interface McpServerConfig {
+  name: string
+  transport: McpTransport
+  url?: string
+  headers?: Record<string, string>
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  source: 'global' | 'project'
+}
+export interface McpToolInfo {
+  name: string
+  description: string
+  readOnlyHint: boolean
+}
+export type McpServerStatus =
+  | { state: 'disabled' }
+  | { state: 'untrusted' }
+  | { state: 'connected'; tools: McpToolInfo[] }
+  | { state: 'error'; message: string }
+export interface McpServerView {
+  config: McpServerConfig
+  enabled: boolean
+  status: McpServerStatus
+}
+
 // ---- Artifacts (Ba) ----
 
 // The agent's structured deliverables (design 2026-07-04-ba-artifacts-design.md
@@ -680,6 +709,13 @@ export interface AppSettings {
   // to those origins. Optional & additive: absent -> [] (allow-all-but-block).
   browserAllowlist?: string[]
   browserBlocklist?: string[]
+  // Connectors/MCP (G1 core, design 2026-07-09-connectors-mcp-design.md): the
+  // master enable gate + per-server enabled/trust/spawn-consent state.
+  // Optional & additive.
+  mcpEnabled?: boolean
+  mcpEnabledServers?: string[]
+  mcpTrustedProjectServers?: Record<string, string[]>
+  mcpSpawnConsented?: string[]
 }
 
 export interface SettingsInfo extends AppSettings {
