@@ -133,6 +133,35 @@ export interface ManualRuleInfo {
   firstLine: string
 }
 
+// The @skill: menu read model (G-skills Task 6, parallel to ManualRuleInfo).
+// Produced main-side from the live AgentsContent (mentionSuggest.ts
+// skillInfos), filtered to non-error, enabled skills only.
+export interface SkillInfo {
+  name: string
+  description: string
+}
+
+// The Settings > Skills page's list read model (design 4.6): every skill
+// (global + project), with its enabled flag, on-disk body size, and any parse
+// error (parse-errored skills are still listed, greyed, with the error shown).
+export interface SkillEntry {
+  name: string
+  description: string
+  source: 'project' | 'global'
+  enabled: boolean
+  sizeBytes: number
+  error?: string
+}
+
+// Create/update payload for a skill (Settings page editor + /learn's proposal
+// card, Task 8).
+export interface SkillInput {
+  name: string
+  description: string
+  body: string
+  scope: 'project' | 'global'
+}
+
 // The slash menu's read model (design 6.1/6.2, D2 Task 2). Produced by
 // src/main/orchestrator/commands.ts's listCommands from the live
 // AgentsContent; 'coming-soon' covers both the not-yet-implemented built-ins
@@ -854,6 +883,7 @@ export interface BearcodeApi {
   mentions: {
     files(projectPath: string | null, query: string): Promise<string[]>
     rules(projectPath: string | null): Promise<ManualRuleInfo[]>
+    skills(projectPath: string | null): Promise<SkillInfo[]>
   }
   // D4 Media (design 8): native image picker + main-side ingest, returning the
   // accepted attachments (ref + a preview data URL for the composer thumbnail)
@@ -1045,6 +1075,22 @@ export interface BearcodeApi {
     githubConnectPat(token: string): Promise<IntegrationStatus>
     connectBitbucket(username: string, appPassword: string): Promise<IntegrationStatus>
     disconnect(provider: IntegrationProvider): Promise<void>
+  }
+  // Skills CRUD (G-skills Task 6): the Settings > Skills page's list +
+  // create/update/delete/enable-toggle. Every write is path-jailed and
+  // kebab-name validated main-side (skills/index.ts); `save(...)` is added in
+  // Task 8 for the /learn proposal card.
+  skills: {
+    list(projectPath: string | null): Promise<SkillEntry[]>
+    create(input: SkillInput, projectPath: string | null): Promise<SkillEntry>
+    update(originalName: string, input: SkillInput, projectPath: string | null): Promise<SkillEntry>
+    delete(name: string, source: 'project' | 'global', projectPath: string | null): Promise<void>
+    setEnabled(
+      name: string,
+      source: 'project' | 'global',
+      projectPath: string | null,
+      enabled: boolean
+    ): Promise<void>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

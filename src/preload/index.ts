@@ -26,6 +26,9 @@ import type {
   ProjectSettings,
   ProviderId,
   RunState,
+  SkillEntry,
+  SkillInfo,
+  SkillInput,
   SmitheryHit,
   TranscribeMeta
 } from '../shared/types'
@@ -69,7 +72,9 @@ const bearcode: BearcodeApi = {
     files: (projectPath: string | null, query: string) =>
       ipcRenderer.invoke('bearcode:mentions:files', projectPath, query),
     rules: (projectPath: string | null) =>
-      ipcRenderer.invoke('bearcode:mentions:rules', projectPath)
+      ipcRenderer.invoke('bearcode:mentions:rules', projectPath),
+    skills: (projectPath: string | null): Promise<SkillInfo[]> =>
+      ipcRenderer.invoke('bearcode:mentions:skills', projectPath)
   },
   attachments: {
     pick: (conversationId: string, existingCount: number) =>
@@ -253,6 +258,30 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:integrations:connect-bitbucket', username, appPassword),
     disconnect: (provider: IntegrationProvider): Promise<void> =>
       ipcRenderer.invoke('bearcode:integrations:disconnect', provider)
+  },
+  skills: {
+    list: (projectPath: string | null): Promise<SkillEntry[]> =>
+      ipcRenderer.invoke('bearcode:skills:list', projectPath),
+    create: (input: SkillInput, projectPath: string | null): Promise<SkillEntry> =>
+      ipcRenderer.invoke('bearcode:skills:create', input, projectPath),
+    update: (
+      originalName: string,
+      input: SkillInput,
+      projectPath: string | null
+    ): Promise<SkillEntry> =>
+      ipcRenderer.invoke('bearcode:skills:update', originalName, input, projectPath),
+    delete: (
+      name: string,
+      source: 'project' | 'global',
+      projectPath: string | null
+    ): Promise<void> => ipcRenderer.invoke('bearcode:skills:delete', name, source, projectPath),
+    setEnabled: (
+      name: string,
+      source: 'project' | 'global',
+      projectPath: string | null,
+      enabled: boolean
+    ): Promise<void> =>
+      ipcRenderer.invoke('bearcode:skills:set-enabled', name, source, projectPath, enabled)
   },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>
