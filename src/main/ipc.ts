@@ -73,7 +73,12 @@ import {
   saveIntegrationToken,
   disconnect as disconnectIntegration
 } from './integrations/store'
-import { githubDeviceStart, githubDevicePoll, githubConnectPat } from './integrations/github'
+import {
+  githubDeviceStart,
+  githubDevicePoll,
+  githubConnectPat,
+  cancelGithubDevice
+} from './integrations/github'
 import { bitbucketConnect } from './integrations/bitbucket'
 import { gitAuthEnv } from './integrations/gitCredentials'
 import { setGitCredentialResolver } from './worktree/git'
@@ -945,6 +950,10 @@ export function registerIpc(): void {
       return state
     }
   )
+
+  ipcMain.handle('bearcode:integrations:cancel-github-device', (_e, deviceCode: unknown) => {
+    if (typeof deviceCode === 'string') cancelGithubDevice(deviceCode)
+  })
 
   ipcMain.handle(
     'bearcode:integrations:github-connect-pat',

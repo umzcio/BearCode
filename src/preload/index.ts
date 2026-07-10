@@ -243,6 +243,8 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:integrations:github-device-start'),
     githubDevicePoll: (deviceCode: string, interval: number): Promise<IntegrationStatus> =>
       ipcRenderer.invoke('bearcode:integrations:github-device-poll', deviceCode, interval),
+    cancelGithubDevice: (deviceCode: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:integrations:cancel-github-device', deviceCode),
     githubConnectPat: (token: string): Promise<IntegrationStatus> =>
       ipcRenderer.invoke('bearcode:integrations:github-connect-pat', token),
     connectBitbucket: (username: string, appPassword: string): Promise<IntegrationStatus> =>

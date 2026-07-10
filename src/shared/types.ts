@@ -1035,6 +1035,7 @@ export interface BearcodeApi {
     // device or the code expires; honors slow_down internally. Resolves the
     // connected status on success, vaulting the token main-side.
     githubDevicePoll(deviceCode: string, interval: number): Promise<IntegrationStatus>
+    cancelGithubDevice(deviceCode: string): Promise<void>
     githubConnectPat(token: string): Promise<IntegrationStatus>
     connectBitbucket(username: string, appPassword: string): Promise<IntegrationStatus>
     disconnect(provider: IntegrationProvider): Promise<void>

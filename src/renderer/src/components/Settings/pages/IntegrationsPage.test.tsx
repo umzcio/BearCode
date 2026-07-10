@@ -34,6 +34,7 @@ function mount(): void {
       status: statusSpy,
       githubDeviceStart: deviceStartSpy,
       githubDevicePoll: devicePollSpy,
+      cancelGithubDevice: vi.fn(() => Promise.resolve()),
       githubConnectPat: connectPatSpy,
       connectBitbucket: connectBitbucketSpy,
       disconnect: disconnectSpy

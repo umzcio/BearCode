@@ -73,6 +73,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// Device codes the renderer has asked to cancel (e.g. the connect modal closed).
+// githubDevicePoll checks this each iteration and stops, so a closed modal no
+// longer leaves a background poll running until the code expires.
+const cancelledDeviceCodes = new Set<string>()
+export function cancelGithubDevice(deviceCode: string): void {
+  cancelledDeviceCodes.add(deviceCode)
+}
+
 async function fetchGithubUser(token: string): Promise<{ login: string; scopes: string[] }> {
   const res = await fetch(`${GITHUB_API_BASE}/user`, {
     headers: {
@@ -107,6 +115,10 @@ export async function githubDevicePoll(
   let waitMs = currentInterval * 1000
   for (;;) {
     await sleep(waitMs)
+    if (cancelledDeviceCodes.has(deviceCode)) {
+      cancelledDeviceCodes.delete(deviceCode)
+      throw new Error('GitHub sign-in cancelled.')
+    }
     const res = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },

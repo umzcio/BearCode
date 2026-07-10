@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { GithubDeviceStart, IntegrationProvider, IntegrationStatus } from '@shared/types'
 import { IconClose } from '../../icons'
+import { useAppStore } from '../../../state/store'
 
 // A settings row: title + description on the left, the control on the right.
 function Row({
@@ -102,6 +103,9 @@ function GithubConnectModal({
       })
     return () => {
       alive = false
+      // Cancel the main-side poll so a closed modal doesn't leave it running
+      // until the device code expires.
+      void window.bearcode.integrations.cancelGithubDevice(device.deviceCode)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device])
@@ -301,6 +305,8 @@ export function IntegrationsPage(): JSX.Element {
   const [statuses, setStatuses] = useState<IntegrationStatus[] | null>(null)
   const [githubModalOpen, setGithubModalOpen] = useState(false)
   const [bitbucketFormOpen, setBitbucketFormOpen] = useState(false)
+  const settings = useAppStore((s) => s.settings)
+  const saveSettings = useAppStore((s) => s.saveSettings)
 
   const refresh = (): void => {
     void window.bearcode.integrations.status().then(setStatuses)
@@ -345,6 +351,22 @@ export function IntegrationsPage(): JSX.Element {
             </button>
           )}
         </Row>
+        <div className="set-row set-row-editor">
+          <div className="set-row-text">
+            <div className="set-row-title">OAuth App client ID</div>
+            <div className="set-row-desc">
+              Optional — for Device Flow sign-in. Leave blank to use a personal access token
+              (the recommended zero-setup path).
+            </div>
+          </div>
+          <input
+            type="text"
+            className="set-input"
+            placeholder="Iv1.…"
+            value={settings?.githubClientId ?? ''}
+            onChange={(e) => void saveSettings({ githubClientId: e.target.value })}
+          />
+        </div>
       </div>
 
       <div className="set-group-title">Bitbucket</div>
