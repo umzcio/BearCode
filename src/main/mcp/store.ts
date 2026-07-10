@@ -218,12 +218,19 @@ export function isTrusted(
   source: 'global' | 'project',
   projectPath: string | null
 ): boolean {
-  // Global servers were added by the user at the app level -> always trusted,
-  // regardless of whether a project is open. (The prior signature ignored
-  // `source` and treated EVERY server as untrusted whenever a project was
-  // open, which hid the user's own global servers behind a Trust button and
+  // Global servers were added by the user at the app level -> trusted by
+  // default, regardless of whether a project is open. (The prior signature
+  // ignored `source` and treated EVERY server as untrusted whenever a project
+  // was open, which hid the user's own global servers behind a Trust button and
   // filtered them out of buildMcpTools -- the bug the reviewer flagged.)
-  if (source === 'global') return true
+  // EXCEPTION: a global server installed from the Smithery registry carries a
+  // url/command chosen by an untrusted registry response, not typed by the
+  // user, so it is recorded in mcpUntrustedGlobalServers and stays untrusted
+  // (L2 trust-gated, so a malicious deploymentUrl cannot connect on enable)
+  // until the user explicitly trusts it.
+  if (source === 'global') {
+    return !(getSettings().mcpUntrustedGlobalServers ?? []).includes(name)
+  }
   // A project-source server requires an explicit per-project opt-in, since a
   // project's committed `.agents/mcp.json` may arrive via a cloned repo whose
   // author is not the current user (design §4). Without a project path there
@@ -238,6 +245,22 @@ export function trustProjectServer(name: string, projectPath: string): void {
   const current = trustedMap[projectPath] ?? []
   const next = { ...trustedMap, [projectPath]: Array.from(new Set([...current, name])) }
   setSettings({ mcpTrustedProjectServers: next })
+}
+
+// Records a global server as untrusted until the user opts in. Called when a
+// server is installed from the Smithery registry (its url/command is registry-
+// supplied, not user-typed), so the L2 trust gate fires before it can connect.
+export function markGlobalServerUntrusted(name: string): void {
+  const current = getSettings().mcpUntrustedGlobalServers ?? []
+  setSettings({ mcpUntrustedGlobalServers: Array.from(new Set([...current, name])) })
+}
+
+// The user's explicit opt-in for a global server that was pending trust (e.g. a
+// Smithery install). Removes it from the untrusted set so isTrusted() returns
+// true and the server may connect.
+export function trustGlobalServer(name: string): void {
+  const current = getSettings().mcpUntrustedGlobalServers ?? []
+  setSettings({ mcpUntrustedGlobalServers: current.filter((n) => n !== name) })
 }
 
 export function hasSpawnConsent(name: string): boolean {

@@ -727,6 +727,11 @@ export interface AppSettings {
   mcpEnabled?: boolean
   mcpEnabledServers?: string[]
   mcpTrustedProjectServers?: Record<string, string[]>
+  // Global servers are trusted by default (the user added them at the app
+  // level), EXCEPT those installed from the Smithery registry: their url/command
+  // comes from an untrusted registry response, so they are recorded here and
+  // stay untrusted (L2 trust-gated) until the user explicitly trusts them.
+  mcpUntrustedGlobalServers?: string[]
   mcpSpawnConsented?: string[]
 }
 
@@ -939,6 +944,9 @@ export interface BearcodeApi {
     remove(name: string, source: 'global' | 'project', projectPath: string | null): Promise<void>
     setEnabled(name: string, on: boolean, projectPath: string | null): Promise<McpServerStatus>
     trust(name: string, projectPath: string): Promise<McpServerStatus>
+    // Trust a global server that was installed pending trust (a Smithery global
+    // install). Project-scoped trust uses trust() with the project path.
+    trustGlobal(name: string): Promise<McpServerStatus>
     spawnConsent(name: string): Promise<void>
     reconnect(name: string, projectPath: string | null): Promise<McpServerStatus>
     status(name: string): Promise<McpServerStatus>

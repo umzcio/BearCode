@@ -67,6 +67,7 @@ const DEFAULTS: AppSettings = {
   mcpEnabled: false,
   mcpEnabledServers: [],
   mcpTrustedProjectServers: {},
+  mcpUntrustedGlobalServers: [],
   mcpSpawnConsented: []
 }
 
@@ -260,6 +261,7 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   merged.mcpEnabled = s['mcpEnabled'] === true
   merged.mcpEnabledServers = coerceStringArray(s['mcpEnabledServers'])
   merged.mcpTrustedProjectServers = coerceStringArrayMap(s['mcpTrustedProjectServers'])
+  merged.mcpUntrustedGlobalServers = coerceStringArray(s['mcpUntrustedGlobalServers'])
   merged.mcpSpawnConsented = coerceStringArray(s['mcpSpawnConsented'])
   return merged
 }
@@ -363,6 +365,9 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.mcpTrustedProjectServers !== undefined) {
     patch = { ...patch, mcpTrustedProjectServers: coerceStringArrayMap(patch.mcpTrustedProjectServers) }
+  }
+  if (patch.mcpUntrustedGlobalServers !== undefined) {
+    patch = { ...patch, mcpUntrustedGlobalServers: coerceStringArray(patch.mcpUntrustedGlobalServers) }
   }
   if (patch.mcpSpawnConsented !== undefined) {
     patch = { ...patch, mcpSpawnConsented: coerceStringArray(patch.mcpSpawnConsented) }

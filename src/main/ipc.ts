@@ -32,6 +32,8 @@ import {
   setEnabled as setMcpServerEnabled,
   isTrusted as isMcpServerTrusted,
   trustProjectServer as trustMcpProjectServer,
+  markGlobalServerUntrusted as markGlobalMcpServerUntrusted,
+  trustGlobalServer as trustGlobalMcpServer,
   hasSpawnConsent as hasMcpSpawnConsent,
   grantSpawnConsent as grantMcpSpawnConsent
 } from './mcp/store'
@@ -799,9 +801,28 @@ export function registerIpc(): void {
       throw new Error(`Invalid Smithery server id: ${String(id)}`)
     }
     const proj = asProjectPath(projectPath)
-    const cfg = await fetchSmitheryConfig(id)
+    // A Smithery config's url/command comes from the registry response, not from
+    // the user -- so it must NOT connect until the user passes the L2 trust gate,
+    // regardless of scope. With a project open we install it project-scoped
+    // (already trust-gated via mcpTrustedProjectServers -> starts untrusted).
+    // Without one it is global; globals are trusted by default, so we explicitly
+    // mark it untrusted so a malicious deploymentUrl can't SSRF on enable.
+    const source: 'global' | 'project' = proj ? 'project' : 'global'
+    const cfg = await fetchSmitheryConfig(id, source)
     upsertMcpServer(cfg, proj)
+    if (source === 'global') markGlobalMcpServerUntrusted(cfg.name)
     return mcpServerView(cfg, proj)
+  })
+  // The user's explicit trust opt-in for a global server pending trust (a
+  // Smithery global install). Project-scoped trust goes through
+  // 'bearcode:mcp:trust' instead. Kept separate so the renderer can trust a
+  // global server without a project path.
+  ipcMain.handle('bearcode:mcp:trust-global', (_e, name: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    trustGlobalMcpServer(name)
+    return mcpManager.statusOf(name)
   })
 
   // navigator.clipboard in the sandboxed renderer is blocked by our tight

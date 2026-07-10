@@ -104,10 +104,34 @@ export async function smitherySearch(query: string): Promise<SmitheryHit[]> {
   }))
 }
 
+// Picks the connection to install. A server can advertise several (e.g. both
+// stdio and http); rather than blindly taking connections[0] (which could be an
+// http entry with no deploymentUrl -> a url:'' server that can only ever error
+// on enable), prefer the first connection that carries a usable endpoint, and
+// only fall back to the first entry if none do.
+function pickConnection(
+  detail: RawSmitheryServerDetail
+): RawSmitheryConnection | undefined {
+  const conns = detail.connections ?? []
+  const usable = conns.find((c) =>
+    c.type === 'stdio' ? true : Boolean(c.deploymentUrl ?? detail.deploymentUrl)
+  )
+  return usable ?? conns[0]
+}
+
 /** Fetches a single Smithery server's detail and maps it to an
  * `McpServerConfig`, filling required config fields with `${VAULT:}`
- * placeholders (never inline secret values). */
-export async function fetchSmitheryConfig(id: string): Promise<McpServerConfig> {
+ * placeholders (never inline secret values). `source` controls where the config
+ * is written and, for globals, whether it lands trust-gated -- the caller
+ * derives it from whether a project is open; either way the server is NOT
+ * pre-trusted (see ipc.ts smithery-install). The vault-key scheme
+ * (`mcp:<name>:<section>:<field>`) matches the manual-add scrubber
+ * (ipc.ts scrubMcpSecretsToVault) so a server's secret keys are reconstructible
+ * by convention. */
+export async function fetchSmitheryConfig(
+  id: string,
+  source: 'global' | 'project' = 'global'
+): Promise<McpServerConfig> {
   const key = requireApiKey()
   const res = await fetch(`${REGISTRY_BASE}/servers/${encodeURIComponent(id)}`, {
     headers: { Authorization: `Bearer ${key}` }
@@ -117,13 +141,13 @@ export async function fetchSmitheryConfig(id: string): Promise<McpServerConfig> 
   }
   const detail = (await res.json()) as RawSmitheryServerDetail
   const name = detail.qualifiedName || id
-  const conn: RawSmitheryConnection | undefined = (detail.connections ?? [])[0]
+  const conn = pickConnection(detail)
   const requiredFields = conn?.configSchema?.required ?? []
 
   if (conn?.type === 'stdio') {
     const env: Record<string, string> = {}
     for (const field of requiredFields) {
-      env[field] = `\${VAULT:mcp:${name}:${field}}`
+      env[field] = `\${VAULT:mcp:${name}:env:${field}}`
     }
     return {
       name,
@@ -131,19 +155,19 @@ export async function fetchSmitheryConfig(id: string): Promise<McpServerConfig> 
       command: 'npx',
       args: ['-y', name],
       env,
-      source: 'global'
+      source
     }
   }
 
   const headers: Record<string, string> = {}
   for (const field of requiredFields) {
-    headers[field] = `\${VAULT:mcp:${name}:${field}}`
+    headers[field] = `\${VAULT:mcp:${name}:headers:${field}}`
   }
   return {
     name,
     transport: 'http',
     url: conn?.deploymentUrl ?? detail.deploymentUrl ?? '',
     headers,
-    source: 'global'
+    source
   }
 }

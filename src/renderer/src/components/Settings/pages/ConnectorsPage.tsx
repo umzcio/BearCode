@@ -146,9 +146,15 @@ export function ConnectorsPage(): JSX.Element | null {
     return found?.effect ?? 'ask'
   }
 
-  const trustServer = (name: string): void => {
+  const trustServer = (view: McpServerView): void => {
+    // A global server pending trust (a Smithery install) is trusted without a
+    // project path; a project-scoped server is trusted per-project.
+    if (view.config.source === 'global') {
+      void window.bearcode.mcp.trustGlobal(view.config.name).then(refresh)
+      return
+    }
     if (!workspacePath) return
-    void window.bearcode.mcp.trust(name, workspacePath).then(refresh)
+    void window.bearcode.mcp.trust(view.config.name, workspacePath).then(refresh)
   }
 
   const reconnectServer = (name: string): void => {
@@ -255,7 +261,7 @@ export function ConnectorsPage(): JSX.Element | null {
                     </div>
                   </div>
                   {view.status.state === 'untrusted' ? (
-                    <button className="pill-btn" onClick={() => trustServer(name)}>
+                    <button className="pill-btn" onClick={() => trustServer(view)}>
                       Trust
                     </button>
                   ) : null}
@@ -283,7 +289,14 @@ export function ConnectorsPage(): JSX.Element | null {
                 {pendingConsent === name ? (
                   <div className="connector-consent" role="alert">
                     <span>
-                      {name} runs a local command ({view.config.command}). Allow it to run?
+                      {name} runs a local command that downloads and executes code on your machine.
+                      Review the exact command before allowing it:
+                      <code className="connector-consent-cmd">
+                        {[view.config.command, ...(view.config.args ?? [])]
+                          .filter(Boolean)
+                          .join(' ')}
+                      </code>
+                      Allow it to run?
                     </span>
                     <button className="pill-btn" onClick={() => confirmSpawn(name)}>
                       Allow

@@ -66,6 +66,8 @@ import {
   setEnabled,
   isTrusted,
   trustProjectServer,
+  markGlobalServerUntrusted,
+  trustGlobalServer,
   hasSpawnConsent,
   grantSpawnConsent
 } from './store'
@@ -246,6 +248,19 @@ describe('enable / trust / spawn-consent state', () => {
     // regress to "untrusted in every project conversation" again.
     expect(isTrusted('anything', 'global', null)).toBe(true)
     expect(isTrusted('my-global-server', 'global', '/proj')).toBe(true)
+  })
+
+  it('a global server marked untrusted (Smithery install) stays untrusted until trusted', () => {
+    // Registry-sourced global servers must NOT be pre-trusted: their url/command
+    // comes from the Smithery response, so the L2 trust gate has to fire before
+    // they can connect (SSRF-on-enable otherwise).
+    expect(isTrusted('exa-labs/exa-mcp', 'global', null)).toBe(true)
+    markGlobalServerUntrusted('exa-labs/exa-mcp')
+    expect(isTrusted('exa-labs/exa-mcp', 'global', null)).toBe(false)
+    // A different global server the user added manually is unaffected.
+    expect(isTrusted('my-manual-server', 'global', null)).toBe(true)
+    trustGlobalServer('exa-labs/exa-mcp')
+    expect(isTrusted('exa-labs/exa-mcp', 'global', null)).toBe(true)
   })
 
   it('project servers need opt-in trust, per project', () => {

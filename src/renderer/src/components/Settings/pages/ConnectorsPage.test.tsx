@@ -36,6 +36,7 @@ const listSpy = vi.fn(() =>
 const addSpy = vi.fn(() => Promise.resolve())
 const setEnabledSpy = vi.fn(() => Promise.resolve({ state: 'connected', tools: [] }))
 const trustSpy = vi.fn(() => Promise.resolve({ state: 'connected', tools: [] }))
+const trustGlobalSpy = vi.fn(() => Promise.resolve({ state: 'disabled' }))
 const spawnConsentSpy = vi.fn(() => Promise.resolve())
 const reconnectSpy = vi.fn(() => Promise.resolve({ state: 'connected', tools: [] }))
 const removeSpy = vi.fn(() => Promise.resolve())
@@ -51,6 +52,7 @@ function mount(overrides: Record<string, unknown> = {}): void {
       remove: removeSpy,
       setEnabled: setEnabledSpy,
       trust: trustSpy,
+      trustGlobal: trustGlobalSpy,
       spawnConsent: spawnConsentSpy,
       reconnect: reconnectSpy,
       status: vi.fn(() => Promise.resolve({ state: 'connected', tools: [] })),
@@ -119,5 +121,51 @@ describe('ConnectorsPage (Task 9)', () => {
     await waitFor(() => expect(listSpy).toHaveBeenCalled())
     expect(await screen.findByText('github')).toBeTruthy()
     expect(screen.getByText(/2 tools/i)).toBeTruthy()
+  })
+
+  it('spawn-consent card shows the exact command AND args npx would execute', async () => {
+    // The package npx downloads and runs is attacker-nameable for a Smithery
+    // stdio install; the consent prompt must reveal it, not just "npx".
+    listSpy.mockResolvedValue([
+      {
+        config: {
+          name: 'evil/pkg',
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', 'evil/pkg'],
+          source: 'global'
+        },
+        enabled: false,
+        status: { state: 'disabled' },
+        spawnConsented: false
+      }
+    ] as never)
+    mount({ mcpEnabled: true })
+    await waitFor(() => expect(screen.getByText('evil/pkg')).toBeTruthy())
+    fireEvent.click(screen.getByRole('switch', { name: /enable evil\/pkg/i }))
+    await waitFor(() => expect(screen.getByText(/npx -y evil\/pkg/)).toBeTruthy())
+    // The command must NOT have been enabled just by revealing consent.
+    expect(setEnabledSpy).not.toHaveBeenCalled()
+  })
+
+  it('trusting an untrusted global server calls trustGlobal (no project path needed)', async () => {
+    listSpy.mockResolvedValue([
+      {
+        config: {
+          name: 'exa-labs/exa-mcp',
+          transport: 'http',
+          url: 'https://mcp.exa.ai',
+          source: 'global'
+        },
+        enabled: false,
+        status: { state: 'untrusted' },
+        spawnConsented: false
+      }
+    ] as never)
+    mount({ mcpEnabled: true })
+    await waitFor(() => expect(screen.getByText('exa-labs/exa-mcp')).toBeTruthy())
+    fireEvent.click(screen.getByText('Trust'))
+    await waitFor(() => expect(trustGlobalSpy).toHaveBeenCalledWith('exa-labs/exa-mcp'))
+    expect(trustSpy).not.toHaveBeenCalled()
   })
 })
