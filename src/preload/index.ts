@@ -11,6 +11,9 @@ import type {
   Event,
   MentionRef,
   ModelRef,
+  McpServerConfig,
+  McpServerStatus,
+  McpServerView,
   PermissionMode,
   PermissionRulesInfo,
   PlanReviewResolveResult,
@@ -19,6 +22,7 @@ import type {
   ProjectSettings,
   ProviderId,
   RunState,
+  SmitheryHit,
   TranscribeMeta
 } from '../shared/types'
 
@@ -191,6 +195,33 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:browser:set-bounds', b),
     show: (): Promise<void> => ipcRenderer.invoke('bearcode:browser:show'),
     hide: (): Promise<void> => ipcRenderer.invoke('bearcode:browser:hide')
+  },
+  mcp: {
+    list: (projectPath: string | null): Promise<McpServerView[]> =>
+      ipcRenderer.invoke('bearcode:mcp:list', projectPath),
+    add: (cfg: McpServerConfig, projectPath: string | null): Promise<void> =>
+      ipcRenderer.invoke('bearcode:mcp:add', cfg, projectPath),
+    remove: (
+      name: string,
+      source: 'global' | 'project',
+      projectPath: string | null
+    ): Promise<void> => ipcRenderer.invoke('bearcode:mcp:remove', name, source, projectPath),
+    setEnabled: (name: string, on: boolean): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:set-enabled', name, on),
+    trust: (name: string, projectPath: string): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:trust', name, projectPath),
+    spawnConsent: (name: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:mcp:spawn-consent', name),
+    reconnect: (name: string, projectPath: string | null): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:reconnect', name, projectPath),
+    status: (name: string): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:status', name),
+    setSecret: (vaultKey: string, value: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:mcp:set-secret', vaultKey, value),
+    smitherySearch: (query: string): Promise<SmitheryHit[]> =>
+      ipcRenderer.invoke('bearcode:mcp:smithery-search', query),
+    smitheryInstall: (id: string, projectPath: string | null): Promise<McpServerView> =>
+      ipcRenderer.invoke('bearcode:mcp:smithery-install', id, projectPath)
   },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>

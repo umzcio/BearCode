@@ -264,6 +264,15 @@ export interface McpServerView {
   enabled: boolean
   status: McpServerStatus
 }
+// Smithery registry search hit (Task 11 fills in the client; the shape is
+// pinned here since the IPC/BearcodeApi surface (Task 8) needs it up front).
+export interface SmitheryHit {
+  id: string
+  name: string
+  description: string
+  toolCount?: number
+  transport: McpTransport
+}
 
 // ---- Artifacts (Ba) ----
 
@@ -916,6 +925,23 @@ export interface BearcodeApi {
     setBounds(b: { x: number; y: number; width: number; height: number }): Promise<void>
     show(): Promise<void>
     hide(): Promise<void>
+  }
+  // Connectors (MCP): global+project config CRUD, enable/trust/spawn-consent
+  // state, live status, secrets (write-only -- there is no getter), and the
+  // Smithery registry browse/install surface (Tasks 11/12 fill in the
+  // underlying implementation; this shape is the full contract).
+  mcp: {
+    list(projectPath: string | null): Promise<McpServerView[]>
+    add(cfg: McpServerConfig, projectPath: string | null): Promise<void>
+    remove(name: string, source: 'global' | 'project', projectPath: string | null): Promise<void>
+    setEnabled(name: string, on: boolean): Promise<McpServerStatus>
+    trust(name: string, projectPath: string): Promise<McpServerStatus>
+    spawnConsent(name: string): Promise<void>
+    reconnect(name: string, projectPath: string | null): Promise<McpServerStatus>
+    status(name: string): Promise<McpServerStatus>
+    setSecret(vaultKey: string, value: string): Promise<void>
+    smitherySearch(query: string): Promise<SmitheryHit[]>
+    smitheryInstall(id: string, projectPath: string | null): Promise<McpServerView>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

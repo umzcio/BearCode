@@ -10,6 +10,9 @@ import type {
   Event,
   HistoryHit,
   ManualRuleInfo,
+  McpServerConfig,
+  McpServerStatus,
+  McpServerView,
   PingResult,
   PreviewPayload,
   ProjectSettings,
@@ -20,7 +23,18 @@ import type {
 } from '../shared/types'
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
-import { keyStatus, setKey } from './keys'
+import { keyStatus, setKey, setVaultSecret } from './keys'
+import {
+  loadServers as loadMcpServers,
+  upsertServer as upsertMcpServer,
+  removeServer as removeMcpServer,
+  isEnabled as isMcpServerEnabled,
+  setEnabled as setMcpServerEnabled,
+  isTrusted as isMcpServerTrusted,
+  trustProjectServer as trustMcpProjectServer,
+  grantSpawnConsent as grantMcpSpawnConsent
+} from './mcp/store'
+import { mcpManager } from './mcp/manager'
 import { addUserRule, deleteUserRule, listRulesInfo, setBuiltinDisabled } from './permissions'
 import { setSettings, settingsInfo } from './settings'
 import { allKnownModelRefs, listAllModels, listManageableModels } from './providers/registry'
@@ -626,6 +640,107 @@ export function registerIpc(): void {
     }
   )
   ipcMain.handle('bearcode:browser:show', () => browserManager.show())
+
+  // MCP (Connectors): global+project config CRUD, enable/trust/spawn-consent
+  // state, live status, and secrets. `status` in the returned McpServerView
+  // prioritizes 'untrusted' over 'disabled' -- a committed-project server the
+  // user hasn't trusted yet shows the trust prompt regardless of its toggle
+  // (design 2026-07-09-connectors-mcp-design.md section 6). smitherySearch/
+  // smitheryInstall are wired here but throw until Tasks 11/12 land the
+  // registry client.
+  const mcpServerView = (cfg: McpServerConfig, projectPath: string | null): McpServerView => {
+    const enabled = isMcpServerEnabled(cfg.name)
+    const trusted = isMcpServerTrusted(cfg.name, projectPath)
+    const status: McpServerStatus = !trusted
+      ? { state: 'untrusted' }
+      : !enabled
+        ? { state: 'disabled' }
+        : mcpManager.statusOf(cfg.name)
+    return { config: cfg, enabled, status }
+  }
+  const asProjectPath = (x: unknown): string | null => (typeof x === 'string' ? x : null)
+
+  ipcMain.handle('bearcode:mcp:list', (_e, projectPath: unknown) => {
+    const proj = asProjectPath(projectPath)
+    return loadMcpServers(proj).map((cfg) => mcpServerView(cfg, proj))
+  })
+  ipcMain.handle('bearcode:mcp:add', (_e, cfg: unknown, projectPath: unknown) => {
+    if (cfg == null || typeof cfg !== 'object') {
+      throw new Error(`Invalid MCP server config: ${String(cfg)}`)
+    }
+    upsertMcpServer(cfg as McpServerConfig, asProjectPath(projectPath))
+  })
+  ipcMain.handle(
+    'bearcode:mcp:remove',
+    (_e, name: unknown, source: unknown, projectPath: unknown) => {
+      if (typeof name !== 'string' || name.length === 0) {
+        throw new Error(`Invalid MCP server name: ${String(name)}`)
+      }
+      if (source !== 'global' && source !== 'project') {
+        throw new Error(`Invalid MCP server source: ${String(source)}`)
+      }
+      removeMcpServer(name, source, asProjectPath(projectPath))
+    }
+  )
+  ipcMain.handle('bearcode:mcp:set-enabled', async (_e, name: unknown, on: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    if (typeof on !== 'boolean') throw new Error(`Invalid MCP enabled flag: ${String(on)}`)
+    setMcpServerEnabled(name, on)
+    if (!on) {
+      await mcpManager.teardown(name)
+      return mcpManager.statusOf(name)
+    }
+    return mcpManager.enable(name, null)
+  })
+  ipcMain.handle('bearcode:mcp:trust', (_e, name: unknown, projectPath: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    if (typeof projectPath !== 'string' || projectPath.length === 0) {
+      throw new Error(`Invalid project path: ${String(projectPath)}`)
+    }
+    trustMcpProjectServer(name, projectPath)
+    return mcpManager.statusOf(name)
+  })
+  ipcMain.handle('bearcode:mcp:spawn-consent', (_e, name: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    grantMcpSpawnConsent(name)
+  })
+  ipcMain.handle('bearcode:mcp:reconnect', (_e, name: unknown, projectPath: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    return mcpManager.reconnect(name, asProjectPath(projectPath))
+  })
+  ipcMain.handle('bearcode:mcp:status', (_e, name: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    return mcpManager.statusOf(name)
+  })
+  ipcMain.handle('bearcode:mcp:set-secret', (_e, vaultKey: unknown, value: unknown) => {
+    if (typeof vaultKey !== 'string' || vaultKey.length === 0) {
+      throw new Error(`Invalid vault key: ${String(vaultKey)}`)
+    }
+    if (typeof value !== 'string') throw new Error(`Invalid secret value: ${String(value)}`)
+    setVaultSecret(vaultKey, value)
+  })
+  // Task 11/12 fill in the Smithery registry client + install flow; the
+  // channels are wired now so the preload/BearcodeApi surface is complete.
+  ipcMain.handle('bearcode:mcp:smithery-search', (_e, query: unknown) => {
+    if (typeof query !== 'string') throw new Error(`Invalid Smithery query: ${String(query)}`)
+    throw new Error('Smithery registry browse is not available yet')
+  })
+  ipcMain.handle('bearcode:mcp:smithery-install', (_e, id: unknown) => {
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new Error(`Invalid Smithery server id: ${String(id)}`)
+    }
+    throw new Error('Smithery install is not available yet')
+  })
 
   // navigator.clipboard in the sandboxed renderer is blocked by our tight
   // permission handlers (media-only), so copy went through main's clipboard.
