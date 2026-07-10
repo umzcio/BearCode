@@ -20,7 +20,7 @@ import { interrupt } from '@langchain/langgraph'
 import { tool } from 'langchain'
 import { z } from 'zod'
 import type { Artifact, Event, ToolName } from '../../shared/types'
-import { appendOrReplaceEvent } from '../db'
+import { appendOrReplaceEvent, getConversationMeta } from '../db'
 import {
   approvePlanArtifact,
   createPlanArtifact,
@@ -29,6 +29,7 @@ import {
 import {
   evaluateCommandForConversation,
   evaluateEditForConversation,
+  evaluateMcpForConversation,
   resolveConversationMode
 } from '../permissions'
 import { loadAgentsContent } from '../agentsDir'
@@ -48,6 +49,8 @@ import { getSettings } from '../settings'
 import { browserManager } from '../browser/manager'
 import { evaluateBrowserAction, browserActionLabel } from '../browser/guard'
 import type { DomainPolicy } from '../browser/policy'
+import { mcpManager } from '../mcp/manager'
+import { loadServers, isEnabled as isMcpEnabled, isTrusted as isMcpTrusted } from '../mcp/store'
 
 const commandSchema = z.object({
   command: z.string().describe('Shell command to run in the workspace folder.'),
@@ -92,6 +95,7 @@ interface DeniedPinSet {
   byCommand: Map<string, number>
   byEditPath: Map<string, number>
   byBrowserAction: Map<string, number>
+  byMcpAction: Map<string, number>
 }
 const deniedReplayPins = new Map<string, DeniedPinSet>()
 
@@ -102,6 +106,7 @@ export function pinDeniedReplays(
     command?: string
     editPath?: string
     browserAction?: string
+    mcpAction?: string
   }>
 ): void {
   if (pins.length === 0) return
@@ -109,7 +114,8 @@ export function pinDeniedReplays(
     byToolCallId: new Set(),
     byCommand: new Map(),
     byEditPath: new Map(),
-    byBrowserAction: new Map()
+    byBrowserAction: new Map(),
+    byMcpAction: new Map()
   }
   for (const pin of pins) {
     if (pin.toolCallId !== undefined) {
@@ -123,6 +129,8 @@ export function pinDeniedReplays(
         pin.browserAction,
         (set.byBrowserAction.get(pin.browserAction) ?? 0) + 1
       )
+    } else if (pin.mcpAction !== undefined) {
+      set.byMcpAction.set(pin.mcpAction, (set.byMcpAction.get(pin.mcpAction) ?? 0) + 1)
     }
   }
   deniedReplayPins.set(conversationId, set)
@@ -202,6 +210,31 @@ export function takeDeniedBrowserReplayPin(
   if (n === undefined) return false
   if (n <= 1) set.byBrowserAction.delete(action)
   else set.byBrowserAction.set(action, n - 1)
+  return true
+}
+
+// The MCP analog of takeDeniedReplayPin/takeDeniedBrowserReplayPin, consulted
+// at the TOP of buildMcpTools' per-tool gate body (before the block/prompt
+// decision) so a Denied MCP approval card always wins over a decision that
+// has since flipped to 'allow' between park and keyed-resume replay (a rule
+// added from a sibling card, or a mode change). Same discipline: byToolCallId
+// is exact and take-once; the id-less fallback lives in its OWN namespace
+// (byMcpAction, never byCommand/byEditPath/byBrowserAction) so an MCP action
+// string can never cross-claim a command/path/browser pin. `action` is
+// `${server}.${tool}` — the same string graph.ts's deniedReplayPinsOf stores
+// the pin under.
+export function takeDeniedMcpReplayPin(
+  conversationId: string,
+  toolCallId: string | undefined,
+  action: string
+): boolean {
+  const set = deniedReplayPins.get(conversationId)
+  if (!set) return false
+  if (toolCallId !== undefined) return set.byToolCallId.delete(toolCallId)
+  const n = set.byMcpAction.get(action)
+  if (n === undefined) return false
+  if (n <= 1) set.byMcpAction.delete(action)
+  else set.byMcpAction.set(action, n - 1)
   return true
 }
 
@@ -975,4 +1008,88 @@ export function buildBrowserTools(conversationId: string) {
     browserTypeTool,
     browserEvaluateTool
   ]
+}
+
+// The project path for a conversation's MCP trust lookup (isTrusted keys
+// per-project trust off the SAME project path buildTools/evaluateEditForConversation
+// use). null for a project-less conversation, mirroring evaluateMcpForConversation's
+// projectPath parameter (global servers are always trusted regardless).
+function projectOf(conversationId: string): string | null {
+  return getConversationMeta(conversationId)?.projectPath ?? null
+}
+
+// ── F-connectors MCP tools ──────────────────────────────────────────────
+// One flat tool() per cached tool of every enabled+trusted MCP server,
+// named `mcp__<server>__<tool>` (mirrors buildBrowserTools' one-tool-per-
+// capability shape). Master gate: Settings.mcpEnabled must be true AND at
+// least one server must be enabled (mcpEnabledServers) AND trusted for the
+// conversation's project -- otherwise this returns [] and the model never
+// sees an mcp__ tool at all. Per-call gate order mirrors gateBrowserAction:
+// the denied-replay pin is consulted FIRST (a recorded Denial always wins
+// over a decision that has since flipped to 'allow' on keyed-resume replay),
+// then the rules-engine decision (evaluateMcpForConversation), then --  only
+// for 'prompt' -- interrupt() pauses the graph for approval exactly like
+// run_command/gateBrowserAction.
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- Zod-inferred tool() return type
+export function buildMcpTools(conversationId: string) {
+  if (getSettings().mcpEnabled !== true) return []
+  const projectPath = projectOf(conversationId)
+  const enabledTrustedServers = loadServers(projectPath)
+    .map((cfg) => cfg.name)
+    .filter((name) => isMcpEnabled(name) && isMcpTrusted(name, projectPath))
+  if (enabledTrustedServers.length === 0) return []
+
+  // Each server's tool() carries a distinct zod-inferred generic (langchain's
+  // tool() return type is invariant per schema); widen to unknown for the
+  // shared array, mirroring buildBrowserTools' unannotated (inferred) return.
+  const tools: unknown[] = []
+  for (const server of enabledTrustedServers) {
+    for (const info of mcpManager.listTools(server)) {
+      const { name: toolName, description, readOnlyHint } = info
+      tools.push(
+        tool(
+          async (args: unknown, config?: unknown): Promise<string> => {
+            const mcpAction = `${server}.${toolName}`
+            const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
+            if (takeDeniedMcpReplayPin(conversationId, toolCallId, mcpAction)) {
+              return 'User denied this MCP tool call.'
+            }
+            const decision = evaluateMcpForConversation(
+              server,
+              toolName,
+              readOnlyHint,
+              conversationId,
+              projectPath
+            )
+            if (decision === 'block') {
+              return `Blocked: ${mcpAction} is not permitted in this mode.`
+            }
+            if (decision === 'prompt') {
+              const approval = interrupt({
+                kind: 'mcp',
+                action: mcpAction,
+                tool: `mcp__${server}__${toolName}`,
+                input: args,
+                toolCallId
+              }) as { approved?: boolean } | null | undefined
+              if (!approval?.approved) return 'User denied this MCP tool call.'
+            }
+            return mcpManager.callTool(server, toolName, args)
+          },
+          {
+            name: `mcp__${server}__${toolName}`,
+            description:
+              (description || `MCP tool "${toolName}" from server "${server}".`) +
+              ' (v1: accepts a free-form JSON object of arguments -- consult the description above for the expected shape.)',
+            // v1: a faithful per-arg zod schema would require translating each
+            // server's arbitrary JSON-schema input at registration time; a
+            // passthrough record is accepted here (per plan) and is faithfully
+            // noted in the description above.
+            schema: z.record(z.string(), z.any())
+          }
+        )
+      )
+    }
+  }
+  return tools
 }
