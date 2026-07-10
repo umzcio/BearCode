@@ -237,8 +237,8 @@ export function assertValidMentions(mentions: unknown): MentionRef[] {
       path?: unknown
       conversationId?: unknown
     }
-    if (kind !== 'file' && kind !== 'rule' && kind !== 'conversation') {
-      throw new Error('run:start: mention.kind must be file, rule, or conversation')
+    if (kind !== 'file' && kind !== 'rule' && kind !== 'conversation' && kind !== 'connector') {
+      throw new Error('run:start: mention.kind must be file, rule, conversation, or connector')
     }
     if (typeof name !== 'string' || name.length === 0 || name.length > 1024) {
       throw new Error('run:start: mention.name must be a non-empty string')

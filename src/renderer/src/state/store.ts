@@ -268,6 +268,8 @@ interface AppState {
   // D3 @ menu read models, fetched on menu interaction (mirrors commands).
   fileSuggestions: string[]
   manualRules: ManualRuleInfo[]
+  // Enabled MCP servers for the @connector category (Phase G).
+  mcpConnectors: { name: string; toolCount: number }[]
   // D4 Media on Home: a new conversation has no id until startFromHome's first
   // send (conversations.create happens then), but Media needs a conversation
   // id to key the attachments directory at PICK time. This is a client-minted
@@ -392,6 +394,7 @@ interface AppState {
   setResumePickerOpen(open: boolean): void
   suggestFiles(query: string): void
   refreshManualRules(): void
+  refreshMcpConnectors(): void
   pickAttachments(
     existingCount: number
   ): Promise<{ picked: PickedAttachmentWire[]; errors: string[] }>
@@ -538,6 +541,7 @@ export const useAppStore = create<AppState>((set, get) => {
     resumePickerOpen: false,
     fileSuggestions: [],
     manualRules: [],
+    mcpConnectors: [],
     draftConvoId: null,
     focusEventId: null,
     focusMatches: [],
@@ -1342,6 +1346,26 @@ export const useAppStore = create<AppState>((set, get) => {
       const projectPath =
         view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
       void window.bearcode.mentions.rules(projectPath).then((manualRules) => set({ manualRules }))
+    },
+
+    // Enabled + connected MCP servers for the @connector category. Fetched on @
+    // menu open (mirrors refreshManualRules). A server contributes to the menu
+    // only when the master gate is on, it is individually enabled, and it has a
+    // live tool list — i.e. exactly the servers whose tools the agent can call.
+    refreshMcpConnectors: () => {
+      const { view, conversations, workspacePath } = get()
+      const projectPath =
+        view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
+      void window.bearcode.mcp.list(projectPath).then((servers) =>
+        set({
+          mcpConnectors: servers
+            .filter((s) => s.enabled && s.status.state === 'connected')
+            .map((s) => ({
+              name: s.config.name,
+              toolCount: s.status.state === 'connected' ? s.status.tools.length : 0
+            }))
+        })
+      )
     },
 
     setResumePickerOpen: (open) => set({ resumePickerOpen: open }),

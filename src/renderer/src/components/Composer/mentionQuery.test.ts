@@ -61,15 +61,21 @@ describe('parseMentionQuery', () => {
 
 describe('buildMentionRows', () => {
   const rules: ManualRuleInfo[] = [{ name: 'style', firstLine: 'Use tabs.' }]
-  const base = { files: ['src/a.ts'], rules, conversations: [{ id: 'c1', title: 'Some chat' }] }
+  const base = {
+    files: ['src/a.ts'],
+    rules,
+    conversations: [{ id: 'c1', title: 'Some chat' }],
+    connectors: [{ name: 'github', toolCount: 12 }]
+  }
 
-  it('category mode (no category) returns the three category chooser rows', () => {
+  it('category mode (no category) returns the four category chooser rows', () => {
     const out = buildMentionRows({ category: null, sub: '', ...base })
-    expect(out.map((r) => r.type)).toEqual(['category', 'category', 'category'])
+    expect(out.map((r) => r.type)).toEqual(['category', 'category', 'category', 'category'])
     expect(out.map((r) => (r.type === 'category' ? r.kind : null))).toEqual([
       'file',
       'rule',
-      'conversation'
+      'conversation',
+      'connector'
     ])
   })
 
@@ -98,9 +104,30 @@ describe('buildMentionRows', () => {
     expect(buildMentionRows({ category: 'conversation', sub: 'zzz', ...base })).toHaveLength(0)
   })
 
+  it('connector item mode filters enabled servers by the sub-query', () => {
+    expect(buildMentionRows({ category: 'connector', sub: 'git', ...base })).toHaveLength(1)
+    expect(buildMentionRows({ category: 'connector', sub: 'zzz', ...base })).toHaveLength(0)
+    const [row] = buildMentionRows({ category: 'connector', sub: '', ...base })
+    expect(row).toEqual({
+      type: 'item',
+      suggestion: { ref: { kind: 'connector', name: 'github' }, label: 'github', detail: '12 tools' }
+    })
+  })
+
+  it('@mcp: is an alias for the connector category', () => {
+    expect(parseMentionQuery('mcp:git')).toEqual({ category: 'connector', sub: 'git' })
+  })
+
   it('caps the drilled-in item list at 8', () => {
     const many = Array.from({ length: 20 }, (_, i) => ({ id: `c${i}`, title: `Chat ${i}` }))
-    const out = buildMentionRows({ category: 'conversation', sub: '', files: [], rules: [], conversations: many })
+    const out = buildMentionRows({
+      category: 'conversation',
+      sub: '',
+      files: [],
+      rules: [],
+      conversations: many,
+      connectors: []
+    })
     expect(out).toHaveLength(8)
   })
 })
