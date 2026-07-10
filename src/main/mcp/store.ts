@@ -324,3 +324,49 @@ export function grantSpawnConsent(name: string): void {
   const current = getSettings().mcpSpawnConsented ?? []
   setSettings({ mcpSpawnConsented: Array.from(new Set([...current, name])) })
 }
+
+export function revokeSpawnConsent(name: string): void {
+  const current = getSettings().mcpSpawnConsented ?? []
+  setSettings({ mcpSpawnConsented: current.filter((n) => n !== name) })
+}
+
+// ---- import collision guard (Task 13 review) ----
+
+// The fields of a config that determine what actually RUNS or connects: the
+// command + args for stdio, the url for http. Header/env VALUES are excluded
+// on purpose -- imports blank them, and they don't change which binary/endpoint
+// executes. Used to decide whether an import binds a name to a *different*
+// executable identity than the consent already granted for that bare name.
+function execIdentity(
+  cfg: Pick<McpServerConfig, 'transport' | 'command' | 'args' | 'url'>
+): string {
+  return cfg.transport === 'stdio'
+    ? `stdio ${cfg.command ?? ''} ${JSON.stringify(cfg.args ?? [])}`
+    : `http ${cfg.url ?? ''}`
+}
+
+// Trust, enable, and spawn-consent are all keyed on the bare server NAME. Every
+// other creation path (manual add, Smithery) creates a name and its consent
+// together, but IMPORT can bind an attacker-influenced foreign config to a name
+// whose consent already exists -- so the new command/url would silently inherit
+// the gates granted for the OLD one (G3 review, findings 1 & 2). Call this
+// BEFORE upserting an imported config: if a config already effectively owns this
+// name (the merged project-over-global winner) and its executable identity
+// differs from the incoming one, drop the stale name-keyed spawn-consent and
+// enable state so the spawn-consent prompt re-fires against the real new
+// command, and untrust a global target so its Trust gate re-fires too (project
+// targets already start untrusted via the per-project trust map). Returns true
+// when stale consent was invalidated. No-op for a brand-new name or a re-import
+// of the identical config.
+export function invalidateStaleConsentOnImport(
+  cfg: McpServerConfig,
+  projectPath: string | null
+): boolean {
+  const existing = loadServers(projectPath).find((c) => c.name === cfg.name)
+  if (!existing) return false
+  if (execIdentity(existing) === execIdentity(cfg)) return false
+  setEnabled(cfg.name, false)
+  revokeSpawnConsent(cfg.name)
+  if (cfg.source === 'global') markGlobalServerUntrusted(cfg.name)
+  return true
+}

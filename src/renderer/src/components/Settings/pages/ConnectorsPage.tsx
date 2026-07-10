@@ -387,6 +387,23 @@ export function ConnectorsPage(): JSX.Element | null {
                   />
                 </div>
 
+                {view.status.state === 'untrusted' ? (
+                  <div className="connector-consent" role="alert">
+                    <span>
+                      This server has not been trusted for this project. It will{' '}
+                      {isRemote ? 'connect to' : 'run'}:
+                      <code className="connector-consent-cmd">
+                        {isRemote
+                          ? view.config.url
+                          : [view.config.command, ...(view.config.args ?? [])]
+                              .filter(Boolean)
+                              .join(' ')}
+                      </code>
+                      Trust it only if you recognize the exact {isRemote ? 'URL' : 'command'} above.
+                    </span>
+                  </div>
+                ) : null}
+
                 {pendingConsent === name ? (
                   <div className="connector-consent" role="alert">
                     <span>

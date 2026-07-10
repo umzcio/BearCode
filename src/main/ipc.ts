@@ -37,7 +37,8 @@ import {
   trustGlobalServer as trustGlobalMcpServer,
   hasSpawnConsent as hasMcpSpawnConsent,
   grantSpawnConsent as grantMcpSpawnConsent,
-  discoverLocalServers
+  discoverLocalServers,
+  invalidateStaleConsentOnImport
 } from './mcp/store'
 import { mcpManager } from './mcp/manager'
 import { smitherySearch, fetchSmitheryConfig } from './mcp/registry'
@@ -869,6 +870,13 @@ export function registerIpc(): void {
         args: d.args,
         env: blankValues(d.env)
       }
+      // An import can bind this foreign config to a NAME whose trust/enable/
+      // spawn-consent state already exists (that state is name-keyed). If the
+      // incoming command/url differs from what that name already runs, drop the
+      // stale consent BEFORE persisting so the spawn-consent + Trust gates
+      // re-fire against the real new command instead of being silently inherited
+      // (G3 review findings 1 & 2).
+      invalidateStaleConsentOnImport(cfg, proj)
       upsertMcpServer(cfg, proj)
       imported.push(mcpServerView(cfg, proj))
     }
