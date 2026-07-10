@@ -111,9 +111,10 @@ describe('mcp/oauthProvider', () => {
     // Browser opened with the authorization URL.
     await flush()
     expect(openSignIn).toHaveBeenCalledWith(authUrl.toString())
-    // Simulate the user completing sign-in on the loopback callback.
+    // Simulate the user completing sign-in on the loopback callback. The
+    // callback must echo the provider's CSRF state (generated on prepare).
     expect(waitResolve).toBeDefined()
-    waitResolve!(new URLSearchParams('code=auth-code-123&state=st'))
+    waitResolve!(new URLSearchParams(`code=auth-code-123&state=${p.state()}`))
     await pending
     // The code is available exactly once for the SDK continuation.
     expect(p.takeAuthorizationCode()).toBe('auth-code-123')
@@ -127,6 +128,16 @@ describe('mcp/oauthProvider', () => {
     expect(waitResolve).toBeDefined()
     waitResolve!(new URLSearchParams('error=access_denied&error_description=nope'))
     await expect(pending).rejects.toThrow(/access_denied/)
+    expect(p.takeAuthorizationCode()).toBeUndefined()
+  })
+
+  it('redirectToAuthorization rejects a callback whose state does not match (CSRF)', async () => {
+    const p = makeMcpOAuthProvider('gmail')
+    const pending = p.redirectToAuthorization(new URL('https://auth.example.com/authorize'))
+    await flush()
+    expect(waitResolve).toBeDefined()
+    waitResolve!(new URLSearchParams('code=auth-code-123&state=forged'))
+    await expect(pending).rejects.toThrow(/state mismatch/i)
     expect(p.takeAuthorizationCode()).toBeUndefined()
   })
 

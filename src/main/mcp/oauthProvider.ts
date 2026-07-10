@@ -19,6 +19,7 @@
 // expose `prepare()` to start the loopback capture up front; the manager (Task 5)
 // awaits it before calling the SDK's `auth()`. Verified against
 // node_modules/@modelcontextprotocol/sdk/dist/esm/client/auth.js (authInternal).
+import { randomBytes } from 'crypto'
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
 import type {
   OAuthClientMetadata,
@@ -35,6 +36,9 @@ import { saveOAuth, loadOAuth, clearOAuth } from '../oauth/credentials'
  * the captured code back for the continuation call).
  */
 export interface McpOAuthProvider extends OAuthClientProvider {
+  /** CSRF state echoed on the loopback callback (always present here, unlike
+   * the SDK's optional `state?`). */
+  state(): string
   /**
    * Starts the loopback capture so `redirectUrl` and `clientMetadata` are
    * populated before the SDK's `auth()` runs. Idempotent — one loopback server
@@ -60,16 +64,26 @@ export function makeMcpOAuthProvider(serverName: string): McpOAuthProvider {
   let capture: LoopbackCapture | undefined
   let redirectUri: string | undefined
   let capturedCode: string | undefined
+  let stateMem: string | undefined
 
   async function ensurePrepared(): Promise<void> {
     if (capture) return
     capture = await startLoopbackCapture()
     redirectUri = capture.redirectUri
+    // Fresh CSRF state per flow. PKCE already prevents a raced/injected code
+    // from being exchanged; matching `state` on the callback is belt-and-
+    // suspenders and lets us reject a foreign callback outright.
+    stateMem = randomBytes(16).toString('base64url')
   }
 
   return {
     get redirectUrl(): string | undefined {
       return redirectUri
+    },
+
+    state(): string {
+      if (!stateMem) throw new Error(`No OAuth state for MCP session "${serverName}"`)
+      return stateMem
     },
 
     get clientMetadata(): OAuthClientMetadata {
@@ -124,6 +138,9 @@ export function makeMcpOAuthProvider(serverName: string): McpOAuthProvider {
       if (err) {
         const desc = params.get('error_description')
         throw new Error(`OAuth authorization failed: ${err}${desc ? ` (${desc})` : ''}`)
+      }
+      if (stateMem && params.get('state') !== stateMem) {
+        throw new Error('OAuth authorization failed: state mismatch (possible CSRF)')
       }
       const code = params.get('code')
       if (!code) {

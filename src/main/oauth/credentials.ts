@@ -12,8 +12,10 @@ export function loadOAuth<T>(ns: string): T | undefined {
   if (!raw) return undefined
   try {
     return JSON.parse(raw) as T
-  } catch (err) {
-    console.error(`[bearcode] failed to parse vault credential for ${ns}:`, err)
+  } catch {
+    // Log the namespace only — a JSON SyntaxError message can embed a snippet
+    // of the decrypted raw value, which must never reach logs.
+    console.error(`[bearcode] failed to parse vault credential for ${ns} (malformed JSON)`)
     return undefined
   }
 }

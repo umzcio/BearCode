@@ -14,7 +14,7 @@
 // runner without touching argv or on-disk config. The helper reads the secret
 // from its own environment at call time, so the file it lives in contains no
 // secret and is safe to persist.
-import { chmodSync, existsSync, writeFileSync } from 'fs'
+import { chmodSync, mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { getIntegration, loadIntegrationToken, type IntegrationProvider } from './store'
@@ -40,15 +40,17 @@ esac
 
 let cachedAskpassPath: string | undefined
 
-// Writes the (secret-free) askpass helper to a stable temp path, once. Rewrites
-// if it went missing. Returns the absolute path.
+// Writes the (secret-free) askpass helper into a per-process private directory
+// (0700, random name via mkdtemp), once. Using mkdtemp — not a predictable path
+// in the shared temp dir — means a local attacker cannot pre-create or tamper
+// with the helper git will execute (the old stable path + skip-if-exists let a
+// planted script survive and run with BEARCODE_GIT_TOKEN in its env). Returns
+// the absolute path.
 function ensureAskpassScript(): string {
-  const path = cachedAskpassPath ?? join(tmpdir(), 'bearcode-git-askpass.sh')
-  if (!existsSync(path)) {
-    writeFileSync(path, ASKPASS_SCRIPT, { mode: 0o700 })
-  }
-  // Always (re)assert the executable bit — a prior umask-affected write or an
-  // externally-touched file must not leave it non-executable.
+  if (cachedAskpassPath) return cachedAskpassPath
+  const dir = mkdtempSync(join(tmpdir(), 'bearcode-git-'))
+  const path = join(dir, 'askpass.sh')
+  writeFileSync(path, ASKPASS_SCRIPT, { mode: 0o700 })
   chmodSync(path, 0o700)
   cachedAskpassPath = path
   return path
