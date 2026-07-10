@@ -789,6 +789,11 @@ export interface AppSettings {
   // Optional override for the GitHub Device Flow OAuth App client_id (public/
   // secret-free). Empty → the shipped placeholder; the PAT path needs none.
   githubClientId?: string
+  // Skills (G-skills, design 4.3): the disabled-set. Global-scope disabled skill
+  // names, and a path-keyed map of disabled project-scope skill names (path-keyed
+  // like mcpTrustedProjectServers). Optional & additive.
+  skillsDisabledGlobal?: string[]
+  skillsDisabledProject?: Record<string, string[]>
 }
 
 export interface SettingsInfo extends AppSettings {

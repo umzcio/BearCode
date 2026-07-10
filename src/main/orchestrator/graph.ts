@@ -47,6 +47,7 @@ import {
 import { readAttachmentBase64, readAttachmentSidecar } from '../attachments/ingest'
 import { loadAgentsContent } from '../agentsDir'
 import type { Workflow } from '../agentsDir/types'
+import { isSkillEnabled } from '../skills/state'
 import {
   assembleActivatedSkills,
   assembleCommandAdditions,
@@ -2176,9 +2177,11 @@ function buildAgentAndContext(
     if (asm.systemAdditions.length > 0) ruleAdditions = '\n\n' + asm.systemAdditions.join('\n\n')
     // design 4.2: skill discovery index rides the same turn-build path as rules.
     // activate_skill is folder-independent (wired below unconditionally), so unlike
-    // model rules there is no no-project gate here. In Task 3 the filter is
-    // non-error only; Task 5 adds the disabled-set exclusion.
-    const enabledSkills = content.skills.filter((s) => !s.error)
+    // model rules there is no no-project gate here. Excludes both parse errors and
+    // user-disabled skills (design 4.3).
+    const enabledSkills = content.skills.filter(
+      (s) => !s.error && isSkillEnabled(s.name, s.source, projectPath)
+    )
     const skillAsm = assembleSkillAdditions(enabledSkills)
     const activatedAsm = assembleActivatedSkills(mentionedSkillNames(mentions), enabledSkills)
     const skillLines = [...skillAsm.systemAdditions, ...activatedAsm.systemAdditions]

@@ -34,6 +34,7 @@ import {
   resolveConversationMode
 } from '../permissions'
 import { loadAgentsContent } from '../agentsDir'
+import { isSkillEnabled } from '../skills/state'
 import type { RunSink } from '../sink'
 import {
   jailPath,
@@ -750,10 +751,6 @@ const activateSkillSchema = z.object({
 // design 4.2, folder-independent: it must load global skills with NO project
 // open, so it is NOT wired inside folder-gated buildTools. graph.ts appends
 // buildSkillTools(...) unconditionally, like buildBrowserTools.
-// TODO(Task 5): replace this stub with the real isSkillEnabled from ../skills/state
-// once the persisted disabled-set lands.
-const isSkillEnabled = (_name: string, _source: string, _projectPath: string | null): boolean =>
-  true
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function buildSkillTools(_conversationId: string, projectPath: string | null) {
   const activateSkillTool = tool(
