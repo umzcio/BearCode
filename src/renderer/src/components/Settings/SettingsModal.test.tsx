@@ -38,6 +38,7 @@ beforeEach(() => {
     },
     mcp: {
       list: vi.fn(() => Promise.resolve([])),
+      ensureConnected: vi.fn(() => Promise.resolve([])),
       add: vi.fn(() => Promise.resolve()),
       remove: vi.fn(() => Promise.resolve()),
       setEnabled: vi.fn(() => Promise.resolve({ state: 'disabled' })),

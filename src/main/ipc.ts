@@ -721,6 +721,14 @@ export function registerIpc(): void {
     const proj = asProjectPath(projectPath)
     return loadMcpServers(proj).map((cfg) => mcpServerView(cfg, proj))
   })
+  // Like list, but first (non-interactively) connects any enabled+trusted
+  // server that's idle, so opening the Connectors page / @-menu surfaces
+  // enabled connectors with real status instead of a stale "not connected".
+  ipcMain.handle('bearcode:mcp:ensure-connected', async (_e, projectPath: unknown) => {
+    const proj = asProjectPath(projectPath)
+    await mcpManager.ensureEnabledConnected(proj)
+    return loadMcpServers(proj).map((cfg) => mcpServerView(cfg, proj))
+  })
   ipcMain.handle('bearcode:mcp:add', (_e, cfg: unknown, projectPath: unknown) => {
     if (cfg == null || typeof cfg !== 'object') {
       throw new Error(`Invalid MCP server config: ${String(cfg)}`)

@@ -153,6 +153,50 @@ describe('mcpManager', () => {
     expect(out).toBe('bound-out:{"q":2}')
   })
 
+  it('ensureEnabledConnected() connects an enabled+trusted idle stdio server', async () => {
+    const stdioCfg: McpServerConfig = {
+      name: 'local-srv',
+      transport: 'stdio',
+      command: 'node',
+      args: ['server.js'],
+      source: 'global'
+    }
+    vi.mocked(loadServers).mockReturnValue([stdioCfg])
+    getToolsMock.mockResolvedValue([{ name: 't1', description: 'd', invoke: vi.fn() }])
+
+    await mcpManager.ensureEnabledConnected(null)
+
+    expect(MultiServerMCPClientMock).toHaveBeenCalled()
+    expect(mcpManager.statusOf('local-srv').state).toBe('connected')
+    vi.mocked(loadServers).mockReturnValue([testConfig])
+  })
+
+  it('ensureEnabledConnected() skips a remote server with no vaulted token (no connect, no browser)', async () => {
+    // testConfig is http; providerStub.tokens() → undefined by default. A
+    // passive refresh must NOT attempt the connection (which would 401) and
+    // must NOT open a sign-in.
+    providerStub.tokens.mockReturnValue(undefined)
+
+    await mcpManager.ensureEnabledConnected(null)
+
+    expect(MultiServerMCPClientMock).not.toHaveBeenCalled()
+    expect(authMock).not.toHaveBeenCalled()
+    expect(mcpManager.statusOf('test-server').state).toBe('disabled')
+  })
+
+  it('enable({interactive:false}) does not launch sign-in on a 401', async () => {
+    // Token present so the provider is attached and the 401 is a genuine auth
+    // challenge; interactive:false must still refuse to open the browser.
+    providerStub.tokens.mockReturnValue({ access_token: 'stale' } as unknown as undefined)
+    getToolsMock.mockRejectedValue(new Error('Authentication failed (HTTP 401)'))
+
+    const status = await mcpManager.enable('test-server', null, { interactive: false })
+
+    expect(authMock).not.toHaveBeenCalled()
+    expect(status.state).toBe('error')
+    providerStub.tokens.mockReturnValue(undefined)
+  })
+
   it('callTool() connects on demand when the server was never enabled', async () => {
     const invoke = vi.fn().mockResolvedValue('demand-out')
     getToolsMock.mockResolvedValue([{ name: 'get_x', description: 'd', invoke }])

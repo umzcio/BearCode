@@ -207,7 +207,12 @@ export function ConnectorsPage(): JSX.Element | null {
 
   useEffect(() => {
     let alive = true
-    void window.bearcode.mcp.list(workspacePath).then((list) => {
+    // ensureConnected (not list): opening the page non-interactively connects
+    // any enabled+trusted idle server, so its status reflects reality (real
+    // tool count / "connected") instead of a stale "not connected" — and it
+    // surfaces in the @-menu — without the user hitting Reconnect after a
+    // restart. Never opens an OAuth browser (interactive:false in main).
+    void window.bearcode.mcp.ensureConnected(workspacePath).then((list) => {
       if (alive) setServers(list)
     })
     // Load the permission rules so each tool's Select can reflect its existing
@@ -389,7 +394,11 @@ export function ConnectorsPage(): JSX.Element | null {
                         ? 'signing in…'
                         : view.status.state === 'error'
                           ? `error: ${view.status.message}`
-                          : view.status.state}
+                          : view.status.state === 'disabled' && view.enabled
+                            ? // enabled but not currently connected (idle) —
+                              // "disabled" here would contradict the ON toggle.
+                              'not connected'
+                            : view.status.state}
                       {' · '}
                       {toolCount} tools
                     </div>

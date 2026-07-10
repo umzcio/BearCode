@@ -150,7 +150,11 @@ class McpManager {
     return null
   }
 
-  async enable(name: string, projectPath: string | null): Promise<McpServerStatus> {
+  async enable(
+    name: string,
+    projectPath: string | null,
+    opts?: { interactive?: boolean }
+  ): Promise<McpServerStatus> {
     const cfg = this.findConfig(name, projectPath)
     if (!cfg) {
       const status: McpServerStatus = { state: 'error', message: `unknown MCP server: ${name}` }
@@ -177,7 +181,11 @@ class McpManager {
     try {
       return await this.connect(name, resolved, haveTokens ? provider : undefined)
     } catch (e) {
-      if (provider && isAuthChallenge(e)) {
+      // Only launch the interactive sign-in (opens the system browser) when the
+      // caller explicitly permits it. A passive list refresh (ensureEnabled
+      // Connected) passes interactive:false so opening the @-menu / Connectors
+      // page can never spring an OAuth browser tab.
+      if (opts?.interactive !== false && provider && isAuthChallenge(e)) {
         return this.signIn(name, resolved, provider)
       }
       const status: McpServerStatus = { state: 'error', message: cleanError(e) }
@@ -185,6 +193,32 @@ class McpManager {
       this.lastStatus.set(name, status)
       return status
     }
+  }
+
+  // Connect every enabled + trusted server that isn't already connected,
+  // WITHOUT triggering interactive OAuth. Called when the user opens a surface
+  // that lists connectors (the Connectors page, the @-mention menu) so an
+  // enabled server reflects real status and surfaces in @ without a manual
+  // Reconnect. stdio servers are consent-gated by launchDenial; remote servers
+  // are auto-connected only when a vaulted token already exists (otherwise a
+  // passive refresh would 401 — we neither open a browser nor spam an error).
+  async ensureEnabledConnected(projectPath: string | null): Promise<void> {
+    await Promise.all(
+      loadServers(projectPath).map(async (cfg) => {
+        if (!isEnabled(cfg.name)) return
+        if (!isTrusted(cfg.name, cfg.source, projectPath)) return
+        if (this.servers.has(cfg.name)) return
+        if (cfg.transport === 'http') {
+          const haveTokens = Boolean(await this.oauthProviderFor(cfg.name).tokens())
+          if (!haveTokens) return
+        }
+        try {
+          await this.enable(cfg.name, projectPath, { interactive: false })
+        } catch {
+          // enable() records the failure on lastStatus; nothing to surface here.
+        }
+      })
+    )
   }
 
   // Opens ONE MultiServerMCPClient connection and enumerates tools. Throws on

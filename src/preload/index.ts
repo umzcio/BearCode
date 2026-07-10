@@ -203,6 +203,8 @@ const bearcode: BearcodeApi = {
   mcp: {
     list: (projectPath: string | null): Promise<McpServerView[]> =>
       ipcRenderer.invoke('bearcode:mcp:list', projectPath),
+    ensureConnected: (projectPath: string | null): Promise<McpServerView[]> =>
+      ipcRenderer.invoke('bearcode:mcp:ensure-connected', projectPath),
     add: (cfg: McpServerConfig, projectPath: string | null): Promise<void> =>
       ipcRenderer.invoke('bearcode:mcp:add', cfg, projectPath),
     remove: (

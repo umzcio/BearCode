@@ -48,6 +48,9 @@ function mount(overrides: Record<string, unknown> = {}): void {
     settings: { set: setSpy },
     mcp: {
       list: listSpy,
+      // Mount uses ensureConnected; alias it to the same spy so tests that set
+      // listSpy.mockResolvedValue(...) drive the initial render too.
+      ensureConnected: listSpy,
       add: addSpy,
       remove: removeSpy,
       setEnabled: setEnabledSpy,

@@ -1356,7 +1356,7 @@ export const useAppStore = create<AppState>((set, get) => {
       const { view, conversations, workspacePath } = get()
       const projectPath =
         view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
-      void window.bearcode.mcp.list(projectPath).then((servers) =>
+      void window.bearcode.mcp.ensureConnected(projectPath).then((servers) =>
         set({
           mcpConnectors: servers
             .filter((s) => s.enabled && s.status.state === 'connected')
