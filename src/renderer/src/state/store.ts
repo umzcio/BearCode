@@ -23,6 +23,7 @@ import type {
   ProviderModels,
   RunState,
   SettingsInfo,
+  SkillInfo,
   WorktreeInfo
 } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
@@ -270,6 +271,8 @@ interface AppState {
   manualRules: ManualRuleInfo[]
   // Enabled MCP servers for the @connector category (Phase G).
   mcpConnectors: { name: string; toolCount: number }[]
+  // The @skill category's read model (mirrors manualRules).
+  manualSkills: SkillInfo[]
   // D4 Media on Home: a new conversation has no id until startFromHome's first
   // send (conversations.create happens then), but Media needs a conversation
   // id to key the attachments directory at PICK time. This is a client-minted
@@ -395,6 +398,7 @@ interface AppState {
   suggestFiles(query: string): void
   refreshManualRules(): void
   refreshMcpConnectors(): void
+  refreshManualSkills(): void
   pickAttachments(
     existingCount: number
   ): Promise<{ picked: PickedAttachmentWire[]; errors: string[] }>
@@ -542,6 +546,7 @@ export const useAppStore = create<AppState>((set, get) => {
     fileSuggestions: [],
     manualRules: [],
     mcpConnectors: [],
+    manualSkills: [],
     draftConvoId: null,
     focusEventId: null,
     focusMatches: [],
@@ -1346,6 +1351,17 @@ export const useAppStore = create<AppState>((set, get) => {
       const projectPath =
         view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
       void window.bearcode.mentions.rules(projectPath).then((manualRules) => set({ manualRules }))
+    },
+
+    // The @skill category's read model (mirrors refreshManualRules). Fetched
+    // on @ menu open.
+    refreshManualSkills: () => {
+      const { view, conversations, workspacePath } = get()
+      const projectPath =
+        view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
+      void window.bearcode.mentions
+        .skills(projectPath)
+        .then((manualSkills) => set({ manualSkills }))
     },
 
     // Enabled + connected MCP servers for the @connector category. Fetched on @

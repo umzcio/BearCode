@@ -23,7 +23,10 @@ export type MentionRow =
 // The active @-mention token under the caret, or null. An @ begins a token
 // only at text start or after whitespace (so `me@host` is NOT a mention), and
 // the query (@ up to the caret) must contain no whitespace. Pure.
-export function activeMentionQuery(text: string, caret: number): { start: number; query: string } | null {
+export function activeMentionQuery(
+  text: string,
+  caret: number
+): { start: number; query: string } | null {
   for (let i = caret - 1; i >= 0; i--) {
     const ch = text[i]
     if (ch === '@') {
@@ -42,7 +45,8 @@ const PREFIX_TO_KIND: Record<string, MentionKind> = {
   conversation: 'conversation',
   connector: 'connector',
   // `@mcp:` is an alias for `@connector:` — users reach for either term.
-  mcp: 'connector'
+  mcp: 'connector',
+  skill: 'skill'
 }
 
 // Split the text after `@` into an optional category prefix + the remaining
@@ -74,7 +78,8 @@ const CATEGORIES: { kind: MentionKind; label: string }[] = [
   { kind: 'file', label: 'Files' },
   { kind: 'rule', label: 'Rules' },
   { kind: 'conversation', label: 'Conversations' },
-  { kind: 'connector', label: 'Connectors' }
+  { kind: 'connector', label: 'Connectors' },
+  { kind: 'skill', label: 'Skills' }
 ]
 
 // Keep the drilled-in item list compact (Antigravity shows a short list).
@@ -87,6 +92,7 @@ export interface BuildMentionRowsOpts {
   rules: ManualRuleInfo[]
   conversations: { id: string; title: string }[]
   connectors: { name: string; toolCount: number }[]
+  skills: { name: string; description: string }[]
 }
 
 // Category mode (no category chosen): the (sub-filtered) category chooser rows.
@@ -112,11 +118,26 @@ export function buildMentionRows(opts: BuildMentionRowsOpts): MentionRow[] {
   } else if (opts.category === 'rule') {
     items = opts.rules
       .filter((r) => match(r.name))
-      .map((r) => ({ ref: { kind: 'rule', name: r.name }, label: r.name, detail: r.firstLine || undefined }))
+      .map((r) => ({
+        ref: { kind: 'rule', name: r.name },
+        label: r.name,
+        detail: r.firstLine || undefined
+      }))
   } else if (opts.category === 'conversation') {
     items = opts.conversations
       .filter((c) => match(c.title))
-      .map((c) => ({ ref: { kind: 'conversation', name: c.title, conversationId: c.id }, label: c.title }))
+      .map((c) => ({
+        ref: { kind: 'conversation', name: c.title, conversationId: c.id },
+        label: c.title
+      }))
+  } else if (opts.category === 'skill') {
+    items = opts.skills
+      .filter((s) => match(s.name))
+      .map((s) => ({
+        ref: { kind: 'skill', name: s.name },
+        label: s.name,
+        detail: s.description || undefined
+      }))
   } else {
     items = opts.connectors
       .filter((c) => match(c.name))

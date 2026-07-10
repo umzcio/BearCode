@@ -73,9 +73,11 @@ export function Composer({
   const fileSuggestions = useAppStore((s) => s.fileSuggestions)
   const manualRules = useAppStore((s) => s.manualRules)
   const mcpConnectors = useAppStore((s) => s.mcpConnectors)
+  const manualSkills = useAppStore((s) => s.manualSkills)
   const suggestFiles = useAppStore((s) => s.suggestFiles)
   const refreshManualRules = useAppStore((s) => s.refreshManualRules)
   const refreshMcpConnectors = useAppStore((s) => s.refreshMcpConnectors)
+  const refreshManualSkills = useAppStore((s) => s.refreshManualSkills)
   const conversations = useAppStore((s) => s.conversations)
   const convoOrder = useAppStore((s) => s.convoOrder)
   const pickAttachments = useAppStore((s) => s.pickAttachments)
@@ -154,7 +156,8 @@ export function Composer({
             .map((id) => conversations[id])
             .filter((c): c is NonNullable<typeof c> => c != null)
             .map((c) => ({ id: c.id, title: c.title })),
-          connectors: mcpConnectors
+          connectors: mcpConnectors,
+          skills: manualSkills
         })
       : []
   const mentionHeader =
@@ -163,7 +166,8 @@ export function Composer({
           file: 'Files',
           rule: 'Rules',
           conversation: 'Conversations',
-          connector: 'Connectors'
+          connector: 'Connectors',
+          skill: 'Skills'
         }[mentionParsed.category]
       : null
   const safeMentionIndex = Math.min(mentionIndex, Math.max(0, mentionRows.length - 1))
@@ -223,8 +227,9 @@ export function Composer({
     if (mentionOpen) {
       refreshManualRules()
       refreshMcpConnectors()
+      refreshManualSkills()
     }
-  }, [mentionOpen, refreshManualRules, refreshMcpConnectors])
+  }, [mentionOpen, refreshManualRules, refreshMcpConnectors, refreshManualSkills])
   useEffect(() => {
     // Only fetch file suggestions once the user has drilled into @file:.
     if (mentionParsed?.category === 'file') suggestFiles(mentionParsed.sub)
