@@ -128,6 +128,31 @@ describe('mcpManager', () => {
     expect(out).toBe('called-out')
   })
 
+  it('callTool() invokes the tool method bound to its tool (this preserved)', async () => {
+    // Regression: langchain's StructuredTool.invoke() reads `this.defaultConfig`
+    // (mergeConfigs). callTool must not detach the method from its tool, or
+    // `this` is undefined and the call throws "Cannot read properties of
+    // undefined (reading 'defaultConfig')". A real remote MCP tool call hit
+    // this live. Model `invoke` as a real method depending on `this`.
+    const toolObj = {
+      name: 'get_x',
+      description: 'd',
+      defaultConfig: { timeout: 5 },
+      invoke(this: { defaultConfig: unknown }, args: unknown): Promise<string> {
+        // Touching `this.defaultConfig` mirrors StructuredTool.invoke exactly.
+        if (!this || this.defaultConfig === undefined) {
+          throw new TypeError("Cannot read properties of undefined (reading 'defaultConfig')")
+        }
+        return Promise.resolve(`bound-out:${JSON.stringify(args)}`)
+      }
+    }
+    getToolsMock.mockResolvedValue([toolObj])
+    await mcpManager.enable('test-server', null)
+
+    const out = await mcpManager.callTool('test-server', 'get_x', { q: 2 })
+    expect(out).toBe('bound-out:{"q":2}')
+  })
+
   it('callTool() connects on demand when the server was never enabled', async () => {
     const invoke = vi.fn().mockResolvedValue('demand-out')
     getToolsMock.mockResolvedValue([{ name: 'get_x', description: 'd', invoke }])

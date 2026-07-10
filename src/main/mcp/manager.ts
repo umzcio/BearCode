@@ -362,7 +362,11 @@ class McpManager {
     if (!entry) throw new Error(`MCP server not connected: ${name}`)
     const target = entry.tools.find((t) => t.name === tool)
     if (!target) throw new Error(`MCP tool not found: ${name}.${tool}`)
-    const invoke = target.invoke ?? target.func
+    // Bind to `target`: langchain's StructuredTool.invoke() reads
+    // `this.defaultConfig`, so a detached call (`const fn = target.invoke; fn()`)
+    // loses `this` and throws "Cannot read properties of undefined (reading
+    // 'defaultConfig')". `.func` is a plain closure, but bind it too for safety.
+    const invoke = target.invoke?.bind(target) ?? target.func?.bind(target)
     if (!invoke) throw new Error(`MCP tool ${name}.${tool} is not callable`)
     const result = await invoke(args)
     return typeof result === 'string' ? result : JSON.stringify(result)
