@@ -58,7 +58,10 @@ function mount(overrides: Record<string, unknown> = {}): void {
       smitherySearch: vi.fn(() => Promise.resolve([])),
       smitheryInstall: vi.fn()
     },
-    permissions: { addRule: addRuleSpy }
+    permissions: {
+      addRule: addRuleSpy,
+      list: vi.fn(() => Promise.resolve({ userRules: [], builtins: [] }))
+    }
   }
   useAppStore.setState({
     settings: { ...baseSettings, ...overrides } as never,

@@ -41,6 +41,7 @@ const ADD_OPTIONS: SelectOption<'manual' | 'browse'>[] = [
 type ManualDraft = {
   name: string
   transport: McpTransport
+  scope: 'global' | 'project'
   url: string
   command: string
   args: string
@@ -51,11 +52,19 @@ type ManualDraft = {
 const EMPTY_DRAFT: ManualDraft = {
   name: '',
   transport: 'http',
+  scope: 'global',
   url: '',
   command: '',
   args: '',
   headers: '',
   env: ''
+}
+
+// Two RuleScopes are equal when both are 'global', or both name the same
+// project. Used to reflect a tool's existing rule into its Select.
+function sameScope(a: RuleScope, b: RuleScope): boolean {
+  if (a === 'global' || b === 'global') return a === b
+  return a.projectPath === b.projectPath
 }
 
 // Parses "k=v, k2=v2" into a Record, ignoring blank/malformed entries.
@@ -75,6 +84,8 @@ export function ConnectorsPage(): JSX.Element | null {
   const saveSettings = useAppStore((s) => s.saveSettings)
   const workspacePath = useAppStore((s) => s.workspacePath)
   const addPermissionRule = useAppStore((s) => s.addPermissionRule)
+  const permissionRules = useAppStore((s) => s.permissionRules)
+  const refreshPermissionRules = useAppStore((s) => s.refreshPermissionRules)
 
   const [servers, setServers] = useState<McpServerView[] | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -91,10 +102,13 @@ export function ConnectorsPage(): JSX.Element | null {
     void window.bearcode.mcp.list(workspacePath).then((list) => {
       if (alive) setServers(list)
     })
+    // Load the permission rules so each tool's Select can reflect its existing
+    // effect on mount rather than always showing the default.
+    void refreshPermissionRules()
     return () => {
       alive = false
     }
-  }, [workspacePath])
+  }, [workspacePath, refreshPermissionRules])
 
   if (!settings) return null
 
@@ -103,21 +117,32 @@ export function ConnectorsPage(): JSX.Element | null {
   const ruleScope: RuleScope = workspacePath ? { projectPath: workspacePath } : 'global'
 
   const toggleServer = (view: McpServerView, on: boolean): void => {
-    if (on && view.config.transport === 'stdio') {
+    // A local (stdio) server needs one-time spawn consent before its command
+    // ever runs. Once granted (view.spawnConsented), don't re-prompt on every
+    // subsequent enable toggle -- the recorded consent is honored in main.
+    if (on && view.config.transport === 'stdio' && !view.spawnConsented) {
       setPendingConsent(view.config.name)
       return
     }
-    void window.bearcode.mcp.setEnabled(view.config.name, on).then(refresh)
+    void window.bearcode.mcp.setEnabled(view.config.name, on, workspacePath).then(refresh)
   }
 
   const confirmSpawn = (name: string): void => {
     void window.bearcode.mcp
       .spawnConsent(name)
-      .then(() => window.bearcode.mcp.setEnabled(name, true))
+      .then(() => window.bearcode.mcp.setEnabled(name, true, workspacePath))
       .then(() => {
         setPendingConsent(null)
         refresh()
       })
+  }
+
+  const toolRuleEffect = (server: string, tool: string): PermissionRuleEffect => {
+    const match = `${server}.${tool}`
+    const found = (permissionRules?.userRules ?? []).find(
+      (r) => r.action === 'mcp' && r.match === match && sameScope(r.scope, ruleScope)
+    )
+    return found?.effect ?? 'ask'
   }
 
   const trustServer = (name: string): void => {
@@ -142,6 +167,11 @@ export function ConnectorsPage(): JSX.Element | null {
   const submitManualAdd = (): void => {
     const name = draft.name.trim()
     if (!name) return
+    // Scope is an EXPLICIT choice, never a silent default. Without a workspace
+    // open only 'global' is possible; with one open the user picks, so a
+    // personal server (and its secrets) no longer lands in the committed
+    // project file unless they intend it.
+    const source: 'project' | 'global' = workspacePath ? draft.scope : 'global'
     const cfg =
       draft.transport === 'http'
         ? {
@@ -149,7 +179,7 @@ export function ConnectorsPage(): JSX.Element | null {
             transport: 'http' as const,
             url: draft.url.trim(),
             headers: parsePairs(draft.headers),
-            source: (workspacePath ? 'project' : 'global') as 'project' | 'global'
+            source
           }
         : {
             name,
@@ -160,7 +190,7 @@ export function ConnectorsPage(): JSX.Element | null {
               .map((a) => a.trim())
               .filter(Boolean),
             env: parsePairs(draft.env),
-            source: (workspacePath ? 'project' : 'global') as 'project' | 'global'
+            source
           }
     void window.bearcode.mcp.add(cfg, workspacePath).then(() => {
       setDraft(EMPTY_DRAFT)
@@ -234,9 +264,11 @@ export function ConnectorsPage(): JSX.Element | null {
                   >
                     {isExpanded ? 'Collapse' : 'Expand'}
                   </button>
-                  <button className="pill-btn" onClick={() => reconnectServer(name)}>
-                    Reconnect
-                  </button>
+                  {view.status.state === 'untrusted' ? null : (
+                    <button className="pill-btn" onClick={() => reconnectServer(name)}>
+                      Reconnect
+                    </button>
+                  )}
                   <button className="pill-btn" onClick={() => removeServer(view)}>
                     Remove
                   </button>
@@ -271,7 +303,7 @@ export function ConnectorsPage(): JSX.Element | null {
                         </div>
                         <Select
                           ariaLabel={`${name} ${tool.name} rule`}
-                          value="ask"
+                          value={toolRuleEffect(name, tool.name)}
                           options={RULE_OPTIONS}
                           onChange={(effect) => setToolRule(name, tool.name, effect)}
                         />
@@ -313,6 +345,25 @@ export function ConnectorsPage(): JSX.Element | null {
               ]}
               onChange={(transport) => setDraft({ ...draft, transport })}
             />
+            {workspacePath ? (
+              <Select
+                ariaLabel="Scope"
+                value={draft.scope}
+                options={[
+                  {
+                    value: 'global',
+                    label: 'Global (this machine)',
+                    description: 'Private to you; never committed'
+                  },
+                  {
+                    value: 'project',
+                    label: 'Project (committed)',
+                    description: 'Written to .agents/mcp.json and shared with the repo'
+                  }
+                ]}
+                onChange={(scope) => setDraft({ ...draft, scope })}
+              />
+            ) : null}
             {draft.transport === 'http' ? (
               <>
                 <input
