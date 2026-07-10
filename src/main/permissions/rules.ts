@@ -149,23 +149,30 @@ export function evaluateCommand(
   return mode === 'auto' && terminalAutoExec === 'auto' ? 'run' : 'prompt'
 }
 
-// MCP tool matcher. Subject is `${server}.${tool}`; a bare server name (no dot,
-// no '*') matches every tool on that server -- the common "trust this whole
-// connector" case. Otherwise reuses the single-'*' prefix/suffix idiom shared
-// with matchesCommand/matchesSegment.
+// MCP tool matcher. Designed grammar (Claude Code, design §4): the SERVER
+// portion is always a literal and must equal `server` exactly -- a glob may
+// appear ONLY after the literal `server.` prefix, and only as a trailing `*`.
+// Accepted forms:
+//   `github`            -> every tool on exactly `github`
+//   `github.*`          -> every tool on exactly `github`
+//   `github.get_issue`  -> that exact tool
+//   `github.get_*`      -> tools whose name starts with `get_`
+// This deliberately rejects the over-broad shapes the previous startsWith/
+// endsWith idiom allowed: `git*` (would auto-run any `git…`-named server),
+// bare `*` (everything everywhere), and `*.get_issue` (crosses servers) --
+// allow over-matching crosses trust boundaries, so the grammar is anchored.
+// The server boundary is the FIRST '.', matching the `server.tool` convention.
 export function matchesMcpTool(pattern: string, server: string, tool: string): boolean {
-  const subject = `${server}.${tool}`
-  if (pattern === server) return true // bare server -> any tool
-  const star = pattern.indexOf('*')
-  if (star === -1) return subject === pattern
-  const prefix = pattern.slice(0, star)
-  const suffix = pattern.slice(star + 1)
-  if (suffix === '') return subject.startsWith(prefix) || subject === prefix.replace(/\.$/, '') // 'github.*' etc.
-  return (
-    subject.startsWith(prefix) &&
-    subject.endsWith(suffix) &&
-    subject.length >= prefix.length + suffix.length
-  )
+  const dot = pattern.indexOf('.')
+  if (dot === -1) return pattern === server // bare server -> any tool on it
+  const serverPart = pattern.slice(0, dot)
+  const toolPart = pattern.slice(dot + 1)
+  if (serverPart !== server) return false // server portion is always literal
+  if (toolPart === '*') return true // `server.*` -> any tool
+  const star = toolPart.indexOf('*')
+  if (star === -1) return toolPart === tool // exact tool
+  if (star !== toolPart.length - 1) return false // glob allowed only at the end
+  return tool.startsWith(toolPart.slice(0, star))
 }
 
 // Precedence for the 'mcp' permission action (design, Task 4):

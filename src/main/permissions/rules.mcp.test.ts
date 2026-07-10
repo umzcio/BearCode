@@ -24,6 +24,22 @@ describe('matchesMcpTool', () => {
     expect(matchesMcpTool('github.get_*', 'github', 'get_issue')).toBe(true)
     expect(matchesMcpTool('github.get_*', 'github', 'set_issue')).toBe(false)
   })
+  it('server portion is a literal: a glob in the server slot never crosses servers', () => {
+    // `git*` must NOT auto-run every `git…`-named server (allow over-matching
+    // crosses trust boundaries).
+    expect(matchesMcpTool('git*', 'gitlab', 'delete_project')).toBe(false)
+    expect(matchesMcpTool('git*', 'github', 'anything')).toBe(false)
+    // bare `*` is not "everything everywhere".
+    expect(matchesMcpTool('*', 'anything', 'anything')).toBe(false)
+    // a wildcard server + literal tool never crosses servers.
+    expect(matchesMcpTool('*.get_issue', 'github', 'get_issue')).toBe(false)
+  })
+  it('glob is only honored as a trailing char after the server. prefix', () => {
+    // interior star is not the designed grammar -> matches nothing.
+    expect(matchesMcpTool('github.g*t', 'github', 'get')).toBe(false)
+    // trailing star still works.
+    expect(matchesMcpTool('github.*', 'github', 'x')).toBe(true)
+  })
 })
 describe('evaluateMcp', () => {
   it('default Ask (no rules)', () => {
