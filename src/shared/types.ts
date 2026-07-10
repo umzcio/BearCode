@@ -272,6 +272,11 @@ export type McpServerStatus =
   | { state: 'disabled' }
   | { state: 'untrusted' }
   | { state: 'connected'; tools: McpToolInfo[] }
+  // A remote (OAuth) server that hit a 401 and is now mid sign-in: the system
+  // browser is open and the manager is awaiting the loopback redirect. The
+  // Connectors row shows "Signing in…". Clears to 'connected' on success or
+  // 'error' on cancel/timeout/token-exchange failure.
+  | { state: 'authorizing' }
   | { state: 'error'; message: string }
 export interface McpServerView {
   config: McpServerConfig
@@ -966,6 +971,11 @@ export interface BearcodeApi {
     trustGlobal(name: string): Promise<McpServerStatus>
     spawnConsent(name: string): Promise<void>
     reconnect(name: string, projectPath: string | null): Promise<McpServerStatus>
+    // (Re)trigger the OAuth sign-in for a remote server that needs it: opens
+    // the system browser, captures the loopback redirect, exchanges the code,
+    // vaults the tokens, and reconnects. No token ever crosses this IPC — the
+    // result is only the resulting status. Remote (http) servers only.
+    authorize(name: string, projectPath: string | null): Promise<McpServerStatus>
     status(name: string): Promise<McpServerStatus>
     setSecret(vaultKey: string, value: string): Promise<void>
     smitherySearch(query: string): Promise<SmitheryHit[]>

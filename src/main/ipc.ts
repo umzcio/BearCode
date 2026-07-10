@@ -776,6 +776,12 @@ export function registerIpc(): void {
     }
     return mcpManager.reconnect(name, asProjectPath(projectPath))
   })
+  ipcMain.handle('bearcode:mcp:authorize', (_e, name: unknown, projectPath: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    return mcpManager.authorize(name, asProjectPath(projectPath))
+  })
   ipcMain.handle('bearcode:mcp:status', (_e, name: unknown) => {
     if (typeof name !== 'string' || name.length === 0) {
       throw new Error(`Invalid MCP server name: ${String(name)}`)

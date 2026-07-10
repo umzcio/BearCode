@@ -217,6 +217,8 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:mcp:spawn-consent', name),
     reconnect: (name: string, projectPath: string | null): Promise<McpServerStatus> =>
       ipcRenderer.invoke('bearcode:mcp:reconnect', name, projectPath),
+    authorize: (name: string, projectPath: string | null): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:authorize', name, projectPath),
     status: (name: string): Promise<McpServerStatus> =>
       ipcRenderer.invoke('bearcode:mcp:status', name),
     setSecret: (vaultKey: string, value: string): Promise<void> =>

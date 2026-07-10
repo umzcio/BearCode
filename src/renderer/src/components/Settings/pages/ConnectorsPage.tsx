@@ -262,6 +262,13 @@ export function ConnectorsPage(): JSX.Element | null {
     void window.bearcode.mcp.reconnect(name, workspacePath).then(refresh)
   }
 
+  // Kicks the OAuth sign-in for a remote server that hit a 401 (opens the
+  // system browser main-side; only the resulting status crosses back — never a
+  // token). Refreshes the row when the flow settles.
+  const authorizeServer = (name: string): void => {
+    void window.bearcode.mcp.authorize(name, workspacePath).then(refresh)
+  }
+
   const removeServer = (view: McpServerView): void => {
     void window.bearcode.mcp
       .remove(view.config.name, view.config.source, workspacePath)
@@ -356,7 +363,9 @@ export function ConnectorsPage(): JSX.Element | null {
                       <span className={'status-dot' + (isConnected ? ' ok' : '')} />
                       {view.status.state === 'error'
                         ? `error: ${view.status.message}`
-                        : view.status.state}
+                        : view.status.state === 'authorizing'
+                          ? 'signing in…'
+                          : view.status.state}
                       {' · '}
                       {toolCount} tools
                     </div>
@@ -372,8 +381,17 @@ export function ConnectorsPage(): JSX.Element | null {
                   >
                     {isExpanded ? 'Collapse' : 'Expand'}
                   </button>
+                  {isRemote && view.status.state === 'error' ? (
+                    <button className="pill-btn primary" onClick={() => authorizeServer(name)}>
+                      Sign in
+                    </button>
+                  ) : null}
                   {view.status.state === 'untrusted' ? null : (
-                    <button className="pill-btn" onClick={() => reconnectServer(name)}>
+                    <button
+                      className="pill-btn"
+                      disabled={view.status.state === 'authorizing'}
+                      onClick={() => reconnectServer(name)}
+                    >
                       Reconnect
                     </button>
                   )}

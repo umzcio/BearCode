@@ -5,8 +5,10 @@
 // Mirrors browser/manager.ts's singleton + stash idioms (BrowserManager,
 // manager.ts:28, :263-277) so the two subsystems read the same way.
 import { MultiServerMCPClient } from '@langchain/mcp-adapters'
+import { auth } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { McpServerConfig, McpToolInfo, McpServerStatus } from '../../shared/types'
 import { loadServers, resolveConfig, isEnabled, isTrusted, hasSpawnConsent } from './store'
+import { makeMcpOAuthProvider, type McpOAuthProvider } from './oauthProvider'
 
 // MCP client + adapter errors can carry ANSI color codes and multi-line
 // "Call log" dumps (same shape Playwright throws -- see
@@ -19,6 +21,28 @@ function cleanError(e: unknown): string {
     .replace(/\[[0-9;]*m/g, '')
     .trim()
   return firstLine || raw
+}
+
+// Detects whether a failed connection is a 401/OAuth challenge (vs a network
+// or config error) so enable() knows to launch the interactive sign-in flow
+// instead of surfacing a dead error. mcp-adapters wraps the SDK's
+// UnauthorizedError into an MCPClientError whose message is
+// "Authentication failed for HTTP server …" and preserves the "(HTTP 401)"
+// marker / a numeric `.code`; the gmail smoke case surfaced as
+// "Missing Authorization header". We match all of those, case-insensitively.
+// Verified against node_modules/@langchain/mcp-adapters/dist/client.js
+// (_createAuthenticationErrorMessage / _getHttpErrorCode) 2026-07-09.
+function isAuthChallenge(e: unknown): boolean {
+  const code = (e as { code?: unknown })?.code
+  if (code === 401) return true
+  const msg = (e instanceof Error ? e.message : String(e)).toLowerCase()
+  return (
+    msg.includes('authentication failed') ||
+    msg.includes('unauthorized') ||
+    msg.includes('(http 401)') ||
+    msg.includes('oauth') ||
+    msg.includes('missing authorization')
+  )
 }
 
 // Minimal surface this module needs from a langchain DynamicStructuredTool
@@ -69,6 +93,21 @@ class McpManager {
   private servers = new Map<string, ServerEntry>()
   private projectProvider: () => string | null = () => null
 
+  // One vault-backed OAuthClientProvider per remote server, created lazily and
+  // reused so saved tokens/client-registration survive across reconnects (and
+  // so an in-flight loopback capture has a stable home to dispose). Disposed +
+  // dropped on teardown(name); all disposed on a full teardown().
+  private oauthProviders = new Map<string, McpOAuthProvider>()
+
+  private oauthProviderFor(name: string): McpOAuthProvider {
+    let p = this.oauthProviders.get(name)
+    if (!p) {
+      p = makeMcpOAuthProvider(name)
+      this.oauthProviders.set(name, p)
+    }
+    return p
+  }
+
   // Wired by the tool layer (mirrors browserManager.setPolicyProvider) so
   // connect-on-demand callTool() knows which project's server config to
   // resolve without the graph/tool layer having to thread a project path
@@ -116,23 +155,145 @@ class McpManager {
       this.lastStatus.set(name, status)
       return status
     }
+    const resolved = resolveConfig(cfg)
+    // Only remote (http) servers can do OAuth. Attach the provider up front
+    // ONLY when it already holds saved tokens, so a first connect to an
+    // unauthenticated server fails fast with a clean 401 (rather than the SDK
+    // transport auto-opening the browser inside getTools() and blocking the
+    // connect on the loopback). The interactive flow is driven explicitly by
+    // signIn() below once we've detected the challenge.
+    const provider = cfg.transport === 'http' ? this.oauthProviderFor(name) : undefined
+    const haveTokens = provider ? Boolean(await provider.tokens()) : false
     try {
-      const resolved = resolveConfig(cfg)
-      const clientConfig = { mcpServers: { [name]: toConnection(resolved) } }
-      const client = new MultiServerMCPClient(
-        clientConfig as ConstructorParameters<typeof MultiServerMCPClient>[0]
-      ) as unknown as McpAdapterClient
-      const rawTools = await client.getTools()
-      const status: McpServerStatus = { state: 'connected', tools: rawTools.map(toToolInfo) }
-      this.servers.set(name, { client, status, tools: rawTools })
-      this.lastStatus.set(name, status)
-      return status
+      return await this.connect(name, resolved, haveTokens ? provider : undefined)
     } catch (e) {
+      if (provider && isAuthChallenge(e)) {
+        return this.signIn(name, resolved, provider)
+      }
       const status: McpServerStatus = { state: 'error', message: cleanError(e) }
       this.servers.delete(name)
       this.lastStatus.set(name, status)
       return status
     }
+  }
+
+  // Opens ONE MultiServerMCPClient connection and enumerates tools. Throws on
+  // failure (the caller decides whether that's an OAuth challenge worth a
+  // sign-in or a terminal error). When `provider` is passed the transport uses
+  // it for auth (reads the vaulted tokens); it is omitted on an unauthenticated
+  // first attempt so the transport never launches a browser on its own.
+  private async connect(
+    name: string,
+    resolved: McpServerConfig,
+    provider?: McpOAuthProvider
+  ): Promise<McpServerStatus> {
+    const connection = toConnection(resolved)
+    if (provider) connection.authProvider = provider
+    const clientConfig = { mcpServers: { [name]: connection } }
+    const client = new MultiServerMCPClient(
+      clientConfig as ConstructorParameters<typeof MultiServerMCPClient>[0]
+    ) as unknown as McpAdapterClient
+    const rawTools = await client.getTools()
+    const status: McpServerStatus = { state: 'connected', tools: rawTools.map(toToolInfo) }
+    this.servers.set(name, { client, status, tools: rawTools })
+    this.lastStatus.set(name, status)
+    return status
+  }
+
+  // Drives the interactive OAuth sign-in for a remote server: marks the row
+  // 'authorizing', runs the SDK auth() flow (browser + loopback + token
+  // exchange via the vault-backed provider), then reconnects using the freshly
+  // vaulted tokens. Any failure (cancel/timeout/exchange) clears to 'error'.
+  // SECURITY: tokens live only in the vault (via the provider); none is logged
+  // or returned — the resolved McpServerStatus never carries a secret.
+  private async signIn(
+    name: string,
+    resolved: McpServerConfig,
+    provider: McpOAuthProvider
+  ): Promise<McpServerStatus> {
+    if (resolved.transport !== 'http' || !resolved.url) {
+      const status: McpServerStatus = {
+        state: 'error',
+        message: `OAuth sign-in is only available for remote servers: ${name}`
+      }
+      this.servers.delete(name)
+      this.lastStatus.set(name, status)
+      return status
+    }
+    const authorizing: McpServerStatus = { state: 'authorizing' }
+    this.lastStatus.set(name, authorizing)
+    try {
+      await this.runOAuthFlow(resolved.url, provider)
+      // Tokens are now vaulted; reconnect with the provider so the transport
+      // presents them.
+      return await this.connect(name, resolved, provider)
+    } catch (e) {
+      provider.dispose()
+      const status: McpServerStatus = { state: 'error', message: cleanError(e) }
+      this.servers.delete(name)
+      this.lastStatus.set(name, status)
+      return status
+    }
+  }
+
+  // The two-step SDK continuation (design §3): the first auth() runs discovery
+  // → dynamic client registration → PKCE and calls the provider's
+  // redirectToAuthorization (open browser + block on the loopback capture),
+  // returning 'REDIRECT'; we then hand the captured code back for the token
+  // exchange, which returns 'AUTHORIZED'. If auth() short-circuits to
+  // 'AUTHORIZED' (a still-valid saved token) we skip the exchange.
+  private async runOAuthFlow(serverUrl: string, provider: McpOAuthProvider): Promise<void> {
+    await provider.prepare()
+    try {
+      const first = await auth(provider, { serverUrl })
+      if (first !== 'AUTHORIZED') {
+        const code = provider.takeAuthorizationCode()
+        if (!code) throw new Error('OAuth sign-in was cancelled or timed out')
+        const second = await auth(provider, { serverUrl, authorizationCode: code })
+        if (second !== 'AUTHORIZED') throw new Error('OAuth token exchange did not complete')
+      }
+    } finally {
+      provider.dispose()
+    }
+  }
+
+  // Explicit (re)trigger for the "Sign in" action on an errored remote row.
+  // Tears down any stale connection, then runs the same sign-in flow. If a
+  // valid token is already vaulted the SDK auth() returns AUTHORIZED without a
+  // browser round-trip and we simply reconnect.
+  async authorize(name: string, projectPath: string | null): Promise<McpServerStatus> {
+    const cfg = this.findConfig(name, projectPath)
+    if (!cfg) {
+      const status: McpServerStatus = { state: 'error', message: `unknown MCP server: ${name}` }
+      this.lastStatus.set(name, status)
+      return status
+    }
+    const denial = this.launchDenial(cfg, projectPath)
+    if (denial) {
+      const status: McpServerStatus = { state: 'error', message: denial }
+      this.lastStatus.set(name, status)
+      return status
+    }
+    if (cfg.transport !== 'http') {
+      const status: McpServerStatus = {
+        state: 'error',
+        message: `OAuth sign-in is only available for remote servers: ${name}`
+      }
+      this.lastStatus.set(name, status)
+      return status
+    }
+    // Close any existing client but keep the provider (its saved tokens/client
+    // registration are reused by the sign-in).
+    const existing = this.servers.get(name)
+    if (existing?.client.close) {
+      try {
+        await existing.client.close()
+      } catch {
+        // best-effort
+      }
+    }
+    this.servers.delete(name)
+    return this.signIn(name, resolveConfig(cfg), this.oauthProviderFor(name))
   }
 
   // Tracks the most recent status per server independent of whether the
@@ -193,6 +354,8 @@ class McpManager {
       }
       this.servers.delete(name)
       this.lastStatus.delete(name)
+      this.oauthProviders.get(name)?.dispose()
+      this.oauthProviders.delete(name)
       return
     }
     for (const entry of this.servers.values()) {
@@ -204,6 +367,8 @@ class McpManager {
         }
       }
     }
+    for (const provider of this.oauthProviders.values()) provider.dispose()
+    this.oauthProviders.clear()
     this.servers.clear()
     this.lastStatus.clear()
     this.stash.clear()
