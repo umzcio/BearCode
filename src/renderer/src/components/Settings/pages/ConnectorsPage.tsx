@@ -194,6 +194,12 @@ export function ConnectorsPage(): JSX.Element | null {
   const [pendingConsent, setPendingConsent] = useState<string | null>(null)
   const [addMode, setAddMode] = useState<'manual' | 'browse' | 'import' | null>(null)
   const [draft, setDraft] = useState<ManualDraft>(EMPTY_DRAFT)
+  // Server names with a sign-in flow in flight. mcp.authorize() blocks main-side
+  // for the whole browser+loopback round-trip and the interim 'authorizing'
+  // status isn't pushed to the renderer, so we track it locally: the row shows
+  // "signing in…" and disables Sign in / Reconnect until the promise settles,
+  // preventing a double-click from starting a second (PKCE-clobbering) flow.
+  const [authorizing, setAuthorizing] = useState<ReadonlySet<string>>(() => new Set())
 
   const refresh = (): void => {
     void window.bearcode.mcp.list(workspacePath).then((list) => setServers(list))
@@ -266,7 +272,22 @@ export function ConnectorsPage(): JSX.Element | null {
   // system browser main-side; only the resulting status crosses back — never a
   // token). Refreshes the row when the flow settles.
   const authorizeServer = (name: string): void => {
-    void window.bearcode.mcp.authorize(name, workspacePath).then(refresh)
+    // Guard against a double-trigger: ignore the click if a flow is already in
+    // flight for this server (the button is also disabled, this is defense in
+    // depth). Mark the row authorizing immediately so the UI reflects it without
+    // waiting for the blocking main-side call to resolve.
+    if (authorizing.has(name)) return
+    setAuthorizing((prev) => new Set(prev).add(name))
+    void window.bearcode.mcp
+      .authorize(name, workspacePath)
+      .then(refresh)
+      .finally(() => {
+        setAuthorizing((prev) => {
+          const next = new Set(prev)
+          next.delete(name)
+          return next
+        })
+      })
   }
 
   const removeServer = (view: McpServerView): void => {
@@ -348,6 +369,9 @@ export function ConnectorsPage(): JSX.Element | null {
             const toolCount = view.status.state === 'connected' ? view.status.tools.length : 0
             const isConnected = view.status.state === 'connected'
             const isExpanded = expanded === name
+            // In flight either per the main-side status or the local optimistic
+            // set (the blocking authorize() call hasn't resolved yet).
+            const isAuthorizing = view.status.state === 'authorizing' || authorizing.has(name)
 
             return (
               <div className="connector-server" key={name}>
@@ -361,10 +385,10 @@ export function ConnectorsPage(): JSX.Element | null {
                     </div>
                     <div className="set-row-desc">
                       <span className={'status-dot' + (isConnected ? ' ok' : '')} />
-                      {view.status.state === 'error'
-                        ? `error: ${view.status.message}`
-                        : view.status.state === 'authorizing'
-                          ? 'signing in…'
+                      {isAuthorizing
+                        ? 'signing in…'
+                        : view.status.state === 'error'
+                          ? `error: ${view.status.message}`
                           : view.status.state}
                       {' · '}
                       {toolCount} tools
@@ -381,15 +405,19 @@ export function ConnectorsPage(): JSX.Element | null {
                   >
                     {isExpanded ? 'Collapse' : 'Expand'}
                   </button>
-                  {isRemote && view.status.state === 'error' ? (
-                    <button className="pill-btn primary" onClick={() => authorizeServer(name)}>
-                      Sign in
+                  {isRemote && (view.status.state === 'error' || isAuthorizing) ? (
+                    <button
+                      className="pill-btn primary"
+                      disabled={isAuthorizing}
+                      onClick={() => authorizeServer(name)}
+                    >
+                      {isAuthorizing ? 'Signing in…' : 'Sign in'}
                     </button>
                   ) : null}
                   {view.status.state === 'untrusted' ? null : (
                     <button
                       className="pill-btn"
-                      disabled={view.status.state === 'authorizing'}
+                      disabled={isAuthorizing}
                       onClick={() => reconnectServer(name)}
                     >
                       Reconnect

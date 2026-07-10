@@ -99,6 +99,16 @@ class McpManager {
   // dropped on teardown(name); all disposed on a full teardown().
   private oauthProviders = new Map<string, McpOAuthProvider>()
 
+  // In-flight OAuth sign-in per server. `mcp.authorize()` blocks main-side for
+  // the whole browser+loopback round-trip (up to the loopback timeout), and the
+  // renderer can't observe the interim 'authorizing' status, so a user can click
+  // "Sign in" again while the first flow is still running. A second concurrent
+  // auth() on the shared provider would overwrite the first's PKCE code verifier
+  // (oauthProvider codeVerifierMem is a single slot) and open a second browser
+  // tab, breaking the first token exchange. We dedupe here: a second sign-in for
+  // the same server returns the in-flight promise instead of starting a new flow.
+  private inFlightAuth = new Map<string, Promise<McpServerStatus>>()
+
   private oauthProviderFor(name: string): McpOAuthProvider {
     let p = this.oauthProviders.get(name)
     if (!p) {
@@ -220,10 +230,31 @@ class McpManager {
       this.lastStatus.set(name, status)
       return status
     }
+    // Coalesce a concurrent sign-in for the same server onto the running flow
+    // (see inFlightAuth): a double-click on "Sign in", or an enable()-triggered
+    // 401 racing a manual authorize(), must not spawn a second auth() that
+    // clobbers the shared PKCE verifier or opens a second browser tab.
+    const inFlight = this.inFlightAuth.get(name)
+    if (inFlight) return inFlight
+    const flow = this.runSignIn(name, resolved, resolved.url, provider)
+    this.inFlightAuth.set(name, flow)
+    try {
+      return await flow
+    } finally {
+      this.inFlightAuth.delete(name)
+    }
+  }
+
+  private async runSignIn(
+    name: string,
+    resolved: McpServerConfig,
+    url: string,
+    provider: McpOAuthProvider
+  ): Promise<McpServerStatus> {
     const authorizing: McpServerStatus = { state: 'authorizing' }
     this.lastStatus.set(name, authorizing)
     try {
-      await this.runOAuthFlow(resolved.url, provider)
+      await this.runOAuthFlow(url, provider)
       // Tokens are now vaulted; reconnect with the provider so the transport
       // presents them.
       return await this.connect(name, resolved, provider)
@@ -369,6 +400,7 @@ class McpManager {
     }
     for (const provider of this.oauthProviders.values()) provider.dispose()
     this.oauthProviders.clear()
+    this.inFlightAuth.clear()
     this.servers.clear()
     this.lastStatus.clear()
     this.stash.clear()

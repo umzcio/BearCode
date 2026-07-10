@@ -36,6 +36,34 @@ vi.mock('@langchain/mcp-adapters', () => ({
   MultiServerMCPClient: MultiServerMCPClientMock
 }))
 
+// Mock the SDK OAuth driver + the vault-backed provider so the sign-in path is
+// exercised without electron/vault/loopback/browser. `auth` is the two-step SDK
+// continuation; the provider is a plain stub (tokens() → undefined so enable()
+// keeps its unauthenticated-first-attempt behavior for the non-OAuth tests).
+const authMock = vi.fn()
+vi.mock('@modelcontextprotocol/sdk/client/auth.js', () => ({
+  auth: (...a: unknown[]) => authMock(...(a as []))
+}))
+const providerStub = {
+  redirectUrl: undefined,
+  clientMetadata: {},
+  clientInformation: () => undefined,
+  saveClientInformation: vi.fn(),
+  tokens: vi.fn(() => undefined),
+  saveTokens: vi.fn(),
+  saveCodeVerifier: vi.fn(),
+  codeVerifier: () => 'verifier',
+  redirectToAuthorization: vi.fn(),
+  takeAuthorizationCode: vi.fn(() => 'auth-code'),
+  invalidateCredentials: vi.fn(),
+  prepare: vi.fn().mockResolvedValue(undefined),
+  dispose: vi.fn()
+}
+const makeProviderMock = vi.fn(() => providerStub)
+vi.mock('./oauthProvider', () => ({
+  makeMcpOAuthProvider: (...a: unknown[]) => makeProviderMock(...(a as []))
+}))
+
 // Import after the mocks so the manager module picks up the mocked deps.
 const { mcpManager } = await import('./manager')
 const { loadServers } = await import('./store')
@@ -152,6 +180,41 @@ describe('mcpManager', () => {
     expect(mcpManager.peekStashedResult('call-1')).toBe('payload')
     expect(mcpManager.takeStashedResult('call-1')).toBe('payload')
     expect(mcpManager.takeStashedResult('call-1')).toBeUndefined()
+  })
+
+  it('authorize() coalesces a concurrent double-click onto ONE OAuth flow', async () => {
+    // The first auth() call blocks until we release it, so the flow stays
+    // in-flight while a second authorize() arrives (the double-click the review
+    // flagged). Without the inFlightAuth guard this second call would start a
+    // second auth() on the shared provider, clobbering the PKCE verifier and
+    // opening a second browser tab.
+    let releaseAuth!: (v: string) => void
+    const authGate = new Promise<string>((r) => {
+      releaseAuth = r
+    })
+    authMock.mockReset()
+    authMock.mockReturnValueOnce(authGate)
+    providerStub.prepare.mockClear()
+    providerStub.dispose.mockClear()
+    getToolsMock.mockResolvedValue([{ name: 'g', description: 'd', invoke: vi.fn() }])
+
+    const p1 = mcpManager.authorize('test-server', null)
+    const p2 = mcpManager.authorize('test-server', null)
+
+    // Let both calls run up to the auth() await.
+    await new Promise((r) => setTimeout(r, 0))
+    expect(authMock).toHaveBeenCalledTimes(1)
+    expect(providerStub.prepare).toHaveBeenCalledTimes(1)
+
+    // A still-valid saved token short-circuits: auth() → AUTHORIZED, no exchange.
+    releaseAuth('AUTHORIZED')
+    const [s1, s2] = await Promise.all([p1, p2])
+
+    expect(s1.state).toBe('connected')
+    // Both callers observed the SAME resolved status (same in-flight promise);
+    // still only one flow ran.
+    expect(s2).toBe(s1)
+    expect(authMock).toHaveBeenCalledTimes(1)
   })
 
   it('teardown() closes clients and clears caches', async () => {
