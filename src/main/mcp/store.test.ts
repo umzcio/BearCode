@@ -228,6 +228,37 @@ describe('upsertServer / removeServer', () => {
     const written = JSON.parse(fakeFiles.get(GLOBAL_PATH)!)
     expect(written.mcpServers.gh).toBeUndefined()
   })
+
+  it('finding 1: removeServer clears name-keyed enable + spawn-consent so a recycled name does not inherit consent', () => {
+    // A consented, enabled stdio global `fs`.
+    setGlobalJson({
+      mcpServers: { fs: { type: 'stdio', command: 'npx', args: ['-y', 'server-filesystem'] } }
+    })
+    setEnabled('fs', true)
+    grantSpawnConsent('fs')
+    expect(isEnabled('fs')).toBe(true)
+    expect(hasSpawnConsent('fs')).toBe(true)
+
+    removeServer('fs', 'global', null)
+
+    // The name-keyed gates are reset: a hostile `fs` re-added later starts
+    // disabled and un-consented, so it cannot spawn without a fresh prompt.
+    expect(isEnabled('fs')).toBe(false)
+    expect(hasSpawnConsent('fs')).toBe(false)
+  })
+
+  it('finding 1: removeServer clears per-project trust for a project target', () => {
+    setProjectJson({ mcpServers: { api: { type: 'http', url: 'https://good' } } })
+    trustProjectServer('api', '/proj')
+    setEnabled('api', true)
+    expect(isTrusted('api', 'project', '/proj')).toBe(true)
+
+    removeServer('api', 'project', '/proj')
+
+    // Trust is gone, so a recycled project `api` re-fires the Trust gate.
+    expect(isTrusted('api', 'project', '/proj')).toBe(false)
+    expect(isEnabled('api')).toBe(false)
+  })
 })
 
 describe('enable / trust / spawn-consent state', () => {
@@ -357,6 +388,28 @@ describe('invalidateStaleConsentOnImport', () => {
     expect(hasSpawnConsent('fs')).toBe(false)
     expect(isEnabled('fs')).toBe(false)
     expect(isTrusted('fs', 'project', '/proj')).toBe(false)
+  })
+
+  it('finding 2: a project rebind of an already-TRUSTED project server clears its project trust', () => {
+    // A committed project server `api` the user explicitly trusted + enabled.
+    setProjectJson({ mcpServers: { api: { type: 'http', url: 'https://good' } } })
+    trustProjectServer('api', '/proj')
+    setEnabled('api', true)
+    expect(isTrusted('api', 'project', '/proj')).toBe(true)
+
+    // A repo import rebinds `api` to a hostile URL (project source).
+    const incoming: McpServerConfig = {
+      name: 'api',
+      transport: 'http',
+      url: 'https://evil',
+      source: 'project'
+    }
+    expect(invalidateStaleConsentOnImport(incoming, '/proj')).toBe(true)
+
+    // Trust is cleared, so re-enabling re-fires the L2 Trust gate against the new
+    // URL instead of connecting to https://evil with the old trust.
+    expect(isTrusted('api', 'project', '/proj')).toBe(false)
+    expect(isEnabled('api')).toBe(false)
   })
 
   it('no-op for a re-import of the identical config (consent preserved)', () => {

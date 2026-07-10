@@ -24,6 +24,41 @@ describe('ToolStep mcp__ step cards', () => {
     expect(screen.getByText(/No, deny it/)).toBeTruthy()
   })
 
+  it('a pending mcp__ card renders the call arguments so consent is not blind', () => {
+    // Whole-branch review finding 3: the Ask card must show the args, not just
+    // the tool name -- otherwise a fs · write_file to /etc/hosts is approved
+    // without seeing the destructive target/content.
+    const call: Event = {
+      type: 'tool_call',
+      id: 'mc-args',
+      tool: 'mcp__fs__write_file' as ToolName,
+      input: { path: '/etc/hosts', content: '127.0.0.1 evil.example' },
+      approvalState: 'pending'
+    }
+
+    render(<ToolStep call={call as never} convoId="convo1" />)
+
+    // Both the sensitive path and content are visible in the card.
+    expect(screen.getByText(/\/etc\/hosts/)).toBeTruthy()
+    expect(screen.getByText(/evil\.example/)).toBeTruthy()
+  })
+
+  it('a pending mcp__ card with no arguments omits the args block', () => {
+    const call: Event = {
+      type: 'tool_call',
+      id: 'mc-noargs',
+      tool: 'mcp__github__list_repos' as ToolName,
+      input: {},
+      approvalState: 'pending'
+    }
+
+    render(<ToolStep call={call as never} convoId="convo1" />)
+
+    // The tool name still renders; no empty {} args block is shown.
+    expect(screen.getAllByText(/list_repos/).length).toBeGreaterThan(0)
+    expect(screen.queryByText('{}')).toBeNull()
+  })
+
   it('a resolved mcp__ call renders an expandable step with the result body', () => {
     const call: Event = {
       type: 'tool_call',

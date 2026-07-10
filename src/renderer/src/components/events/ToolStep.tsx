@@ -38,6 +38,20 @@ function mcpParts(tool: string): { server: string; toolName: string } | null {
   return { server: rest.slice(0, sep), toolName: rest.slice(sep + 2) }
 }
 
+// Pretty-print an MCP tool call's arguments for the approval card so consent is
+// never granted blind (finding 3). Empty/absent args render as null (the card
+// then shows just the tool name); a non-serializable value falls back to String
+// so rendering can never throw.
+function mcpArgsText(input: unknown): string | null {
+  if (input == null) return null
+  if (typeof input === 'object' && Object.keys(input as object).length === 0) return null
+  try {
+    return JSON.stringify(input, null, 2)
+  } catch {
+    return String(input)
+  }
+}
+
 function summaryFor(
   call: ToolCallEvent,
   result: ToolResultEvent | undefined,
@@ -399,7 +413,13 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
     const toolName = parts?.toolName ?? call.tool
     if (call.approvalState === 'pending') {
       return (
-        <PendingMcpAction callId={call.id} server={server} toolName={toolName} convoId={convoId} />
+        <PendingMcpAction
+          callId={call.id}
+          server={server}
+          toolName={toolName}
+          input={call.input}
+          convoId={convoId}
+        />
       )
     }
     if (call.approvalState === 'denied') {
@@ -740,11 +760,13 @@ function PendingMcpAction({
   callId,
   server,
   toolName,
+  input,
   convoId
 }: {
   callId: string
   server: string
   toolName: string
+  input: unknown
   convoId: string
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
@@ -753,6 +775,12 @@ function PendingMcpAction({
   const isFirstPending = useIsFirstPendingCard(convoId, callId)
   const [showAllow, setShowAllow] = useState(false)
   const label = `${server} · ${toolName}`
+  // Render the call ARGUMENTS, not just the tool name: an "Ask" consent granted
+  // without seeing the target/content is granted blind (e.g. fs · write_file to
+  // /etc/hosts, or github · create_issue on attacker/x). run_command shows the
+  // full command and edit_file shows the path; the MCP card must show its args
+  // too or the uniform-gate Ask is defeated (G3 whole-branch review, finding 3).
+  const argsText = mcpArgsText(input)
 
   const allowOnce = (): void => approveTool(callId, true)
   const deny = (): void => approveTool(callId, false)
@@ -783,6 +811,7 @@ function PendingMcpAction({
       <div className="approval-card pulse-once">
         <div className="approval-title">Allow this MCP tool call?</div>
         <div className="approval-cmd">{label}</div>
+        {argsText ? <pre className="approval-args">{argsText}</pre> : null}
         <button className="approval-opt" onClick={allowOnce}>
           {isFirstPending ? <span className="opt-num">1</span> : null}
           Yes, allow this time

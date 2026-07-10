@@ -243,6 +243,25 @@ export function removeServer(
   source: 'global' | 'project',
   projectPath: string | null
 ): void {
+  // Clear the name-keyed enable / spawn-consent / trust state FIRST, before any
+  // early return: trust/consent are keyed on the bare name, so if this state
+  // survives removal a later server that RECYCLES the name (manual re-add,
+  // Smithery install, import) silently inherits the full consent granted to the
+  // old config -- the "consent-for-one-command-runs-another" class G3 closes for
+  // the import path via invalidateStaleConsentOnImport, but the other re-add
+  // paths never run that guard. Resetting on removal closes them all at the
+  // source (G3 whole-branch review, finding 1). setEnabled/revokeSpawnConsent
+  // no-op cleanly when nothing is set.
+  setEnabled(name, false)
+  revokeSpawnConsent(name)
+  if (source === 'project') {
+    if (projectPath) untrustProjectServer(name, projectPath)
+  } else {
+    // A previously Smithery-installed (pending-trust) global leaves a stale
+    // untrusted marker; drop it so a fresh re-add starts from the normal global
+    // default rather than a phantom untrusted state for a server that's gone.
+    trustGlobalServer(name)
+  }
   const path = pathForSource({ source }, projectPath)
   if (!existsSync(path)) return
   const servers = readServerMap(path)
@@ -297,6 +316,18 @@ export function trustProjectServer(name: string, projectPath: string): void {
   const trustedMap = getSettings().mcpTrustedProjectServers ?? {}
   const current = trustedMap[projectPath] ?? []
   const next = { ...trustedMap, [projectPath]: Array.from(new Set([...current, name])) }
+  setSettings({ mcpTrustedProjectServers: next })
+}
+
+// Removes a project server's per-project trust opt-in, so its L2 Trust gate
+// re-fires. Called when a project-target name is removed or rebound to a
+// different exec identity (import), so a recycled/retargeted name can't inherit
+// the trust the user granted the OLD config (G3 whole-branch review, findings 1 & 2).
+export function untrustProjectServer(name: string, projectPath: string): void {
+  const trustedMap = getSettings().mcpTrustedProjectServers ?? {}
+  const current = trustedMap[projectPath]
+  if (!current || !current.includes(name)) return
+  const next = { ...trustedMap, [projectPath]: current.filter((n) => n !== name) }
   setSettings({ mcpTrustedProjectServers: next })
 }
 
@@ -367,6 +398,16 @@ export function invalidateStaleConsentOnImport(
   if (execIdentity(existing) === execIdentity(cfg)) return false
   setEnabled(cfg.name, false)
   revokeSpawnConsent(cfg.name)
-  if (cfg.source === 'global') markGlobalServerUntrusted(cfg.name)
+  if (cfg.source === 'global') {
+    markGlobalServerUntrusted(cfg.name)
+  } else if (projectPath) {
+    // A project target may have been explicitly TRUSTED for this project before
+    // the rebind (the old comment wrongly assumed project targets always start
+    // untrusted). If we don't clear it, re-enabling connects to the NEW url/
+    // command with the OLD trust -- e.g. shipping ${VAULT:}-resolved headers to a
+    // rebound https://evil with no re-trust prompt (G3 whole-branch review,
+    // finding 2). Untrust so the L2 Trust gate re-fires against the new identity.
+    untrustProjectServer(cfg.name, projectPath)
+  }
   return true
 }
