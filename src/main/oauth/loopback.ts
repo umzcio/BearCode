@@ -7,7 +7,13 @@ export interface LoopbackCapture {
   close(): void
 }
 
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
+// 10 minutes: a first-run consent can be slow when the provider makes the
+// user create an account mid-flow (observed live with Gmail-via-Composio). A
+// 5-minute default fired mid-consent and closed the loopback before the
+// redirect landed (ERR_CONNECTION_REFUSED). ~10 min also matches typical IdP
+// authorization-code lifetimes, past which a longer wait is moot (the code
+// expires first).
+export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
 
 /**
  * Starts an ephemeral HTTP server bound to 127.0.0.1 (OS-assigned port) that

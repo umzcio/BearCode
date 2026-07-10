@@ -1,7 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import { startLoopbackCapture } from './loopback'
+import { startLoopbackCapture, DEFAULT_TIMEOUT_MS } from './loopback'
 
 describe('startLoopbackCapture', () => {
+  it('waits long enough for a real-world first-run consent (incl. provider account signup)', () => {
+    // Regression: a live Gmail-via-Composio smoke failed with
+    // ERR_CONNECTION_REFUSED because the 5-minute default fired mid-consent
+    // (first-time provider account creation + multi-screen Google grant),
+    // closing the loopback before the redirect arrived. Keep the default at
+    // least 10 minutes — roughly the IdP authorization-code lifetime, beyond
+    // which a longer wait buys nothing (the code expires first).
+    expect(DEFAULT_TIMEOUT_MS).toBeGreaterThanOrEqual(10 * 60 * 1000)
+  })
+
   it('captures the callback query params on the redirect_uri', async () => {
     const capture = await startLoopbackCapture()
     expect(capture.redirectUri).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/)
