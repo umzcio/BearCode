@@ -75,6 +75,8 @@ import {
 } from './integrations/store'
 import { githubDeviceStart, githubDevicePoll, githubConnectPat } from './integrations/github'
 import { bitbucketConnect } from './integrations/bitbucket'
+import { gitAuthEnv } from './integrations/gitCredentials'
+import { setGitCredentialResolver } from './worktree/git'
 import { jailPath } from './orchestrator/fsBackend'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
@@ -127,6 +129,14 @@ export async function bootResumeInterruptedRuns(): Promise<void> {
 }
 
 export function registerIpc(): void {
+  // Wire git-over-HTTPS credential injection into the worktree/git runner: any
+  // network git subcommand (clone/fetch/pull/push) against github.com/
+  // bitbucket.org now authenticates with the connected integration's vaulted
+  // token via a per-invocation GIT_ASKPASS helper. gitAuthEnv returns `{}` for
+  // unconnected/unknown hosts, so local ops are unaffected. Registered once at
+  // main startup (mirrors the browserManager/mcpManager provider-wiring seam).
+  setGitCredentialResolver(gitAuthEnv)
+
   ipcMain.handle('bearcode:ping', (): PingResult => {
     return {
       message: 'pong',
