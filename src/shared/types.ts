@@ -177,6 +177,10 @@ export type ToolName =
   | 'browser_click'
   | 'browser_type'
   | 'browser_evaluate'
+  | 'github_list_repos'
+  | 'github_list_prs'
+  | 'github_get_issue'
+  | 'github_create_pr'
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 

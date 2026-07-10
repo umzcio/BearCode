@@ -82,6 +82,7 @@ import {
   buildTools,
   buildBrowserTools,
   buildMcpTools,
+  buildIntegrationTools,
   clearAllPlanReviewPending,
   clearDeniedReplayPins,
   clearPlanReviewPending,
@@ -564,6 +565,22 @@ export function interruptBelongsToToolCall(
     if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
     return false
   }
+  if (value?.kind === 'integration') {
+    // Mirror the mcp/browser branches: an integration approval pairs ONLY to a
+    // github_*/bitbucket_* call, and live that call always carries a toolCallId
+    // (tools.ts buildIntegrationTools). Reject any non-integration candidate so
+    // a dangling run_command in the crash-resume scan can never be CLAIMED by
+    // an integration payload on the id-less fallback path; pair by toolCallId
+    // when present, never a fallback.
+    if (
+      typeof tc.name !== 'string' ||
+      !(tc.name.startsWith('github_') || tc.name.startsWith('bitbucket_'))
+    ) {
+      return false
+    }
+    if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
+    return false
+  }
   return true
 }
 
@@ -713,6 +730,23 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
     ) as ToolName
     return { tool, input: value.input ?? {}, toolCallId }
   }
+  if (value?.kind === 'integration') {
+    // Re-surface a parked integration approval as its REAL github_*/bitbucket_*
+    // card, never the empty run_command fallback below. The interrupt payload
+    // carries the true tool name + call input (tools.ts buildIntegrationTools),
+    // so the rehydrated card shows exactly the tool that will execute on
+    // approval, and deniedReplayPinsOf reconstructs the identical integration
+    // action key the replayed tool consults. A malformed payload whose tool is
+    // not an integration name degrades to a sentinel rather than escaping into
+    // another tool's card.
+    const tool = (
+      typeof value.tool === 'string' &&
+      (value.tool.startsWith('github_') || value.tool.startsWith('bitbucket_'))
+        ? value.tool
+        : 'github_list_repos'
+    ) as ToolName
+    return { tool, input: value.input ?? {}, toolCallId }
+  }
   if (value?.kind === 'plan_review') {
     // The card is built from the payload alone: title for the copy, artifactId
     // so the renderer can pair the card with the pane's plan viewer (and the
@@ -801,6 +835,8 @@ export function pairedApprovalInput(interruptValue: unknown, args: unknown): unk
   // MCP cards carry the streamed tool args verbatim — the args ARE the faithful
   // input (no jail-resolved path to reconcile, like browser), so pass through.
   if (value?.kind === 'mcp') return args
+  // Integration cards likewise carry the streamed tool args verbatim.
+  if (value?.kind === 'integration') return args
   // edit_file and read_file (F8) share the resolved-path enrichment so the
   // paired live card also shows the TRUE target instead of the raw agent string
   // (a symlink inside the workspace can make an outside read look in-project).
@@ -917,6 +953,7 @@ export function deniedReplayPinsOf(items: ReadonlyMap<string, ApprovalItem>): Ar
   editPath?: string
   browserAction?: string
   mcpAction?: string
+  integrationAction?: string
 }> {
   const pins: Array<{
     toolCallId?: string
@@ -924,6 +961,7 @@ export function deniedReplayPinsOf(items: ReadonlyMap<string, ApprovalItem>): Ar
     editPath?: string
     browserAction?: string
     mcpAction?: string
+    integrationAction?: string
   }> = []
   for (const item of items.values()) {
     // NO pin analog for plan_review (decided): pins exist solely so a Denied
@@ -961,6 +999,18 @@ export function deniedReplayPinsOf(items: ReadonlyMap<string, ApprovalItem>): Ar
       const server = sep === -1 ? rest : rest.slice(0, sep)
       const toolName = sep === -1 ? '' : rest.slice(sep + 2)
       pins.push({ toolCallId: item.toolCallId, mcpAction: `${server}.${toolName}` })
+    } else if (item.tool.startsWith('github_') || item.tool.startsWith('bitbucket_')) {
+      // Integration tool cards pin under their canonical action label
+      // (provider.tool) so tools.ts takeDeniedIntegrationReplayPin keys its
+      // id-less fallback on the SAME string the replayed tool re-derives
+      // (`${provider}.${tool}`, i.e. the tool name with its first '_' as '.').
+      // Without this a denied integration call whose decision later flips to
+      // 'allow' (mode→auto, a matching allow rule added) would replay past
+      // interrupt() and EXECUTE — the exact hole run_command's / mcp's pin
+      // closes. byToolCallId still covers id-carrying providers.
+      const sep = item.tool.indexOf('_')
+      const integrationAction = `${item.tool.slice(0, sep)}.${item.tool.slice(sep + 1)}`
+      pins.push({ toolCallId: item.toolCallId, integrationAction })
     } else if (item.tool === 'write_file' || item.tool === 'edit_file') {
       const input = item.input as
         { file_path?: unknown; requested_path?: unknown; path?: unknown } | null | undefined
@@ -2189,6 +2239,11 @@ function buildAgentAndContext(
   // has cached tools, so this append is unconditional like browserTools; every
   // call still passes the per-tool permission gate inside the tool body.
   const mcpTools = buildMcpTools(conversationId)
+  // Integration tools (github_*) are exposed on the MAIN agent only, exactly
+  // like MCP tools. buildIntegrationTools returns [] unless GitHub is
+  // connected, so this append is unconditional like mcpTools; every call still
+  // passes the per-tool 'integration' permission gate inside the tool body.
+  const integrationTools = buildIntegrationTools(conversationId)
   const agent = createDeepAgent({
     model,
     middleware: summarizationMiddleware,
@@ -2223,7 +2278,10 @@ function buildAgentAndContext(
       // buildMcpTools' per-tool tool() carries a distinct zod-inferred generic,
       // so its shared array is widened to unknown[] at the source; the elements
       // are StructuredTools like browserTools, so re-narrow to that shape here.
-      ...(mcpTools as typeof browserTools)
+      ...(mcpTools as typeof browserTools),
+      // Integration tools share the same unknown[]→StructuredTool widening as
+      // MCP (distinct zod-inferred generics collapsed at the source).
+      ...(integrationTools as typeof browserTools)
     ]
   })
   const ctx: DriveContext = {
@@ -2382,7 +2440,10 @@ export function isRehydratableInterrupt(value: unknown): boolean {
     kind === 'edit_file' ||
     kind === 'plan_review' ||
     kind === 'browser' ||
-    kind === 'mcp'
+    kind === 'mcp' ||
+    // Integration approvals (github_*) resume with the identical {approved}
+    // shape as MCP/browser, so they are equally crash-resumable.
+    kind === 'integration'
   )
 }
 

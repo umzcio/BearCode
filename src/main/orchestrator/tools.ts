@@ -30,6 +30,7 @@ import {
   evaluateCommandForConversation,
   evaluateEditForConversation,
   evaluateMcpForConversation,
+  evaluateIntegrationForConversation,
   resolveConversationMode
 } from '../permissions'
 import { loadAgentsContent } from '../agentsDir'
@@ -52,6 +53,8 @@ import type { DomainPolicy } from '../browser/policy'
 import { mcpManager } from '../mcp/manager'
 import { loadServers, isEnabled as isMcpEnabled, isTrusted as isMcpTrusted } from '../mcp/store'
 import { sanitizeToolSchema } from '../mcp/schemaSanitize'
+import { getIntegration } from '../integrations/store'
+import { githubApi } from '../integrations/github'
 
 const commandSchema = z.object({
   command: z.string().describe('Shell command to run in the workspace folder.'),
@@ -97,6 +100,7 @@ interface DeniedPinSet {
   byEditPath: Map<string, number>
   byBrowserAction: Map<string, number>
   byMcpAction: Map<string, number>
+  byIntegrationAction: Map<string, number>
 }
 const deniedReplayPins = new Map<string, DeniedPinSet>()
 
@@ -108,6 +112,7 @@ export function pinDeniedReplays(
     editPath?: string
     browserAction?: string
     mcpAction?: string
+    integrationAction?: string
   }>
 ): void {
   if (pins.length === 0) return
@@ -116,7 +121,8 @@ export function pinDeniedReplays(
     byCommand: new Map(),
     byEditPath: new Map(),
     byBrowserAction: new Map(),
-    byMcpAction: new Map()
+    byMcpAction: new Map(),
+    byIntegrationAction: new Map()
   }
   for (const pin of pins) {
     if (pin.toolCallId !== undefined) {
@@ -132,6 +138,11 @@ export function pinDeniedReplays(
       )
     } else if (pin.mcpAction !== undefined) {
       set.byMcpAction.set(pin.mcpAction, (set.byMcpAction.get(pin.mcpAction) ?? 0) + 1)
+    } else if (pin.integrationAction !== undefined) {
+      set.byIntegrationAction.set(
+        pin.integrationAction,
+        (set.byIntegrationAction.get(pin.integrationAction) ?? 0) + 1
+      )
     }
   }
   deniedReplayPins.set(conversationId, set)
@@ -236,6 +247,31 @@ export function takeDeniedMcpReplayPin(
   if (n === undefined) return false
   if (n <= 1) set.byMcpAction.delete(action)
   else set.byMcpAction.set(action, n - 1)
+  return true
+}
+
+// The Integrations analog of takeDeniedMcpReplayPin, consulted at the TOP of
+// buildIntegrationTools' per-tool gate body (before the block/prompt decision)
+// so a Denied integration approval card always wins over a decision that has
+// since flipped to 'allow' between park and keyed-resume replay (a matching
+// allow rule added from a sibling card, or a mode change to auto). Same
+// discipline: byToolCallId is exact and take-once; the id-less fallback lives
+// in its OWN namespace (byIntegrationAction) so an integration action string
+// can never cross-claim a command/path/browser/mcp pin. `action` is
+// `${provider}.${tool}` — the same string graph.ts's deniedReplayPinsOf stores
+// the pin under.
+export function takeDeniedIntegrationReplayPin(
+  conversationId: string,
+  toolCallId: string | undefined,
+  action: string
+): boolean {
+  const set = deniedReplayPins.get(conversationId)
+  if (!set) return false
+  if (toolCallId !== undefined) return set.byToolCallId.delete(toolCallId)
+  const n = set.byIntegrationAction.get(action)
+  if (n === undefined) return false
+  if (n <= 1) set.byIntegrationAction.delete(action)
+  else set.byIntegrationAction.set(action, n - 1)
   return true
 }
 
@@ -1123,5 +1159,246 @@ export function buildMcpTools(conversationId: string) {
       )
     }
   }
+  return tools
+}
+
+// ── Integrations API tools (design §5, Task 9) ──────────────────────────────
+// GitHub repo/PR/issue tools surfaced as flat `github_*` tools on the main
+// agent (mirrors buildMcpTools' shape and gate). Absent entirely unless GitHub
+// is connected (getIntegration('github').connected). Each call passes the
+// 'integration' permission gate (evaluateIntegrationForConversation, Ask by
+// default): list/get tools are tagged read-only so plan mode permits them,
+// while mutations (create_pr) are blocked in plan mode. The per-tool gate order
+// mirrors buildMcpTools/gateBrowserAction exactly: the denied-replay pin is
+// consulted FIRST (a recorded Denial wins over a decision that has since
+// flipped to 'allow' on keyed-resume replay), then a live connection recheck
+// (a mid-run disconnect is honored on the very next call), then the rules-
+// engine decision, then — only for 'prompt' — interrupt() pauses the graph for
+// approval. The vaulted token never leaves the main process: githubApi injects
+// it main-side and only the tool's rendered result string returns to the agent.
+const INTEGRATION_DENIED_MESSAGE = 'User denied this integration tool call.'
+
+const githubListReposSchema = z.object({
+  perPage: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe('How many repositories to return (default 30, max 100).')
+})
+const githubListPrsSchema = z.object({
+  owner: z.string().describe('Repository owner (user or org login).'),
+  repo: z.string().describe('Repository name.'),
+  state: z.enum(['open', 'closed', 'all']).optional().describe('PR state filter (default open).')
+})
+const githubGetIssueSchema = z.object({
+  owner: z.string().describe('Repository owner (user or org login).'),
+  repo: z.string().describe('Repository name.'),
+  number: z.number().int().describe('The issue (or PR) number.')
+})
+const githubCreatePrSchema = z.object({
+  owner: z.string().describe('Repository owner (user or org login).'),
+  repo: z.string().describe('Repository name.'),
+  title: z.string().describe('Pull request title.'),
+  head: z.string().describe('The branch containing your changes (e.g. "feature-x").'),
+  base: z.string().describe('The branch you want the changes merged into (e.g. "main").'),
+  body: z.string().optional().describe('Pull request description (markdown).')
+})
+
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- Zod-inferred tool() return type
+export function buildIntegrationTools(conversationId: string) {
+  const tools: unknown[] = []
+  // Presence gate: no github_* tool exists unless GitHub is connected. The
+  // model never sees a tool it cannot use, and a disconnected provider can
+  // never be reached through the API helper.
+  if (getIntegration('github').connected !== true) return tools
+  const projectPath = projectOf(conversationId)
+
+  // One gated github_* tool. `toolName` is the bare action ('list_repos') used
+  // for the permission match + the canonical action label; `github_<toolName>`
+  // is the provider tool name the model calls. `run` performs the actual API
+  // call once the gate allows it.
+  const makeGithubTool = (
+    toolName: string,
+    readOnly: boolean,
+    description: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    schema: any,
+    run: (args: Record<string, unknown>) => Promise<string>
+    // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+  ) => {
+    const fullName = `github_${toolName}`
+    const action = `github.${toolName}`
+    return tool(
+      async (args: Record<string, unknown>, config?: unknown): Promise<string> => {
+        const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
+        // Denied-replay pin FIRST (mirrors buildMcpTools): a card the user
+        // denied must stay denied on keyed-resume replay even if the decision
+        // has since flipped to 'allow'.
+        if (takeDeniedIntegrationReplayPin(conversationId, toolCallId, action)) {
+          return INTEGRATION_DENIED_MESSAGE
+        }
+        // Live recheck: the user can disconnect GitHub mid-run. The tool list
+        // is built once, so re-read the connection here and refuse if it is
+        // gone — never reach the API with a stale/absent token.
+        if (getIntegration('github').connected !== true) {
+          return `Blocked: ${action} — GitHub is no longer connected for this conversation.`
+        }
+        const decision = evaluateIntegrationForConversation(
+          'github',
+          toolName,
+          readOnly,
+          conversationId,
+          projectPath
+        )
+        if (decision === 'block') {
+          return `Blocked: ${action} is not permitted in this mode.`
+        }
+        if (decision === 'prompt') {
+          const approval = interrupt({
+            kind: 'integration',
+            action,
+            tool: fullName,
+            input: args,
+            toolCallId
+          }) as { approved?: boolean } | null | undefined
+          if (!approval?.approved) return INTEGRATION_DENIED_MESSAGE
+        }
+        return run(args)
+      },
+      { name: fullName, description, schema }
+    )
+  }
+
+  tools.push(
+    makeGithubTool(
+      'list_repos',
+      true,
+      'List the GitHub repositories the connected account can access (most recently updated first).',
+      githubListReposSchema,
+      async (args): Promise<string> => {
+        const perPage = typeof args.perPage === 'number' ? args.perPage : 30
+        const res = await githubApi(`/user/repos?per_page=${perPage}&sort=updated`)
+        if (!res.ok) return `GitHub API error (${res.status}) while listing repositories.`
+        const repos = (await res.json()) as Array<{
+          full_name: string
+          private: boolean
+          description: string | null
+          html_url: string
+        }>
+        return JSON.stringify(
+          repos.map((r) => ({
+            full_name: r.full_name,
+            private: r.private,
+            description: r.description,
+            url: r.html_url
+          })),
+          null,
+          2
+        )
+      }
+    )
+  )
+
+  tools.push(
+    makeGithubTool(
+      'list_prs',
+      true,
+      'List pull requests for a GitHub repository.',
+      githubListPrsSchema,
+      async (args): Promise<string> => {
+        const { owner, repo } = args as { owner: string; repo: string }
+        const state = typeof args.state === 'string' ? args.state : 'open'
+        const res = await githubApi(`/repos/${owner}/${repo}/pulls?state=${state}`)
+        if (!res.ok) return `GitHub API error (${res.status}) while listing pull requests.`
+        const prs = (await res.json()) as Array<{
+          number: number
+          title: string
+          state: string
+          html_url: string
+          user?: { login?: string }
+        }>
+        return JSON.stringify(
+          prs.map((p) => ({
+            number: p.number,
+            title: p.title,
+            state: p.state,
+            author: p.user?.login,
+            url: p.html_url
+          })),
+          null,
+          2
+        )
+      }
+    )
+  )
+
+  tools.push(
+    makeGithubTool(
+      'get_issue',
+      true,
+      'Get a single GitHub issue (or pull request) by number.',
+      githubGetIssueSchema,
+      async (args): Promise<string> => {
+        const { owner, repo, number } = args as { owner: string; repo: string; number: number }
+        const res = await githubApi(`/repos/${owner}/${repo}/issues/${number}`)
+        if (!res.ok) return `GitHub API error (${res.status}) while fetching the issue.`
+        const issue = (await res.json()) as {
+          number: number
+          title: string
+          state: string
+          body: string | null
+          html_url: string
+          user?: { login?: string }
+        }
+        return JSON.stringify(
+          {
+            number: issue.number,
+            title: issue.title,
+            state: issue.state,
+            author: issue.user?.login,
+            body: issue.body,
+            url: issue.html_url
+          },
+          null,
+          2
+        )
+      }
+    )
+  )
+
+  tools.push(
+    makeGithubTool(
+      'create_pr',
+      false,
+      'Open a new pull request on a GitHub repository.',
+      githubCreatePrSchema,
+      async (args): Promise<string> => {
+        const { owner, repo, title, head, base } = args as {
+          owner: string
+          repo: string
+          title: string
+          head: string
+          base: string
+        }
+        const body = typeof args.body === 'string' ? args.body : undefined
+        const res = await githubApi(`/repos/${owner}/${repo}/pulls`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, head, base, ...(body !== undefined ? { body } : {}) })
+        })
+        if (!res.ok) {
+          const detail = (await res.json().catch(() => ({}))) as { message?: string }
+          return `GitHub API error (${res.status}) while creating the pull request${
+            detail.message ? `: ${detail.message}` : ''
+          }.`
+        }
+        const pr = (await res.json()) as { number: number; html_url: string }
+        return `Opened pull request #${pr.number}: ${pr.html_url}`
+      }
+    )
+  )
+
   return tools
 }
