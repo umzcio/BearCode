@@ -125,7 +125,7 @@ function ImportLocalPicker({
             </label>
           ))}
           <button
-            className="pill-btn"
+            className="pill-btn primary"
             disabled={selected.size === 0 || importing}
             onClick={doImport}
           >
@@ -331,9 +331,9 @@ export function ConnectorsPage(): JSX.Element | null {
       <div className="set-group-title">Servers</div>
       <div className="set-card">
         {servers === null ? (
-          <div className="set-row-desc">Loading…</div>
+          <div className="connector-empty">Loading…</div>
         ) : servers.length === 0 ? (
-          <div className="domain-empty">No servers yet.</div>
+          <div className="connector-empty">No servers yet.</div>
         ) : (
           servers.map((view) => {
             const name = view.config.name
@@ -416,7 +416,7 @@ export function ConnectorsPage(): JSX.Element | null {
                       </code>
                       Allow it to run?
                     </span>
-                    <button className="pill-btn" onClick={() => confirmSpawn(name)}>
+                    <button className="pill-btn primary" onClick={() => confirmSpawn(name)}>
                       Allow
                     </button>
                     <button className="pill-btn" onClick={() => setPendingConsent(null)}>
@@ -538,7 +538,7 @@ export function ConnectorsPage(): JSX.Element | null {
                 />
               </>
             )}
-            <button className="pill-btn" onClick={submitManualAdd}>
+            <button className="pill-btn primary" onClick={submitManualAdd}>
               Add server
             </button>
           </div>

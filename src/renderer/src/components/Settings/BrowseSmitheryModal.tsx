@@ -179,7 +179,7 @@ export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props
               </div>
             ))}
             <div className="smithery-search-row">
-              <button className="pill-btn" disabled={savingSecrets} onClick={finishSecrets}>
+              <button className="pill-btn primary" disabled={savingSecrets} onClick={finishSecrets}>
                 {savingSecrets ? 'Saving…' : 'Save & finish'}
               </button>
               <button
@@ -212,7 +212,7 @@ export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && runSearch()}
               />
-              <button className="pill-btn" onClick={runSearch}>
+              <button className="pill-btn primary" onClick={runSearch}>
                 Search
               </button>
             </div>
@@ -259,7 +259,7 @@ export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props
                       ) : null}
                     </div>
                     <button
-                      className="pill-btn"
+                      className="pill-btn primary"
                       disabled={installingId === hit.id}
                       onClick={() => install(hit)}
                     >

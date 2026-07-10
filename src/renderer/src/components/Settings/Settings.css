@@ -813,6 +813,35 @@
 }
 
 /* Connectors (MCP) */
+.connector-empty {
+  padding: 16px 16px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+/* The base .pill-btn is transparent + borderless (shows a bg only on hover), so
+   in these form/row contexts it reads as plain text. Give it a real button
+   affordance, matching .domain-add/.pricing-actions/.feedback-body. */
+.connector-add-form .pill-btn,
+.connector-server .pill-btn,
+.connector-consent .pill-btn {
+  border: 1px solid var(--border);
+}
+.connector-add-form .pill-btn.primary,
+.connector-consent .pill-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.connector-add-form .pill-btn.primary:hover,
+.connector-consent .pill-btn.primary:hover {
+  background: var(--accent-strong, var(--accent));
+}
+.connector-add-form .pill-btn:disabled,
+.connector-server .pill-btn:disabled,
+.connector-consent .pill-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .connector-server {
   border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
 }
@@ -916,4 +945,21 @@
 }
 .smithery-oauth-note {
   color: var(--amber, #e0a800);
+}
+/* Same affordance fix as the Connectors form buttons (base .pill-btn is
+   borderless/transparent and reads as plain text). */
+.smithery-panel .pill-btn {
+  border: 1px solid var(--border);
+}
+.smithery-panel .pill-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.smithery-panel .pill-btn.primary:hover {
+  background: var(--accent-strong, var(--accent));
+}
+.smithery-panel .pill-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
