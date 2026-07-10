@@ -11,6 +11,7 @@ import type {
   Event,
   MentionRef,
   ModelRef,
+  DiscoveredMcpServer,
   McpServerConfig,
   McpServerStatus,
   McpServerView,
@@ -223,7 +224,13 @@ const bearcode: BearcodeApi = {
     smitherySearch: (query: string): Promise<SmitheryHit[]> =>
       ipcRenderer.invoke('bearcode:mcp:smithery-search', query),
     smitheryInstall: (id: string, projectPath: string | null): Promise<McpServerView> =>
-      ipcRenderer.invoke('bearcode:mcp:smithery-install', id, projectPath)
+      ipcRenderer.invoke('bearcode:mcp:smithery-install', id, projectPath),
+    discover: (projectPath: string | null): Promise<DiscoveredMcpServer[]> =>
+      ipcRenderer.invoke('bearcode:mcp:discover', projectPath),
+    import: (
+      servers: DiscoveredMcpServer[],
+      projectPath: string | null
+    ): Promise<McpServerView[]> => ipcRenderer.invoke('bearcode:mcp:import', servers, projectPath)
   },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>

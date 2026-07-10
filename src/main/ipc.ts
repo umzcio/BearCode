@@ -7,6 +7,7 @@ import type {
   ArtifactComment,
   CommandEntry,
   ConversationMeta,
+  DiscoveredMcpServer,
   Event,
   HistoryHit,
   ManualRuleInfo,
@@ -35,7 +36,8 @@ import {
   markGlobalServerUntrusted as markGlobalMcpServerUntrusted,
   trustGlobalServer as trustGlobalMcpServer,
   hasSpawnConsent as hasMcpSpawnConsent,
-  grantSpawnConsent as grantMcpSpawnConsent
+  grantSpawnConsent as grantMcpSpawnConsent,
+  discoverLocalServers
 } from './mcp/store'
 import { mcpManager } from './mcp/manager'
 import { smitherySearch, fetchSmitheryConfig } from './mcp/registry'
@@ -823,6 +825,54 @@ export function registerIpc(): void {
     }
     trustGlobalMcpServer(name)
     return mcpManager.statusOf(name)
+  })
+
+  // Task 13: read-only discovery of MCP servers already configured elsewhere
+  // (a project's `.mcp.json`, the Claude Desktop config). Pure read -- never
+  // mutates the source files, degrades to [] on missing/malformed JSON.
+  ipcMain.handle('bearcode:mcp:discover', (_e, projectPath: unknown) => {
+    return discoverLocalServers(asProjectPath(projectPath))
+  })
+  // Imports the user's picked subset of discovered servers through the SAME
+  // store.upsertServer path as manual add / Smithery install -- never a side
+  // path (design §11). Secrets are NEVER auto-copied from a foreign config:
+  // header/env VALUES are dropped (keys kept) so the user must fill each one
+  // in via mcp.setSecret before the server can actually authenticate. Imported
+  // servers land under the SAME trust/consent/enable gates as any other: a
+  // project-mcp-json-origin import is written project-scoped (so it starts
+  // `untrusted` like any committed-project server), a stdio server still
+  // needs spawn consent on first enable, and nothing here touches
+  // mcpEnabledServers.
+  ipcMain.handle('bearcode:mcp:import', (_e, servers: unknown, projectPath: unknown) => {
+    if (!Array.isArray(servers)) {
+      throw new Error(`Invalid discovered servers: ${String(servers)}`)
+    }
+    const proj = asProjectPath(projectPath)
+    const blankValues = (o?: Record<string, string>): Record<string, string> | undefined =>
+      o ? Object.fromEntries(Object.keys(o).map((k) => [k, ''])) : undefined
+    const imported: McpServerView[] = []
+    for (const raw of servers as unknown[]) {
+      if (raw == null || typeof raw !== 'object') continue
+      const d = raw as Partial<DiscoveredMcpServer>
+      if (typeof d.name !== 'string' || d.name.trim().length === 0) continue
+      if (d.transport !== 'http' && d.transport !== 'stdio') continue
+      const name = d.name.trim()
+      const source: 'global' | 'project' =
+        d.origin === 'project-mcp-json' && proj ? 'project' : 'global'
+      const cfg: McpServerConfig = {
+        name,
+        transport: d.transport,
+        source,
+        url: d.url,
+        headers: blankValues(d.headers),
+        command: d.command,
+        args: d.args,
+        env: blankValues(d.env)
+      }
+      upsertMcpServer(cfg, proj)
+      imported.push(mcpServerView(cfg, proj))
+    }
+    return imported
   })
 
   // navigator.clipboard in the sandboxed renderer is blocked by our tight

@@ -9,7 +9,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readSync, statSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
-import type { McpServerConfig, McpTransport } from '../../shared/types'
+import type { DiscoveredMcpServer, McpServerConfig, McpTransport } from '../../shared/types'
 import { getSettings, setSettings } from '../settings'
 import { resolveVaultRefs } from '../keys'
 
@@ -153,6 +153,59 @@ export function loadServers(projectPath: string | null): McpServerConfig[] {
     ? toConfigMap(readServerMap(projectMcpPath(projectPath)), 'project')
     : {}
   return mergeServerMaps(global, project)
+}
+
+// ---- read-only discovery of servers configured elsewhere (Task 13) ----
+
+// Claude Desktop's own config file. Read-only: BearCode never writes here.
+function claudeDesktopConfigPath(): string {
+  return join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+}
+
+// The Claude Code-style project config a repo may already commit. Distinct
+// from BearCode's own `<project>/.agents/mcp.json` (projectMcpPath above) --
+// this is a DIFFERENT file this reads but never writes.
+function projectDotMcpJsonPath(projectPath: string): string {
+  return join(projectPath, '.mcp.json')
+}
+
+function toDiscovered(
+  name: string,
+  entry: RawServerEntry,
+  origin: DiscoveredMcpServer['origin']
+): DiscoveredMcpServer {
+  return {
+    name,
+    origin,
+    transport: classifyTransport(entry),
+    url: entry.url,
+    headers: entry.headers,
+    command: entry.command,
+    args: entry.args,
+    env: entry.env
+  }
+}
+
+// Read-only discovery of MCP servers already configured by other tools: a
+// project's committed `.mcp.json` (Claude Code-style) and the Claude Desktop
+// config. Uses the same hardened readServerMap (readFileCapped + JSON.parse
+// try/catch) as the rest of this module, so a missing or malformed file
+// degrades to [] and NEVER throws or mutates the source file (design §8 G3).
+// Deduped by name: a project's `.mcp.json` wins over Claude Desktop's config,
+// mirroring the project-over-global precedence used elsewhere in this file.
+export function discoverLocalServers(projectPath: string | null): DiscoveredMcpServer[] {
+  const byName = new Map<string, DiscoveredMcpServer>()
+  const desktopRaw = readServerMap(claudeDesktopConfigPath())
+  for (const [name, entry] of Object.entries(desktopRaw)) {
+    byName.set(name, toDiscovered(name, entry, 'claude-desktop'))
+  }
+  if (projectPath) {
+    const projectRaw = readServerMap(projectDotMcpJsonPath(projectPath))
+    for (const [name, entry] of Object.entries(projectRaw)) {
+      byName.set(name, toDiscovered(name, entry, 'project-mcp-json'))
+    }
+  }
+  return Array.from(byName.values())
 }
 
 // Replaces `${VAULT:key}` references in headers/env values with the

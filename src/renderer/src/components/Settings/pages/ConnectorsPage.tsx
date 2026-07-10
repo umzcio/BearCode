@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import type { McpServerView, McpTransport, PermissionRuleEffect, RuleScope } from '@shared/types'
+import type {
+  DiscoveredMcpServer,
+  McpServerView,
+  McpTransport,
+  PermissionRuleEffect,
+  RuleScope
+} from '@shared/types'
 import { useAppStore } from '../../../state/store'
 import { Toggle } from '../../Toggle'
 import { Select } from '../../Select'
@@ -34,10 +40,105 @@ const RULE_OPTIONS: SelectOption<PermissionRuleEffect>[] = [
   { value: 'deny', label: 'Deny' }
 ]
 
-const ADD_OPTIONS: SelectOption<'manual' | 'browse'>[] = [
+const ADD_OPTIONS: SelectOption<'manual' | 'browse' | 'import'>[] = [
   { value: 'manual', label: 'Add manually', description: 'Enter a URL or command yourself' },
-  { value: 'browse', label: 'Browse Smithery', description: 'Search the Smithery registry' }
+  { value: 'browse', label: 'Browse Smithery', description: 'Search the Smithery registry' },
+  {
+    value: 'import',
+    label: 'Import local…',
+    description: 'Pick up servers already configured in Claude Desktop or .mcp.json'
+  }
 ]
+
+const ORIGIN_LABEL: Record<DiscoveredMcpServer['origin'], string> = {
+  'claude-desktop': 'Claude Desktop',
+  'project-mcp-json': 'project .mcp.json'
+}
+
+// Checkbox picker for Task 13 local discovery. A separate component so its
+// own discover-on-open effect and selection state don't leak into the page.
+function ImportLocalPicker({
+  workspacePath,
+  onClose,
+  onImported
+}: {
+  workspacePath: string | null
+  onClose: () => void
+  onImported: () => void
+}): JSX.Element {
+  const [found, setFound] = useState<DiscoveredMcpServer[] | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [importing, setImporting] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    void window.bearcode.mcp.discover(workspacePath).then((servers) => {
+      if (alive) setFound(servers)
+    })
+    return () => {
+      alive = false
+    }
+  }, [workspacePath])
+
+  const toggle = (name: string): void => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
+  const doImport = (): void => {
+    const picked = (found ?? []).filter((s) => selected.has(s.name))
+    if (picked.length === 0) return
+    setImporting(true)
+    void window.bearcode.mcp.import(picked, workspacePath).then(() => {
+      setImporting(false)
+      onImported()
+      onClose()
+    })
+  }
+
+  return (
+    <div className="connector-add-form">
+      {found === null ? (
+        <div className="set-row-desc">Scanning…</div>
+      ) : found.length === 0 ? (
+        <div className="domain-empty">No local MCP servers found.</div>
+      ) : (
+        <>
+          {found.map((s) => (
+            <label key={`${s.origin}:${s.name}`} className="set-row">
+              <input
+                type="checkbox"
+                checked={selected.has(s.name)}
+                onChange={() => toggle(s.name)}
+              />
+              <div className="set-row-text">
+                <div className="set-row-title">{s.name}</div>
+                <div className="set-row-desc">
+                  {ORIGIN_LABEL[s.origin]} · {s.transport === 'stdio' ? 'local' : 'remote'}
+                  {s.transport === 'stdio' ? ` · ${s.command}` : ` · ${s.url}`}
+                </div>
+              </div>
+            </label>
+          ))}
+          <button
+            className="pill-btn"
+            disabled={selected.size === 0 || importing}
+            onClick={doImport}
+          >
+            {importing ? 'Importing…' : `Import selected (${selected.size})`}
+          </button>
+          <div className="set-row-desc">
+            Secrets are not copied -- fill in any header/env values afterward.
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 type ManualDraft = {
   name: string
@@ -91,7 +192,7 @@ export function ConnectorsPage(): JSX.Element | null {
   const [servers, setServers] = useState<McpServerView[] | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [pendingConsent, setPendingConsent] = useState<string | null>(null)
-  const [addMode, setAddMode] = useState<'manual' | 'browse' | null>(null)
+  const [addMode, setAddMode] = useState<'manual' | 'browse' | 'import' | null>(null)
   const [draft, setDraft] = useState<ManualDraft>(EMPTY_DRAFT)
 
   const refresh = (): void => {
@@ -424,6 +525,13 @@ export function ConnectorsPage(): JSX.Element | null {
               Add server
             </button>
           </div>
+        ) : null}
+        {addMode === 'import' ? (
+          <ImportLocalPicker
+            workspacePath={workspacePath}
+            onClose={() => setAddMode(null)}
+            onImported={refresh}
+          />
         ) : null}
       </div>
 

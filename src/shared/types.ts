@@ -249,6 +249,20 @@ export interface McpServerConfig {
   env?: Record<string, string>
   source: 'global' | 'project'
 }
+// A server found via read-only discovery of configs BearCode itself did not
+// write (Task 13 / design §8 G3): a project's `<proj>/.mcp.json` or the
+// Claude Desktop config. Never persisted as-is -- `origin` records where it
+// came from so the picker can label it and import can pick a target scope.
+export interface DiscoveredMcpServer {
+  name: string
+  origin: 'claude-desktop' | 'project-mcp-json'
+  transport: McpTransport
+  url?: string
+  headers?: Record<string, string>
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+}
 export interface McpToolInfo {
   name: string
   description: string
@@ -953,6 +967,12 @@ export interface BearcodeApi {
     setSecret(vaultKey: string, value: string): Promise<void>
     smitherySearch(query: string): Promise<SmitheryHit[]>
     smitheryInstall(id: string, projectPath: string | null): Promise<McpServerView>
+    // Task 13: read-only discovery of MCP servers already configured elsewhere
+    // (a project's `.mcp.json`, the Claude Desktop config) and import of the
+    // user's selection through the SAME store + trust/consent gates as any
+    // other server.
+    discover(projectPath: string | null): Promise<DiscoveredMcpServer[]>
+    import(servers: DiscoveredMcpServer[], projectPath: string | null): Promise<McpServerView[]>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void
