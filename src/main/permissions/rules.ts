@@ -201,3 +201,34 @@ export function evaluateMcp(
   if (matching.some((r) => r.effect === 'ask')) return 'prompt'
   return 'prompt'
 }
+
+// Integration tool matcher (design §5, Task 6). Identical grammar to
+// matchesMcpTool ('provider' / 'provider.*' / 'provider.tool' /
+// 'provider.prefix_*', provider portion always a literal) -- integrations
+// (github/bitbucket) are just another kind of gated external tool surface, so
+// the same anchored-glob rationale applies verbatim. Delegates to
+// matchesMcpTool to avoid duplicating the grammar.
+export function matchesIntegration(pattern: string, provider: string, tool: string): boolean {
+  return matchesMcpTool(pattern, provider, tool)
+}
+
+// Precedence for the 'integration' permission action (design §5, mirrors
+// evaluateMcp exactly): deny always wins; plan mode blocks everything except
+// tools the caller tags read-only (readOnly=true, e.g. github_list_repos);
+// then allow; then ask; default is Ask (no auto-run fallback, same as MCP).
+export function evaluateIntegration(
+  provider: string,
+  tool: string,
+  mode: PermissionMode,
+  rules: PermissionRule[],
+  readOnly: boolean
+): CommandDecision {
+  const matching = rules.filter(
+    (r) => r.action === 'integration' && matchesIntegration(r.match, provider, tool)
+  )
+  if (matching.some((r) => r.effect === 'deny')) return 'block'
+  if (mode === 'plan' && !readOnly) return 'block'
+  if (matching.some((r) => r.effect === 'allow')) return 'run'
+  if (matching.some((r) => r.effect === 'ask')) return 'prompt'
+  return 'prompt'
+}
