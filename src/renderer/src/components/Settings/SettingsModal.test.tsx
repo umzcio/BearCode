@@ -35,6 +35,19 @@ beforeEach(() => {
         Promise.resolve({ installed: false, connected: false, conversationId: null })
       ),
       clearSession: vi.fn(() => Promise.resolve())
+    },
+    mcp: {
+      list: vi.fn(() => Promise.resolve([])),
+      add: vi.fn(() => Promise.resolve()),
+      remove: vi.fn(() => Promise.resolve()),
+      setEnabled: vi.fn(() => Promise.resolve({ state: 'disabled' })),
+      trust: vi.fn(() => Promise.resolve({ state: 'disabled' })),
+      spawnConsent: vi.fn(() => Promise.resolve()),
+      reconnect: vi.fn(() => Promise.resolve({ state: 'disabled' })),
+      status: vi.fn(() => Promise.resolve({ state: 'disabled' })),
+      setSecret: vi.fn(() => Promise.resolve()),
+      smitherySearch: vi.fn(() => Promise.resolve([])),
+      smitheryInstall: vi.fn()
     }
   }
   useAppStore.setState({
@@ -147,8 +160,9 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
 
   it('each remaining Customize tab shows an intentional placeholder', () => {
     render(<SettingsModal />)
-    // Browser is now a real page (F4); the rest of Customize is still WIP.
-    for (const label of ['Skills', 'Connectors', 'Memory', 'Integrations']) {
+    // Browser (F4) and Connectors (Task 9) are now real pages; the rest of
+    // Customize is still WIP.
+    for (const label of ['Skills', 'Memory', 'Integrations']) {
       fireEvent.click(screen.getByText(label))
       expect(document.querySelector('.coming-block')).toBeTruthy()
     }
@@ -159,6 +173,13 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
     fireEvent.click(within(rail()).getByText('Browser'))
     expect(document.querySelector('.coming-block')).toBeNull()
     expect(screen.getByRole('switch', { name: /enable browser/i })).toBeTruthy()
+  })
+
+  it('the Connectors tab renders the real Connectors page (not a placeholder)', () => {
+    render(<SettingsModal />)
+    fireEvent.click(within(rail()).getByText('Connectors'))
+    expect(document.querySelector('.coming-block')).toBeNull()
+    expect(screen.getByRole('switch', { name: /enable connectors/i })).toBeTruthy()
   })
 
   it('never renders the text "coming soon"', () => {

@@ -811,3 +811,51 @@
   font-size: 12.5px;
   line-height: 1.45;
 }
+
+/* Connectors (MCP) */
+.connector-server {
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+.connector-server:first-child {
+  border-top: none;
+}
+.connector-server .set-row {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.connector-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+  vertical-align: middle;
+}
+.connector-badge.local {
+  color: var(--amber, #e0a800);
+}
+.connector-tools {
+  padding: 0 16px 12px;
+}
+.connector-consent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 16px 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--amber-border, rgba(224, 168, 0, 0.35));
+  background: var(--amber-wash, rgba(224, 168, 0, 0.1));
+  font-size: 12.5px;
+}
+.connector-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 14px;
+}

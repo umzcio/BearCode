@@ -21,6 +21,7 @@ import { ProvidersPage } from './pages/ProvidersPage'
 import { ModelsPage } from './pages/ModelsPage'
 import { PermissionsPage } from './pages/PermissionsPage'
 import { BrowserPage } from './pages/BrowserPage'
+import { ConnectorsPage } from './pages/ConnectorsPage'
 import { SettingPlaceholder } from './SettingPlaceholder'
 import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
 import type { SettingsPageId } from './SettingsNav'
@@ -62,11 +63,6 @@ const PLACEHOLDERS: Record<string, { title: string; description: string }> = {
     title: 'Skills',
     description:
       'Teach the agent reusable workflows and domain knowledge — arriving in a future update.'
-  },
-  connectors: {
-    title: 'Connectors',
-    description:
-      'Connect MCP servers and external tools the agent can call — arriving in a future update.'
   },
   memory: {
     title: 'Memory',
@@ -304,6 +300,8 @@ function SettingsPanel({
           {page === 'models' ? <ModelsPage /> : null}
 
           {page === 'browser' ? <BrowserPage /> : null}
+
+          {page === 'connectors' ? <ConnectorsPage /> : null}
 
           {PLACEHOLDERS[page] ? (
             <SettingPlaceholder
