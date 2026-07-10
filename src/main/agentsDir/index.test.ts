@@ -47,6 +47,22 @@ function globalWorkflowsDir(): string {
   return join(homeDir, '.bearcode', 'agents', 'workflows')
 }
 
+function writeSkill(dir: string, name: string, contents: string): string {
+  const skillDir = join(dir, name)
+  mkdirSync(skillDir, { recursive: true })
+  const p = join(skillDir, 'SKILL.md')
+  writeFileSync(p, contents)
+  return p
+}
+
+function projectSkillsDir(): string {
+  return join(projectDir, '.agents', 'skills')
+}
+
+function globalSkillsDirForTest(): string {
+  return join(homeDir, '.bearcode', 'agents', 'skills')
+}
+
 beforeEach(() => {
   projectDir = mkdtempSync(join(tmpdir(), 'bearcode-agentsdir-project-'))
   homeDir = mkdtempSync(join(tmpdir(), 'bearcode-agentsdir-home-'))
@@ -473,6 +489,92 @@ describe('loadAgentsContent workflows', () => {
 
     expect(workflow).toBeDefined()
     expect(workflow?.error).toBeTruthy()
+  })
+})
+
+describe('loadAgentsContent skills', () => {
+  it('loads project skills from .agents/skills/<name>/SKILL.md', () => {
+    writeSkill(projectSkillsDir(), 'alpha', '---\ndescription: Alpha does A.\n---\nbody a')
+
+    const content = loadAgentsContent(projectDir)
+    const alpha = content.skills.find((s) => s.name === 'alpha')
+
+    expect(alpha?.description).toBe('Alpha does A.')
+    expect(alpha?.source).toBe('project')
+  })
+
+  it('project skill overrides a same-named global skill', () => {
+    writeSkill(
+      globalSkillsDirForTest(),
+      'alpha',
+      '---\ndescription: Global alpha.\n---\nglobal body'
+    )
+    writeSkill(projectSkillsDir(), 'alpha', '---\ndescription: Project alpha.\n---\nproject body')
+
+    const content = loadAgentsContent(projectDir)
+    const alphas = content.skills.filter((s) => s.name === 'alpha')
+
+    expect(alphas).toHaveLength(1)
+    expect(alphas[0].source).toBe('project')
+  })
+
+  it('ignores a skill folder with no SKILL.md', () => {
+    mkdirSync(join(projectSkillsDir(), 'empty-dir'), { recursive: true })
+
+    const content = loadAgentsContent(projectDir)
+
+    expect(content.skills.find((s) => s.name === 'empty-dir')).toBeUndefined()
+  })
+
+  it('returns [] skills when no project is open but loads global skills', () => {
+    writeSkill(globalSkillsDirForTest(), 'global-only', '---\ndescription: Global only.\n---\nbody')
+
+    const content = loadAgentsContent(null)
+
+    expect(content.skills.some((s) => s.source === 'global')).toBe(true)
+  })
+
+  it('returns the same Skill object across two loads when nothing changed', () => {
+    writeSkill(projectSkillsDir(), 'stable', '---\ndescription: Stable skill.\n---\nstable body')
+
+    const first = loadAgentsContent(projectDir)
+    const second = loadAgentsContent(projectDir)
+
+    const firstSkill = first.skills.find((s) => s.name === 'stable')
+    const secondSkill = second.skills.find((s) => s.name === 'stable')
+    expect(firstSkill).toBeDefined()
+    expect(firstSkill).toBe(secondSkill)
+  })
+
+  it('re-parses a skill file whose mtime and content changed', () => {
+    const path = writeSkill(
+      projectSkillsDir(),
+      'changing',
+      '---\ndescription: Original.\n---\noriginal body'
+    )
+    const first = loadAgentsContent(projectDir)
+    const firstSkill = first.skills.find((s) => s.name === 'changing')
+
+    writeFileSync(path, '---\ndescription: Updated.\n---\nupdated body')
+    const future = new Date(Date.now() + 5000)
+    utimesSync(path, future, future)
+
+    const second = loadAgentsContent(projectDir)
+    const secondSkill = second.skills.find((s) => s.name === 'changing')
+
+    expect(secondSkill).not.toBe(firstSkill)
+    expect(secondSkill?.body.trim()).toBe('updated body')
+  })
+
+  it('truncates an oversized skill file and records a warning', () => {
+    writeSkill(projectSkillsDir(), 'huge-skill', 'y'.repeat(100 * 1024))
+
+    const content = loadAgentsContent(projectDir)
+    const skill = content.skills.find((s) => s.name === 'huge-skill')
+
+    expect(skill).toBeDefined()
+    expect(skill?.body.length).toBeLessThanOrEqual(64 * 1024)
+    expect(skill?.warnings?.some((w) => /truncated/i.test(w))).toBe(true)
   })
 })
 

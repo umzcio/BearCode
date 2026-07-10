@@ -11,8 +11,9 @@ import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from
 import { homedir } from 'os'
 import { isAbsolute, join, resolve, sep } from 'path'
 import { parseRuleFile } from './parseRule'
+import { parseSkillFolder } from './parseSkill'
 import { parseWorkflowFile } from './parseWorkflow'
-import type { AgentsContent, Rule, Workflow } from './types'
+import type { AgentsContent, Rule, Skill, Workflow } from './types'
 
 const MAX_REF_BYTES = 64 * 1024
 // Rule files themselves get the same cap as cross-refs: a rule is prompt
@@ -22,6 +23,8 @@ const MAX_REF_BYTES = 64 * 1024
 const MAX_RULE_BYTES = MAX_REF_BYTES
 // Workflow files are prompt text too; same cap and same rationale.
 const MAX_WORKFLOW_BYTES = MAX_REF_BYTES
+// SKILL.md is prompt text too; same cap and same rationale.
+const MAX_SKILL_BYTES = MAX_REF_BYTES
 
 // Bounded, stat-gated file read (security review item 1). Two guarantees:
 // 1. Regular files ONLY: stats.isFile() is checked BEFORE any open. This is
@@ -93,6 +96,15 @@ interface WorkflowCacheEntry {
 }
 const workflowCache = new Map<string, WorkflowCacheEntry>()
 
+// Cache of the parsed Skill, keyed the same way as the rule/workflow caches
+// (path + projectPath) for consistency, even though skill parsing never
+// depends on projectPath (no cross-ref resolution, same as workflows).
+interface SkillCacheEntry {
+  mtimeMs: number
+  skill: Skill
+}
+const skillCache = new Map<string, SkillCacheEntry>()
+
 function cacheKey(path: string, projectPath: string | null): string {
   return `${projectPath ?? ''}::${path}`
 }
@@ -103,6 +115,10 @@ function globalRulesDir(): string {
 
 function globalWorkflowsDir(): string {
   return join(homedir(), '.bearcode', 'agents', 'workflows')
+}
+
+function globalSkillsDir(): string {
+  return join(homedir(), '.bearcode', 'agents', 'skills')
 }
 
 // Generalized lister (Task 1: was listRuleFiles, now shared by rules and
@@ -220,6 +236,51 @@ function loadOneWorkflow(
   return workflow
 }
 
+// A skill is a FOLDER containing SKILL.md (agentskills.io, design 4.1) -- not
+// a flat *.md like rules/workflows. Lists <dir>/<skill>/SKILL.md for every
+// subdirectory that actually has a SKILL.md; missing/unreadable dir -> [].
+function listSkillFolders(dir: string): { name: string; path: string }[] {
+  if (!existsSync(dir)) return []
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => ({ name: d.name, path: join(dir, d.name, 'SKILL.md') }))
+      .filter((x) => existsSync(x.path))
+  } catch {
+    return []
+  }
+}
+
+// Load + cache one skill's SKILL.md. Mirrors loadOneWorkflow (no
+// cross-reference resolution). Returns null if the file can no longer be
+// read (race: deleted between readdir and stat/read) -- the caller simply
+// drops it from the result set.
+function loadOneSkill(
+  path: string,
+  name: string,
+  source: 'project' | 'global',
+  projectPath: string | null
+): Skill | null {
+  let mtimeMs: number
+  try {
+    mtimeMs = statSync(path).mtimeMs
+  } catch {
+    return null
+  }
+  const key = cacheKey(path, projectPath)
+  const cached = skillCache.get(key)
+  if (cached && cached.mtimeMs === mtimeMs) return cached.skill
+
+  const read = readFileCapped(path, MAX_SKILL_BYTES)
+  if (!read) return null
+  const parsed = parseSkillFolder(name, read.text, source)
+  const skill: Skill = read.truncated
+    ? { ...parsed, warnings: [`SKILL.md exceeds ${MAX_SKILL_BYTES / 1024}KB and was truncated`] }
+    : parsed
+  skillCache.set(key, { mtimeMs, skill })
+  return skill
+}
+
 // Read `<projectPath>/.agents/rules/*.md` + `.agents/workflows/*.md`
 // (project) and `~/.bearcode/agents/rules/*.md` +
 // `~/.bearcode/agents/workflows/*.md` (global), merge each pair (project
@@ -267,10 +328,27 @@ export function loadAgentsContent(projectPath: string | null): AgentsContent {
     if (workflow) workflowsByName.set(name, workflow)
   }
 
+  const projectSkillsDir = projectPath ? join(projectPath, '.agents', 'skills') : null
+  const projectSkillFolders = projectSkillsDir ? listSkillFolders(projectSkillsDir) : []
+  const globalSkillFolders = listSkillFolders(globalSkillsDir())
+
+  const skillsByName = new Map<string, Skill>()
+
+  for (const f of globalSkillFolders) {
+    const s = loadOneSkill(f.path, f.name, 'global', projectPath)
+    if (s) skillsByName.set(s.name, s)
+  }
+  // Project skills load second and overwrite same-named global entries, so
+  // project always wins on collision.
+  for (const f of projectSkillFolders) {
+    const s = loadOneSkill(f.path, f.name, 'project', projectPath)
+    if (s) skillsByName.set(s.name, s)
+  }
+
   return {
     rules: Array.from(rulesByName.values()),
     workflows: Array.from(workflowsByName.values()),
-    skills: []
+    skills: Array.from(skillsByName.values())
   }
 }
 
