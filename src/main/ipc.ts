@@ -36,6 +36,7 @@ import {
   grantSpawnConsent as grantMcpSpawnConsent
 } from './mcp/store'
 import { mcpManager } from './mcp/manager'
+import { smitherySearch, fetchSmitheryConfig } from './mcp/registry'
 import { addUserRule, deleteUserRule, listRulesInfo, setBuiltinDisabled } from './permissions'
 import { setSettings, settingsInfo } from './settings'
 import { allKnownModelRefs, listAllModels, listManageableModels } from './providers/registry'
@@ -783,17 +784,24 @@ export function registerIpc(): void {
     if (typeof value !== 'string') throw new Error(`Invalid secret value: ${String(value)}`)
     setVaultSecret(vaultKey, value)
   })
-  // Task 11/12 fill in the Smithery registry client + install flow; the
-  // channels are wired now so the preload/BearcodeApi surface is complete.
+  // Task 12: wires the Task 11 registry client (smitherySearch/
+  // fetchSmitheryConfig) into the store. Install writes the fetched config via
+  // upsertMcpServer -- its required-field ${VAULT:} placeholders (registry.ts)
+  // are already vault refs, not plaintext, so they pass scrubMcpSecretsToVault
+  // unchanged; the renderer prompts the user to fill each one via
+  // `mcp.setSecret` after install (see BrowseSmitheryModal).
   ipcMain.handle('bearcode:mcp:smithery-search', (_e, query: unknown) => {
     if (typeof query !== 'string') throw new Error(`Invalid Smithery query: ${String(query)}`)
-    throw new Error('Smithery registry browse is not available yet')
+    return smitherySearch(query)
   })
-  ipcMain.handle('bearcode:mcp:smithery-install', (_e, id: unknown) => {
+  ipcMain.handle('bearcode:mcp:smithery-install', async (_e, id: unknown, projectPath: unknown) => {
     if (typeof id !== 'string' || id.length === 0) {
       throw new Error(`Invalid Smithery server id: ${String(id)}`)
     }
-    throw new Error('Smithery install is not available yet')
+    const proj = asProjectPath(projectPath)
+    const cfg = await fetchSmitheryConfig(id)
+    upsertMcpServer(cfg, proj)
+    return mcpServerView(cfg, proj)
   })
 
   // navigator.clipboard in the sandboxed renderer is blocked by our tight

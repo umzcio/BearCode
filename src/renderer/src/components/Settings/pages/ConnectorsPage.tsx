@@ -5,6 +5,7 @@ import { useAppStore } from '../../../state/store'
 import { Toggle } from '../../Toggle'
 import { Select } from '../../Select'
 import type { SelectOption } from '../../Select'
+import { BrowseSmitheryModal } from '../BrowseSmitheryModal'
 
 // A settings row: title + description on the left, the control on the right.
 function Row({
@@ -411,10 +412,15 @@ export function ConnectorsPage(): JSX.Element | null {
             </button>
           </div>
         ) : null}
-        {addMode === 'browse' ? (
-          <div className="set-row-desc">Smithery browse arrives in a later step.</div>
-        ) : null}
       </div>
+
+      {addMode === 'browse' ? (
+        <BrowseSmitheryModal
+          projectPath={workspacePath}
+          onClose={() => setAddMode(null)}
+          onInstalled={refresh}
+        />
+      ) : null}
     </>
   )
 }

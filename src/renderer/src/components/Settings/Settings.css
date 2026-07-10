@@ -859,3 +859,45 @@
   gap: 8px;
   padding: 0 16px 14px;
 }
+
+/* Task 12: Browse Smithery modal -- reuses .modal-overlay/.set-*/.pill-btn/
+   .connector-badge/.domain-empty from the rest of Connectors. */
+.smithery-panel {
+  width: min(640px, calc(100% - 56px));
+  max-height: min(640px, calc(100% - 56px));
+  background: var(--bg-window);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 18px 20px 20px;
+  gap: 14px;
+}
+.smithery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.smithery-search-row {
+  display: flex;
+  gap: 8px;
+}
+.smithery-search-row .set-input {
+  flex: 1;
+}
+.smithery-results {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.smithery-hit {
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+.smithery-hit:first-child {
+  border-top: none;
+}
+.smithery-oauth-note {
+  color: var(--amber, #e0a800);
+}
