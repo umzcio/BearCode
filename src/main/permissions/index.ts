@@ -3,7 +3,7 @@
 import type { CommandDecision, EditDecision, PermissionMode } from '../../shared/types'
 import { getConversationMeta } from '../db'
 import { getSettings } from '../settings'
-import { evaluateCommand, evaluateEdit } from './rules'
+import { evaluateCommand, evaluateEdit, evaluateMcp } from './rules'
 import { getEffectiveRules } from './store'
 
 export {
@@ -11,6 +11,8 @@ export {
   matchesCommand,
   evaluateEdit,
   matchesEditPath,
+  evaluateMcp,
+  matchesMcpTool,
   BUILTIN_RULES
 } from './rules'
 export {
@@ -71,4 +73,24 @@ export function evaluateEditForConversation(
   const mode = resolveConversationMode(conversationId)
   if (mode === 'bypass') return 'apply'
   return evaluateEdit(relPath, mode, getEffectiveRules(projectPath))
+}
+
+// The MCP tool-call gate's single entry point: rules first (deny/allow/ask),
+// mode as the fallback, with the plan-mode readOnly divergence documented on
+// evaluateMcp. Reads mode + rules live per call.
+//
+// SECURITY (design §6): mirrors the command/edit paths -- mode === 'bypass'
+// returns 'run' BEFORE getEffectiveRules/evaluateMcp are ever called, skipping
+// the entire engine. Every other mode keeps deny-wins. See the loud note on
+// evaluateCommandForConversation above.
+export function evaluateMcpForConversation(
+  server: string,
+  tool: string,
+  serverReadOnly: boolean,
+  conversationId: string,
+  projectPath: string | null
+): CommandDecision {
+  const mode = resolveConversationMode(conversationId)
+  if (mode === 'bypass') return 'run'
+  return evaluateMcp(server, tool, mode, getEffectiveRules(projectPath), serverReadOnly)
 }

@@ -148,3 +148,49 @@ export function evaluateCommand(
   if (matching.some((r) => r.effect === 'ask')) return 'prompt'
   return mode === 'auto' && terminalAutoExec === 'auto' ? 'run' : 'prompt'
 }
+
+// MCP tool matcher. Subject is `${server}.${tool}`; a bare server name (no dot,
+// no '*') matches every tool on that server -- the common "trust this whole
+// connector" case. Otherwise reuses the single-'*' prefix/suffix idiom shared
+// with matchesCommand/matchesSegment.
+export function matchesMcpTool(pattern: string, server: string, tool: string): boolean {
+  const subject = `${server}.${tool}`
+  if (pattern === server) return true // bare server -> any tool
+  const star = pattern.indexOf('*')
+  if (star === -1) return subject === pattern
+  const prefix = pattern.slice(0, star)
+  const suffix = pattern.slice(star + 1)
+  if (suffix === '') return subject.startsWith(prefix) || subject === prefix.replace(/\.$/, '') // 'github.*' etc.
+  return (
+    subject.startsWith(prefix) &&
+    subject.endsWith(suffix) &&
+    subject.length >= prefix.length + suffix.length
+  )
+}
+
+// Precedence for the 'mcp' permission action (design, Task 4):
+//   1. any matching deny  -> block   (deny always wins, security floor)
+//   2. mode === 'plan' && !serverReadOnly -> block (MCP DIVERGES from
+//      command/edit here: a read-only server's tools may proceed to the
+//      normal gate below instead of being hard-blocked)
+//   3. any matching allow -> run
+//   4. any matching ask   -> prompt
+//   5. default            -> prompt (no auto-run fallback for MCP, unlike
+//      command's auto+terminalAutoExec)
+// Deny is checked BEFORE the plan/readOnly carve-out, so a read-only server's
+// allowance can never override a deny -- the security floor holds even in the
+// one mode where MCP behaves differently from command/edit.
+export function evaluateMcp(
+  server: string,
+  tool: string,
+  mode: PermissionMode,
+  rules: PermissionRule[],
+  serverReadOnly: boolean
+): CommandDecision {
+  const matching = rules.filter((r) => r.action === 'mcp' && matchesMcpTool(r.match, server, tool))
+  if (matching.some((r) => r.effect === 'deny')) return 'block'
+  if (mode === 'plan' && !serverReadOnly) return 'block'
+  if (matching.some((r) => r.effect === 'allow')) return 'run'
+  if (matching.some((r) => r.effect === 'ask')) return 'prompt'
+  return 'prompt'
+}
