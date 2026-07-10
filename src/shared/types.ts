@@ -29,7 +29,7 @@ export interface CommandRef {
 // used only as prompt text and (for files) a pure glob-match string — never
 // opened at the IPC boundary (see assertValidMentions).
 export interface MentionRef {
-  kind: 'file' | 'rule' | 'conversation'
+  kind: 'file' | 'rule' | 'conversation' | 'connector'
   name: string
   path?: string
   conversationId?: string
@@ -177,6 +177,12 @@ export type ToolName =
   | 'browser_click'
   | 'browser_type'
   | 'browser_evaluate'
+  | 'github_list_repos'
+  | 'github_list_prs'
+  | 'github_get_issue'
+  | 'github_create_pr'
+  | 'bitbucket_list_repos'
+  | 'bitbucket_create_pr'
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
@@ -196,7 +202,7 @@ export type EffortLevel = 'adaptive' | 'low' | 'medium' | 'high' | 'xhigh' | 'ma
 
 export type PermissionRuleEffect = 'allow' | 'deny' | 'ask'
 
-export type PermissionAction = 'command' | 'edit'
+export type PermissionAction = 'command' | 'edit' | 'mcp' | 'integration'
 
 // A rule is either global or bound to one project's workspace path.
 export type RuleScope = 'global' | { projectPath: string }
@@ -234,6 +240,94 @@ export interface BuiltinRuleInfo {
 export interface PermissionRulesInfo {
   userRules: PermissionRule[]
   builtins: BuiltinRuleInfo[]
+}
+
+// ---- MCP (Connectors) ----
+
+export type McpTransport = 'http' | 'stdio'
+export interface McpServerConfig {
+  name: string
+  transport: McpTransport
+  url?: string
+  headers?: Record<string, string>
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  source: 'global' | 'project'
+}
+// A server found via read-only discovery of configs BearCode itself did not
+// write (Task 13 / design §8 G3): a project's `<proj>/.mcp.json` or the
+// Claude Desktop config. Never persisted as-is -- `origin` records where it
+// came from so the picker can label it and import can pick a target scope.
+export interface DiscoveredMcpServer {
+  name: string
+  origin: 'claude-desktop' | 'project-mcp-json'
+  transport: McpTransport
+  url?: string
+  headers?: Record<string, string>
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+}
+export interface McpToolInfo {
+  name: string
+  description: string
+  readOnlyHint: boolean
+}
+export type McpServerStatus =
+  | { state: 'disabled' }
+  | { state: 'untrusted' }
+  | { state: 'connected'; tools: McpToolInfo[] }
+  // A remote (OAuth) server that hit a 401 and is now mid sign-in: the system
+  // browser is open and the manager is awaiting the loopback redirect. The
+  // Connectors row shows "Signing in…". Clears to 'connected' on success or
+  // 'error' on cancel/timeout/token-exchange failure.
+  | { state: 'authorizing' }
+  | { state: 'error'; message: string }
+export interface McpServerView {
+  config: McpServerConfig
+  enabled: boolean
+  status: McpServerStatus
+  // Whether the user has granted one-time spawn consent for this (stdio)
+  // server, so the renderer can skip re-prompting on every enable toggle.
+  spawnConsented: boolean
+}
+// Smithery registry search hit (Task 11 fills in the client; the shape is
+// pinned here since the IPC/BearcodeApi surface (Task 8) needs it up front).
+export interface SmitheryHit {
+  id: string
+  name: string
+  description: string
+  toolCount?: number
+  transport: McpTransport
+  iconUrl?: string | null
+  useCount?: number
+  verified?: boolean
+}
+
+// Integrations (GitHub/Bitbucket, Task 11): the wire-facing read model for a
+// provider's connection state. Mirrors main/integrations/store.ts's
+// IntegrationState exactly (structurally, not by import -- main's copy owns
+// the source of truth) but lives here since it crosses the IPC boundary.
+// NEVER carries a token: the vaulted token has no getter on this surface at
+// all (design §2/§8, matching the mcp secrets contract).
+export type IntegrationProvider = 'github' | 'bitbucket'
+export interface IntegrationStatus {
+  provider: IntegrationProvider
+  connected: boolean
+  method?: 'device' | 'pat' | 'app-password'
+  login?: string
+  scopes?: string[]
+  connectedAt?: number
+}
+
+// GitHub Device Flow start response (Task 7 githubDeviceStart), surfaced to
+// the Integrations page's connect modal so the user can see + enter the code.
+export interface GithubDeviceStart {
+  userCode: string
+  verificationUri: string
+  deviceCode: string
+  interval: number
 }
 
 // ---- Artifacts (Ba) ----
@@ -680,6 +774,21 @@ export interface AppSettings {
   // to those origins. Optional & additive: absent -> [] (allow-all-but-block).
   browserAllowlist?: string[]
   browserBlocklist?: string[]
+  // Connectors/MCP (G1 core, design 2026-07-09-connectors-mcp-design.md): the
+  // master enable gate + per-server enabled/trust/spawn-consent state.
+  // Optional & additive.
+  mcpEnabled?: boolean
+  mcpEnabledServers?: string[]
+  mcpTrustedProjectServers?: Record<string, string[]>
+  // Global servers are trusted by default (the user added them at the app
+  // level), EXCEPT those installed from the Smithery registry: their url/command
+  // comes from an untrusted registry response, so they are recorded here and
+  // stay untrusted (L2 trust-gated) until the user explicitly trusts them.
+  mcpUntrustedGlobalServers?: string[]
+  mcpSpawnConsented?: string[]
+  // Optional override for the GitHub Device Flow OAuth App client_id (public/
+  // secret-free). Empty → the shipped placeholder; the PAT path needs none.
+  githubClientId?: string
 }
 
 export interface SettingsInfo extends AppSettings {
@@ -880,6 +989,57 @@ export interface BearcodeApi {
     setBounds(b: { x: number; y: number; width: number; height: number }): Promise<void>
     show(): Promise<void>
     hide(): Promise<void>
+  }
+  // Connectors (MCP): global+project config CRUD, enable/trust/spawn-consent
+  // state, live status, secrets (write-only -- there is no getter), and the
+  // Smithery registry browse/install surface (Tasks 11/12 fill in the
+  // underlying implementation; this shape is the full contract).
+  mcp: {
+    list(projectPath: string | null): Promise<McpServerView[]>
+    ensureConnected(projectPath: string | null): Promise<McpServerView[]>
+    add(cfg: McpServerConfig, projectPath: string | null): Promise<void>
+    remove(name: string, source: 'global' | 'project', projectPath: string | null): Promise<void>
+    setEnabled(name: string, on: boolean, projectPath: string | null): Promise<McpServerStatus>
+    trust(name: string, projectPath: string): Promise<McpServerStatus>
+    // Trust a global server that was installed pending trust (a Smithery global
+    // install). Project-scoped trust uses trust() with the project path.
+    trustGlobal(name: string): Promise<McpServerStatus>
+    spawnConsent(name: string): Promise<void>
+    reconnect(name: string, projectPath: string | null): Promise<McpServerStatus>
+    // (Re)trigger the OAuth sign-in for a remote server that needs it: opens
+    // the system browser, captures the loopback redirect, exchanges the code,
+    // vaults the tokens, and reconnects. No token ever crosses this IPC — the
+    // result is only the resulting status. Remote (http) servers only.
+    authorize(name: string, projectPath: string | null): Promise<McpServerStatus>
+    status(name: string): Promise<McpServerStatus>
+    setSecret(vaultKey: string, value: string): Promise<void>
+    smitherySearch(query: string): Promise<SmitheryHit[]>
+    smitheryInstall(id: string, projectPath: string | null): Promise<McpServerView>
+    // Task 13: read-only discovery of MCP servers already configured elsewhere
+    // (a project's `.mcp.json`, the Claude Desktop config) and import of the
+    // user's selection through the SAME store + trust/consent gates as any
+    // other server.
+    discover(projectPath: string | null): Promise<DiscoveredMcpServer[]>
+    import(servers: DiscoveredMcpServer[], projectPath: string | null): Promise<McpServerView[]>
+  }
+  // Integrations (GitHub/Bitbucket, Task 11): status read model + the connect/
+  // disconnect flows. No token ever crosses this surface -- IntegrationStatus
+  // carries only connected/method/login/scopes/connectedAt, matching the mcp
+  // secrets contract (setSecret is write-only there; there is no getter here
+  // at all).
+  integrations: {
+    status(): Promise<IntegrationStatus[]>
+    // Starts a GitHub Device Flow: returns the user code + verification URL to
+    // show, and the device code + poll interval to pass to githubDevicePoll.
+    githubDeviceStart(): Promise<GithubDeviceStart>
+    // Blocks (main-side) until the user approves/denies at github.com/login/
+    // device or the code expires; honors slow_down internally. Resolves the
+    // connected status on success, vaulting the token main-side.
+    githubDevicePoll(deviceCode: string, interval: number): Promise<IntegrationStatus>
+    cancelGithubDevice(deviceCode: string): Promise<void>
+    githubConnectPat(token: string): Promise<IntegrationStatus>
+    connectBitbucket(username: string, appPassword: string): Promise<IntegrationStatus>
+    disconnect(provider: IntegrationProvider): Promise<void>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

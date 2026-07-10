@@ -39,7 +39,10 @@ export function activeMentionQuery(text: string, caret: number): { start: number
 const PREFIX_TO_KIND: Record<string, MentionKind> = {
   file: 'file',
   rule: 'rule',
-  conversation: 'conversation'
+  conversation: 'conversation',
+  connector: 'connector',
+  // `@mcp:` is an alias for `@connector:` — users reach for either term.
+  mcp: 'connector'
 }
 
 // Split the text after `@` into an optional category prefix + the remaining
@@ -70,7 +73,8 @@ function isSubsequence(query: string, hay: string): boolean {
 const CATEGORIES: { kind: MentionKind; label: string }[] = [
   { kind: 'file', label: 'Files' },
   { kind: 'rule', label: 'Rules' },
-  { kind: 'conversation', label: 'Conversations' }
+  { kind: 'conversation', label: 'Conversations' },
+  { kind: 'connector', label: 'Connectors' }
 ]
 
 // Keep the drilled-in item list compact (Antigravity shows a short list).
@@ -82,6 +86,7 @@ export interface BuildMentionRowsOpts {
   files: string[]
   rules: ManualRuleInfo[]
   conversations: { id: string; title: string }[]
+  connectors: { name: string; toolCount: number }[]
 }
 
 // Category mode (no category chosen): the (sub-filtered) category chooser rows.
@@ -108,10 +113,18 @@ export function buildMentionRows(opts: BuildMentionRowsOpts): MentionRow[] {
     items = opts.rules
       .filter((r) => match(r.name))
       .map((r) => ({ ref: { kind: 'rule', name: r.name }, label: r.name, detail: r.firstLine || undefined }))
-  } else {
+  } else if (opts.category === 'conversation') {
     items = opts.conversations
       .filter((c) => match(c.title))
       .map((c) => ({ ref: { kind: 'conversation', name: c.title, conversationId: c.id }, label: c.title }))
+  } else {
+    items = opts.connectors
+      .filter((c) => match(c.name))
+      .map((c) => ({
+        ref: { kind: 'connector', name: c.name },
+        label: c.name,
+        detail: `${c.toolCount} tool${c.toolCount === 1 ? '' : 's'}`
+      }))
   }
   return items.slice(0, ITEM_CAP).map((s) => ({ type: 'item' as const, suggestion: s }))
 }

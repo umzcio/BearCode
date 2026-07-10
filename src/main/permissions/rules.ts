@@ -148,3 +148,87 @@ export function evaluateCommand(
   if (matching.some((r) => r.effect === 'ask')) return 'prompt'
   return mode === 'auto' && terminalAutoExec === 'auto' ? 'run' : 'prompt'
 }
+
+// MCP tool matcher. Designed grammar (Claude Code, design §4): the SERVER
+// portion is always a literal and must equal `server` exactly -- a glob may
+// appear ONLY after the literal `server.` prefix, and only as a trailing `*`.
+// Accepted forms:
+//   `github`            -> every tool on exactly `github`
+//   `github.*`          -> every tool on exactly `github`
+//   `github.get_issue`  -> that exact tool
+//   `github.get_*`      -> tools whose name starts with `get_`
+// This deliberately rejects the over-broad shapes the previous startsWith/
+// endsWith idiom allowed: `git*` (would auto-run any `git…`-named server),
+// bare `*` (everything everywhere), and `*.get_issue` (crosses servers) --
+// allow over-matching crosses trust boundaries, so the grammar is anchored.
+// The server boundary is the FIRST '.', matching the `server.tool` convention.
+export function matchesMcpTool(pattern: string, server: string, tool: string): boolean {
+  const dot = pattern.indexOf('.')
+  if (dot === -1) return pattern === server // bare server -> any tool on it
+  const serverPart = pattern.slice(0, dot)
+  const toolPart = pattern.slice(dot + 1)
+  if (serverPart !== server) return false // server portion is always literal
+  if (toolPart === '*') return true // `server.*` -> any tool
+  const star = toolPart.indexOf('*')
+  if (star === -1) return toolPart === tool // exact tool
+  if (star !== toolPart.length - 1) return false // glob allowed only at the end
+  return tool.startsWith(toolPart.slice(0, star))
+}
+
+// Precedence for the 'mcp' permission action (design, Task 4):
+//   1. any matching deny  -> block   (deny always wins, security floor)
+//   2. mode === 'plan' && !serverReadOnly -> block (MCP DIVERGES from
+//      command/edit here: a read-only server's tools may proceed to the
+//      normal gate below instead of being hard-blocked)
+//   3. any matching allow -> run
+//   4. any matching ask   -> prompt
+//   5. default            -> prompt (no auto-run fallback for MCP, unlike
+//      command's auto+terminalAutoExec)
+// Deny is checked BEFORE the plan/readOnly carve-out, so a read-only server's
+// allowance can never override a deny -- the security floor holds even in the
+// one mode where MCP behaves differently from command/edit.
+export function evaluateMcp(
+  server: string,
+  tool: string,
+  mode: PermissionMode,
+  rules: PermissionRule[],
+  serverReadOnly: boolean
+): CommandDecision {
+  const matching = rules.filter((r) => r.action === 'mcp' && matchesMcpTool(r.match, server, tool))
+  if (matching.some((r) => r.effect === 'deny')) return 'block'
+  if (mode === 'plan' && !serverReadOnly) return 'block'
+  if (matching.some((r) => r.effect === 'allow')) return 'run'
+  if (matching.some((r) => r.effect === 'ask')) return 'prompt'
+  return 'prompt'
+}
+
+// Integration tool matcher (design §5, Task 6). Identical grammar to
+// matchesMcpTool ('provider' / 'provider.*' / 'provider.tool' /
+// 'provider.prefix_*', provider portion always a literal) -- integrations
+// (github/bitbucket) are just another kind of gated external tool surface, so
+// the same anchored-glob rationale applies verbatim. Delegates to
+// matchesMcpTool to avoid duplicating the grammar.
+export function matchesIntegration(pattern: string, provider: string, tool: string): boolean {
+  return matchesMcpTool(pattern, provider, tool)
+}
+
+// Precedence for the 'integration' permission action (design §5, mirrors
+// evaluateMcp exactly): deny always wins; plan mode blocks everything except
+// tools the caller tags read-only (readOnly=true, e.g. github_list_repos);
+// then allow; then ask; default is Ask (no auto-run fallback, same as MCP).
+export function evaluateIntegration(
+  provider: string,
+  tool: string,
+  mode: PermissionMode,
+  rules: PermissionRule[],
+  readOnly: boolean
+): CommandDecision {
+  const matching = rules.filter(
+    (r) => r.action === 'integration' && matchesIntegration(r.match, provider, tool)
+  )
+  if (matching.some((r) => r.effect === 'deny')) return 'block'
+  if (mode === 'plan' && !readOnly) return 'block'
+  if (matching.some((r) => r.effect === 'allow')) return 'run'
+  if (matching.some((r) => r.effect === 'ask')) return 'prompt'
+  return 'prompt'
+}

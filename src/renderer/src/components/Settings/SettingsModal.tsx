@@ -21,6 +21,8 @@ import { ProvidersPage } from './pages/ProvidersPage'
 import { ModelsPage } from './pages/ModelsPage'
 import { PermissionsPage } from './pages/PermissionsPage'
 import { BrowserPage } from './pages/BrowserPage'
+import { ConnectorsPage } from './pages/ConnectorsPage'
+import { IntegrationsPage } from './pages/IntegrationsPage'
 import { SettingPlaceholder } from './SettingPlaceholder'
 import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
 import type { SettingsPageId } from './SettingsNav'
@@ -63,19 +65,10 @@ const PLACEHOLDERS: Record<string, { title: string; description: string }> = {
     description:
       'Teach the agent reusable workflows and domain knowledge — arriving in a future update.'
   },
-  connectors: {
-    title: 'Connectors',
-    description:
-      'Connect MCP servers and external tools the agent can call — arriving in a future update.'
-  },
   memory: {
     title: 'Memory',
     description:
       'Persistent memory the agent carries across conversations — arriving in a future update.'
-  },
-  integrations: {
-    title: 'Integrations',
-    description: 'Link BearCode to the services you already use — arriving in a future update.'
   }
 }
 
@@ -304,6 +297,10 @@ function SettingsPanel({
           {page === 'models' ? <ModelsPage /> : null}
 
           {page === 'browser' ? <BrowserPage /> : null}
+
+          {page === 'connectors' ? <ConnectorsPage /> : null}
+
+          {page === 'integrations' ? <IntegrationsPage /> : null}
 
           {PLACEHOLDERS[page] ? (
             <SettingPlaceholder

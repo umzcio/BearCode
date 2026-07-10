@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { AddRuleInput, PermissionRule, PermissionRulesInfo } from '../../shared/types'
 import { deleteRule, insertRule, listRules } from '../db'
+import type { RuleScope } from '../../shared/types'
 import { getSettings, setSettings } from '../settings'
 import { BUILTIN_RULES } from './rules'
 
@@ -32,7 +33,28 @@ export function getEffectiveRules(projectPath: string | null): PermissionRule[] 
   return mergeRules(listRules(), projectPath, getSettings().disabledBuiltins)
 }
 
+function sameScope(a: RuleScope, b: RuleScope): boolean {
+  if (a === 'global' || b === 'global') return a === b
+  return a.projectPath === b.projectPath
+}
+
 export function addUserRule(input: AddRuleInput): void {
+  // Dedup by (scope, action, match): re-setting an effect for the same subject
+  // REPLACES the prior rule rather than stacking a second. Without this, the
+  // Connectors per-tool Allow/Ask/Deny control (and any repeated add) left a
+  // stale rule behind -- e.g. flipping Allow->Ask kept BOTH, and since
+  // evaluate* checks allow before ask the decision stayed 'run' while the UI
+  // showed "Ask". Effects can now only be changed, never silently shadowed.
+  for (const existing of listRules()) {
+    if (
+      existing.source === 'user' &&
+      existing.action === input.action &&
+      existing.match === input.match &&
+      sameScope(existing.scope, input.scope)
+    ) {
+      deleteRule(existing.id)
+    }
+  }
   const rule: PermissionRule = {
     id: randomUUID(),
     scope: input.scope,

@@ -67,7 +67,7 @@ function getDb(): Database.Database {
     CREATE TABLE IF NOT EXISTS permission_rules (
       id TEXT PRIMARY KEY,
       project_path TEXT,          -- NULL = global scope
-      action TEXT NOT NULL,       -- 'command' | 'edit'
+      action TEXT NOT NULL,       -- 'command' | 'edit' | 'mcp' | 'integration'
       match TEXT NOT NULL,
       effect TEXT NOT NULL,       -- 'allow' | 'deny' | 'ask'
       created_at INTEGER NOT NULL
@@ -868,7 +868,12 @@ export interface RuleRow {
 // mapping without loading better-sqlite3's native binding, which is built for
 // Electron's ABI and cannot load under plain-Node vitest.
 export function toRule(row: RuleRow): PermissionRule | null {
-  if (row.action !== 'command' && row.action !== 'edit') {
+  if (
+    row.action !== 'command' &&
+    row.action !== 'edit' &&
+    row.action !== 'mcp' &&
+    row.action !== 'integration'
+  ) {
     console.warn(
       `[bearcode] db: permission_rules row ${row.id} has unknown action "${row.action}"; skipping`
     )

@@ -24,27 +24,43 @@ function writeVault(vault: Record<string, string>): void {
   writeFileSync(vaultPath(), JSON.stringify(vault, null, 2), { mode: 0o600 })
 }
 
-export function setKey(provider: ProviderId, key: string): void {
+export function setVaultSecret(key: string, value: string): void {
   const vault = readVault()
-  if (!key) {
-    delete vault[provider]
+  if (!value) {
+    delete vault[key]
   } else if (safeStorage.isEncryptionAvailable()) {
-    vault[provider] = safeStorage.encryptString(key).toString('base64')
+    vault[key] = safeStorage.encryptString(value).toString('base64')
   } else {
     throw new Error('safeStorage encryption is not available on this system')
   }
   writeVault(vault)
 }
 
-export function getKey(provider: ProviderId): string | undefined {
-  const stored = readVault()[provider]
+export function getVaultSecret(key: string): string | undefined {
+  const stored = readVault()[key]
   if (!stored) return undefined
   try {
     return safeStorage.decryptString(Buffer.from(stored, 'base64'))
   } catch (err) {
-    console.error(`[bearcode] failed to decrypt key for ${provider}:`, err)
+    console.error(`[bearcode] failed to decrypt vault secret for ${key}:`, err)
     return undefined
   }
+}
+
+export function setKey(provider: ProviderId, key: string): void {
+  setVaultSecret(provider, key)
+}
+
+export function getKey(provider: ProviderId): string | undefined {
+  return getVaultSecret(provider)
+}
+
+// Replaces ${VAULT:key} references in a string with the decrypted secret,
+// or '' if the key isn't in the vault. Used to resolve MCP server configs
+// (headers/env) without ever storing plaintext secrets in mcp.json.
+const VAULT_REF = /\$\{VAULT:([^}]+)\}/g
+export function resolveVaultRefs(input: string): string {
+  return input.replace(VAULT_REF, (_m, k: string) => getVaultSecret(k) ?? '')
 }
 
 export function keyStatus(): Record<ProviderId, boolean> {

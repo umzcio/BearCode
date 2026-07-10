@@ -32,16 +32,18 @@ describe('assertValidMentions', () => {
     expect(assertValidMentions(undefined)).toEqual([])
   })
 
-  it('passes a valid file/rule/conversation array through, dropping unknown fields', () => {
+  it('passes a valid file/rule/conversation/connector array through, dropping unknown fields', () => {
     const input = [
       { kind: 'file', name: 'src/a.ts', path: 'src/a.ts', bogus: 1 },
       { kind: 'rule', name: 'style' },
-      { kind: 'conversation', name: 'Old chat', conversationId: 'c1' }
+      { kind: 'conversation', name: 'Old chat', conversationId: 'c1' },
+      { kind: 'connector', name: 'github' }
     ]
     expect(assertValidMentions(input)).toEqual([
       { kind: 'file', name: 'src/a.ts', path: 'src/a.ts' },
       { kind: 'rule', name: 'style' },
-      { kind: 'conversation', name: 'Old chat', conversationId: 'c1' }
+      { kind: 'conversation', name: 'Old chat', conversationId: 'c1' },
+      { kind: 'connector', name: 'github' }
     ])
   })
 

@@ -215,6 +215,11 @@ export function mentionedRuleNames(mentions: MentionRef[]): string[] {
   return mentions.filter((m) => m.kind === 'rule').map((m) => m.name)
 }
 
+// Connector-kind mention names (MCP server names the user @-referenced). Pure.
+export function mentionedConnectorNames(mentions: MentionRef[]): string[] {
+  return mentions.filter((m) => m.kind === 'connector').map((m) => m.name)
+}
+
 // Union existing pinned rule names with freshly mentioned ones, de-duplicated,
 // order preserved (existing first). Pure.
 export function mergeActiveRules(existing: string[], mentioned: string[]): string[] {
@@ -254,6 +259,18 @@ export function assembleUserMentions(
       'The user referenced a past conversation. Its final answer was:',
       summary.finalAnswer ?? '(no final answer was recorded in that conversation)'
     )
+  }
+
+  const connectorNames = mentionedConnectorNames(mentions)
+  if (connectorNames.length > 0) {
+    additions.push(
+      '',
+      '## Requested connectors',
+      'The user explicitly asked you to use these MCP servers for this turn. Prefer their',
+      'tools (named `mcp__<server>__<tool>`) where they fit the task; each call is still',
+      'subject to the usual approval. If a requested server exposes no suitable tool, say so.'
+    )
+    for (const n of connectorNames) additions.push(`- ${n}`)
   }
 
   return { systemAdditions: additions }

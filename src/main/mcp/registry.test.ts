@@ -1,0 +1,220 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+vi.mock('../keys', () => ({
+  getVaultSecret: vi.fn()
+}))
+
+import { getVaultSecret } from '../keys'
+import { smitherySearch, fetchSmitheryConfig, SmitheryKeyMissingError } from './registry'
+
+const mockedGetVaultSecret = vi.mocked(getVaultSecret)
+
+describe('smitherySearch', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    global.fetch = vi.fn()
+  })
+
+  it('throws a typed error when no Smithery key is configured', async () => {
+    mockedGetVaultSecret.mockReturnValue(undefined)
+    await expect(smitherySearch('exa')).rejects.toBeInstanceOf(SmitheryKeyMissingError)
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('maps a canned registry payload to SmitheryHit[]', async () => {
+    mockedGetVaultSecret.mockReturnValue('sk-test-key')
+    const payload = {
+      servers: [
+        {
+          qualifiedName: 'some/local-tool',
+          displayName: '',
+          description: 'A stdio tool',
+          remote: false,
+          useCount: 100,
+          verified: false,
+          iconUrl: null
+        },
+        {
+          qualifiedName: 'exa-labs/exa-mcp',
+          displayName: 'Exa Search',
+          description: 'Web search for AI',
+          remote: true,
+          useCount: 500,
+          verified: true,
+          iconUrl: 'https://x/icon.png'
+        }
+      ],
+      pagination: { currentPage: 1, pageSize: 30, totalPages: 1, totalCount: 2 }
+    }
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => payload
+    }) as unknown as typeof fetch
+
+    const hits = await smitherySearch('exa')
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('https://api.smithery.ai/servers?q=exa'),
+      expect.objectContaining({ headers: { Authorization: 'Bearer sk-test-key' } })
+    )
+    // Sorted by useCount desc: the higher-use exa server comes first.
+    expect(hits).toEqual([
+      {
+        id: 'exa-labs/exa-mcp',
+        name: 'Exa Search',
+        description: 'Web search for AI',
+        transport: 'http',
+        iconUrl: 'https://x/icon.png',
+        useCount: 500,
+        verified: true
+      },
+      {
+        id: 'some/local-tool',
+        name: 'some/local-tool',
+        description: 'A stdio tool',
+        transport: 'stdio',
+        iconUrl: null,
+        useCount: 100,
+        verified: false
+      }
+    ])
+  })
+
+  it('omits the q param for an empty query (the popular-servers default)', async () => {
+    mockedGetVaultSecret.mockReturnValue('sk-test-key')
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => ({ servers: [] }) }) as unknown as typeof fetch
+    await smitherySearch('   ')
+    const calledUrl = (global.fetch as unknown as { mock: { calls: string[][] } }).mock.calls[0][0]
+    expect(calledUrl).toBe('https://api.smithery.ai/servers?pageSize=30')
+    expect(calledUrl).not.toContain('q=')
+  })
+
+  it('throws on a non-ok response', async () => {
+    mockedGetVaultSecret.mockReturnValue('sk-test-key')
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 }) as unknown as typeof fetch
+    await expect(smitherySearch('exa')).rejects.toThrow('Smithery search failed: 500')
+  })
+})
+
+describe('fetchSmitheryConfig', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    global.fetch = vi.fn()
+  })
+
+  it('throws a typed error when no Smithery key is configured', async () => {
+    mockedGetVaultSecret.mockReturnValue(undefined)
+    await expect(fetchSmitheryConfig('exa-labs/exa-mcp')).rejects.toBeInstanceOf(
+      SmitheryKeyMissingError
+    )
+  })
+
+  it('maps an http connection detail to McpServerConfig with VAULT placeholders', async () => {
+    mockedGetVaultSecret.mockReturnValue('sk-test-key')
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        qualifiedName: 'exa-labs/exa-mcp',
+        displayName: 'Exa Search',
+        deploymentUrl: 'https://mcp.exa.ai',
+        connections: [
+          {
+            type: 'http',
+            deploymentUrl: 'https://mcp.exa.ai',
+            configSchema: { required: ['exaApiKey'], properties: { exaApiKey: {} } }
+          }
+        ]
+      })
+    }) as unknown as typeof fetch
+
+    const cfg = await fetchSmitheryConfig('exa-labs/exa-mcp')
+
+    expect(cfg).toEqual({
+      name: 'exa-labs/exa-mcp',
+      transport: 'http',
+      url: 'https://mcp.exa.ai',
+      // Vault keys are section-qualified (mcp:<name>:headers:<field>) to match
+      // the manual-add scrubber, so a server's secret keys are reconstructible.
+      headers: { exaApiKey: '${VAULT:mcp:exa-labs/exa-mcp:headers:exaApiKey}' },
+      source: 'global'
+    })
+  })
+
+  it('honors an explicit project source (so the install is trust-gated)', async () => {
+    mockedGetVaultSecret.mockReturnValue('sk-test-key')
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        qualifiedName: 'exa-labs/exa-mcp',
+        deploymentUrl: 'https://mcp.exa.ai',
+        connections: [{ type: 'http', deploymentUrl: 'https://mcp.exa.ai' }]
+      })
+    }) as unknown as typeof fetch
+
+    const cfg = await fetchSmitheryConfig('exa-labs/exa-mcp', 'project')
+    expect(cfg.source).toBe('project')
+  })
+
+  it('prefers a connection with a usable endpoint over a bare first entry', async () => {
+    mockedGetVaultSecret.mockReturnValue('sk-test-key')
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        qualifiedName: 'multi/server',
+        connections: [
+          // First entry is http with NO deploymentUrl -> would yield url:'' if
+          // taken blindly. The usable stdio entry must win instead.
+          { type: 'http' },
+          { type: 'stdio', configSchema: { required: [] } }
+        ]
+      })
+    }) as unknown as typeof fetch
+
+    const cfg = await fetchSmitheryConfig('multi/server')
+    expect(cfg.transport).toBe('stdio')
+    expect(cfg.command).toBe('npx')
+  })
+
+  it('propagates a rejected fetch (offline/DNS) instead of writing a junk config', async () => {
+    mockedGetVaultSecret.mockReturnValue('sk-test-key')
+    global.fetch = vi.fn().mockRejectedValue(new Error('getaddrinfo ENOTFOUND')) as unknown as typeof fetch
+    await expect(fetchSmitheryConfig('exa-labs/exa-mcp')).rejects.toThrow(/ENOTFOUND/)
+  })
+
+  it('maps a stdio connection detail to McpServerConfig with env VAULT placeholders', async () => {
+    mockedGetVaultSecret.mockReturnValue('sk-test-key')
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        qualifiedName: 'some/local-tool',
+        connections: [
+          {
+            type: 'stdio',
+            bundleUrl: 'https://example.com/bundle.tgz',
+            runtime: 'node',
+            configSchema: { required: ['apiToken'], properties: { apiToken: {} } }
+          }
+        ]
+      })
+    }) as unknown as typeof fetch
+
+    const cfg = await fetchSmitheryConfig('some/local-tool')
+
+    expect(cfg).toEqual({
+      name: 'some/local-tool',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', 'some/local-tool'],
+      env: { apiToken: '${VAULT:mcp:some/local-tool:env:apiToken}' },
+      source: 'global'
+    })
+  })
+
+  it('propagates a rejected fetch on search too', async () => {
+    mockedGetVaultSecret.mockReturnValue('sk-test-key')
+    global.fetch = vi.fn().mockRejectedValue(new Error('network down')) as unknown as typeof fetch
+    await expect(smitherySearch('exa')).rejects.toThrow(/network down/)
+  })
+})

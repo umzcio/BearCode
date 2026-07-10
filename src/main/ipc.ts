@@ -7,9 +7,16 @@ import type {
   ArtifactComment,
   CommandEntry,
   ConversationMeta,
+  DiscoveredMcpServer,
   Event,
+  GithubDeviceStart,
   HistoryHit,
+  IntegrationProvider,
+  IntegrationStatus,
   ManualRuleInfo,
+  McpServerConfig,
+  McpServerStatus,
+  McpServerView,
   PingResult,
   PreviewPayload,
   ProjectSettings,
@@ -20,7 +27,24 @@ import type {
 } from '../shared/types'
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
-import { keyStatus, setKey } from './keys'
+import { keyStatus, setKey, setVaultSecret } from './keys'
+import {
+  loadServers as loadMcpServers,
+  upsertServer as upsertMcpServer,
+  removeServer as removeMcpServer,
+  isEnabled as isMcpServerEnabled,
+  setEnabled as setMcpServerEnabled,
+  isTrusted as isMcpServerTrusted,
+  trustProjectServer as trustMcpProjectServer,
+  markGlobalServerUntrusted as markGlobalMcpServerUntrusted,
+  trustGlobalServer as trustGlobalMcpServer,
+  hasSpawnConsent as hasMcpSpawnConsent,
+  grantSpawnConsent as grantMcpSpawnConsent,
+  discoverLocalServers,
+  invalidateStaleConsentOnImport
+} from './mcp/store'
+import { mcpManager } from './mcp/manager'
+import { smitherySearch, fetchSmitheryConfig } from './mcp/registry'
 import { addUserRule, deleteUserRule, listRulesInfo, setBuiltinDisabled } from './permissions'
 import { setSettings, settingsInfo } from './settings'
 import { allKnownModelRefs, listAllModels, listManageableModels } from './providers/registry'
@@ -43,6 +67,21 @@ import {
   completeMerge,
   abortMerge
 } from './worktree/merge'
+import {
+  getIntegration,
+  setIntegration,
+  saveIntegrationToken,
+  disconnect as disconnectIntegration
+} from './integrations/store'
+import {
+  githubDeviceStart,
+  githubDevicePoll,
+  githubConnectPat,
+  cancelGithubDevice
+} from './integrations/github'
+import { bitbucketConnect } from './integrations/bitbucket'
+import { gitAuthEnv } from './integrations/gitCredentials'
+import { setGitCredentialResolver } from './worktree/git'
 import { jailPath } from './orchestrator/fsBackend'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
@@ -95,6 +134,14 @@ export async function bootResumeInterruptedRuns(): Promise<void> {
 }
 
 export function registerIpc(): void {
+  // Wire git-over-HTTPS credential injection into the worktree/git runner: any
+  // network git subcommand (clone/fetch/pull/push) against github.com/
+  // bitbucket.org now authenticates with the connected integration's vaulted
+  // token via a per-invocation GIT_ASKPASS helper. gitAuthEnv returns `{}` for
+  // unconnected/unknown hosts, so local ops are unaffected. Registered once at
+  // main startup (mirrors the browserManager/mcpManager provider-wiring seam).
+  setGitCredentialResolver(gitAuthEnv)
+
   ipcMain.handle('bearcode:ping', (): PingResult => {
     return {
       message: 'pong',
@@ -626,6 +673,351 @@ export function registerIpc(): void {
     }
   )
   ipcMain.handle('bearcode:browser:show', () => browserManager.show())
+
+  // MCP (Connectors): global+project config CRUD, enable/trust/spawn-consent
+  // state, live status, and secrets. `status` in the returned McpServerView
+  // prioritizes 'untrusted' over 'disabled' -- a committed-project server the
+  // user hasn't trusted yet shows the trust prompt regardless of its toggle
+  // (design 2026-07-09-connectors-mcp-design.md section 6). smitherySearch/
+  // smitheryInstall are wired here but throw until Tasks 11/12 land the
+  // registry client.
+  const mcpServerView = (cfg: McpServerConfig, projectPath: string | null): McpServerView => {
+    const enabled = isMcpServerEnabled(cfg.name)
+    const trusted = isMcpServerTrusted(cfg.name, cfg.source, projectPath)
+    const status: McpServerStatus = !trusted
+      ? { state: 'untrusted' }
+      : !enabled
+        ? { state: 'disabled' }
+        : mcpManager.statusOf(cfg.name)
+    return { config: cfg, enabled, status, spawnConsented: hasMcpSpawnConsent(cfg.name) }
+  }
+  const asProjectPath = (x: unknown): string | null => (typeof x === 'string' ? x : null)
+
+  // Moves every non-empty header/env value that isn't already a ${VAULT:} ref
+  // into the encrypted vault and returns the map with each such value replaced
+  // by its reference. Guarantees the persisted mcp.json never carries a
+  // plaintext secret (design §2). Values are keyed `mcp:<server>:<section>:<k>`.
+  const VAULT_REF_RE = /^\$\{VAULT:[^}]+\}$/
+  const scrubMcpSecretsToVault = (
+    server: string,
+    section: 'headers' | 'env',
+    values: Record<string, string> | undefined
+  ): Record<string, string> | undefined => {
+    if (!values) return values
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(values)) {
+      if (typeof v !== 'string' || v.length === 0 || VAULT_REF_RE.test(v)) {
+        out[k] = v
+        continue
+      }
+      const vaultKey = `mcp:${server}:${section}:${k}`
+      setVaultSecret(vaultKey, v)
+      out[k] = `\${VAULT:${vaultKey}}`
+    }
+    return out
+  }
+
+  ipcMain.handle('bearcode:mcp:list', (_e, projectPath: unknown) => {
+    const proj = asProjectPath(projectPath)
+    return loadMcpServers(proj).map((cfg) => mcpServerView(cfg, proj))
+  })
+  // Like list, but first (non-interactively) connects any enabled+trusted
+  // server that's idle, so opening the Connectors page / @-menu surfaces
+  // enabled connectors with real status instead of a stale "not connected".
+  ipcMain.handle('bearcode:mcp:ensure-connected', async (_e, projectPath: unknown) => {
+    const proj = asProjectPath(projectPath)
+    await mcpManager.ensureEnabledConnected(proj)
+    return loadMcpServers(proj).map((cfg) => mcpServerView(cfg, proj))
+  })
+  ipcMain.handle('bearcode:mcp:add', (_e, cfg: unknown, projectPath: unknown) => {
+    if (cfg == null || typeof cfg !== 'object') {
+      throw new Error(`Invalid MCP server config: ${String(cfg)}`)
+    }
+    const c = cfg as Partial<McpServerConfig>
+    if (typeof c.name !== 'string' || c.name.trim().length === 0) {
+      throw new Error('MCP server config is missing a name')
+    }
+    if (c.transport !== 'http' && c.transport !== 'stdio') {
+      throw new Error(`Invalid MCP transport: ${String(c.transport)}`)
+    }
+    if (c.source !== 'global' && c.source !== 'project') {
+      throw new Error(`Invalid MCP server source: ${String(c.source)}`)
+    }
+    // No plaintext secret ever lands in mcp.json (design §2). Any header/env
+    // value the user typed that isn't ALREADY a ${VAULT:} reference is moved
+    // into the encrypted vault and replaced with a reference before we persist
+    // -- so the committed/synced file only ever carries indirections. This is
+    // the manual-add flow's vault path (previously absent, so plaintext tokens
+    // were written verbatim).
+    const scrubbed: McpServerConfig = {
+      ...(c as McpServerConfig),
+      name: c.name.trim(),
+      headers: scrubMcpSecretsToVault(c.name.trim(), 'headers', c.headers),
+      env: scrubMcpSecretsToVault(c.name.trim(), 'env', c.env)
+    }
+    upsertMcpServer(scrubbed, asProjectPath(projectPath))
+  })
+  ipcMain.handle(
+    'bearcode:mcp:remove',
+    (_e, name: unknown, source: unknown, projectPath: unknown) => {
+      if (typeof name !== 'string' || name.length === 0) {
+        throw new Error(`Invalid MCP server name: ${String(name)}`)
+      }
+      if (source !== 'global' && source !== 'project') {
+        throw new Error(`Invalid MCP server source: ${String(source)}`)
+      }
+      removeMcpServer(name, source, asProjectPath(projectPath))
+    }
+  )
+  ipcMain.handle(
+    'bearcode:mcp:set-enabled',
+    async (_e, name: unknown, on: unknown, projectPath: unknown) => {
+      if (typeof name !== 'string' || name.length === 0) {
+        throw new Error(`Invalid MCP server name: ${String(name)}`)
+      }
+      if (typeof on !== 'boolean') throw new Error(`Invalid MCP enabled flag: ${String(on)}`)
+      setMcpServerEnabled(name, on)
+      if (!on) {
+        await mcpManager.teardown(name)
+        return mcpManager.statusOf(name)
+      }
+      // Pass the project path so a project-scoped server actually resolves via
+      // loadServers(projectPath) -- enabling with a hardcoded null read GLOBAL
+      // only and failed every committed-project server with "unknown MCP
+      // server" (the entire project class could only be launched via Reconnect).
+      return mcpManager.enable(name, asProjectPath(projectPath))
+    }
+  )
+  ipcMain.handle('bearcode:mcp:trust', (_e, name: unknown, projectPath: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    if (typeof projectPath !== 'string' || projectPath.length === 0) {
+      throw new Error(`Invalid project path: ${String(projectPath)}`)
+    }
+    trustMcpProjectServer(name, projectPath)
+    return mcpManager.statusOf(name)
+  })
+  ipcMain.handle('bearcode:mcp:spawn-consent', (_e, name: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    grantMcpSpawnConsent(name)
+  })
+  ipcMain.handle('bearcode:mcp:reconnect', (_e, name: unknown, projectPath: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    return mcpManager.reconnect(name, asProjectPath(projectPath))
+  })
+  ipcMain.handle('bearcode:mcp:authorize', (_e, name: unknown, projectPath: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    return mcpManager.authorize(name, asProjectPath(projectPath))
+  })
+  ipcMain.handle('bearcode:mcp:status', (_e, name: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    return mcpManager.statusOf(name)
+  })
+  ipcMain.handle('bearcode:mcp:set-secret', (_e, vaultKey: unknown, value: unknown) => {
+    if (typeof vaultKey !== 'string' || vaultKey.length === 0) {
+      throw new Error(`Invalid vault key: ${String(vaultKey)}`)
+    }
+    if (typeof value !== 'string') throw new Error(`Invalid secret value: ${String(value)}`)
+    setVaultSecret(vaultKey, value)
+  })
+  // Task 12: wires the Task 11 registry client (smitherySearch/
+  // fetchSmitheryConfig) into the store. Install writes the fetched config via
+  // upsertMcpServer -- its required-field ${VAULT:} placeholders (registry.ts)
+  // are already vault refs, not plaintext, so they pass scrubMcpSecretsToVault
+  // unchanged; the renderer prompts the user to fill each one via
+  // `mcp.setSecret` after install (see BrowseSmitheryModal).
+  ipcMain.handle('bearcode:mcp:smithery-search', (_e, query: unknown) => {
+    if (typeof query !== 'string') throw new Error(`Invalid Smithery query: ${String(query)}`)
+    return smitherySearch(query)
+  })
+  ipcMain.handle('bearcode:mcp:smithery-install', async (_e, id: unknown, projectPath: unknown) => {
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new Error(`Invalid Smithery server id: ${String(id)}`)
+    }
+    const proj = asProjectPath(projectPath)
+    // A Smithery config's url/command comes from the registry response, not from
+    // the user -- so it must NOT connect until the user passes the L2 trust gate,
+    // regardless of scope. With a project open we install it project-scoped
+    // (already trust-gated via mcpTrustedProjectServers -> starts untrusted).
+    // Without one it is global; globals are trusted by default, so we explicitly
+    // mark it untrusted so a malicious deploymentUrl can't SSRF on enable.
+    const source: 'global' | 'project' = proj ? 'project' : 'global'
+    const cfg = await fetchSmitheryConfig(id, source)
+    upsertMcpServer(cfg, proj)
+    if (source === 'global') markGlobalMcpServerUntrusted(cfg.name)
+    return mcpServerView(cfg, proj)
+  })
+  // The user's explicit trust opt-in for a global server pending trust (a
+  // Smithery global install). Project-scoped trust goes through
+  // 'bearcode:mcp:trust' instead. Kept separate so the renderer can trust a
+  // global server without a project path.
+  ipcMain.handle('bearcode:mcp:trust-global', (_e, name: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    trustGlobalMcpServer(name)
+    return mcpManager.statusOf(name)
+  })
+
+  // Task 13: read-only discovery of MCP servers already configured elsewhere
+  // (a project's `.mcp.json`, the Claude Desktop config). Pure read -- never
+  // mutates the source files, degrades to [] on missing/malformed JSON.
+  ipcMain.handle('bearcode:mcp:discover', (_e, projectPath: unknown) => {
+    return discoverLocalServers(asProjectPath(projectPath))
+  })
+  // Imports the user's picked subset of discovered servers through the SAME
+  // store.upsertServer path as manual add / Smithery install -- never a side
+  // path (design §11). Secrets are NEVER auto-copied from a foreign config:
+  // header/env VALUES are dropped (keys kept) so the user must fill each one
+  // in via mcp.setSecret before the server can actually authenticate. Imported
+  // servers land under the SAME trust/consent/enable gates as any other: a
+  // project-mcp-json-origin import is written project-scoped (so it starts
+  // `untrusted` like any committed-project server), a stdio server still
+  // needs spawn consent on first enable, and nothing here touches
+  // mcpEnabledServers.
+  ipcMain.handle('bearcode:mcp:import', (_e, servers: unknown, projectPath: unknown) => {
+    if (!Array.isArray(servers)) {
+      throw new Error(`Invalid discovered servers: ${String(servers)}`)
+    }
+    const proj = asProjectPath(projectPath)
+    const blankValues = (o?: Record<string, string>): Record<string, string> | undefined =>
+      o ? Object.fromEntries(Object.keys(o).map((k) => [k, ''])) : undefined
+    const imported: McpServerView[] = []
+    for (const raw of servers as unknown[]) {
+      if (raw == null || typeof raw !== 'object') continue
+      const d = raw as Partial<DiscoveredMcpServer>
+      if (typeof d.name !== 'string' || d.name.trim().length === 0) continue
+      if (d.transport !== 'http' && d.transport !== 'stdio') continue
+      const name = d.name.trim()
+      const source: 'global' | 'project' =
+        d.origin === 'project-mcp-json' && proj ? 'project' : 'global'
+      const cfg: McpServerConfig = {
+        name,
+        transport: d.transport,
+        source,
+        url: d.url,
+        headers: blankValues(d.headers),
+        command: d.command,
+        args: d.args,
+        env: blankValues(d.env)
+      }
+      // An import can bind this foreign config to a NAME whose trust/enable/
+      // spawn-consent state already exists (that state is name-keyed). If the
+      // incoming command/url differs from what that name already runs, drop the
+      // stale consent BEFORE persisting so the spawn-consent + Trust gates
+      // re-fire against the real new command instead of being silently inherited
+      // (G3 review findings 1 & 2).
+      invalidateStaleConsentOnImport(cfg, proj)
+      upsertMcpServer(cfg, proj)
+      imported.push(mcpServerView(cfg, proj))
+    }
+    return imported
+  })
+
+  // Integrations (GitHub/Bitbucket, Task 11): status read model + connect/
+  // disconnect. NO token ever crosses this IPC -- githubDeviceStart/Poll,
+  // githubConnectPat and bitbucketConnect only ever return the account
+  // login/scopes; the raw token is vaulted here (saveIntegrationToken) and
+  // never returned to the renderer, matching mcp:set-secret's write-only
+  // contract.
+  ipcMain.handle('bearcode:integrations:status', (): IntegrationStatus[] => {
+    return (['github', 'bitbucket'] satisfies IntegrationProvider[]).map((p) => getIntegration(p))
+  })
+
+  ipcMain.handle(
+    'bearcode:integrations:github-device-start',
+    async (): Promise<GithubDeviceStart> => githubDeviceStart()
+  )
+
+  ipcMain.handle(
+    'bearcode:integrations:github-device-poll',
+    async (_e, deviceCode: unknown, interval: unknown): Promise<IntegrationStatus> => {
+      if (typeof deviceCode !== 'string' || typeof interval !== 'number') {
+        throw new Error('Invalid GitHub device-poll arguments.')
+      }
+      const { token, login, scopes } = await githubDevicePoll(deviceCode, interval)
+      saveIntegrationToken('github', { token })
+      const state: IntegrationStatus = {
+        provider: 'github',
+        connected: true,
+        method: 'device',
+        login,
+        scopes,
+        connectedAt: Date.now()
+      }
+      setIntegration('github', state)
+      return state
+    }
+  )
+
+  ipcMain.handle('bearcode:integrations:cancel-github-device', (_e, deviceCode: unknown) => {
+    if (typeof deviceCode === 'string') cancelGithubDevice(deviceCode)
+  })
+
+  ipcMain.handle(
+    'bearcode:integrations:github-connect-pat',
+    async (_e, token: unknown): Promise<IntegrationStatus> => {
+      if (typeof token !== 'string' || token.trim().length === 0) {
+        throw new Error('A GitHub personal access token is required.')
+      }
+      const trimmed = token.trim()
+      const { login, scopes } = await githubConnectPat(trimmed)
+      saveIntegrationToken('github', { token: trimmed })
+      const state: IntegrationStatus = {
+        provider: 'github',
+        connected: true,
+        method: 'pat',
+        login,
+        scopes,
+        connectedAt: Date.now()
+      }
+      setIntegration('github', state)
+      return state
+    }
+  )
+
+  ipcMain.handle(
+    'bearcode:integrations:connect-bitbucket',
+    async (_e, username: unknown, appPassword: unknown): Promise<IntegrationStatus> => {
+      if (
+        typeof username !== 'string' ||
+        username.trim().length === 0 ||
+        typeof appPassword !== 'string' ||
+        appPassword.trim().length === 0
+      ) {
+        throw new Error('A Bitbucket username and app password are required.')
+      }
+      const trimmedUser = username.trim()
+      const trimmedPass = appPassword.trim()
+      const { username: canonical } = await bitbucketConnect(trimmedUser, trimmedPass)
+      saveIntegrationToken('bitbucket', { token: trimmedPass })
+      const state: IntegrationStatus = {
+        provider: 'bitbucket',
+        connected: true,
+        method: 'app-password',
+        login: canonical,
+        connectedAt: Date.now()
+      }
+      setIntegration('bitbucket', state)
+      return state
+    }
+  )
+
+  ipcMain.handle('bearcode:integrations:disconnect', (_e, provider: unknown) => {
+    if (provider !== 'github' && provider !== 'bitbucket') {
+      throw new Error(`Invalid integration provider: ${String(provider)}`)
+    }
+    disconnectIntegration(provider)
+  })
 
   // navigator.clipboard in the sandboxed renderer is blocked by our tight
   // permission handlers (media-only), so copy went through main's clipboard.

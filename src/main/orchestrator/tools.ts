@@ -20,7 +20,7 @@ import { interrupt } from '@langchain/langgraph'
 import { tool } from 'langchain'
 import { z } from 'zod'
 import type { Artifact, Event, ToolName } from '../../shared/types'
-import { appendOrReplaceEvent } from '../db'
+import { appendOrReplaceEvent, getConversationMeta } from '../db'
 import {
   approvePlanArtifact,
   createPlanArtifact,
@@ -29,6 +29,8 @@ import {
 import {
   evaluateCommandForConversation,
   evaluateEditForConversation,
+  evaluateMcpForConversation,
+  evaluateIntegrationForConversation,
   resolveConversationMode
 } from '../permissions'
 import { loadAgentsContent } from '../agentsDir'
@@ -48,6 +50,12 @@ import { getSettings } from '../settings'
 import { browserManager } from '../browser/manager'
 import { evaluateBrowserAction, browserActionLabel } from '../browser/guard'
 import type { DomainPolicy } from '../browser/policy'
+import { mcpManager } from '../mcp/manager'
+import { loadServers, isEnabled as isMcpEnabled, isTrusted as isMcpTrusted } from '../mcp/store'
+import { sanitizeToolSchema } from '../mcp/schemaSanitize'
+import { getIntegration } from '../integrations/store'
+import { githubApi } from '../integrations/github'
+import { bitbucketApi } from '../integrations/bitbucket'
 
 const commandSchema = z.object({
   command: z.string().describe('Shell command to run in the workspace folder.'),
@@ -92,6 +100,8 @@ interface DeniedPinSet {
   byCommand: Map<string, number>
   byEditPath: Map<string, number>
   byBrowserAction: Map<string, number>
+  byMcpAction: Map<string, number>
+  byIntegrationAction: Map<string, number>
 }
 const deniedReplayPins = new Map<string, DeniedPinSet>()
 
@@ -102,6 +112,8 @@ export function pinDeniedReplays(
     command?: string
     editPath?: string
     browserAction?: string
+    mcpAction?: string
+    integrationAction?: string
   }>
 ): void {
   if (pins.length === 0) return
@@ -109,7 +121,9 @@ export function pinDeniedReplays(
     byToolCallId: new Set(),
     byCommand: new Map(),
     byEditPath: new Map(),
-    byBrowserAction: new Map()
+    byBrowserAction: new Map(),
+    byMcpAction: new Map(),
+    byIntegrationAction: new Map()
   }
   for (const pin of pins) {
     if (pin.toolCallId !== undefined) {
@@ -122,6 +136,13 @@ export function pinDeniedReplays(
       set.byBrowserAction.set(
         pin.browserAction,
         (set.byBrowserAction.get(pin.browserAction) ?? 0) + 1
+      )
+    } else if (pin.mcpAction !== undefined) {
+      set.byMcpAction.set(pin.mcpAction, (set.byMcpAction.get(pin.mcpAction) ?? 0) + 1)
+    } else if (pin.integrationAction !== undefined) {
+      set.byIntegrationAction.set(
+        pin.integrationAction,
+        (set.byIntegrationAction.get(pin.integrationAction) ?? 0) + 1
       )
     }
   }
@@ -202,6 +223,56 @@ export function takeDeniedBrowserReplayPin(
   if (n === undefined) return false
   if (n <= 1) set.byBrowserAction.delete(action)
   else set.byBrowserAction.set(action, n - 1)
+  return true
+}
+
+// The MCP analog of takeDeniedReplayPin/takeDeniedBrowserReplayPin, consulted
+// at the TOP of buildMcpTools' per-tool gate body (before the block/prompt
+// decision) so a Denied MCP approval card always wins over a decision that
+// has since flipped to 'allow' between park and keyed-resume replay (a rule
+// added from a sibling card, or a mode change). Same discipline: byToolCallId
+// is exact and take-once; the id-less fallback lives in its OWN namespace
+// (byMcpAction, never byCommand/byEditPath/byBrowserAction) so an MCP action
+// string can never cross-claim a command/path/browser pin. `action` is
+// `${server}.${tool}` — the same string graph.ts's deniedReplayPinsOf stores
+// the pin under.
+export function takeDeniedMcpReplayPin(
+  conversationId: string,
+  toolCallId: string | undefined,
+  action: string
+): boolean {
+  const set = deniedReplayPins.get(conversationId)
+  if (!set) return false
+  if (toolCallId !== undefined) return set.byToolCallId.delete(toolCallId)
+  const n = set.byMcpAction.get(action)
+  if (n === undefined) return false
+  if (n <= 1) set.byMcpAction.delete(action)
+  else set.byMcpAction.set(action, n - 1)
+  return true
+}
+
+// The Integrations analog of takeDeniedMcpReplayPin, consulted at the TOP of
+// buildIntegrationTools' per-tool gate body (before the block/prompt decision)
+// so a Denied integration approval card always wins over a decision that has
+// since flipped to 'allow' between park and keyed-resume replay (a matching
+// allow rule added from a sibling card, or a mode change to auto). Same
+// discipline: byToolCallId is exact and take-once; the id-less fallback lives
+// in its OWN namespace (byIntegrationAction) so an integration action string
+// can never cross-claim a command/path/browser/mcp pin. `action` is
+// `${provider}.${tool}` — the same string graph.ts's deniedReplayPinsOf stores
+// the pin under.
+export function takeDeniedIntegrationReplayPin(
+  conversationId: string,
+  toolCallId: string | undefined,
+  action: string
+): boolean {
+  const set = deniedReplayPins.get(conversationId)
+  if (!set) return false
+  if (toolCallId !== undefined) return set.byToolCallId.delete(toolCallId)
+  const n = set.byIntegrationAction.get(action)
+  if (n === undefined) return false
+  if (n <= 1) set.byIntegrationAction.delete(action)
+  else set.byIntegrationAction.set(action, n - 1)
   return true
 }
 
@@ -975,4 +1046,479 @@ export function buildBrowserTools(conversationId: string) {
     browserTypeTool,
     browserEvaluateTool
   ]
+}
+
+// The project path for a conversation's MCP trust lookup (isTrusted keys
+// per-project trust off the SAME project path buildTools/evaluateEditForConversation
+// use). null for a project-less conversation, mirroring evaluateMcpForConversation's
+// projectPath parameter (global servers are always trusted regardless).
+function projectOf(conversationId: string): string | null {
+  return getConversationMeta(conversationId)?.projectPath ?? null
+}
+
+// ── F-connectors MCP tools ──────────────────────────────────────────────
+// One flat tool() per cached tool of every enabled+trusted MCP server,
+// named `mcp__<server>__<tool>` (mirrors buildBrowserTools' one-tool-per-
+// capability shape). Master gate: Settings.mcpEnabled must be true AND at
+// least one server must be enabled (mcpEnabledServers) AND trusted for the
+// conversation's project -- otherwise this returns [] and the model never
+// sees an mcp__ tool at all. Per-call gate order mirrors gateBrowserAction:
+// the denied-replay pin is consulted FIRST (a recorded Denial always wins
+// over a decision that has since flipped to 'allow' on keyed-resume replay),
+// then the rules-engine decision (evaluateMcpForConversation), then --  only
+// for 'prompt' -- interrupt() pauses the graph for approval exactly like
+// run_command/gateBrowserAction.
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- Zod-inferred tool() return type
+export function buildMcpTools(conversationId: string) {
+  if (getSettings().mcpEnabled !== true) return []
+  const projectPath = projectOf(conversationId)
+  const enabledTrustedServers = loadServers(projectPath).filter(
+    (cfg) => isMcpEnabled(cfg.name) && isMcpTrusted(cfg.name, cfg.source, projectPath)
+  )
+  if (enabledTrustedServers.length === 0) return []
+
+  // Each server's tool() carries a distinct zod-inferred generic (langchain's
+  // tool() return type is invariant per schema); widen to unknown for the
+  // shared array, mirroring buildBrowserTools' unannotated (inferred) return.
+  const tools: unknown[] = []
+  for (const cfg of enabledTrustedServers) {
+    const server = cfg.name
+    const serverSource = cfg.source
+    for (const info of mcpManager.listTools(server)) {
+      const { name: toolName, description, readOnlyHint } = info
+      // Present the server's REAL input schema to the model (typed args), but
+      // serialize + sanitize it to a plain JSON Schema first: zod v4's
+      // toJSONSchema emits `propertyNames`/`additionalProperties` for dict-typed
+      // params, which Gemini's function-declaration API rejects (400, killing
+      // every tool on the turn). sanitizeToolSchema strips those constraint-only
+      // keywords; tool() accepts the resulting JSON Schema and passes it to every
+      // provider as-is. Schemaless servers degrade to a permissive object schema.
+      const rawSchema = mcpManager.toolSchema(server, toolName)
+      let jsonSchema: unknown
+      if (rawSchema && typeof rawSchema === 'object') {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          jsonSchema = z.toJSONSchema(rawSchema as any)
+        } catch {
+          jsonSchema = rawSchema // already a JSON Schema (not a zod type)
+        }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const toolSchema = sanitizeToolSchema(jsonSchema) as any
+      tools.push(
+        tool(
+          async (args: unknown, config?: unknown): Promise<string> => {
+            const mcpAction = `${server}.${toolName}`
+            const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
+            if (takeDeniedMcpReplayPin(conversationId, toolCallId, mcpAction)) {
+              return 'User denied this MCP tool call.'
+            }
+            // Per-call recheck of the master + per-server + trust gates: the
+            // tool list is built once at graph construction, but the user can
+            // flip mcpEnabled off, disable this server, or (only for project
+            // servers) never have trusted it -- all AFTER the run started. Re-
+            // reading live here (mirroring the browser's L2 hard gate on every
+            // action) means a mid-run toggle-off is honored on the very next
+            // call and a disabled server is never resurrected via callTool's
+            // connect-on-demand path.
+            if (
+              getSettings().mcpEnabled !== true ||
+              !isMcpEnabled(server) ||
+              !isMcpTrusted(server, serverSource, projectPath)
+            ) {
+              return `Blocked: ${mcpAction} — connectors are no longer enabled for this conversation.`
+            }
+            const decision = evaluateMcpForConversation(
+              server,
+              toolName,
+              readOnlyHint,
+              conversationId,
+              projectPath
+            )
+            if (decision === 'block') {
+              return `Blocked: ${mcpAction} is not permitted in this mode.`
+            }
+            if (decision === 'prompt') {
+              const approval = interrupt({
+                kind: 'mcp',
+                action: mcpAction,
+                tool: `mcp__${server}__${toolName}`,
+                input: args,
+                toolCallId
+              }) as { approved?: boolean } | null | undefined
+              if (!approval?.approved) return 'User denied this MCP tool call.'
+            }
+            return mcpManager.callTool(server, toolName, args)
+          },
+          {
+            name: `mcp__${server}__${toolName}`,
+            description: description || `MCP tool "${toolName}" from server "${server}".`,
+            // Pre-sanitized JSON Schema (see above) — provider-safe, typed args.
+            schema: toolSchema
+          }
+        )
+      )
+    }
+  }
+  return tools
+}
+
+// ── Integrations API tools (design §5, Task 9) ──────────────────────────────
+// GitHub repo/PR/issue tools surfaced as flat `github_*` tools on the main
+// agent (mirrors buildMcpTools' shape and gate). Absent entirely unless GitHub
+// is connected (getIntegration('github').connected). Each call passes the
+// 'integration' permission gate (evaluateIntegrationForConversation, Ask by
+// default): list/get tools are tagged read-only so plan mode permits them,
+// while mutations (create_pr) are blocked in plan mode. The per-tool gate order
+// mirrors buildMcpTools/gateBrowserAction exactly: the denied-replay pin is
+// consulted FIRST (a recorded Denial wins over a decision that has since
+// flipped to 'allow' on keyed-resume replay), then a live connection recheck
+// (a mid-run disconnect is honored on the very next call), then the rules-
+// engine decision, then — only for 'prompt' — interrupt() pauses the graph for
+// approval. The vaulted token never leaves the main process: githubApi injects
+// it main-side and only the tool's rendered result string returns to the agent.
+const INTEGRATION_DENIED_MESSAGE = 'User denied this integration tool call.'
+
+const githubListReposSchema = z.object({
+  perPage: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe('How many repositories to return (default 30, max 100).')
+})
+const githubListPrsSchema = z.object({
+  owner: z.string().describe('Repository owner (user or org login).'),
+  repo: z.string().describe('Repository name.'),
+  state: z.enum(['open', 'closed', 'all']).optional().describe('PR state filter (default open).')
+})
+const githubGetIssueSchema = z.object({
+  owner: z.string().describe('Repository owner (user or org login).'),
+  repo: z.string().describe('Repository name.'),
+  number: z.number().int().describe('The issue (or PR) number.')
+})
+const githubCreatePrSchema = z.object({
+  owner: z.string().describe('Repository owner (user or org login).'),
+  repo: z.string().describe('Repository name.'),
+  title: z.string().describe('Pull request title.'),
+  head: z.string().describe('The branch containing your changes (e.g. "feature-x").'),
+  base: z.string().describe('The branch you want the changes merged into (e.g. "main").'),
+  body: z.string().optional().describe('Pull request description (markdown).')
+})
+const bitbucketListReposSchema = z.object({
+  workspace: z.string().describe('Bitbucket workspace ID (slug) to list repositories from.')
+})
+const bitbucketCreatePrSchema = z.object({
+  workspace: z.string().describe('Bitbucket workspace ID (slug).'),
+  repoSlug: z.string().describe('Repository slug.'),
+  title: z.string().describe('Pull request title.'),
+  sourceBranch: z.string().describe('The branch containing your changes (e.g. "feature-x").'),
+  destinationBranch: z
+    .string()
+    .optional()
+    .describe('The branch to merge into (defaults to the repository main branch).'),
+  description: z.string().optional().describe('Pull request description (markdown).')
+})
+
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- Zod-inferred tool() return type
+export function buildIntegrationTools(conversationId: string) {
+  const tools: unknown[] = []
+  const projectPath = projectOf(conversationId)
+
+  // One gated `<provider>_*` tool. `provider`/`toolName` are the bare
+  // provider/action ('github'/'list_repos') used for the permission match +
+  // the canonical action label; `<provider>_<toolName>` is the tool name the
+  // model calls. `run` performs the actual API call once the gate allows it.
+  // Mirrors buildMcpTools' gate order exactly: denied-replay pin FIRST (a
+  // card the user denied must stay denied on keyed-resume replay even if the
+  // decision has since flipped to 'allow'), then a live connection recheck (a
+  // mid-run disconnect is honored on the very next call — the tool list is
+  // built once per turn, so a stale/absent token must never reach the API),
+  // then the rules-engine decision, then — only for 'prompt' — interrupt()
+  // pauses the graph for approval.
+  const makeIntegrationTool = (
+    provider: 'github' | 'bitbucket',
+    providerLabel: string,
+    toolName: string,
+    readOnly: boolean,
+    description: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    schema: any,
+    run: (args: Record<string, unknown>) => Promise<string>
+    // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+  ) => {
+    const fullName = `${provider}_${toolName}`
+    const action = `${provider}.${toolName}`
+    return tool(
+      async (args: Record<string, unknown>, config?: unknown): Promise<string> => {
+        const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
+        if (takeDeniedIntegrationReplayPin(conversationId, toolCallId, action)) {
+          return INTEGRATION_DENIED_MESSAGE
+        }
+        if (getIntegration(provider).connected !== true) {
+          return `Blocked: ${action} — ${providerLabel} is no longer connected for this conversation.`
+        }
+        const decision = evaluateIntegrationForConversation(
+          provider,
+          toolName,
+          readOnly,
+          conversationId,
+          projectPath
+        )
+        if (decision === 'block') {
+          return `Blocked: ${action} is not permitted in this mode.`
+        }
+        if (decision === 'prompt') {
+          const approval = interrupt({
+            kind: 'integration',
+            action,
+            tool: fullName,
+            input: args,
+            toolCallId
+          }) as { approved?: boolean } | null | undefined
+          if (!approval?.approved) return INTEGRATION_DENIED_MESSAGE
+        }
+        return run(args)
+      },
+      { name: fullName, description, schema }
+    )
+  }
+  // Backwards-compatible alias for the existing GitHub tool bodies below.
+  const makeGithubTool = (
+    toolName: string,
+    readOnly: boolean,
+    description: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    schema: any,
+    run: (args: Record<string, unknown>) => Promise<string>
+    // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+  ) => makeIntegrationTool('github', 'GitHub', toolName, readOnly, description, schema, run)
+
+  // Presence gate: no github_* tool exists unless GitHub is connected. The
+  // model never sees a tool it cannot use, and a disconnected provider can
+  // never be reached through the API helper.
+  if (getIntegration('github').connected === true) {
+    tools.push(
+      makeGithubTool(
+        'list_repos',
+        true,
+        'List the GitHub repositories the connected account can access (most recently updated first).',
+        githubListReposSchema,
+        async (args): Promise<string> => {
+          const perPage = typeof args.perPage === 'number' ? args.perPage : 30
+          const res = await githubApi(`/user/repos?per_page=${perPage}&sort=updated`)
+          if (!res.ok) return `GitHub API error (${res.status}) while listing repositories.`
+          const repos = (await res.json()) as Array<{
+            full_name: string
+            private: boolean
+            description: string | null
+            html_url: string
+          }>
+          return JSON.stringify(
+            repos.map((r) => ({
+              full_name: r.full_name,
+              private: r.private,
+              description: r.description,
+              url: r.html_url
+            })),
+            null,
+            2
+          )
+        }
+      )
+    )
+
+    tools.push(
+      makeGithubTool(
+        'list_prs',
+        true,
+        'List pull requests for a GitHub repository.',
+        githubListPrsSchema,
+        async (args): Promise<string> => {
+          const { owner, repo } = args as { owner: string; repo: string }
+          const state = typeof args.state === 'string' ? args.state : 'open'
+          const res = await githubApi(`/repos/${owner}/${repo}/pulls?state=${state}`)
+          if (!res.ok) return `GitHub API error (${res.status}) while listing pull requests.`
+          const prs = (await res.json()) as Array<{
+            number: number
+            title: string
+            state: string
+            html_url: string
+            user?: { login?: string }
+          }>
+          return JSON.stringify(
+            prs.map((p) => ({
+              number: p.number,
+              title: p.title,
+              state: p.state,
+              author: p.user?.login,
+              url: p.html_url
+            })),
+            null,
+            2
+          )
+        }
+      )
+    )
+
+    tools.push(
+      makeGithubTool(
+        'get_issue',
+        true,
+        'Get a single GitHub issue (or pull request) by number.',
+        githubGetIssueSchema,
+        async (args): Promise<string> => {
+          const { owner, repo, number } = args as { owner: string; repo: string; number: number }
+          const res = await githubApi(`/repos/${owner}/${repo}/issues/${number}`)
+          if (!res.ok) return `GitHub API error (${res.status}) while fetching the issue.`
+          const issue = (await res.json()) as {
+            number: number
+            title: string
+            state: string
+            body: string | null
+            html_url: string
+            user?: { login?: string }
+          }
+          return JSON.stringify(
+            {
+              number: issue.number,
+              title: issue.title,
+              state: issue.state,
+              author: issue.user?.login,
+              body: issue.body,
+              url: issue.html_url
+            },
+            null,
+            2
+          )
+        }
+      )
+    )
+
+    tools.push(
+      makeGithubTool(
+        'create_pr',
+        false,
+        'Open a new pull request on a GitHub repository.',
+        githubCreatePrSchema,
+        async (args): Promise<string> => {
+          const { owner, repo, title, head, base } = args as {
+            owner: string
+            repo: string
+            title: string
+            head: string
+            base: string
+          }
+          const body = typeof args.body === 'string' ? args.body : undefined
+          const res = await githubApi(`/repos/${owner}/${repo}/pulls`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, head, base, ...(body !== undefined ? { body } : {}) })
+          })
+          if (!res.ok) {
+            const detail = (await res.json().catch(() => ({}))) as { message?: string }
+            return `GitHub API error (${res.status}) while creating the pull request${
+              detail.message ? `: ${detail.message}` : ''
+            }.`
+          }
+          const pr = (await res.json()) as { number: number; html_url: string }
+          return `Opened pull request #${pr.number}: ${pr.html_url}`
+        }
+      )
+    )
+  }
+
+  // Presence gate: no bitbucket_* tool exists unless Bitbucket is connected
+  // (design §5/§O4). Same shape as the GitHub block above.
+  if (getIntegration('bitbucket').connected === true) {
+    const makeBitbucketTool = (
+      toolName: string,
+      readOnly: boolean,
+      description: string,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      schema: any,
+      run: (args: Record<string, unknown>) => Promise<string>
+      // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+    ) => makeIntegrationTool('bitbucket', 'Bitbucket', toolName, readOnly, description, schema, run)
+
+    tools.push(
+      makeBitbucketTool(
+        'list_repos',
+        true,
+        'List the Bitbucket Cloud repositories in a workspace that the connected account can access.',
+        bitbucketListReposSchema,
+        async (args): Promise<string> => {
+          const { workspace } = args as { workspace: string }
+          const res = await bitbucketApi(
+            `/repositories/${encodeURIComponent(workspace)}?role=member`
+          )
+          if (!res.ok) return `Bitbucket API error (${res.status}) while listing repositories.`
+          const body = (await res.json()) as {
+            values: Array<{
+              full_name: string
+              is_private: boolean
+              description: string | null
+              links?: { html?: { href?: string } }
+            }>
+          }
+          return JSON.stringify(
+            body.values.map((r) => ({
+              full_name: r.full_name,
+              private: r.is_private,
+              description: r.description,
+              url: r.links?.html?.href
+            })),
+            null,
+            2
+          )
+        }
+      )
+    )
+
+    tools.push(
+      makeBitbucketTool(
+        'create_pr',
+        false,
+        'Open a new pull request on a Bitbucket Cloud repository.',
+        bitbucketCreatePrSchema,
+        async (args): Promise<string> => {
+          const { workspace, repoSlug, title, sourceBranch } = args as {
+            workspace: string
+            repoSlug: string
+            title: string
+            sourceBranch: string
+          }
+          const destinationBranch =
+            typeof args.destinationBranch === 'string' ? args.destinationBranch : undefined
+          const description = typeof args.description === 'string' ? args.description : undefined
+          const res = await bitbucketApi(
+            `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                title,
+                source: { branch: { name: sourceBranch } },
+                ...(destinationBranch !== undefined
+                  ? { destination: { branch: { name: destinationBranch } } }
+                  : {}),
+                ...(description !== undefined ? { description } : {})
+              })
+            }
+          )
+          if (!res.ok) {
+            const detail = (await res.json().catch(() => ({}))) as { error?: { message?: string } }
+            return `Bitbucket API error (${res.status}) while creating the pull request${
+              detail.error?.message ? `: ${detail.error.message}` : ''
+            }.`
+          }
+          const pr = (await res.json()) as { id: number; links?: { html?: { href?: string } } }
+          return `Opened pull request #${pr.id}: ${pr.links?.html?.href ?? ''}`.trim()
+        }
+      )
+    )
+  }
+
+  return tools
 }

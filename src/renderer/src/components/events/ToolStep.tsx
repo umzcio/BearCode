@@ -28,11 +28,39 @@ function inputStr(call: ToolCallEvent, key: string): string | null {
   return null
 }
 
+// mcp__<server>__<tool> (Claude Code convention, tools.ts buildMcpTools) split
+// back into its parts for display; a malformed/short name falls back to the
+// raw tool string rather than throwing.
+function mcpParts(tool: string): { server: string; toolName: string } | null {
+  const rest = tool.slice('mcp__'.length)
+  const sep = rest.indexOf('__')
+  if (sep < 0) return null
+  return { server: rest.slice(0, sep), toolName: rest.slice(sep + 2) }
+}
+
+// Pretty-print an MCP tool call's arguments for the approval card so consent is
+// never granted blind (finding 3). Empty/absent args render as null (the card
+// then shows just the tool name); a non-serializable value falls back to String
+// so rendering can never throw.
+function mcpArgsText(input: unknown): string | null {
+  if (input == null) return null
+  if (typeof input === 'object' && Object.keys(input as object).length === 0) return null
+  try {
+    return JSON.stringify(input, null, 2)
+  } catch {
+    return String(input)
+  }
+}
+
 function summaryFor(
   call: ToolCallEvent,
   result: ToolResultEvent | undefined,
   openFile: (path: string) => void
 ): React.ReactNode {
+  if (call.tool.startsWith('mcp__')) {
+    const parts = mcpParts(call.tool)
+    return <span>{parts ? `${parts.server} · ${parts.toolName}` : call.tool}</span>
+  }
   switch (call.tool) {
     case 'list_dir': {
       const path = inputStr(call, 'path')
@@ -376,6 +404,101 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
     )
   }
 
+  // Integrations tool calls (github_*/bitbucket_*, Task 9/10 buildIntegrationTools).
+  // Same uniform-gate shape as MCP: every call can pause for approval via the
+  // 'integration' permission action. PendingIntegrationAction mirrors
+  // PendingMcpAction (args shown, "always allow this provider" allow-grid
+  // cell saving an `integration` rule matching `<provider>.*`).
+  if (call.tool.startsWith('github_') || call.tool.startsWith('bitbucket_')) {
+    const provider: 'github' | 'bitbucket' = call.tool.startsWith('github_')
+      ? 'github'
+      : 'bitbucket'
+    const toolName = call.tool.slice(provider.length + 1)
+    if (call.approvalState === 'pending') {
+      return (
+        <PendingIntegrationAction
+          callId={call.id}
+          provider={provider}
+          toolName={toolName}
+          input={call.input}
+          convoId={convoId}
+        />
+      )
+    }
+    if (call.approvalState === 'denied') {
+      return (
+        <div className="step">
+          <div className="step-row static">
+            <span>
+              Denied{' '}
+              <span className="mono">
+                {provider} · {toolName}
+              </span>
+            </span>
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div className={'step' + (open ? ' open' : '')}>
+        <div className="step-row" onClick={() => setOpen((o) => !o)}>
+          <span>
+            {provider} · {toolName}
+          </span>
+          <span className="chev">
+            <IconChevronRightSmall />
+          </span>
+        </div>
+        <div className="step-body">{result ? result.output : 'Working…'}</div>
+      </div>
+    )
+  }
+
+  // MCP tool calls (mcp__<server>__<tool>, Task 6 buildMcpTools). Uniform-gate
+  // means every call can pause for approval, mirroring PendingBrowserAction;
+  // resolved calls render as a plain expandable step like the generic case.
+  if (call.tool.startsWith('mcp__')) {
+    const parts = mcpParts(call.tool)
+    const server = parts?.server ?? 'mcp'
+    const toolName = parts?.toolName ?? call.tool
+    if (call.approvalState === 'pending') {
+      return (
+        <PendingMcpAction
+          callId={call.id}
+          server={server}
+          toolName={toolName}
+          input={call.input}
+          convoId={convoId}
+        />
+      )
+    }
+    if (call.approvalState === 'denied') {
+      return (
+        <div className="step">
+          <div className="step-row static">
+            <span>
+              Denied{' '}
+              <span className="mono">
+                {server} · {toolName}
+              </span>
+            </span>
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div className={'step' + (open ? ' open' : '')}>
+        <div className="step-row" onClick={() => setOpen((o) => !o)}>
+          {summaryFor(call, result, openFile)}
+          <span className="chev">
+            <IconChevronRightSmall />
+          </span>
+        </div>
+        <div className="step-body">{result ? result.output : 'Working…'}</div>
+      </div>
+    )
+  }
+
   if (call.tool === 'run_command') {
     const command =
       typeof call.input === 'object' && call.input !== null && 'command' in call.input
@@ -670,6 +793,232 @@ function PendingBrowserAction({
         </button>
         <button className="approval-opt" onClick={deny}>
           {isFirstPending ? <span className="opt-num">2</span> : null}
+          No, deny it
+          <span className="opt-hint">the agent is told you declined</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// MCP tool call approval card ('mcp' action is uniform-gate: Ask by default
+// for every tool, no auto read/write trust). Modeled on PendingBrowserAction,
+// plus an "always allow this server" allow-grid cell (copied from
+// PendingCommand's allow-grid) that saves an `mcp` rule matching
+// `<server>.*` so future calls to any tool on this server skip the prompt.
+function PendingMcpAction({
+  callId,
+  server,
+  toolName,
+  input,
+  convoId
+}: {
+  callId: string
+  server: string
+  toolName: string
+  input: unknown
+  convoId: string
+}): React.JSX.Element {
+  const approveTool = useAppStore((s) => s.approveTool)
+  const addPermissionRule = useAppStore((s) => s.addPermissionRule)
+  const projectPath = useAppStore((s) => s.conversations[convoId]?.projectPath ?? null)
+  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const [showAllow, setShowAllow] = useState(false)
+  const label = `${server} · ${toolName}`
+  // Render the call ARGUMENTS, not just the tool name: an "Ask" consent granted
+  // without seeing the target/content is granted blind (e.g. fs · write_file to
+  // /etc/hosts, or github · create_issue on attacker/x). run_command shows the
+  // full command and edit_file shows the path; the MCP card must show its args
+  // too or the uniform-gate Ask is defeated (G3 whole-branch review, finding 3).
+  const argsText = mcpArgsText(input)
+
+  const allowOnce = (): void => approveTool(callId, true)
+  const deny = (): void => approveTool(callId, false)
+
+  useEffect(() => {
+    if (!isFirstPending) return undefined
+    const onKey = (e: KeyboardEvent): void => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === '1') allowOnce()
+      else if (e.key === '2') setShowAllow((s) => !s)
+      else if (e.key === '3') deny()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId, isFirstPending])
+
+  return (
+    <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
+      <div className="step-row static">
+        <span>
+          Allow this MCP tool call? <span className="mono">{label}</span>
+        </span>
+      </div>
+      <div className="waiting-note">Waiting for your input…</div>
+      <div className="approval-card pulse-once">
+        <div className="approval-title">Allow this MCP tool call?</div>
+        <div className="approval-cmd">{label}</div>
+        {argsText ? <pre className="approval-args">{argsText}</pre> : null}
+        <button className="approval-opt" onClick={allowOnce}>
+          {isFirstPending ? <span className="opt-num">1</span> : null}
+          Yes, allow this time
+        </button>
+        <button className="approval-opt" onClick={() => setShowAllow((s) => !s)}>
+          {isFirstPending ? <span className="opt-num">2</span> : null}
+          Yes, always allow
+          <span className="opt-hint">save a rule instead of asking again</span>
+        </button>
+        {showAllow ? (
+          <div className="allow-grid">
+            <button
+              className="allow-cell"
+              onClick={() => {
+                addPermissionRule({
+                  scope: 'global',
+                  action: 'mcp',
+                  match: `${server}.*`,
+                  effect: 'allow'
+                })
+                approveTool(callId, true)
+              }}
+            >
+              Any tool on <span className="mono">{server}</span>, everywhere
+            </button>
+            {projectPath ? (
+              <button
+                className="allow-cell"
+                onClick={() => {
+                  addPermissionRule({
+                    scope: { projectPath },
+                    action: 'mcp',
+                    match: `${server}.*`,
+                    effect: 'allow'
+                  })
+                  approveTool(callId, true)
+                }}
+              >
+                Any tool on <span className="mono">{server}</span>, this project only
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        <button className="approval-opt" onClick={deny}>
+          {isFirstPending ? <span className="opt-num">3</span> : null}
+          No, deny it
+          <span className="opt-hint">the agent is told you declined</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Integration tool call approval card ('integration' action is uniform-gate:
+// Ask by default for every github_*/bitbucket_* tool, same posture as MCP).
+// Copied from PendingMcpAction's shape (args shown, allow-grid saving a
+// `<provider>.*` rule) since the design calls for reusing that shape wholesale.
+function PendingIntegrationAction({
+  callId,
+  provider,
+  toolName,
+  input,
+  convoId
+}: {
+  callId: string
+  provider: 'github' | 'bitbucket'
+  toolName: string
+  input: unknown
+  convoId: string
+}): React.JSX.Element {
+  const approveTool = useAppStore((s) => s.approveTool)
+  const addPermissionRule = useAppStore((s) => s.addPermissionRule)
+  const projectPath = useAppStore((s) => s.conversations[convoId]?.projectPath ?? null)
+  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const [showAllow, setShowAllow] = useState(false)
+  const providerLabel = provider === 'github' ? 'GitHub' : 'Bitbucket'
+  const label = `${providerLabel} · ${toolName}`
+  // Render the call ARGUMENTS, not just the tool name -- an "Ask" consent
+  // granted without seeing the target (e.g. github · create_pr onto main) is
+  // granted blind, same rationale as PendingMcpAction's argsText.
+  const argsText = mcpArgsText(input)
+
+  const allowOnce = (): void => approveTool(callId, true)
+  const deny = (): void => approveTool(callId, false)
+
+  useEffect(() => {
+    if (!isFirstPending) return undefined
+    const onKey = (e: KeyboardEvent): void => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === '1') allowOnce()
+      else if (e.key === '2') setShowAllow((s) => !s)
+      else if (e.key === '3') deny()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId, isFirstPending])
+
+  return (
+    <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
+      <div className="step-row static">
+        <span>
+          Allow this {providerLabel} tool call? <span className="mono">{label}</span>
+        </span>
+      </div>
+      <div className="waiting-note">Waiting for your input…</div>
+      <div className="approval-card pulse-once">
+        <div className="approval-title">Allow this {providerLabel} tool call?</div>
+        <div className="approval-cmd">{label}</div>
+        {argsText ? <pre className="approval-args">{argsText}</pre> : null}
+        <button className="approval-opt" onClick={allowOnce}>
+          {isFirstPending ? <span className="opt-num">1</span> : null}
+          Yes, allow this time
+        </button>
+        <button className="approval-opt" onClick={() => setShowAllow((s) => !s)}>
+          {isFirstPending ? <span className="opt-num">2</span> : null}
+          Yes, always allow
+          <span className="opt-hint">save a rule instead of asking again</span>
+        </button>
+        {showAllow ? (
+          <div className="allow-grid">
+            <button
+              className="allow-cell"
+              onClick={() => {
+                addPermissionRule({
+                  scope: 'global',
+                  action: 'integration',
+                  match: `${provider}.*`,
+                  effect: 'allow'
+                })
+                approveTool(callId, true)
+              }}
+            >
+              Any {providerLabel} tool, everywhere
+            </button>
+            {projectPath ? (
+              <button
+                className="allow-cell"
+                onClick={() => {
+                  addPermissionRule({
+                    scope: { projectPath },
+                    action: 'integration',
+                    match: `${provider}.*`,
+                    effect: 'allow'
+                  })
+                  approveTool(callId, true)
+                }}
+              >
+                Any {providerLabel} tool, this project only
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        <button className="approval-opt" onClick={deny}>
+          {isFirstPending ? <span className="opt-num">3</span> : null}
           No, deny it
           <span className="opt-hint">the agent is told you declined</span>
         </button>

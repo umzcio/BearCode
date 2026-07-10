@@ -9,8 +9,15 @@ import type {
   ConversationMeta,
   EffortLevel,
   Event,
+  GithubDeviceStart,
+  IntegrationProvider,
+  IntegrationStatus,
   MentionRef,
   ModelRef,
+  DiscoveredMcpServer,
+  McpServerConfig,
+  McpServerStatus,
+  McpServerView,
   PermissionMode,
   PermissionRulesInfo,
   PlanReviewResolveResult,
@@ -19,6 +26,7 @@ import type {
   ProjectSettings,
   ProviderId,
   RunState,
+  SmitheryHit,
   TranscribeMeta
 } from '../shared/types'
 
@@ -191,6 +199,60 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:browser:set-bounds', b),
     show: (): Promise<void> => ipcRenderer.invoke('bearcode:browser:show'),
     hide: (): Promise<void> => ipcRenderer.invoke('bearcode:browser:hide')
+  },
+  mcp: {
+    list: (projectPath: string | null): Promise<McpServerView[]> =>
+      ipcRenderer.invoke('bearcode:mcp:list', projectPath),
+    ensureConnected: (projectPath: string | null): Promise<McpServerView[]> =>
+      ipcRenderer.invoke('bearcode:mcp:ensure-connected', projectPath),
+    add: (cfg: McpServerConfig, projectPath: string | null): Promise<void> =>
+      ipcRenderer.invoke('bearcode:mcp:add', cfg, projectPath),
+    remove: (
+      name: string,
+      source: 'global' | 'project',
+      projectPath: string | null
+    ): Promise<void> => ipcRenderer.invoke('bearcode:mcp:remove', name, source, projectPath),
+    setEnabled: (name: string, on: boolean, projectPath: string | null): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:set-enabled', name, on, projectPath),
+    trust: (name: string, projectPath: string): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:trust', name, projectPath),
+    trustGlobal: (name: string): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:trust-global', name),
+    spawnConsent: (name: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:mcp:spawn-consent', name),
+    reconnect: (name: string, projectPath: string | null): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:reconnect', name, projectPath),
+    authorize: (name: string, projectPath: string | null): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:authorize', name, projectPath),
+    status: (name: string): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:status', name),
+    setSecret: (vaultKey: string, value: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:mcp:set-secret', vaultKey, value),
+    smitherySearch: (query: string): Promise<SmitheryHit[]> =>
+      ipcRenderer.invoke('bearcode:mcp:smithery-search', query),
+    smitheryInstall: (id: string, projectPath: string | null): Promise<McpServerView> =>
+      ipcRenderer.invoke('bearcode:mcp:smithery-install', id, projectPath),
+    discover: (projectPath: string | null): Promise<DiscoveredMcpServer[]> =>
+      ipcRenderer.invoke('bearcode:mcp:discover', projectPath),
+    import: (
+      servers: DiscoveredMcpServer[],
+      projectPath: string | null
+    ): Promise<McpServerView[]> => ipcRenderer.invoke('bearcode:mcp:import', servers, projectPath)
+  },
+  integrations: {
+    status: (): Promise<IntegrationStatus[]> => ipcRenderer.invoke('bearcode:integrations:status'),
+    githubDeviceStart: (): Promise<GithubDeviceStart> =>
+      ipcRenderer.invoke('bearcode:integrations:github-device-start'),
+    githubDevicePoll: (deviceCode: string, interval: number): Promise<IntegrationStatus> =>
+      ipcRenderer.invoke('bearcode:integrations:github-device-poll', deviceCode, interval),
+    cancelGithubDevice: (deviceCode: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:integrations:cancel-github-device', deviceCode),
+    githubConnectPat: (token: string): Promise<IntegrationStatus> =>
+      ipcRenderer.invoke('bearcode:integrations:github-connect-pat', token),
+    connectBitbucket: (username: string, appPassword: string): Promise<IntegrationStatus> =>
+      ipcRenderer.invoke('bearcode:integrations:connect-bitbucket', username, appPassword),
+    disconnect: (provider: IntegrationProvider): Promise<void> =>
+      ipcRenderer.invoke('bearcode:integrations:disconnect', provider)
   },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>
