@@ -55,6 +55,7 @@ import { loadServers, isEnabled as isMcpEnabled, isTrusted as isMcpTrusted } fro
 import { sanitizeToolSchema } from '../mcp/schemaSanitize'
 import { getIntegration } from '../integrations/store'
 import { githubApi } from '../integrations/github'
+import { bitbucketApi } from '../integrations/bitbucket'
 
 const commandSchema = z.object({
   command: z.string().describe('Shell command to run in the workspace folder.'),
@@ -1205,21 +1206,40 @@ const githubCreatePrSchema = z.object({
   base: z.string().describe('The branch you want the changes merged into (e.g. "main").'),
   body: z.string().optional().describe('Pull request description (markdown).')
 })
+const bitbucketListReposSchema = z.object({
+  workspace: z.string().describe('Bitbucket workspace ID (slug) to list repositories from.')
+})
+const bitbucketCreatePrSchema = z.object({
+  workspace: z.string().describe('Bitbucket workspace ID (slug).'),
+  repoSlug: z.string().describe('Repository slug.'),
+  title: z.string().describe('Pull request title.'),
+  sourceBranch: z.string().describe('The branch containing your changes (e.g. "feature-x").'),
+  destinationBranch: z
+    .string()
+    .optional()
+    .describe('The branch to merge into (defaults to the repository main branch).'),
+  description: z.string().optional().describe('Pull request description (markdown).')
+})
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- Zod-inferred tool() return type
 export function buildIntegrationTools(conversationId: string) {
   const tools: unknown[] = []
-  // Presence gate: no github_* tool exists unless GitHub is connected. The
-  // model never sees a tool it cannot use, and a disconnected provider can
-  // never be reached through the API helper.
-  if (getIntegration('github').connected !== true) return tools
   const projectPath = projectOf(conversationId)
 
-  // One gated github_* tool. `toolName` is the bare action ('list_repos') used
-  // for the permission match + the canonical action label; `github_<toolName>`
-  // is the provider tool name the model calls. `run` performs the actual API
-  // call once the gate allows it.
-  const makeGithubTool = (
+  // One gated `<provider>_*` tool. `provider`/`toolName` are the bare
+  // provider/action ('github'/'list_repos') used for the permission match +
+  // the canonical action label; `<provider>_<toolName>` is the tool name the
+  // model calls. `run` performs the actual API call once the gate allows it.
+  // Mirrors buildMcpTools' gate order exactly: denied-replay pin FIRST (a
+  // card the user denied must stay denied on keyed-resume replay even if the
+  // decision has since flipped to 'allow'), then a live connection recheck (a
+  // mid-run disconnect is honored on the very next call — the tool list is
+  // built once per turn, so a stale/absent token must never reach the API),
+  // then the rules-engine decision, then — only for 'prompt' — interrupt()
+  // pauses the graph for approval.
+  const makeIntegrationTool = (
+    provider: 'github' | 'bitbucket',
+    providerLabel: string,
     toolName: string,
     readOnly: boolean,
     description: string,
@@ -1228,25 +1248,19 @@ export function buildIntegrationTools(conversationId: string) {
     run: (args: Record<string, unknown>) => Promise<string>
     // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
   ) => {
-    const fullName = `github_${toolName}`
-    const action = `github.${toolName}`
+    const fullName = `${provider}_${toolName}`
+    const action = `${provider}.${toolName}`
     return tool(
       async (args: Record<string, unknown>, config?: unknown): Promise<string> => {
         const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
-        // Denied-replay pin FIRST (mirrors buildMcpTools): a card the user
-        // denied must stay denied on keyed-resume replay even if the decision
-        // has since flipped to 'allow'.
         if (takeDeniedIntegrationReplayPin(conversationId, toolCallId, action)) {
           return INTEGRATION_DENIED_MESSAGE
         }
-        // Live recheck: the user can disconnect GitHub mid-run. The tool list
-        // is built once, so re-read the connection here and refuse if it is
-        // gone — never reach the API with a stale/absent token.
-        if (getIntegration('github').connected !== true) {
-          return `Blocked: ${action} — GitHub is no longer connected for this conversation.`
+        if (getIntegration(provider).connected !== true) {
+          return `Blocked: ${action} — ${providerLabel} is no longer connected for this conversation.`
         }
         const decision = evaluateIntegrationForConversation(
-          'github',
+          provider,
           toolName,
           readOnly,
           conversationId,
@@ -1270,135 +1284,241 @@ export function buildIntegrationTools(conversationId: string) {
       { name: fullName, description, schema }
     )
   }
+  // Backwards-compatible alias for the existing GitHub tool bodies below.
+  const makeGithubTool = (
+    toolName: string,
+    readOnly: boolean,
+    description: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    schema: any,
+    run: (args: Record<string, unknown>) => Promise<string>
+    // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+  ) => makeIntegrationTool('github', 'GitHub', toolName, readOnly, description, schema, run)
 
-  tools.push(
-    makeGithubTool(
-      'list_repos',
-      true,
-      'List the GitHub repositories the connected account can access (most recently updated first).',
-      githubListReposSchema,
-      async (args): Promise<string> => {
-        const perPage = typeof args.perPage === 'number' ? args.perPage : 30
-        const res = await githubApi(`/user/repos?per_page=${perPage}&sort=updated`)
-        if (!res.ok) return `GitHub API error (${res.status}) while listing repositories.`
-        const repos = (await res.json()) as Array<{
-          full_name: string
-          private: boolean
-          description: string | null
-          html_url: string
-        }>
-        return JSON.stringify(
-          repos.map((r) => ({
-            full_name: r.full_name,
-            private: r.private,
-            description: r.description,
-            url: r.html_url
-          })),
-          null,
-          2
-        )
-      }
-    )
-  )
-
-  tools.push(
-    makeGithubTool(
-      'list_prs',
-      true,
-      'List pull requests for a GitHub repository.',
-      githubListPrsSchema,
-      async (args): Promise<string> => {
-        const { owner, repo } = args as { owner: string; repo: string }
-        const state = typeof args.state === 'string' ? args.state : 'open'
-        const res = await githubApi(`/repos/${owner}/${repo}/pulls?state=${state}`)
-        if (!res.ok) return `GitHub API error (${res.status}) while listing pull requests.`
-        const prs = (await res.json()) as Array<{
-          number: number
-          title: string
-          state: string
-          html_url: string
-          user?: { login?: string }
-        }>
-        return JSON.stringify(
-          prs.map((p) => ({
-            number: p.number,
-            title: p.title,
-            state: p.state,
-            author: p.user?.login,
-            url: p.html_url
-          })),
-          null,
-          2
-        )
-      }
-    )
-  )
-
-  tools.push(
-    makeGithubTool(
-      'get_issue',
-      true,
-      'Get a single GitHub issue (or pull request) by number.',
-      githubGetIssueSchema,
-      async (args): Promise<string> => {
-        const { owner, repo, number } = args as { owner: string; repo: string; number: number }
-        const res = await githubApi(`/repos/${owner}/${repo}/issues/${number}`)
-        if (!res.ok) return `GitHub API error (${res.status}) while fetching the issue.`
-        const issue = (await res.json()) as {
-          number: number
-          title: string
-          state: string
-          body: string | null
-          html_url: string
-          user?: { login?: string }
+  // Presence gate: no github_* tool exists unless GitHub is connected. The
+  // model never sees a tool it cannot use, and a disconnected provider can
+  // never be reached through the API helper.
+  if (getIntegration('github').connected === true) {
+    tools.push(
+      makeGithubTool(
+        'list_repos',
+        true,
+        'List the GitHub repositories the connected account can access (most recently updated first).',
+        githubListReposSchema,
+        async (args): Promise<string> => {
+          const perPage = typeof args.perPage === 'number' ? args.perPage : 30
+          const res = await githubApi(`/user/repos?per_page=${perPage}&sort=updated`)
+          if (!res.ok) return `GitHub API error (${res.status}) while listing repositories.`
+          const repos = (await res.json()) as Array<{
+            full_name: string
+            private: boolean
+            description: string | null
+            html_url: string
+          }>
+          return JSON.stringify(
+            repos.map((r) => ({
+              full_name: r.full_name,
+              private: r.private,
+              description: r.description,
+              url: r.html_url
+            })),
+            null,
+            2
+          )
         }
-        return JSON.stringify(
-          {
-            number: issue.number,
-            title: issue.title,
-            state: issue.state,
-            author: issue.user?.login,
-            body: issue.body,
-            url: issue.html_url
-          },
-          null,
-          2
-        )
-      }
+      )
     )
-  )
 
-  tools.push(
-    makeGithubTool(
-      'create_pr',
-      false,
-      'Open a new pull request on a GitHub repository.',
-      githubCreatePrSchema,
-      async (args): Promise<string> => {
-        const { owner, repo, title, head, base } = args as {
-          owner: string
-          repo: string
-          title: string
-          head: string
-          base: string
+    tools.push(
+      makeGithubTool(
+        'list_prs',
+        true,
+        'List pull requests for a GitHub repository.',
+        githubListPrsSchema,
+        async (args): Promise<string> => {
+          const { owner, repo } = args as { owner: string; repo: string }
+          const state = typeof args.state === 'string' ? args.state : 'open'
+          const res = await githubApi(`/repos/${owner}/${repo}/pulls?state=${state}`)
+          if (!res.ok) return `GitHub API error (${res.status}) while listing pull requests.`
+          const prs = (await res.json()) as Array<{
+            number: number
+            title: string
+            state: string
+            html_url: string
+            user?: { login?: string }
+          }>
+          return JSON.stringify(
+            prs.map((p) => ({
+              number: p.number,
+              title: p.title,
+              state: p.state,
+              author: p.user?.login,
+              url: p.html_url
+            })),
+            null,
+            2
+          )
         }
-        const body = typeof args.body === 'string' ? args.body : undefined
-        const res = await githubApi(`/repos/${owner}/${repo}/pulls`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, head, base, ...(body !== undefined ? { body } : {}) })
-        })
-        if (!res.ok) {
-          const detail = (await res.json().catch(() => ({}))) as { message?: string }
-          return `GitHub API error (${res.status}) while creating the pull request${
-            detail.message ? `: ${detail.message}` : ''
-          }.`
-        }
-        const pr = (await res.json()) as { number: number; html_url: string }
-        return `Opened pull request #${pr.number}: ${pr.html_url}`
-      }
+      )
     )
-  )
+
+    tools.push(
+      makeGithubTool(
+        'get_issue',
+        true,
+        'Get a single GitHub issue (or pull request) by number.',
+        githubGetIssueSchema,
+        async (args): Promise<string> => {
+          const { owner, repo, number } = args as { owner: string; repo: string; number: number }
+          const res = await githubApi(`/repos/${owner}/${repo}/issues/${number}`)
+          if (!res.ok) return `GitHub API error (${res.status}) while fetching the issue.`
+          const issue = (await res.json()) as {
+            number: number
+            title: string
+            state: string
+            body: string | null
+            html_url: string
+            user?: { login?: string }
+          }
+          return JSON.stringify(
+            {
+              number: issue.number,
+              title: issue.title,
+              state: issue.state,
+              author: issue.user?.login,
+              body: issue.body,
+              url: issue.html_url
+            },
+            null,
+            2
+          )
+        }
+      )
+    )
+
+    tools.push(
+      makeGithubTool(
+        'create_pr',
+        false,
+        'Open a new pull request on a GitHub repository.',
+        githubCreatePrSchema,
+        async (args): Promise<string> => {
+          const { owner, repo, title, head, base } = args as {
+            owner: string
+            repo: string
+            title: string
+            head: string
+            base: string
+          }
+          const body = typeof args.body === 'string' ? args.body : undefined
+          const res = await githubApi(`/repos/${owner}/${repo}/pulls`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, head, base, ...(body !== undefined ? { body } : {}) })
+          })
+          if (!res.ok) {
+            const detail = (await res.json().catch(() => ({}))) as { message?: string }
+            return `GitHub API error (${res.status}) while creating the pull request${
+              detail.message ? `: ${detail.message}` : ''
+            }.`
+          }
+          const pr = (await res.json()) as { number: number; html_url: string }
+          return `Opened pull request #${pr.number}: ${pr.html_url}`
+        }
+      )
+    )
+  }
+
+  // Presence gate: no bitbucket_* tool exists unless Bitbucket is connected
+  // (design §5/§O4). Same shape as the GitHub block above.
+  if (getIntegration('bitbucket').connected === true) {
+    const makeBitbucketTool = (
+      toolName: string,
+      readOnly: boolean,
+      description: string,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      schema: any,
+      run: (args: Record<string, unknown>) => Promise<string>
+      // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+    ) => makeIntegrationTool('bitbucket', 'Bitbucket', toolName, readOnly, description, schema, run)
+
+    tools.push(
+      makeBitbucketTool(
+        'list_repos',
+        true,
+        'List the Bitbucket Cloud repositories in a workspace that the connected account can access.',
+        bitbucketListReposSchema,
+        async (args): Promise<string> => {
+          const { workspace } = args as { workspace: string }
+          const res = await bitbucketApi(
+            `/repositories/${encodeURIComponent(workspace)}?role=member`
+          )
+          if (!res.ok) return `Bitbucket API error (${res.status}) while listing repositories.`
+          const body = (await res.json()) as {
+            values: Array<{
+              full_name: string
+              is_private: boolean
+              description: string | null
+              links?: { html?: { href?: string } }
+            }>
+          }
+          return JSON.stringify(
+            body.values.map((r) => ({
+              full_name: r.full_name,
+              private: r.is_private,
+              description: r.description,
+              url: r.links?.html?.href
+            })),
+            null,
+            2
+          )
+        }
+      )
+    )
+
+    tools.push(
+      makeBitbucketTool(
+        'create_pr',
+        false,
+        'Open a new pull request on a Bitbucket Cloud repository.',
+        bitbucketCreatePrSchema,
+        async (args): Promise<string> => {
+          const { workspace, repoSlug, title, sourceBranch } = args as {
+            workspace: string
+            repoSlug: string
+            title: string
+            sourceBranch: string
+          }
+          const destinationBranch =
+            typeof args.destinationBranch === 'string' ? args.destinationBranch : undefined
+          const description = typeof args.description === 'string' ? args.description : undefined
+          const res = await bitbucketApi(
+            `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                title,
+                source: { branch: { name: sourceBranch } },
+                ...(destinationBranch !== undefined
+                  ? { destination: { branch: { name: destinationBranch } } }
+                  : {}),
+                ...(description !== undefined ? { description } : {})
+              })
+            }
+          )
+          if (!res.ok) {
+            const detail = (await res.json().catch(() => ({}))) as { error?: { message?: string } }
+            return `Bitbucket API error (${res.status}) while creating the pull request${
+              detail.error?.message ? `: ${detail.error.message}` : ''
+            }.`
+          }
+          const pr = (await res.json()) as { id: number; links?: { html?: { href?: string } } }
+          return `Opened pull request #${pr.id}: ${pr.links?.html?.href ?? ''}`.trim()
+        }
+      )
+    )
+  }
 
   return tools
 }

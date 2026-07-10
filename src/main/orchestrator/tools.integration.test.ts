@@ -58,10 +58,16 @@ vi.mock('../mcp/manager', () => ({
   }
 }))
 vi.mock('../integrations/store', () => ({
-  getIntegration: vi.fn(() => ({ provider: 'github', connected: true }))
+  getIntegration: vi.fn((provider: string) => ({
+    provider,
+    connected: provider === 'github'
+  }))
 }))
 vi.mock('../integrations/github', () => ({
   githubApi: vi.fn(async () => ({ ok: true, status: 200, json: async () => [] }))
+}))
+vi.mock('../integrations/bitbucket', () => ({
+  bitbucketApi: vi.fn(async () => ({ ok: true, status: 200, json: async () => [] }))
 }))
 vi.mock('@langchain/langgraph', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@langchain/langgraph')>()),
@@ -71,6 +77,7 @@ vi.mock('@langchain/langgraph', async (importOriginal) => ({
 import { evaluateIntegrationForConversation } from '../permissions'
 import { getIntegration } from '../integrations/store'
 import { githubApi } from '../integrations/github'
+import { bitbucketApi } from '../integrations/bitbucket'
 import { interrupt } from '@langchain/langgraph'
 import {
   buildIntegrationTools,
@@ -90,16 +97,21 @@ const integrationTools = (): Record<string, InvokableTool> => {
 
 beforeEach(() => {
   clearDeniedReplayPins('convo')
-  vi.mocked(getIntegration).mockReturnValue({ provider: 'github', connected: true })
+  vi.mocked(getIntegration).mockImplementation(
+    (provider: string) => ({ provider, connected: provider === 'github' }) as never
+  )
   vi.mocked(evaluateIntegrationForConversation).mockReturnValue('run')
   vi.mocked(githubApi)
+    .mockReset()
+    .mockResolvedValue({ ok: true, status: 200, json: async () => [] } as unknown as Response)
+  vi.mocked(bitbucketApi)
     .mockReset()
     .mockResolvedValue({ ok: true, status: 200, json: async () => [] } as unknown as Response)
   vi.mocked(interrupt).mockReset()
 })
 
 describe('buildIntegrationTools presence gate', () => {
-  it('returns [] when GitHub is not connected', () => {
+  it('returns [] when neither GitHub nor Bitbucket is connected', () => {
     vi.mocked(getIntegration).mockReturnValue({ provider: 'github', connected: false })
     expect(buildIntegrationTools('convo')).toEqual([])
   })
@@ -205,6 +217,110 @@ describe('per-call recheck (connection lost mid-run)', () => {
     const out = await t.invoke({})
     expect(out).toMatch(/no longer connected/i)
     expect(githubApi).not.toHaveBeenCalled()
+  })
+})
+
+describe('bitbucket_* presence gate + gate + call', () => {
+  const withBitbucketConnected = (): void => {
+    vi.mocked(getIntegration).mockImplementation(
+      (provider: string) => ({ provider, connected: provider === 'bitbucket' }) as never
+    )
+  }
+
+  it('is absent when Bitbucket is not connected (default mock: only GitHub connected)', () => {
+    const names = Object.keys(integrationTools())
+    expect(names).not.toContain('bitbucket_list_repos')
+    expect(names).not.toContain('bitbucket_create_pr')
+  })
+
+  it('exposes the two bitbucket_* tools when connected', () => {
+    withBitbucketConnected()
+    const names = Object.keys(integrationTools()).sort()
+    expect(names).toEqual(['bitbucket_create_pr', 'bitbucket_list_repos'].sort())
+  })
+
+  it('calls bitbucketApi and returns output on allow (list_repos)', async () => {
+    withBitbucketConnected()
+    vi.mocked(bitbucketApi).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        values: [{ full_name: 'team/repo', is_private: true, description: 'd' }]
+      })
+    } as unknown as Response)
+    const out = await integrationTools()['bitbucket_list_repos'].invoke({ workspace: 'team' })
+    expect(bitbucketApi).toHaveBeenCalledWith('/repositories/team?role=member')
+    expect(out).toContain('team/repo')
+  })
+
+  it('tags list_repos read-only and create_pr as a mutation', async () => {
+    withBitbucketConnected()
+    vi.mocked(bitbucketApi).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ values: [] })
+    } as unknown as Response)
+    await integrationTools()['bitbucket_list_repos'].invoke({ workspace: 'team' })
+    await integrationTools()['bitbucket_create_pr'].invoke({
+      workspace: 'team',
+      repoSlug: 'repo',
+      title: 't',
+      sourceBranch: 'feature'
+    })
+    const calls = vi.mocked(evaluateIntegrationForConversation).mock.calls
+    const readOnlyOf = (tool: string): boolean | undefined => calls.find((c) => c[1] === tool)?.[2]
+    expect(readOnlyOf('list_repos')).toBe(true)
+    expect(readOnlyOf('create_pr')).toBe(false)
+  })
+
+  it('sends the source/destination branch payload and returns the PR URL on create_pr', async () => {
+    withBitbucketConnected()
+    vi.mocked(bitbucketApi).mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({ id: 9, links: { html: { href: 'pr-url' } } })
+    } as unknown as Response)
+    const out = await integrationTools()['bitbucket_create_pr'].invoke({
+      workspace: 'team',
+      repoSlug: 'repo',
+      title: 't',
+      sourceBranch: 'feature',
+      destinationBranch: 'main'
+    })
+    expect(bitbucketApi).toHaveBeenCalledWith(
+      '/repositories/team/repo/pullrequests',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          title: 't',
+          source: { branch: { name: 'feature' } },
+          destination: { branch: { name: 'main' } }
+        })
+      })
+    )
+    expect(out).toContain('pr-url')
+  })
+
+  it('returns a blocked message and never calls the API on block', async () => {
+    withBitbucketConnected()
+    vi.mocked(evaluateIntegrationForConversation).mockReturnValue('block')
+    const out = await integrationTools()['bitbucket_create_pr'].invoke({
+      workspace: 'team',
+      repoSlug: 'repo',
+      title: 't',
+      sourceBranch: 'feature'
+    })
+    expect(out).toMatch(/Blocked/)
+    expect(bitbucketApi).not.toHaveBeenCalled()
+  })
+
+  it('blocks and never calls the API when Bitbucket disconnects after build', async () => {
+    withBitbucketConnected()
+    const t = integrationTools()['bitbucket_list_repos']
+    vi.mocked(getIntegration).mockReturnValue({ provider: 'bitbucket', connected: false })
+    const out = await t.invoke({ workspace: 'team' })
+    expect(out).toMatch(/no longer connected/i)
+    expect(bitbucketApi).not.toHaveBeenCalled()
   })
 })
 
