@@ -181,6 +181,8 @@ export type ToolName =
   | 'github_list_prs'
   | 'github_get_issue'
   | 'github_create_pr'
+  | 'bitbucket_list_repos'
+  | 'bitbucket_create_pr'
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
@@ -301,6 +303,31 @@ export interface SmitheryHit {
   iconUrl?: string | null
   useCount?: number
   verified?: boolean
+}
+
+// Integrations (GitHub/Bitbucket, Task 11): the wire-facing read model for a
+// provider's connection state. Mirrors main/integrations/store.ts's
+// IntegrationState exactly (structurally, not by import -- main's copy owns
+// the source of truth) but lives here since it crosses the IPC boundary.
+// NEVER carries a token: the vaulted token has no getter on this surface at
+// all (design §2/§8, matching the mcp secrets contract).
+export type IntegrationProvider = 'github' | 'bitbucket'
+export interface IntegrationStatus {
+  provider: IntegrationProvider
+  connected: boolean
+  method?: 'device' | 'pat' | 'app-password'
+  login?: string
+  scopes?: string[]
+  connectedAt?: number
+}
+
+// GitHub Device Flow start response (Task 7 githubDeviceStart), surfaced to
+// the Integrations page's connect modal so the user can see + enter the code.
+export interface GithubDeviceStart {
+  userCode: string
+  verificationUri: string
+  deviceCode: string
+  interval: number
 }
 
 // ---- Artifacts (Ba) ----
@@ -990,6 +1017,24 @@ export interface BearcodeApi {
     // other server.
     discover(projectPath: string | null): Promise<DiscoveredMcpServer[]>
     import(servers: DiscoveredMcpServer[], projectPath: string | null): Promise<McpServerView[]>
+  }
+  // Integrations (GitHub/Bitbucket, Task 11): status read model + the connect/
+  // disconnect flows. No token ever crosses this surface -- IntegrationStatus
+  // carries only connected/method/login/scopes/connectedAt, matching the mcp
+  // secrets contract (setSecret is write-only there; there is no getter here
+  // at all).
+  integrations: {
+    status(): Promise<IntegrationStatus[]>
+    // Starts a GitHub Device Flow: returns the user code + verification URL to
+    // show, and the device code + poll interval to pass to githubDevicePoll.
+    githubDeviceStart(): Promise<GithubDeviceStart>
+    // Blocks (main-side) until the user approves/denies at github.com/login/
+    // device or the code expires; honors slow_down internally. Resolves the
+    // connected status on success, vaulting the token main-side.
+    githubDevicePoll(deviceCode: string, interval: number): Promise<IntegrationStatus>
+    githubConnectPat(token: string): Promise<IntegrationStatus>
+    connectBitbucket(username: string, appPassword: string): Promise<IntegrationStatus>
+    disconnect(provider: IntegrationProvider): Promise<void>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

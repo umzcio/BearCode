@@ -48,6 +48,14 @@ beforeEach(() => {
       setSecret: vi.fn(() => Promise.resolve()),
       smitherySearch: vi.fn(() => Promise.resolve([])),
       smitheryInstall: vi.fn()
+    },
+    integrations: {
+      status: vi.fn(() => Promise.resolve([])),
+      githubDeviceStart: vi.fn(),
+      githubDevicePoll: vi.fn(),
+      githubConnectPat: vi.fn(),
+      connectBitbucket: vi.fn(),
+      disconnect: vi.fn(() => Promise.resolve())
     }
   }
   useAppStore.setState({
@@ -160,9 +168,9 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
 
   it('each remaining Customize tab shows an intentional placeholder', () => {
     render(<SettingsModal />)
-    // Browser (F4) and Connectors (Task 9) are now real pages; the rest of
-    // Customize is still WIP.
-    for (const label of ['Skills', 'Memory', 'Integrations']) {
+    // Browser (F4), Connectors (Task 9), and Integrations (Task 11) are now
+    // real pages; the rest of Customize is still WIP.
+    for (const label of ['Skills', 'Memory']) {
       fireEvent.click(screen.getByText(label))
       expect(document.querySelector('.coming-block')).toBeTruthy()
     }
@@ -180,6 +188,13 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
     fireEvent.click(within(rail()).getByText('Connectors'))
     expect(document.querySelector('.coming-block')).toBeNull()
     expect(screen.getByRole('switch', { name: /enable connectors/i })).toBeTruthy()
+  })
+
+  it('the Integrations tab renders the real Integrations page (not a placeholder)', () => {
+    render(<SettingsModal />)
+    fireEvent.click(within(rail()).getByText('Integrations'))
+    expect(document.querySelector('.coming-block')).toBeNull()
+    expect(screen.getByRole('button', { name: /connect github/i })).toBeTruthy()
   })
 
   it('never renders the text "coming soon"', () => {

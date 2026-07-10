@@ -9,7 +9,10 @@ import type {
   ConversationMeta,
   DiscoveredMcpServer,
   Event,
+  GithubDeviceStart,
   HistoryHit,
+  IntegrationProvider,
+  IntegrationStatus,
   ManualRuleInfo,
   McpServerConfig,
   McpServerStatus,
@@ -64,6 +67,14 @@ import {
   completeMerge,
   abortMerge
 } from './worktree/merge'
+import {
+  getIntegration,
+  setIntegration,
+  saveIntegrationToken,
+  disconnect as disconnectIntegration
+} from './integrations/store'
+import { githubDeviceStart, githubDevicePoll, githubConnectPat } from './integrations/github'
+import { bitbucketConnect } from './integrations/bitbucket'
 import { jailPath } from './orchestrator/fsBackend'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
@@ -887,6 +898,98 @@ export function registerIpc(): void {
       imported.push(mcpServerView(cfg, proj))
     }
     return imported
+  })
+
+  // Integrations (GitHub/Bitbucket, Task 11): status read model + connect/
+  // disconnect. NO token ever crosses this IPC -- githubDeviceStart/Poll,
+  // githubConnectPat and bitbucketConnect only ever return the account
+  // login/scopes; the raw token is vaulted here (saveIntegrationToken) and
+  // never returned to the renderer, matching mcp:set-secret's write-only
+  // contract.
+  ipcMain.handle('bearcode:integrations:status', (): IntegrationStatus[] => {
+    return (['github', 'bitbucket'] satisfies IntegrationProvider[]).map((p) => getIntegration(p))
+  })
+
+  ipcMain.handle(
+    'bearcode:integrations:github-device-start',
+    async (): Promise<GithubDeviceStart> => githubDeviceStart()
+  )
+
+  ipcMain.handle(
+    'bearcode:integrations:github-device-poll',
+    async (_e, deviceCode: unknown, interval: unknown): Promise<IntegrationStatus> => {
+      if (typeof deviceCode !== 'string' || typeof interval !== 'number') {
+        throw new Error('Invalid GitHub device-poll arguments.')
+      }
+      const { token, login, scopes } = await githubDevicePoll(deviceCode, interval)
+      saveIntegrationToken('github', { token })
+      const state: IntegrationStatus = {
+        provider: 'github',
+        connected: true,
+        method: 'device',
+        login,
+        scopes,
+        connectedAt: Date.now()
+      }
+      setIntegration('github', state)
+      return state
+    }
+  )
+
+  ipcMain.handle(
+    'bearcode:integrations:github-connect-pat',
+    async (_e, token: unknown): Promise<IntegrationStatus> => {
+      if (typeof token !== 'string' || token.trim().length === 0) {
+        throw new Error('A GitHub personal access token is required.')
+      }
+      const trimmed = token.trim()
+      const { login, scopes } = await githubConnectPat(trimmed)
+      saveIntegrationToken('github', { token: trimmed })
+      const state: IntegrationStatus = {
+        provider: 'github',
+        connected: true,
+        method: 'pat',
+        login,
+        scopes,
+        connectedAt: Date.now()
+      }
+      setIntegration('github', state)
+      return state
+    }
+  )
+
+  ipcMain.handle(
+    'bearcode:integrations:connect-bitbucket',
+    async (_e, username: unknown, appPassword: unknown): Promise<IntegrationStatus> => {
+      if (
+        typeof username !== 'string' ||
+        username.trim().length === 0 ||
+        typeof appPassword !== 'string' ||
+        appPassword.trim().length === 0
+      ) {
+        throw new Error('A Bitbucket username and app password are required.')
+      }
+      const trimmedUser = username.trim()
+      const trimmedPass = appPassword.trim()
+      const { username: canonical } = await bitbucketConnect(trimmedUser, trimmedPass)
+      saveIntegrationToken('bitbucket', { token: trimmedPass })
+      const state: IntegrationStatus = {
+        provider: 'bitbucket',
+        connected: true,
+        method: 'app-password',
+        login: canonical,
+        connectedAt: Date.now()
+      }
+      setIntegration('bitbucket', state)
+      return state
+    }
+  )
+
+  ipcMain.handle('bearcode:integrations:disconnect', (_e, provider: unknown) => {
+    if (provider !== 'github' && provider !== 'bitbucket') {
+      throw new Error(`Invalid integration provider: ${String(provider)}`)
+    }
+    disconnectIntegration(provider)
   })
 
   // navigator.clipboard in the sandboxed renderer is blocked by our tight

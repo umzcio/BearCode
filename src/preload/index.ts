@@ -9,6 +9,9 @@ import type {
   ConversationMeta,
   EffortLevel,
   Event,
+  GithubDeviceStart,
+  IntegrationProvider,
+  IntegrationStatus,
   MentionRef,
   ModelRef,
   DiscoveredMcpServer,
@@ -233,6 +236,19 @@ const bearcode: BearcodeApi = {
       servers: DiscoveredMcpServer[],
       projectPath: string | null
     ): Promise<McpServerView[]> => ipcRenderer.invoke('bearcode:mcp:import', servers, projectPath)
+  },
+  integrations: {
+    status: (): Promise<IntegrationStatus[]> => ipcRenderer.invoke('bearcode:integrations:status'),
+    githubDeviceStart: (): Promise<GithubDeviceStart> =>
+      ipcRenderer.invoke('bearcode:integrations:github-device-start'),
+    githubDevicePoll: (deviceCode: string, interval: number): Promise<IntegrationStatus> =>
+      ipcRenderer.invoke('bearcode:integrations:github-device-poll', deviceCode, interval),
+    githubConnectPat: (token: string): Promise<IntegrationStatus> =>
+      ipcRenderer.invoke('bearcode:integrations:github-connect-pat', token),
+    connectBitbucket: (username: string, appPassword: string): Promise<IntegrationStatus> =>
+      ipcRenderer.invoke('bearcode:integrations:connect-bitbucket', username, appPassword),
+    disconnect: (provider: IntegrationProvider): Promise<void> =>
+      ipcRenderer.invoke('bearcode:integrations:disconnect', provider)
   },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>
