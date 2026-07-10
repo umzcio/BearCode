@@ -51,6 +51,7 @@ import { evaluateBrowserAction, browserActionLabel } from '../browser/guard'
 import type { DomainPolicy } from '../browser/policy'
 import { mcpManager } from '../mcp/manager'
 import { loadServers, isEnabled as isMcpEnabled, isTrusted as isMcpTrusted } from '../mcp/store'
+import { sanitizeToolSchema } from '../mcp/schemaSanitize'
 
 const commandSchema = z.object({
   command: z.string().describe('Shell command to run in the workspace folder.'),
@@ -1048,6 +1049,25 @@ export function buildMcpTools(conversationId: string) {
     const serverSource = cfg.source
     for (const info of mcpManager.listTools(server)) {
       const { name: toolName, description, readOnlyHint } = info
+      // Present the server's REAL input schema to the model (typed args), but
+      // serialize + sanitize it to a plain JSON Schema first: zod v4's
+      // toJSONSchema emits `propertyNames`/`additionalProperties` for dict-typed
+      // params, which Gemini's function-declaration API rejects (400, killing
+      // every tool on the turn). sanitizeToolSchema strips those constraint-only
+      // keywords; tool() accepts the resulting JSON Schema and passes it to every
+      // provider as-is. Schemaless servers degrade to a permissive object schema.
+      const rawSchema = mcpManager.toolSchema(server, toolName)
+      let jsonSchema: unknown
+      if (rawSchema && typeof rawSchema === 'object') {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          jsonSchema = z.toJSONSchema(rawSchema as any)
+        } catch {
+          jsonSchema = rawSchema // already a JSON Schema (not a zod type)
+        }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const toolSchema = sanitizeToolSchema(jsonSchema) as any
       tools.push(
         tool(
           async (args: unknown, config?: unknown): Promise<string> => {
@@ -1095,14 +1115,9 @@ export function buildMcpTools(conversationId: string) {
           },
           {
             name: `mcp__${server}__${toolName}`,
-            description:
-              (description || `MCP tool "${toolName}" from server "${server}".`) +
-              ' (v1: accepts a free-form JSON object of arguments -- consult the description above for the expected shape.)',
-            // v1: a faithful per-arg zod schema would require translating each
-            // server's arbitrary JSON-schema input at registration time; a
-            // passthrough record is accepted here (per plan) and is faithfully
-            // noted in the description above.
-            schema: z.record(z.string(), z.any())
+            description: description || `MCP tool "${toolName}" from server "${server}".`,
+            // Pre-sanitized JSON Schema (see above) — provider-safe, typed args.
+            schema: toolSchema
           }
         )
       )

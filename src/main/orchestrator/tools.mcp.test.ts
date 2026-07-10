@@ -51,6 +51,7 @@ vi.mock('../mcp/store', () => ({
 vi.mock('../mcp/manager', () => ({
   mcpManager: {
     listTools: vi.fn(() => [{ name: 'get_x', description: 'd', readOnlyHint: false }]),
+    toolSchema: vi.fn(() => undefined),
     callTool: vi.fn(async () => 'x-out')
   }
 }))

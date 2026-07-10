@@ -29,6 +29,13 @@ interface McpAdapterTool {
   name: string
   description?: string
   metadata?: { annotations?: { readOnlyHint?: boolean } }
+  // The tool's real input schema (a zod schema built by mcp-adapters from the
+  // server's JSON inputSchema). buildMcpTools reuses this when presenting the
+  // gated wrapper tool to the model, so the model sees the real typed args AND
+  // the schema stays provider-compatible (a generic z.record placeholder
+  // serializes to `propertyNames`, which Gemini's function-declaration API
+  // rejects, failing the whole turn).
+  schema?: unknown
   invoke?: (args: unknown) => Promise<unknown>
   func?: (args: unknown) => Promise<unknown>
 }
@@ -139,6 +146,14 @@ class McpManager {
 
   listTools(name: string): McpToolInfo[] {
     return (this.servers.get(name)?.tools ?? []).map(toToolInfo)
+  }
+
+  // Main-only accessor for a tool's real input schema (NOT part of McpToolInfo,
+  // which crosses IPC to the renderer where a zod schema wouldn't serialize).
+  // buildMcpTools uses it so the gated wrapper presents the server's real typed
+  // arguments to the model instead of an opaque, Gemini-incompatible placeholder.
+  toolSchema(name: string, tool: string): unknown {
+    return this.servers.get(name)?.tools.find((t) => t.name === tool)?.schema
   }
 
   async callTool(name: string, tool: string, args: unknown): Promise<string> {
