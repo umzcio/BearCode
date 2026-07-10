@@ -48,11 +48,14 @@ import { readAttachmentBase64, readAttachmentSidecar } from '../attachments/inge
 import { loadAgentsContent } from '../agentsDir'
 import type { Workflow } from '../agentsDir/types'
 import {
+  assembleActivatedSkills,
   assembleCommandAdditions,
   assembleRuleAdditions,
+  assembleSkillAdditions,
   assembleUserMentions,
   mentionedFilePaths,
   mentionedRuleNames,
+  mentionedSkillNames,
   mergeActiveRules,
   withoutModelRules
 } from './contextAssembly'
@@ -2170,6 +2173,15 @@ function buildAgentAndContext(
       touchedFiles: touched
     })
     if (asm.systemAdditions.length > 0) ruleAdditions = '\n\n' + asm.systemAdditions.join('\n\n')
+    // design 4.2: skill discovery index rides the same turn-build path as rules.
+    // activate_skill is folder-independent (wired below unconditionally), so unlike
+    // model rules there is no no-project gate here. In Task 3 the filter is
+    // non-error only; Task 5 adds the disabled-set exclusion.
+    const enabledSkills = content.skills.filter((s) => !s.error)
+    const skillAsm = assembleSkillAdditions(enabledSkills)
+    const activatedAsm = assembleActivatedSkills(mentionedSkillNames(mentions), enabledSkills)
+    const skillLines = [...skillAsm.systemAdditions, ...activatedAsm.systemAdditions]
+    if (skillLines.length > 0) ruleAdditions += '\n\n' + skillLines.join('\n\n')
   } catch (err) {
     console.warn('[bearcode] .agents rules skipped:', err)
   }

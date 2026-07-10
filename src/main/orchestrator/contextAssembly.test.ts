@@ -7,10 +7,14 @@ import {
   mentionedFilePaths,
   mentionedRuleNames,
   mergeActiveRules,
+  assembleSkillAdditions,
+  mentionedSkillNames,
+  assembleActivatedSkills,
   type RuleAssemblyInput,
   type UserMentionsDeps
 } from './contextAssembly'
 import type { AgentsContent, Rule, Workflow } from '../agentsDir/types'
+import type { Skill } from '../agentsDir/types'
 import type { CommandRef, MentionRef } from '../../shared/types'
 
 const rule = (overrides: Partial<Rule> = {}): Rule => ({
@@ -378,5 +382,49 @@ describe('mention rule helpers', () => {
 
   it('mergeActiveRules unions and de-duplicates preserving order', () => {
     expect(mergeActiveRules(['style'], ['style', 'security'])).toEqual(['style', 'security'])
+  })
+})
+
+const sk = (
+  name: string,
+  description: string,
+  body = 'BODY',
+  source: 'project' | 'global' = 'project'
+): Skill => ({ name, description, body, source }) as Skill
+
+describe('assembleSkillAdditions', () => {
+  it('renders a ## Available skills index with the activate_skill instruction', () => {
+    const asm = assembleSkillAdditions([sk('pdf', 'Extract PDFs.', 'B', 'global')])
+    const text = asm.systemAdditions.join('\n')
+    expect(text).toContain('## Available skills')
+    expect(text).toContain('### pdf (global)')
+    expect(text).toContain('Extract PDFs.')
+    expect(text).toMatch(/activate_skill/)
+  })
+  it('emits nothing when there are no enabled skills', () => {
+    expect(assembleSkillAdditions([]).systemAdditions).toEqual([])
+  })
+})
+
+describe('mentionedSkillNames', () => {
+  it('returns names of kind skill only', () => {
+    expect(
+      mentionedSkillNames([
+        { kind: 'skill', name: 'pdf' },
+        { kind: 'rule', name: 'r' }
+      ])
+    ).toEqual(['pdf'])
+  })
+})
+
+describe('assembleActivatedSkills', () => {
+  it('injects the full body under ## Activated skills for a mentioned skill', () => {
+    const asm = assembleActivatedSkills(['pdf'], [sk('pdf', 'x', 'FULL BODY')])
+    const text = asm.systemAdditions.join('\n')
+    expect(text).toContain('## Activated skills')
+    expect(text).toContain('FULL BODY')
+  })
+  it('ignores a mentioned name that is not an enabled skill', () => {
+    expect(assembleActivatedSkills(['ghost'], []).systemAdditions).toEqual([])
   })
 })

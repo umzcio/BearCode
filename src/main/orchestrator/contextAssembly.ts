@@ -4,7 +4,7 @@
 // touchedFilesFor's query result) and this just orders and renders them.
 // Rules with `error` set are malformed (design 11) and are skipped in every
 // section below, never surfaced to the model.
-import type { AgentsContent, Rule, Workflow } from '../agentsDir/types'
+import type { AgentsContent, Rule, Skill, Workflow } from '../agentsDir/types'
 import { matchesEditPath } from '../permissions/rules'
 import { resolveWorkflowSteps } from './commands'
 import type { CommandRef, MentionRef } from '../../shared/types'
@@ -273,5 +273,47 @@ export function assembleUserMentions(
     for (const n of connectorNames) additions.push(`- ${n}`)
   }
 
+  return { systemAdditions: additions }
+}
+
+export interface SkillAssembly {
+  systemAdditions: string[]
+}
+
+// Discovery index (design 4.2 step 1): one line per enabled, non-error skill,
+// plus the activate instruction. The caller (graph.ts) passes ALREADY-filtered
+// skills (no error, not disabled) so this stays pure and settings-free.
+export function assembleSkillAdditions(enabledSkills: Skill[]): SkillAssembly {
+  if (enabledSkills.length === 0) return { systemAdditions: [] }
+  const additions: string[] = ['', '## Available skills']
+  for (const s of enabledSkills) {
+    additions.push(`### ${s.name} (${s.source})`, s.description)
+  }
+  additions.push(
+    'Call the activate_skill tool with a skill name to load its full instructions when a task matches its description.'
+  )
+  return { systemAdditions: additions }
+}
+
+// Skill-kind mention names (@skill:). Pure.
+export function mentionedSkillNames(mentions: MentionRef[]): string[] {
+  return mentions.filter((m) => m.kind === 'skill').map((m) => m.name)
+}
+
+// Force-use (design 4.2 step 3): a @skill: mention injects that skill's FULL
+// body under ## Activated skills for this turn (parallel to pinned manual
+// rules). Pure: the caller resolves the enabled skill set.
+export function assembleActivatedSkills(
+  names: string[],
+  enabledSkills: Skill[]
+): { systemAdditions: string[] } {
+  const byName = new Map(enabledSkills.map((s) => [s.name, s]))
+  const additions: string[] = []
+  for (const name of names) {
+    const s = byName.get(name)
+    if (!s) continue
+    if (additions.length === 0) additions.push('', '## Activated skills')
+    additions.push('', `### ${s.name} (${s.source})`, s.body)
+  }
   return { systemAdditions: additions }
 }

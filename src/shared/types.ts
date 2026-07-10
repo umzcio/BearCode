@@ -29,7 +29,7 @@ export interface CommandRef {
 // used only as prompt text and (for files) a pure glob-match string — never
 // opened at the IPC boundary (see assertValidMentions).
 export interface MentionRef {
-  kind: 'file' | 'rule' | 'conversation' | 'connector'
+  kind: 'file' | 'rule' | 'conversation' | 'connector' | 'skill'
   name: string
   path?: string
   conversationId?: string
