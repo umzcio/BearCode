@@ -144,6 +144,46 @@ describe('loadServers', () => {
     fakeFiles.set(GLOBAL_PATH, '{ not json')
     expect(loadServers('/proj')).toEqual([])
   })
+
+  it('classifies transport from the Claude Code `type` field', () => {
+    setGlobalJson({
+      mcpServers: {
+        remote: { type: 'http', url: 'https://r' },
+        sse: { type: 'sse', url: 'https://s' },
+        local: { type: 'stdio', command: 'npx' }
+      }
+    })
+    const byName = Object.fromEntries(loadServers(null).map((s) => [s.name, s.transport]))
+    expect(byName).toEqual({ remote: 'http', sse: 'http', local: 'stdio' })
+  })
+
+  it('a `type: http` server is never misdriven as stdio, and a stdio command is honored', () => {
+    setGlobalJson({
+      mcpServers: {
+        // type present but no command -> stays http (was: else-branch built a
+        // bogus stdio connection)
+        http: { type: 'http', url: 'https://h' },
+        // no type, has command -> inferred stdio (still spawn-gated downstream)
+        inferred: { command: 'curl', args: ['x'] }
+      }
+    })
+    const byName = Object.fromEntries(loadServers(null).map((s) => [s.name, s.transport]))
+    expect(byName.http).toBe('http')
+    expect(byName.inferred).toBe('stdio')
+  })
+
+  it('an ambiguous/typeless entry with no command falls back to http (cannot spawn)', () => {
+    setGlobalJson({ mcpServers: { weird: { url: 'https://w' }, empty: {} } })
+    const byName = Object.fromEntries(loadServers(null).map((s) => [s.name, s.transport]))
+    expect(byName.weird).toBe('http')
+    expect(byName.empty).toBe('http')
+  })
+
+  it('drops non-object entries instead of spreading them into garbage config', () => {
+    setGlobalJson({ mcpServers: { ok: { type: 'http', url: 'https://ok' }, bad: 'oops' } })
+    const names = loadServers(null).map((s) => s.name)
+    expect(names).toEqual(['ok'])
+  })
 })
 
 describe('upsertServer / removeServer', () => {
@@ -152,10 +192,21 @@ describe('upsertServer / removeServer', () => {
     fakeSettings = {}
   })
 
-  it('writes a global server without persisting the source field', () => {
+  it('writes a global server as the Claude Code `type` shape, no source field', () => {
     upsertServer({ name: 'gh', transport: 'http', url: 'https://gh', source: 'global' }, null)
     const written = JSON.parse(fakeFiles.get(GLOBAL_PATH)!)
-    expect(written.mcpServers.gh).toEqual({ transport: 'http', url: 'https://gh' })
+    expect(written.mcpServers.gh).toEqual({ type: 'http', url: 'https://gh' })
+  })
+
+  it('round-trips through disk: upsert writes `type`, loadServers reads it back', () => {
+    upsertServer(
+      { name: 'fs', transport: 'stdio', command: 'npx', args: ['x'], source: 'global' },
+      null
+    )
+    const written = JSON.parse(fakeFiles.get(GLOBAL_PATH)!)
+    expect(written.mcpServers.fs).toEqual({ type: 'stdio', command: 'npx', args: ['x'] })
+    const loaded = loadServers(null).find((s) => s.name === 'fs')!
+    expect(loaded.transport).toBe('stdio')
   })
 
   it('writes a project server to the project file', () => {
@@ -164,7 +215,7 @@ describe('upsertServer / removeServer', () => {
       '/proj'
     )
     const written = JSON.parse(fakeFiles.get(PROJECT_PATH)!)
-    expect(written.mcpServers['proj-srv']).toEqual({ transport: 'http', url: 'https://p' })
+    expect(written.mcpServers['proj-srv']).toEqual({ type: 'http', url: 'https://p' })
   })
 
   it('removeServer deletes the named entry from the right file', () => {
@@ -188,14 +239,23 @@ describe('enable / trust / spawn-consent state', () => {
     expect(isEnabled('gh')).toBe(false)
   })
 
-  it('global servers are always trusted', () => {
-    expect(isTrusted('anything', null)).toBe(true)
+  it('global servers are always trusted, even with a project open', () => {
+    // The whole point of the `source` param: a global server the user added at
+    // the app level is trusted regardless of the current project. Asserting
+    // BOTH the null-project and open-project cases so this can never silently
+    // regress to "untrusted in every project conversation" again.
+    expect(isTrusted('anything', 'global', null)).toBe(true)
+    expect(isTrusted('my-global-server', 'global', '/proj')).toBe(true)
   })
 
-  it('project servers need opt-in trust', () => {
-    expect(isTrusted('proj-srv', '/proj')).toBe(false)
+  it('project servers need opt-in trust, per project', () => {
+    expect(isTrusted('proj-srv', 'project', '/proj')).toBe(false)
+    // No project path -> cannot verify trust -> untrusted.
+    expect(isTrusted('proj-srv', 'project', null)).toBe(false)
     trustProjectServer('proj-srv', '/proj')
-    expect(isTrusted('proj-srv', '/proj')).toBe(true)
+    expect(isTrusted('proj-srv', 'project', '/proj')).toBe(true)
+    // Trust is per-project: a different project is still untrusted.
+    expect(isTrusted('proj-srv', 'project', '/other')).toBe(false)
   })
 
   it('hasSpawnConsent/grantSpawnConsent round-trip', () => {

@@ -6,7 +6,7 @@
 // manager.ts:28, :263-277) so the two subsystems read the same way.
 import { MultiServerMCPClient } from '@langchain/mcp-adapters'
 import type { McpServerConfig, McpToolInfo, McpServerStatus } from '../../shared/types'
-import { loadServers, resolveConfig } from './store'
+import { loadServers, resolveConfig, isEnabled, isTrusted, hasSpawnConsent } from './store'
 
 // MCP client + adapter errors can carry ANSI color codes and multi-line
 // "Call log" dumps (same shape Playwright throws -- see
@@ -74,10 +74,37 @@ class McpManager {
     return loadServers(projectPath).find((c) => c.name === name)
   }
 
+  // Security floor at the single process/connection chokepoint. enable() is the
+  // ONLY path that constructs a MultiServerMCPClient -- set-enabled, reconnect,
+  // and connect-on-demand callTool() all funnel through here -- so gating it
+  // once closes, in the main process, every launch path at once:
+  //   - reconnect/set-enabled/connect-on-demand can no longer open a connection
+  //     to a committed-project server the user never TRUSTED (was: one click on
+  //     an untrusted row exfiltrated vault secrets to the committed URL);
+  //   - a stdio server can no longer spawn its command without explicit
+  //     spawn CONSENT (was: hasSpawnConsent had zero callers);
+  //   - a DISABLED server can no longer be resurrected on demand.
+  // Returns a human-readable denial reason, or null when launch is permitted.
+  private launchDenial(cfg: McpServerConfig, projectPath: string | null): string | null {
+    if (!isEnabled(cfg.name)) return `MCP server is not enabled: ${cfg.name}`
+    if (!isTrusted(cfg.name, cfg.source, projectPath))
+      return `MCP server is not trusted for this project: ${cfg.name}`
+    if (cfg.transport === 'stdio' && !hasSpawnConsent(cfg.name))
+      return `Local MCP server requires spawn consent before it can run: ${cfg.name}`
+    return null
+  }
+
   async enable(name: string, projectPath: string | null): Promise<McpServerStatus> {
     const cfg = this.findConfig(name, projectPath)
     if (!cfg) {
       const status: McpServerStatus = { state: 'error', message: `unknown MCP server: ${name}` }
+      this.servers.delete(name)
+      this.lastStatus.set(name, status)
+      return status
+    }
+    const denial = this.launchDenial(cfg, projectPath)
+    if (denial) {
+      const status: McpServerStatus = { state: 'error', message: denial }
       this.servers.delete(name)
       this.lastStatus.set(name, status)
       return status

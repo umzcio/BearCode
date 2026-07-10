@@ -154,6 +154,41 @@ describe('mcp__<server>__<tool> gate + call', () => {
   })
 })
 
+describe('per-call recheck (mid-run disable)', () => {
+  it('blocks and never calls the server when the SERVER is disabled after build', async () => {
+    // Build the tool while enabled, then flip the per-server enable off (as if
+    // the user toggled it mid-run). The already-built tool must re-read the
+    // gate and refuse -- never resurrect the just-disabled server.
+    const t = mcpTools()['mcp__srv__get_x']
+    vi.mocked(isEnabled).mockReturnValue(false)
+    const out = await t.invoke({})
+    expect(out).toMatch(/no longer enabled/i)
+    expect(mcpManager.callTool).not.toHaveBeenCalled()
+  })
+
+  it('blocks when the MASTER mcpEnabled flag is turned off after build', async () => {
+    const t = mcpTools()['mcp__srv__get_x']
+    vi.mocked(getSettings).mockReturnValue({
+      browserEnabled: false,
+      browserAllowlist: [],
+      browserBlocklist: [],
+      mcpEnabled: false,
+      mcpEnabledServers: ['srv']
+    } as unknown as ReturnType<typeof getSettings>)
+    const out = await t.invoke({})
+    expect(out).toMatch(/no longer enabled/i)
+    expect(mcpManager.callTool).not.toHaveBeenCalled()
+  })
+
+  it('blocks when trust is revoked after build', async () => {
+    const t = mcpTools()['mcp__srv__get_x']
+    vi.mocked(isTrusted).mockReturnValue(false)
+    const out = await t.invoke({})
+    expect(out).toMatch(/no longer enabled/i)
+    expect(mcpManager.callTool).not.toHaveBeenCalled()
+  })
+})
+
 describe('takeDeniedMcpReplayPin', () => {
   it('consumes a byMcpAction pin without touching command/browser/edit namespaces', () => {
     pinDeniedReplays('convo', [{ mcpAction: 'srv.get_x' }])

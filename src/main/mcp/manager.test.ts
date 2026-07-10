@@ -10,9 +10,18 @@ const testConfig: McpServerConfig = {
   url: 'https://example.test/mcp',
   source: 'global'
 }
+// The manager gates every launch on these store-backed checks (enabled +
+// trusted + spawn-consent). Default them permissive; individual tests flip one
+// to assert the gate denies before any client is constructed.
+const isEnabledMock = vi.fn(() => true)
+const isTrustedMock = vi.fn(() => true)
+const hasSpawnConsentMock = vi.fn(() => true)
 vi.mock('./store', () => ({
   loadServers: vi.fn(() => [testConfig]),
-  resolveConfig: vi.fn((cfg: McpServerConfig) => cfg)
+  resolveConfig: vi.fn((cfg: McpServerConfig) => cfg),
+  isEnabled: (...a: unknown[]) => isEnabledMock(...(a as [])),
+  isTrusted: (...a: unknown[]) => isTrustedMock(...(a as [])),
+  hasSpawnConsent: (...a: unknown[]) => hasSpawnConsentMock(...(a as []))
 }))
 
 // Mock surface: only what the manager actually calls on a client instance.
@@ -29,12 +38,16 @@ vi.mock('@langchain/mcp-adapters', () => ({
 
 // Import after the mocks so the manager module picks up the mocked deps.
 const { mcpManager } = await import('./manager')
+const { loadServers } = await import('./store')
 
 describe('mcpManager', () => {
   beforeEach(async () => {
     getToolsMock.mockReset()
     closeMock.mockReset().mockResolvedValue(undefined)
     MultiServerMCPClientMock.mockClear()
+    isEnabledMock.mockReset().mockReturnValue(true)
+    isTrustedMock.mockReset().mockReturnValue(true)
+    hasSpawnConsentMock.mockReset().mockReturnValue(true)
     // The manager is a module singleton (like browserManager) -- clear its
     // connection cache between tests so each test starts from a clean slate.
     await mcpManager.teardown()
@@ -94,6 +107,43 @@ describe('mcpManager', () => {
     const out = await mcpManager.callTool('test-server', 'get_x', {})
 
     expect(out).toBe('demand-out')
+    expect(MultiServerMCPClientMock).toHaveBeenCalled()
+  })
+
+  it('enable() refuses an UNTRUSTED server without constructing a client', async () => {
+    isTrustedMock.mockReturnValue(false)
+    const status = await mcpManager.enable('test-server', '/proj')
+    expect(status.state).toBe('error')
+    if (status.state === 'error') expect(status.message).toMatch(/not trusted/i)
+    expect(MultiServerMCPClientMock).not.toHaveBeenCalled()
+  })
+
+  it('enable() refuses an UNCONSENTED stdio server (no process ever spawns)', async () => {
+    vi.mocked(loadServers).mockReturnValueOnce([
+      { name: 'fs', transport: 'stdio', command: 'npx', args: ['x'], source: 'global' }
+    ])
+    hasSpawnConsentMock.mockReturnValue(false)
+    const status = await mcpManager.enable('fs', null)
+    expect(status.state).toBe('error')
+    if (status.state === 'error') expect(status.message).toMatch(/spawn consent/i)
+    expect(MultiServerMCPClientMock).not.toHaveBeenCalled()
+  })
+
+  it('enable() refuses a DISABLED server (connect-on-demand cannot resurrect it)', async () => {
+    isEnabledMock.mockReturnValue(false)
+    const status = await mcpManager.enable('test-server', null)
+    expect(status.state).toBe('error')
+    if (status.state === 'error') expect(status.message).toMatch(/not enabled/i)
+    expect(MultiServerMCPClientMock).not.toHaveBeenCalled()
+  })
+
+  it('a consented stdio server connects normally once its gates pass', async () => {
+    vi.mocked(loadServers).mockReturnValueOnce([
+      { name: 'fs', transport: 'stdio', command: 'npx', args: ['x'], source: 'global' }
+    ])
+    getToolsMock.mockResolvedValue([{ name: 'run', description: 'd', invoke: vi.fn() }])
+    const status = await mcpManager.enable('fs', null)
+    expect(status.state).toBe('connected')
     expect(MultiServerMCPClientMock).toHaveBeenCalled()
   })
 

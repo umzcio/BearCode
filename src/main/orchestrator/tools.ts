@@ -1034,16 +1034,18 @@ function projectOf(conversationId: string): string | null {
 export function buildMcpTools(conversationId: string) {
   if (getSettings().mcpEnabled !== true) return []
   const projectPath = projectOf(conversationId)
-  const enabledTrustedServers = loadServers(projectPath)
-    .map((cfg) => cfg.name)
-    .filter((name) => isMcpEnabled(name) && isMcpTrusted(name, projectPath))
+  const enabledTrustedServers = loadServers(projectPath).filter(
+    (cfg) => isMcpEnabled(cfg.name) && isMcpTrusted(cfg.name, cfg.source, projectPath)
+  )
   if (enabledTrustedServers.length === 0) return []
 
   // Each server's tool() carries a distinct zod-inferred generic (langchain's
   // tool() return type is invariant per schema); widen to unknown for the
   // shared array, mirroring buildBrowserTools' unannotated (inferred) return.
   const tools: unknown[] = []
-  for (const server of enabledTrustedServers) {
+  for (const cfg of enabledTrustedServers) {
+    const server = cfg.name
+    const serverSource = cfg.source
     for (const info of mcpManager.listTools(server)) {
       const { name: toolName, description, readOnlyHint } = info
       tools.push(
@@ -1053,6 +1055,21 @@ export function buildMcpTools(conversationId: string) {
             const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
             if (takeDeniedMcpReplayPin(conversationId, toolCallId, mcpAction)) {
               return 'User denied this MCP tool call.'
+            }
+            // Per-call recheck of the master + per-server + trust gates: the
+            // tool list is built once at graph construction, but the user can
+            // flip mcpEnabled off, disable this server, or (only for project
+            // servers) never have trusted it -- all AFTER the run started. Re-
+            // reading live here (mirroring the browser's L2 hard gate on every
+            // action) means a mid-run toggle-off is honored on the very next
+            // call and a disabled server is never resurrected via callTool's
+            // connect-on-demand path.
+            if (
+              getSettings().mcpEnabled !== true ||
+              !isMcpEnabled(server) ||
+              !isMcpTrusted(server, serverSource, projectPath)
+            ) {
+              return `Blocked: ${mcpAction} — connectors are no longer enabled for this conversation.`
             }
             const decision = evaluateMcpForConversation(
               server,

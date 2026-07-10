@@ -9,7 +9,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readSync, statSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
-import type { McpServerConfig } from '../../shared/types'
+import type { McpServerConfig, McpTransport } from '../../shared/types'
 import { getSettings, setSettings } from '../settings'
 import { resolveVaultRefs } from '../keys'
 
@@ -56,9 +56,41 @@ function projectMcpPath(projectPath: string): string {
   return join(projectPath, '.agents', 'mcp.json')
 }
 
-// A server entry on disk, keyed by name under `mcpServers`, with no
-// `source`/`name` fields (those are derived at load time).
-type RawServerEntry = Omit<McpServerConfig, 'name' | 'source'>
+// A server entry as it appears ON DISK under `mcpServers`. Claude Code-
+// compatible (design §2): the transport lives in the `type` field
+// ('http'/'sse'/'stdio'), NOT `transport`. We also tolerate a legacy
+// `transport` field so configs BearCode itself wrote before this fix keep
+// loading. `name`/`source` are derived at load time, never persisted.
+interface RawServerEntry {
+  type?: string
+  transport?: string
+  url?: string
+  headers?: Record<string, string>
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+}
+
+// Classify a raw entry's transport. Precedence: explicit `type` (Claude Code
+// shape) -> legacy `transport` -> infer from shape. A `command` with no url
+// means stdio (still gated by spawn consent downstream); anything ambiguous or
+// unknown falls back to 'http', which CANNOT spawn a local process -- so a
+// missing/garbled field can never silently launch an arbitrary command
+// (the exact hole the reviewer flagged).
+function classifyTransport(entry: RawServerEntry): McpTransport {
+  const declared = entry.type ?? entry.transport
+  if (declared === 'stdio') return 'stdio'
+  if (declared === 'http' || declared === 'sse' || declared === 'streamable-http') return 'http'
+  if (declared === undefined && typeof entry.command === 'string' && !entry.url) return 'stdio'
+  return 'http'
+}
+
+// Serialize a runtime config back to the on-disk (Claude Code) shape: the
+// runtime `transport` field becomes `type`, and `name`/`source` are dropped.
+function toRawEntry(cfg: McpServerConfig): RawServerEntry {
+  const { name: _name, source: _source, transport, ...rest } = cfg
+  return { type: transport, ...rest }
+}
 
 function readServerMap(path: string): Record<string, RawServerEntry> {
   const read = readFileCapped(path, MAX_MCP_JSON_BYTES)
@@ -67,7 +99,15 @@ function readServerMap(path: string): Record<string, RawServerEntry> {
     const parsed = JSON.parse(read.text) as { mcpServers?: unknown }
     const servers = parsed.mcpServers
     if (!servers || typeof servers !== 'object') return {}
-    return servers as Record<string, RawServerEntry>
+    // Drop any non-object entry (e.g. `"x": "oops"`) so a malformed value can
+    // never spread into an indexed-char garbage config downstream.
+    const out: Record<string, RawServerEntry> = {}
+    for (const [name, entry] of Object.entries(servers as Record<string, unknown>)) {
+      if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+        out[name] = entry as RawServerEntry
+      }
+    }
+    return out
   } catch {
     return {}
   }
@@ -79,7 +119,16 @@ function toConfigMap(
 ): Record<string, McpServerConfig> {
   const out: Record<string, McpServerConfig> = {}
   for (const [name, entry] of Object.entries(raw)) {
-    out[name] = { ...entry, name, source }
+    out[name] = {
+      name,
+      source,
+      transport: classifyTransport(entry),
+      url: entry.url,
+      headers: entry.headers,
+      command: entry.command,
+      args: entry.args,
+      env: entry.env
+    }
   }
   return out
 }
@@ -132,8 +181,7 @@ function writeServerMap(path: string, servers: Record<string, RawServerEntry>): 
 export function upsertServer(cfg: McpServerConfig, projectPath: string | null): void {
   const path = pathForSource(cfg, projectPath)
   const servers = readServerMap(path)
-  const { name: _name, source: _source, ...rest } = cfg
-  servers[cfg.name] = rest
+  servers[cfg.name] = toRawEntry(cfg)
   writeServerMap(path, servers)
 }
 
@@ -165,8 +213,22 @@ export function setEnabled(name: string, on: boolean): void {
 // user at the app level). Project servers require an explicit per-project
 // opt-in, since a project's `.agents/mcp.json` may arrive via a cloned repo
 // and its author is not necessarily the current user (design 11).
-export function isTrusted(name: string, projectPath: string | null): boolean {
-  if (!projectPath) return true
+export function isTrusted(
+  name: string,
+  source: 'global' | 'project',
+  projectPath: string | null
+): boolean {
+  // Global servers were added by the user at the app level -> always trusted,
+  // regardless of whether a project is open. (The prior signature ignored
+  // `source` and treated EVERY server as untrusted whenever a project was
+  // open, which hid the user's own global servers behind a Trust button and
+  // filtered them out of buildMcpTools -- the bug the reviewer flagged.)
+  if (source === 'global') return true
+  // A project-source server requires an explicit per-project opt-in, since a
+  // project's committed `.agents/mcp.json` may arrive via a cloned repo whose
+  // author is not the current user (design §4). Without a project path there
+  // is no trust map to consult, so it cannot be trusted.
+  if (!projectPath) return false
   const trustedMap = getSettings().mcpTrustedProjectServers ?? {}
   return (trustedMap[projectPath] ?? []).includes(name)
 }
