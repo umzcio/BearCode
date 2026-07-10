@@ -2,9 +2,22 @@ import { execFile } from 'child_process'
 import { existsSync, readdirSync } from 'fs'
 import { join } from 'path'
 
-export function git(args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
+// `env` (optional) is merged over the parent process env for this invocation
+// only — used by the integrations layer to inject GIT_ASKPASS credentials for
+// private HTTPS remotes (see integrations/gitCredentials.ts). Never written to
+// disk config; scoped to the single child process.
+export function git(
+  args: string[],
+  cwd: string,
+  env?: Record<string, string>
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const options = {
+      cwd,
+      maxBuffer: 32 * 1024 * 1024,
+      env: env ? { ...process.env, ...env } : process.env
+    }
+    execFile('git', args, options, (err, stdout, stderr) => {
       if (err) {
         reject(new Error(`git ${args.join(' ')} failed: ${stderr || err.message}`))
         return
