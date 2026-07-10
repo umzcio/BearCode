@@ -26,19 +26,25 @@ describe('smitherySearch', () => {
     const payload = {
       servers: [
         {
-          qualifiedName: 'exa-labs/exa-mcp',
-          displayName: 'Exa Search',
-          description: 'Web search for AI',
-          remote: true
-        },
-        {
           qualifiedName: 'some/local-tool',
           displayName: '',
           description: 'A stdio tool',
-          remote: false
+          remote: false,
+          useCount: 100,
+          verified: false,
+          iconUrl: null
+        },
+        {
+          qualifiedName: 'exa-labs/exa-mcp',
+          displayName: 'Exa Search',
+          description: 'Web search for AI',
+          remote: true,
+          useCount: 500,
+          verified: true,
+          iconUrl: 'https://x/icon.png'
         }
       ],
-      pagination: { currentPage: 1, pageSize: 25, totalPages: 1, totalCount: 2 }
+      pagination: { currentPage: 1, pageSize: 30, totalPages: 1, totalCount: 2 }
     }
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -51,20 +57,38 @@ describe('smitherySearch', () => {
       expect.stringContaining('https://api.smithery.ai/servers?q=exa'),
       expect.objectContaining({ headers: { Authorization: 'Bearer sk-test-key' } })
     )
+    // Sorted by useCount desc: the higher-use exa server comes first.
     expect(hits).toEqual([
       {
         id: 'exa-labs/exa-mcp',
         name: 'Exa Search',
         description: 'Web search for AI',
-        transport: 'http'
+        transport: 'http',
+        iconUrl: 'https://x/icon.png',
+        useCount: 500,
+        verified: true
       },
       {
         id: 'some/local-tool',
         name: 'some/local-tool',
         description: 'A stdio tool',
-        transport: 'stdio'
+        transport: 'stdio',
+        iconUrl: null,
+        useCount: 100,
+        verified: false
       }
     ])
+  })
+
+  it('omits the q param for an empty query (the popular-servers default)', async () => {
+    mockedGetVaultSecret.mockReturnValue('sk-test-key')
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => ({ servers: [] }) }) as unknown as typeof fetch
+    await smitherySearch('   ')
+    const calledUrl = (global.fetch as unknown as { mock: { calls: string[][] } }).mock.calls[0][0]
+    expect(calledUrl).toBe('https://api.smithery.ai/servers?pageSize=30')
+    expect(calledUrl).not.toContain('q=')
   })
 
   it('throws on a non-ok response', async () => {

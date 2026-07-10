@@ -64,6 +64,9 @@ interface RawSmitheryServer {
   displayName?: string
   description?: string
   remote?: boolean
+  iconUrl?: string | null
+  useCount?: number
+  verified?: boolean
 }
 
 interface RawSmitheryConfigSchema {
@@ -86,22 +89,33 @@ interface RawSmitheryServerDetail {
   connections?: RawSmitheryConnection[]
 }
 
-/** Searches the Smithery registry for public MCP servers. */
+/** Searches the Smithery registry for public MCP servers. An empty query omits
+ * the `q` param to return a general list, which the modal uses (sorted by
+ * useCount) as a "popular servers" default before the user searches. Results are
+ * sorted by useCount desc so the most-connected servers surface first. */
 export async function smitherySearch(query: string): Promise<SmitheryHit[]> {
   const key = requireApiKey()
-  const url = `${REGISTRY_BASE}/servers?q=${encodeURIComponent(query)}&pageSize=25`
+  const q = query.trim()
+  const url = q
+    ? `${REGISTRY_BASE}/servers?q=${encodeURIComponent(q)}&pageSize=30`
+    : `${REGISTRY_BASE}/servers?pageSize=30`
   const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } })
   if (!res.ok) {
     throw new Error(`Smithery search failed: ${res.status}`)
   }
   const body = (await res.json()) as { servers?: RawSmitheryServer[] }
   const servers = Array.isArray(body.servers) ? body.servers : []
-  return servers.map((s) => ({
-    id: s.qualifiedName,
-    name: s.displayName || s.qualifiedName,
-    description: s.description ?? '',
-    transport: s.remote ? 'http' : 'stdio'
-  }))
+  return servers
+    .map((s) => ({
+      id: s.qualifiedName,
+      name: s.displayName || s.qualifiedName,
+      description: s.description ?? '',
+      transport: (s.remote ? 'http' : 'stdio') as McpTransport,
+      iconUrl: s.iconUrl ?? null,
+      useCount: typeof s.useCount === 'number' ? s.useCount : 0,
+      verified: s.verified === true
+    }))
+    .sort((a, b) => (b.useCount ?? 0) - (a.useCount ?? 0))
 }
 
 // Picks the connection to install. A server can advertise several (e.g. both

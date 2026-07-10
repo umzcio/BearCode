@@ -289,6 +289,9 @@ export interface SmitheryHit {
   description: string
   toolCount?: number
   transport: McpTransport
+  iconUrl?: string | null
+  useCount?: number
+  verified?: boolean
 }
 
 // ---- Artifacts (Ba) ----
