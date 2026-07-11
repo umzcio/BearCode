@@ -28,6 +28,7 @@ import { isEffortLevel } from '../../shared/effort'
 import { isSelectableDefaultMode } from '../../shared/permissionMode'
 import { getSettings } from '../settings'
 import { extractSearchText } from './searchText'
+import type { OutsidePolicy } from '../agentsDir'
 
 let db: Database.Database | null = null
 
@@ -974,6 +975,15 @@ export function listOutsidePaths(path: string): OutsideAccessInfo {
     denied: f?.outsideFolderDeniedPaths ?? [],
     pending: f?.outsideFolderPendingPaths ?? []
   }
+}
+
+// Bundles the loader's OutsidePolicy (policy + allow/deny lists, no pending)
+// from the stored lists -- the shape agentsDir's ref resolver (Task 3)
+// consumes. `listOutsidePaths` above stays the full accessor (includes
+// `pending`, used by the trust settings UI); this is the narrower slice.
+export function getOutsidePolicy(path: string): OutsidePolicy {
+  const l = listOutsidePaths(path)
+  return { policy: l.policy, allowed: l.allowed, denied: l.denied }
 }
 
 export function createProject(name: string, color: string | null = null): Project {

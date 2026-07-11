@@ -20,7 +20,13 @@ import { interrupt } from '@langchain/langgraph'
 import { tool } from 'langchain'
 import { z } from 'zod'
 import type { Artifact, Event, SkillProposalResolution, ToolName } from '../../shared/types'
-import { appendOrReplaceEvent, getConversationMeta, getProjectSettings } from '../db'
+import {
+  appendOrReplaceEvent,
+  getConversationMeta,
+  getOutsidePolicy,
+  getProjectSettings,
+  isProjectTrusted
+} from '../db'
 import {
   approvePlanArtifact,
   createPlanArtifact,
@@ -769,7 +775,12 @@ export function buildTools(
   // and it never throws, even on a missing/errored/wrong-mode rule name.
   const activateRuleTool = tool(
     async ({ name }: { name: string }): Promise<string> => {
-      const content = loadAgentsContent(projectPath)
+      // activate_* do NOT persist pendingOutside (the turn-build owns that,
+      // see graph.ts resolveTrustForTurn); this only needs trusted+outside to
+      // resolve the SAME content the turn-build already surfaced this turn.
+      const trusted = projectPath ? isProjectTrusted(projectPath) : false
+      const outside = projectPath ? getOutsidePolicy(projectPath) : undefined
+      const content = loadAgentsContent(projectPath, { trusted, outside })
       const modelRules = content.rules.filter((r) => r.activation === 'model' && !r.error)
       const exact = modelRules.find((r) => r.name === name)
       const found = exact ?? modelRules.find((r) => r.name.toLowerCase() === name.toLowerCase())
@@ -871,7 +882,10 @@ const proposeSkillSchema = z.object({
 export function buildSkillTools(_conversationId: string, projectPath: string | null) {
   const activateSkillTool = tool(
     async ({ name }: { name: string }): Promise<string> => {
-      const content = loadAgentsContent(projectPath)
+      // Same non-persisting trust resolution as activate_rule above.
+      const trusted = projectPath ? isProjectTrusted(projectPath) : false
+      const outside = projectPath ? getOutsidePolicy(projectPath) : undefined
+      const content = loadAgentsContent(projectPath, { trusted, outside })
       const skills = content.skills.filter(
         (s) => !s.error && isSkillEnabled(s.name, s.source, projectPath)
       )

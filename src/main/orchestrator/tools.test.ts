@@ -10,7 +10,9 @@ vi.mock('../permissions', () => ({
   resolveConversationMode: vi.fn(() => 'accept-edits')
 }))
 vi.mock('../db', () => ({
-  appendOrReplaceEvent: vi.fn()
+  appendOrReplaceEvent: vi.fn(),
+  isProjectTrusted: vi.fn(() => false),
+  getOutsidePolicy: vi.fn(() => ({ policy: 'ask', allowed: [], denied: [] }))
 }))
 vi.mock('../artifacts/store', () => ({
   createPlanArtifact: vi.fn(),
