@@ -30,7 +30,9 @@ export function ModePicker(): React.JSX.Element {
   const defaultMode = useAppStore((s) => s.settings?.defaultPermissionMode ?? 'accept-edits')
   const [open, setOpen] = useState(false)
   const [confirmingBypass, setConfirmingBypass] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const lastTick = useRef(permMenuTick)
   // Fall back to Accept edits (MODES[1]) — the product default — for an
   // unrecognized mode, never to MODES[0] (Ask).
@@ -85,6 +87,36 @@ export function ModePicker(): React.JSX.Element {
     }
   }, [open, setMode])
 
+  // When the mode list opens (not the bypass-confirm dialog), start the
+  // active option on the current mode and focus the listbox for arrow keys.
+  useEffect(() => {
+    if (!open || confirmingBypass) return
+    const i = MODES.findIndex((m) => m.id === mode)
+    setActiveIndex(i >= 0 ? i : 0)
+    menuRef.current?.focus()
+  }, [open, confirmingBypass, mode])
+
+  const onMenuKey = (e: React.KeyboardEvent): void => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIndex((i) => Math.min(MODES.length - 1, i + 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIndex((i) => Math.max(0, i - 1))
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      setActiveIndex(0)
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      setActiveIndex(MODES.length - 1)
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      const m = MODES[activeIndex]
+      if (m) pick(m)
+    }
+    // Escape is handled by the existing window-level keydown listener.
+  }
+
   const pick = (m: ModeOption): void => {
     if (m.id === 'bypass') {
       setConfirmingBypass(true) // gate: never switch to bypass without confirm
@@ -113,7 +145,14 @@ export function ModePicker(): React.JSX.Element {
         </button>
       </Hint>
       {open ? (
-        <div className="menu mode-menu">
+        <div
+          className="menu mode-menu"
+          role={confirmingBypass ? undefined : 'listbox'}
+          ref={menuRef}
+          tabIndex={-1}
+          aria-activedescendant={confirmingBypass ? undefined : `opt-${MODES[activeIndex]?.id}`}
+          onKeyDown={confirmingBypass ? undefined : onMenuKey}
+        >
           {confirmingBypass ? (
             <div
               className="bypass-confirm"
@@ -151,15 +190,20 @@ export function ModePicker(): React.JSX.Element {
                 <span className="check">✓</span>
               </div>
               <div className="mode-sep" />
-              {MODES.map((m) => (
+              {MODES.map((m, i) => (
                 <div
                   key={m.id}
+                  id={`opt-${m.id}`}
+                  role="option"
+                  aria-selected={m.id === mode}
                   className={
                     'menu-item' +
                     (m.id === mode ? ' selected' : '') +
+                    (i === activeIndex ? ' active' : '') +
                     (m.id === 'bypass' ? ' bypass-item' : '')
                   }
                   onClick={() => pick(m)}
+                  onMouseEnter={() => setActiveIndex(i)}
                 >
                   <span className="mode-label">{m.label}</span>
                   <span className="mode-key">{m.key}</span>
