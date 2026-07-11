@@ -208,6 +208,20 @@ function getDb(): Database.Database {
   } catch {
     // column already exists
   }
+  // Sandbox Mode: parity columns on the legacy id-keyed `projects` table (the
+  // `project_settings` path-keyed store above is the one actually read/written
+  // by the app; this ALTER + updateProjectSettings handling is additive-only,
+  // harmless parity so the twin tables don't drift).
+  try {
+    db.exec(`ALTER TABLE projects ADD COLUMN sandbox_mode INTEGER`)
+  } catch {
+    // column already exists
+  }
+  try {
+    db.exec(`ALTER TABLE projects ADD COLUMN sandbox_allow_network INTEGER`)
+  } catch {
+    // column already exists
+  }
   backfillEventFts(db)
   zombieRunIds = cancelZombieRuns(db)
   return db
@@ -705,8 +719,8 @@ export function getProject(id: string): Project | null {
 // effort/mode can never persist. No-op when the patch has no settable keys.
 export function updateProjectSettings(id: string, patch: ProjectSettings): void {
   const cols: string[] = []
-  const vals: (string | null)[] = []
-  const set = (col: string, v: string | null): void => {
+  const vals: (string | number | null)[] = []
+  const set = (col: string, v: string | number | null): void => {
     cols.push(`${col} = ?`)
     vals.push(v)
   }
@@ -727,6 +741,14 @@ export function updateProjectSettings(id: string, patch: ProjectSettings): void 
       'default_permission_mode',
       isSelectableDefaultMode(patch.defaultPermissionMode) ? patch.defaultPermissionMode : null
     )
+  }
+  // Sandbox Mode parity (projects-table twin of upsertProjectSettings' handling;
+  // harmless additive — see the ALTER above).
+  if (patch.sandboxMode !== undefined) {
+    set('sandbox_mode', patch.sandboxMode === true ? 1 : 0)
+  }
+  if (patch.sandboxAllowNetwork !== undefined) {
+    set('sandbox_allow_network', patch.sandboxAllowNetwork === true ? 1 : 0)
   }
   if (cols.length === 0) return
   getDb()
