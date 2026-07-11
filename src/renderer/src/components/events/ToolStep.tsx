@@ -547,11 +547,20 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
       )
     }
     const verb = call.approvalState === 'denied' ? 'Denied' : 'Ran'
+    const sandboxed = result?.sandboxed === true
+    // exitCode rides the first output line ("exit code N"); parse best-effort.
+    const exitLine = result?.output?.match(/^exit code (-?\d+)/)
+    const nonZero = exitLine ? Number(exitLine[1]) !== 0 : false
     return (
       <div className={'step' + (open ? ' open' : '')}>
         <div className="step-row" onClick={() => setOpen((o) => !o)}>
           <span>{verb}</span>
           <span className="mono">{command}</span>
+          {sandboxed ? (
+            <span className="sandbox-badge" title="Ran inside the sandbox">
+              sandboxed
+            </span>
+          ) : null}
           <span className="chev">
             <IconChevronRightSmall />
           </span>
@@ -563,6 +572,12 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
               {'\n'}
               <span className="ok">exit code {result.exitCode}</span>
             </>
+          ) : null}
+          {sandboxed && nonZero ? (
+            <div className="sandbox-hint" role="note">
+              This command may have been blocked by the sandbox. Ask the agent to re-run it outside
+              the sandbox to check.
+            </div>
           ) : null}
         </div>
       </div>

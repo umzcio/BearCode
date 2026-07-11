@@ -70,3 +70,56 @@ describe('ToolStep run_command_unsandboxed pending card', () => {
     expect(approveTool).toHaveBeenCalledWith('u1', true)
   })
 })
+
+describe('ToolStep resolved run_command sandboxed badge + hint', () => {
+  const resolvedCall: Event = {
+    type: 'tool_call',
+    id: 'r1',
+    tool: 'run_command',
+    input: { command: 'ls -la' },
+    approvalState: 'approved'
+  }
+
+  function makeResult(overrides: Partial<Extract<Event, { type: 'tool_result' }>>): Event {
+    return {
+      type: 'tool_result',
+      id: 'res1',
+      callId: 'r1',
+      output: 'exit code 0',
+      durationMs: 1,
+      truncated: false,
+      ...overrides
+    } as Event
+  }
+
+  it('renders the "sandboxed" badge when sandboxed:true', () => {
+    const result = makeResult({ sandboxed: true, output: 'exit code 0' })
+    render(<ToolStep call={resolvedCall as never} result={result as never} convoId="convo1" />)
+
+    expect(screen.getByText('sandboxed')).toBeTruthy()
+  })
+
+  it('renders the violation hint when sandboxed:true and exit code is nonzero', () => {
+    const result = makeResult({ sandboxed: true, output: 'exit code 1\nsome error' })
+    render(<ToolStep call={resolvedCall as never} result={result as never} convoId="convo1" />)
+
+    expect(screen.getByText('sandboxed')).toBeTruthy()
+    expect(screen.getByText(/may have been blocked by the sandbox/)).toBeTruthy()
+  })
+
+  it('renders neither badge nor hint when sandboxed is false/absent', () => {
+    const result = makeResult({ sandboxed: false, output: 'exit code 1' })
+    render(<ToolStep call={resolvedCall as never} result={result as never} convoId="convo1" />)
+
+    expect(screen.queryByText('sandboxed')).toBeNull()
+    expect(screen.queryByText(/may have been blocked by the sandbox/)).toBeNull()
+  })
+
+  it('renders the badge but not the hint when sandboxed:true and exit code is 0', () => {
+    const result = makeResult({ sandboxed: true, output: 'exit code 0' })
+    render(<ToolStep call={resolvedCall as never} result={result as never} convoId="convo1" />)
+
+    expect(screen.getByText('sandboxed')).toBeTruthy()
+    expect(screen.queryByText(/may have been blocked by the sandbox/)).toBeNull()
+  })
+})
