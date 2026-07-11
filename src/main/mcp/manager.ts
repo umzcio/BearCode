@@ -464,25 +464,6 @@ export class McpManager {
     this.inFlightAuth.clear()
     this.servers.clear()
     this.lastStatus.clear()
-    this.stash.clear()
-  }
-
-  // Out-of-band large-payload channel (mirrors browserManager's screenshot
-  // stash, manager.ts:263-277): a tool that returns a large result stashes
-  // it here keyed by the provider tool-call id and returns a short
-  // placeholder to the model; graph.ts splices the stashed payload into the
-  // persisted tool_result for the step card.
-  private stash = new Map<string, string>()
-  stashResult(toolCallId: string, payload: string): void {
-    this.stash.set(toolCallId, payload)
-  }
-  peekStashedResult(toolCallId: string): string | undefined {
-    return this.stash.get(toolCallId)
-  }
-  takeStashedResult(toolCallId: string): string | undefined {
-    const payload = this.stash.get(toolCallId)
-    this.stash.delete(toolCallId)
-    return payload
   }
 }
 

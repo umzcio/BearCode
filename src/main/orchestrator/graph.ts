@@ -118,7 +118,6 @@ import {
   type SkillProposalResolution
 } from './tools'
 import { browserManager } from '../browser/manager'
-import { mcpManager } from '../mcp/manager'
 import { browserActionLabel } from '../browser/guard'
 
 // The tuple shape yielded by `.stream(..., { streamMode: "messages", subgraphs: true })`
@@ -1367,7 +1366,9 @@ function textOf(content: ToolMessageChunk['content']): string {
 //      bypass the text budget — slicing base64 yields a broken image. `take`
 //      distinguishes the authoritative persist (consume the stash, take-once)
 //      from the live streaming preview (peek, so the persist still finds it).
-//  (2) everything else: the existing 50000-char budget (matches run_command).
+//  (2) everything else (including MCP tools): a hard 50000-char budget
+//      (matches run_command). There is no stash-backed bypass for MCP
+//      payloads -- large MCP results are simply truncated. (audit L-15)
 // Exported for tests.
 export function toolResultOutput(
   toolName: string | undefined,
@@ -1380,14 +1381,6 @@ export function toolResultOutput(
       ? browserManager.takeStashedScreenshot(tcId)
       : browserManager.peekStashedScreenshot(tcId)
     if (shot !== undefined) return { output: shot, truncated: false }
-  }
-  // MCP large-payload splice (mirror the browser screenshot stash): a tool whose
-  // full result was stashed by the manager returns the stashed payload verbatim
-  // and untruncated, so the model sees the complete output rather than the
-  // placeholder that rode the event stream.
-  if (toolName?.startsWith('mcp__')) {
-    const stashed = take ? mcpManager.takeStashedResult(tcId) : mcpManager.peekStashedResult(tcId)
-    if (stashed !== undefined) return { output: stashed, truncated: false }
   }
   const truncated = modelText.length > 50000
   return {
