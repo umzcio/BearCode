@@ -472,6 +472,7 @@ export type Event =
       callId: string
       output: string
       exitCode?: number
+      sandboxed?: boolean
       durationMs: number
       truncated: boolean
       // For write_file/edit_file: the staged change, so the step row can

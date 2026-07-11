@@ -93,6 +93,7 @@ import {
   clearDeniedReplayPins,
   clearPlanReviewPending,
   pinDeniedReplays,
+  sandboxedRunFlag,
   type PlanReviewResolution,
   type SkillProposalResolution
 } from './tools'
@@ -532,6 +533,14 @@ export function interruptBelongsToToolCall(
     if (tc.name !== 'run_command') return false
     return (tc.args as { command?: unknown } | null | undefined)?.command === value.command
   }
+  if (value?.kind === 'run_command_unsandboxed') {
+    // Pairing for the "run outside the sandbox?" interrupt (Task 6) is
+    // identical to run_command's: same tool, same command string, matched by
+    // toolCallId when the payload carries one.
+    if (tc.name !== 'run_command') return false
+    if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
+    return (tc.args as { command?: unknown } | null | undefined)?.command === value.command
+  }
   if (value?.kind === 'edit_file') {
     if (tc.name !== value.tool) return false
     if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
@@ -857,6 +866,19 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
       toolCallId
     }
   }
+  if (value?.kind === 'run_command_unsandboxed') {
+    // Re-surface a parked "run outside the sandbox?" approval as a run_command
+    // card carrying an `unsandboxed: true` input flag (ToolName has no
+    // dedicated tool for this kind, so the renderer reads the flag instead --
+    // see ToolStep.tsx's PendingUnsandboxed branch). deniedReplayPinsOf below
+    // detects this same flag to emit an unsandboxedCommand pin instead of a
+    // command deny pin.
+    return {
+      tool: 'run_command',
+      input: { command: value?.command ?? '', unsandboxed: true },
+      toolCallId
+    }
+  }
   return { tool: 'run_command', input: { command: value?.command ?? '' }, toolCallId }
 }
 
@@ -1027,6 +1049,7 @@ export function deniedReplayPinsOf(items: ReadonlyMap<string, ApprovalItem>): Ar
   browserAction?: string
   mcpAction?: string
   integrationAction?: string
+  unsandboxedCommand?: string
 }> {
   const pins: Array<{
     toolCallId?: string
@@ -1035,6 +1058,7 @@ export function deniedReplayPinsOf(items: ReadonlyMap<string, ApprovalItem>): Ar
     browserAction?: string
     mcpAction?: string
     integrationAction?: string
+    unsandboxedCommand?: string
   }> = []
   for (const item of items.values()) {
     // NO pin analog for plan_review (decided): pins exist solely so a Denied
@@ -1046,6 +1070,24 @@ export function deniedReplayPinsOf(items: ReadonlyMap<string, ApprovalItem>): Ar
     // toolCallId in the shared pin set.
     if (item.planReview) continue
     if (item.decision === true) continue
+    // Task 7: a synthesized/pending run_command card carrying `unsandboxed:
+    // true` in its input pins under unsandboxedCommand instead of the
+    // generic command deny pin -- pinDeniedReplays (Task 6) routes this into
+    // byUnsandboxedCommand, its own namespace, so a "keep sandboxed" pin is
+    // never misread as a plain command refusal.
+    const isUnsandboxed =
+      item.tool === 'run_command' &&
+      typeof item.input === 'object' &&
+      item.input !== null &&
+      (item.input as { unsandboxed?: unknown }).unsandboxed === true
+    if (isUnsandboxed) {
+      const command = (item.input as { command?: unknown }).command
+      pins.push({
+        toolCallId: item.toolCallId,
+        unsandboxedCommand: typeof command === 'string' ? command : ''
+      })
+      continue
+    }
     if (item.tool.startsWith('browser_')) {
       // Browser mutation/navigation cards pin under their canonical action
       // label (browserActionLabel) so tools.ts takeDeniedBrowserReplayPin keys
@@ -1492,6 +1534,7 @@ async function drive(
             output,
             durationMs: 0,
             truncated,
+            sandboxed: sandboxedRunFlag(tcId, false),
             agentId: agentId ?? info.agentId
           })
         }
@@ -1623,6 +1666,7 @@ async function drive(
       durationMs: 0,
       truncated,
       stats,
+      sandboxed: sandboxedRunFlag(tc.id, true),
       agentId: resultAgentId
     })
     return true
@@ -2564,6 +2608,10 @@ export function isRehydratableInterrupt(value: unknown): boolean {
   // crash-resumable.
   return (
     kind === 'run_command' ||
+    // The "run outside the sandbox?" interrupt (Task 6) resumes with the
+    // identical {approved} shape as run_command, so it is equally
+    // crash-resumable.
+    kind === 'run_command_unsandboxed' ||
     kind === 'edit_file' ||
     kind === 'plan_review' ||
     kind === 'browser' ||
