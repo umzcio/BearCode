@@ -1,6 +1,7 @@
+import { memo } from 'react'
 import './events.css'
 
-export function ErrorCard({
+function ErrorCardImpl({
   message,
   recoverable,
   onRetry
@@ -20,3 +21,4 @@ export function ErrorCard({
     </div>
   )
 }
+export const ErrorCard = memo(ErrorCardImpl)
