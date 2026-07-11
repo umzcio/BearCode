@@ -610,21 +610,6 @@ export interface ManageableProvider {
 
 // ---- Projects (E4) ----
 
-export interface Project {
-  id: string
-  name: string
-  color: string | null
-  // F9 per-project settings (all optional; null/unset → inherit global). icon is
-  // a curated icon name (see the renderer's PROJECT_ICONS); the default* fields
-  // override the global defaults for conversations created in this project.
-  icon?: string | null
-  defaultModelRef?: ModelRef | null
-  defaultEffort?: EffortLevel | null
-  defaultPermissionMode?: PermissionMode | null
-  createdAt: number
-  updatedAt: number
-}
-
 // The settable subset of a Project (what the Project Settings modal writes and
 // what AppSettings.newProjectDefaults holds as the new-project template). Every
 // field optional so a patch touches only what changed; a null clears an override.

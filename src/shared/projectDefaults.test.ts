@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { resolveProjectDefaults } from './projectDefaults'
-import type { Project } from './types'
+import type { EffortLevel, ModelRef, PermissionMode } from './types'
 
 const global = {
   defaultModelRef: 'anthropic/claude-opus-4-8',
@@ -8,7 +8,21 @@ const global = {
   defaultPermissionMode: 'accept-edits' as const
 }
 
-const project = (over: Partial<Project>): Project => ({
+// Local fixture shape (the E4 `Project` type this used to import was retired;
+// resolveProjectDefaults is structurally typed, so any object with these
+// fields works — see projectDefaults.ts).
+interface TestProject {
+  id: string
+  name: string
+  color: string | null
+  createdAt: number
+  updatedAt: number
+  defaultModelRef?: ModelRef | null
+  defaultEffort?: EffortLevel | null
+  defaultPermissionMode?: PermissionMode | null
+}
+
+const project = (over: Partial<TestProject>): TestProject => ({
   id: 'p1',
   name: 'P',
   color: null,
