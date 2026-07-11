@@ -527,6 +527,26 @@ export function getEvents(conversationId: string): Event[] {
   })
 }
 
+// The last auto-compaction cutoff marker for a conversation, read directly by
+// seq rather than folding the whole history in memory (audit H-8). Uses the
+// idx_events_convo (conversation_id, seq) index.
+export function getLastCompactionEvent(conversationId: string): { summarizedCount: number } | null {
+  const row = getDb()
+    .prepare(
+      `SELECT payload FROM events
+       WHERE conversation_id = ? AND type = 'compaction'
+       ORDER BY seq DESC LIMIT 1`
+    )
+    .get(conversationId) as { payload: string } | undefined
+  if (!row) return null
+  try {
+    const ev = JSON.parse(row.payload) as { summarizedCount: number }
+    return { summarizedCount: ev.summarizedCount }
+  } catch {
+    return null
+  }
+}
+
 export function appendEvent(conversationId: string, event: Event): void {
   const database = getDb()
   const next = database

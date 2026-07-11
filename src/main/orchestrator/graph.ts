@@ -39,6 +39,7 @@ import {
   dropDanglingCancel,
   getConversationMeta,
   getEvents,
+  getLastCompactionEvent,
   getOutsidePolicy,
   isProjectTrusted,
   listArtifactComments,
@@ -2857,10 +2858,7 @@ async function closeOutTurn(
     const snapshot = await (agent as GetStateCapable).getState({
       configurable: { thread_id: ctx.conversationId }
     })
-    const prevCutoff = getEvents(ctx.conversationId).reduce<number | null>(
-      (acc, ev) => (ev.type === 'compaction' ? ev.summarizedCount : acc),
-      null
-    )
+    const prevCutoff = getLastCompactionEvent(ctx.conversationId)?.summarizedCount ?? null
     const { advanced, summarizedCount } = compactionAdvanced(
       prevCutoff,
       snapshot.values?._summarizationEvent
