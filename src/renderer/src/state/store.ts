@@ -447,6 +447,14 @@ export function refConfigured(providers: ProviderModels[], ref: ModelRef | null)
 }
 
 export const useAppStore = create<AppState>((set, get) => {
+  // Resolves the "active project" for @-menu / commands lookups: the open
+  // conversation's project, or the Home composer's picked workspace when
+  // there is no conversation yet.
+  function activeProjectPath(): string | null {
+    const { view, conversations, workspacePath } = get()
+    return view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
+  }
+
   function patchConvo(id: string, patch: Partial<Convo>): void {
     set((s) => {
       const convo = s.conversations[id]
@@ -1349,18 +1357,14 @@ export const useAppStore = create<AppState>((set, get) => {
     // conversation's, or the Home composer's picked workspace when there is
     // no conversation yet.
     refreshCommands: () => {
-      const { view, conversations, workspacePath } = get()
-      const projectPath =
-        view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
+      const projectPath = activeProjectPath()
       void window.bearcode.commands.list(projectPath).then((commands) => set({ commands }))
     },
 
     // Query-driven (called as the @-file query changes). The active project is
     // the open conversation's, or the Home composer's picked workspace.
     suggestFiles: (query) => {
-      const { view, conversations, workspacePath } = get()
-      const projectPath =
-        view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
+      const projectPath = activeProjectPath()
       void window.bearcode.mentions
         .files(projectPath, query)
         .then((files) => set({ fileSuggestions: files }))
@@ -1368,18 +1372,14 @@ export const useAppStore = create<AppState>((set, get) => {
 
     // Fetched once on @ menu open (mirrors refreshCommands' pacing).
     refreshManualRules: () => {
-      const { view, conversations, workspacePath } = get()
-      const projectPath =
-        view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
+      const projectPath = activeProjectPath()
       void window.bearcode.mentions.rules(projectPath).then((manualRules) => set({ manualRules }))
     },
 
     // The @skill category's read model (mirrors refreshManualRules). Fetched
     // on @ menu open.
     refreshManualSkills: () => {
-      const { view, conversations, workspacePath } = get()
-      const projectPath =
-        view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
+      const projectPath = activeProjectPath()
       void window.bearcode.mentions
         .skills(projectPath)
         .then((manualSkills) => set({ manualSkills }))
@@ -1390,9 +1390,7 @@ export const useAppStore = create<AppState>((set, get) => {
     // only when the master gate is on, it is individually enabled, and it has a
     // live tool list — i.e. exactly the servers whose tools the agent can call.
     refreshMcpConnectors: () => {
-      const { view, conversations, workspacePath } = get()
-      const projectPath =
-        view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
+      const projectPath = activeProjectPath()
       void window.bearcode.mcp.ensureConnected(projectPath).then((servers) =>
         set({
           mcpConnectors: servers
