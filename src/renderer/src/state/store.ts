@@ -66,7 +66,7 @@ export interface Convo {
   preview?: string | null
 }
 
-export type View = { kind: 'home' } | { kind: 'conversation'; id: string } | { kind: 'history' }
+type View = { kind: 'home' } | { kind: 'conversation'; id: string } | { kind: 'history' }
 
 // The Auxiliary Pane's target (Ba4 unification). ONE field for the ONE side
 // panel: an artifact (plan/walkthrough viewer) or a diff group (the virtual
