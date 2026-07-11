@@ -187,7 +187,7 @@ export function assertValidPlanReviewResolution(proceed: unknown, message: unkno
 // the turn toward distilling and proposing a skill via propose_skill. Mirrors
 // BUILTIN_COMMANDS' status field (commands.ts) without importing it, so this
 // boundary check never needs a live AgentsContent to run.
-const SENDABLE_BUILTINS = new Set(['goal', 'grill-me', 'compact', 'browser', 'learn'])
+const SENDABLE_BUILTINS = new Set(['goal', 'grill-me', 'compact', 'browser', 'learn', 'remember'])
 
 // Wire-boundary guard for bearcode:run:start's optional `command` argument
 // (src/main/ipc.ts). Same posture as assertValidPlanReviewResolution above:

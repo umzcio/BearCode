@@ -10,6 +10,7 @@ import {
   assembleSkillAdditions,
   mentionedSkillNames,
   assembleActivatedSkills,
+  assembleMemoryAdditions,
   type RuleAssemblyInput,
   type UserMentionsDeps
 } from './contextAssembly'
@@ -280,6 +281,13 @@ describe('assembleCommandAdditions', () => {
     expect(joined).toContain(PRECEDENCE_SUBSTRING)
   })
 
+  it('steers /remember toward the remember tool', () => {
+    const out = assembleCommandAdditions({ kind: 'builtin', name: 'remember' }, [])
+    expect(out.error).toBeUndefined()
+    const text = out.systemAdditions.join('\n')
+    expect(text).toMatch(/remember tool/i)
+  })
+
   it('produces a workflow frame with numbered resolved steps, the write_todos bootstrap, and the precedence line', () => {
     const wf = workflow({ name: 'release-check', steps: ['first step', 'second step'] })
     const command: CommandRef = { name: 'release-check', kind: 'workflow' }
@@ -436,5 +444,34 @@ describe('assembleActivatedSkills', () => {
   })
   it('ignores a mentioned name that is not an enabled skill', () => {
     expect(assembleActivatedSkills(['ghost'], []).systemAdditions).toEqual([])
+  })
+})
+
+describe('assembleMemoryAdditions', () => {
+  const e = (
+    scope: 'global' | 'project',
+    index: number,
+    text: string
+  ): { scope: 'global' | 'project'; index: number; text: string } => ({ scope, index, text })
+
+  it('emits nothing when both scopes are empty', () => {
+    expect(assembleMemoryAdditions({ global: [], project: [] }).systemAdditions).toEqual([])
+  })
+  it('emits a global block with one bullet per entry', () => {
+    const out = assembleMemoryAdditions({ global: [e('global', 0, 'likes TS')], project: [] })
+    const text = out.systemAdditions.join('\n')
+    expect(text).toContain('## Memory (global)')
+    expect(text).toContain('- likes TS')
+    expect(text).not.toContain('## Memory (project)')
+  })
+  it('emits both blocks in global-then-project order', () => {
+    const out = assembleMemoryAdditions({
+      global: [e('global', 0, 'g')],
+      project: [e('project', 0, 'p')]
+    })
+    const text = out.systemAdditions.join('\n')
+    expect(text.indexOf('## Memory (global)')).toBeLessThan(text.indexOf('## Memory (project)'))
+    expect(text).toContain('- g')
+    expect(text).toContain('- p')
   })
 })

@@ -18,6 +18,11 @@ import type {
   McpServerConfig,
   McpServerStatus,
   McpServerView,
+  MemoryList,
+  MemoryPromoteInput,
+  MemoryScopeName,
+  OutsideAccessInfo,
+  OutsideFolderAccess,
   PermissionMode,
   PermissionRulesInfo,
   PlanReviewResolveResult,
@@ -139,6 +144,30 @@ const bearcode: BearcodeApi = {
     list: (): Promise<FolderProject[]> => ipcRenderer.invoke('bearcode:projects:list'),
     update: (path: string, patch: ProjectSettings): Promise<FolderProject> =>
       ipcRenderer.invoke('bearcode:projects:update', path, patch)
+  },
+  project: {
+    isTrusted: (path: string): Promise<boolean> =>
+      ipcRenderer.invoke('bearcode:project:is-trusted', path),
+    trust: (path: string): Promise<FolderProject> =>
+      ipcRenderer.invoke('bearcode:project:trust', path),
+    untrust: (path: string): Promise<FolderProject> =>
+      ipcRenderer.invoke('bearcode:project:untrust', path),
+    hasConfig: (path: string): Promise<boolean> =>
+      ipcRenderer.invoke('bearcode:project:has-config', path),
+    outsideAccess: {
+      get: (path: string): Promise<OutsideAccessInfo> =>
+        ipcRenderer.invoke('bearcode:project:outside-access:get', path),
+      set: (path: string, policy: OutsideFolderAccess): Promise<OutsideAccessInfo> =>
+        ipcRenderer.invoke('bearcode:project:outside-access:set', path, policy),
+      allow: (path: string, abs: string): Promise<OutsideAccessInfo> =>
+        ipcRenderer.invoke('bearcode:project:outside-access:allow', path, abs),
+      deny: (path: string, abs: string): Promise<OutsideAccessInfo> =>
+        ipcRenderer.invoke('bearcode:project:outside-access:deny', path, abs),
+      list: (path: string): Promise<OutsideAccessInfo> =>
+        ipcRenderer.invoke('bearcode:project:outside-access:list', path),
+      remove: (path: string, abs: string): Promise<OutsideAccessInfo> =>
+        ipcRenderer.invoke('bearcode:project:outside-access:remove', path, abs)
+    }
   },
   permissions: {
     addRule: (rule: AddRuleInput): Promise<void> =>
@@ -286,6 +315,27 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:skills:set-enabled', name, source, projectPath, enabled),
     save: (callId: string, resolution: SkillProposalResolution): Promise<SkillSaveResult> =>
       ipcRenderer.invoke('bearcode:skills:save', callId, resolution)
+  },
+  memory: {
+    list: (projectPath: string | null): Promise<MemoryList> =>
+      ipcRenderer.invoke('bearcode:memory:list', projectPath),
+    add: (
+      scope: MemoryScopeName,
+      text: string,
+      projectPath: string | null
+    ): Promise<'ok' | 'full'> =>
+      ipcRenderer.invoke('bearcode:memory:add', scope, text, projectPath),
+    update: (
+      scope: MemoryScopeName,
+      index: number,
+      text: string,
+      projectPath: string | null
+    ): Promise<void> =>
+      ipcRenderer.invoke('bearcode:memory:update', scope, index, text, projectPath),
+    delete: (scope: MemoryScopeName, index: number, projectPath: string | null): Promise<void> =>
+      ipcRenderer.invoke('bearcode:memory:delete', scope, index, projectPath),
+    promote: (input: MemoryPromoteInput, projectPath: string | null): Promise<void> =>
+      ipcRenderer.invoke('bearcode:memory:promote', input, projectPath)
   },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>

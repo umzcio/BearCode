@@ -166,6 +166,39 @@ export interface SkillInput {
   scope: 'project' | 'global'
 }
 
+export type MemoryScopeName = 'global' | 'project'
+
+// One bullet in a scope's memory.md. `index` is the 0-based position within
+// its scope file — the stable handle edit/delete/promote address (v1 has no
+// per-entry provenance metadata, out of scope).
+export interface MemoryEntry {
+  scope: MemoryScopeName
+  index: number
+  text: string
+}
+
+export interface MemoryScope {
+  entries: MemoryEntry[]
+  sizeBytes: number
+}
+
+export interface MemoryList {
+  global: MemoryScope
+  project: MemoryScope
+}
+
+// Promote-a-bullet payload (Task 6): turns a memory entry into a Rule or a
+// Skill, then drops the source bullet.
+export type PromoteTarget = 'rule' | 'skill'
+
+export interface MemoryPromoteInput {
+  scope: MemoryScopeName
+  index: number
+  target: PromoteTarget
+  name: string // kebab-case; rule/skill filename or folder
+  description?: string // required for skill (SKILL.md), unused for rule
+}
+
 // The renderer's resolution of a pending propose_skill card (Task 8), mirror
 // of PlanReviewResolution's truthy-object contract: both variants are truthy
 // (LangGraph's mapCommand drops falsy resume values), so a discarded proposal
@@ -232,6 +265,7 @@ export type ToolName =
   | 'bitbucket_list_repos'
   | 'bitbucket_create_pr'
   | 'propose_skill'
+  | 'remember'
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
@@ -604,6 +638,9 @@ export interface ProjectSettings {
   // Sandbox Mode (macOS Seatbelt). Per-project; global default off.
   sandboxMode?: boolean | null
   sandboxAllowNetwork?: boolean | null
+  // Project Trust (audit C-1). Secure default: untrusted / ask.
+  trusted?: boolean | null
+  outsideFolderAccess?: OutsideFolderAccess | null
 }
 
 // F9 (folder = project): per-folder settings keyed by the workspace PATH. A
@@ -619,6 +656,21 @@ export interface FolderProject {
   defaultPermissionMode: PermissionMode | null
   sandboxMode: boolean
   sandboxAllowNetwork: boolean
+  trusted: boolean
+  outsideFolderAccess: OutsideFolderAccess
+  outsideFolderAllowedPaths: string[]
+  outsideFolderDeniedPaths: string[]
+  outsideFolderPendingPaths: string[]
+}
+
+// Project Trust + Outside-of-Folder Access (audit C-1). See
+// planning/2026-07-11-project-trust-design.md.
+export type OutsideFolderAccess = 'allow' | 'ask' | 'deny'
+export interface OutsideAccessInfo {
+  policy: OutsideFolderAccess
+  allowed: string[]
+  denied: string[]
+  pending: string[]
 }
 
 // F3: an isolated git worktree spawned for a conversation running in Worktree
@@ -976,6 +1028,20 @@ export interface BearcodeApi {
     list(): Promise<FolderProject[]>
     update(path: string, patch: ProjectSettings): Promise<FolderProject>
   }
+  project: {
+    isTrusted(path: string): Promise<boolean>
+    trust(path: string): Promise<FolderProject>
+    untrust(path: string): Promise<FolderProject>
+    hasConfig(path: string): Promise<boolean>
+    outsideAccess: {
+      get(path: string): Promise<OutsideAccessInfo>
+      set(path: string, policy: OutsideFolderAccess): Promise<OutsideAccessInfo>
+      allow(path: string, abs: string): Promise<OutsideAccessInfo>
+      deny(path: string, abs: string): Promise<OutsideAccessInfo>
+      list(path: string): Promise<OutsideAccessInfo>
+      remove(path: string, abs: string): Promise<OutsideAccessInfo>
+    }
+  }
   permissions: {
     addRule(rule: AddRuleInput): Promise<void>
     list(): Promise<PermissionRulesInfo>
@@ -1118,6 +1184,20 @@ export interface BearcodeApi {
       enabled: boolean
     ): Promise<void>
     save(callId: string, resolution: SkillProposalResolution): Promise<SkillSaveResult>
+  }
+  // Memory CRUD + promote (Task 6): Settings > Memory page's list plus
+  // add/update/delete of individual bullets and promote-to-rule/skill.
+  memory: {
+    list(projectPath: string | null): Promise<MemoryList>
+    add(scope: MemoryScopeName, text: string, projectPath: string | null): Promise<'ok' | 'full'>
+    update(
+      scope: MemoryScopeName,
+      index: number,
+      text: string,
+      projectPath: string | null
+    ): Promise<void>
+    delete(scope: MemoryScopeName, index: number, projectPath: string | null): Promise<void>
+    promote(input: MemoryPromoteInput, projectPath: string | null): Promise<void>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

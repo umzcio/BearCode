@@ -10,6 +10,8 @@ import { ProjectSettingsModal } from './components/ProjectSettings/ProjectSettin
 import { ConflictResolver } from './components/Worktree/ConflictResolver'
 import { Hint } from './components/Hint'
 import { IconPanel } from './components/icons'
+import { TrustBanner } from './components/TrustBanner'
+import { OutsideAccessCard } from './components/OutsideAccessCard'
 import { useAppStore } from './state/store'
 import { useCmdHeld } from './lib/useCmdHeld'
 import './App.css'
@@ -123,6 +125,8 @@ function App(): React.JSX.Element {
             </div>
           ) : null}
         </div>
+        <TrustBanner />
+        <OutsideAccessCard />
         {view.kind === 'home' ? <Home /> : null}
         {view.kind === 'history' ? <HistoryView /> : null}
         {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}

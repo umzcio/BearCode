@@ -91,7 +91,10 @@ export function updateSkill(
 // its enabled flag, size, and any parse error. Parse-errored skills are
 // included (greyed in the UI) with their error surfaced.
 export function listSkillEntries(projectPath: string | null): SkillEntry[] {
-  return loadAgentsContent(projectPath).skills.map((s) => ({
+  // Settings-page management view: show project skills regardless of trust so
+  // the user can see/manage them (they are NOT injected into agent context here;
+  // the agent-facing @-menu/turn-build paths gate on trust). Mirrors listMemory.
+  return loadAgentsContent(projectPath, { trusted: true }).skills.map((s) => ({
     name: s.name,
     description: s.description,
     source: s.source,

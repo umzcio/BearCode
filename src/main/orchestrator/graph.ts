@@ -39,19 +39,37 @@ import {
   dropDanglingCancel,
   getConversationMeta,
   getEvents,
+  getOutsidePolicy,
+  isProjectTrusted,
   listArtifactComments,
   markArtifactCommentsSent,
+  recordPendingOutsidePath,
   setActiveRules,
   setPermissionMode,
   touchedFilesFor
 } from '../db'
 import { readAttachmentBase64, readAttachmentSidecar } from '../attachments/ingest'
 import { loadAgentsContent } from '../agentsDir'
+import type { OutsidePolicy } from '../agentsDir'
+import { loadMemory } from '../agentsDir/memory'
+
+// Project Trust (audit C-1): bundles a turn's trust flag + outside-of-folder
+// policy from the db accessors into the shape loadAgentsContent/loadMemory
+// expect. Secure default (Global Constraints / design §7): no project open
+// (or any falsy path) is untrusted with no policy -- never inferred true.
+export function resolveTrustForTurn(projectPath: string | null): {
+  trusted: boolean
+  outside: OutsidePolicy | undefined
+} {
+  if (!projectPath) return { trusted: false, outside: undefined }
+  return { trusted: isProjectTrusted(projectPath), outside: getOutsidePolicy(projectPath) }
+}
 import type { Workflow } from '../agentsDir/types'
 import { isSkillEnabled } from '../skills/state'
 import {
   assembleActivatedSkills,
   assembleCommandAdditions,
+  assembleMemoryAdditions,
   assembleRuleAdditions,
   assembleSkillAdditions,
   assembleUserMentions,
@@ -86,6 +104,7 @@ import { DiffFsBackend, GatedDiffFsBackend } from './fsBackend'
 import {
   buildTools,
   buildBrowserTools,
+  buildMemoryTools,
   buildSkillTools,
   buildMcpTools,
   buildIntegrationTools,
@@ -2318,7 +2337,8 @@ function buildAgentAndContext(
   let ruleAdditions = ''
   let workflows: Workflow[] = []
   try {
-    const content = loadAgentsContent(projectPath)
+    const { trusted, outside } = resolveTrustForTurn(projectPath)
+    const content = loadAgentsContent(projectPath, { trusted, outside })
     workflows = content.workflows
     const touched = projectPath ? touchedFilesFor(conversationId) : []
     // buildTools only registers the activate_rule tool below when a project
@@ -2343,6 +2363,20 @@ function buildAgentAndContext(
     const activatedAsm = assembleActivatedSkills(mentionedSkillNames(mentions), enabledSkills)
     const skillLines = [...skillAsm.systemAdditions, ...activatedAsm.systemAdditions]
     if (skillLines.length > 0) ruleAdditions += '\n\n' + skillLines.join('\n\n')
+    // design 4.2: memory rides the same always-on turn-build path as rules and
+    // skills. loadMemory is dual-scope (global always, project when a folder is
+    // open) and never throws; empty scopes contribute nothing.
+    const memory = loadMemory(projectPath, { trusted })
+    const memoryAsm = assembleMemoryAdditions({ global: memory.global, project: memory.project })
+    if (memoryAsm.systemAdditions.length > 0) {
+      ruleAdditions += '\n\n' + memoryAsm.systemAdditions.join('\n\n')
+    }
+    // Any absolute @-ref outside the project folder that the loader had to
+    // drop-pending (design §7: `ask` policy, not yet allowed/denied) gets
+    // persisted here so the Trust settings UI can surface it for a decision.
+    if (projectPath && content.pendingOutside && content.pendingOutside.length > 0) {
+      for (const abs of content.pendingOutside) recordPendingOutsidePath(projectPath, abs)
+    }
   } catch (err) {
     console.warn('[bearcode] .agents rules skipped:', err)
   }
@@ -2461,7 +2495,10 @@ function buildAgentAndContext(
       // DynamicStructuredTool type that doesn't structurally overlap with
       // browserTools' union, so widen through unknown first (same pattern
       // buildMcpTools/buildIntegrationTools hit at their source).
-      ...(buildSkillTools(conversationId, projectPath) as unknown as typeof browserTools)
+      ...(buildSkillTools(conversationId, projectPath) as unknown as typeof browserTools),
+      // remember is folder-independent (global memory writes with no project),
+      // so it is appended unconditionally like buildSkillTools/browserTools.
+      ...(buildMemoryTools(conversationId, projectPath) as unknown as typeof browserTools)
     ]
   })
   const ctx: DriveContext = {

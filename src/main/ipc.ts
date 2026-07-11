@@ -17,10 +17,14 @@ import type {
   McpServerConfig,
   McpServerStatus,
   McpServerView,
+  MemoryList,
+  MemoryPromoteInput,
+  MemoryScopeName,
   PingResult,
   PreviewPayload,
   ProjectSettings,
   ProviderId,
+  PromoteTarget,
   RunState,
   SkillEntry,
   SkillInfo,
@@ -88,11 +92,12 @@ import { bitbucketConnect } from './integrations/bitbucket'
 import { gitAuthEnv } from './integrations/gitCredentials'
 import { setGitCredentialResolver } from './worktree/git'
 import { jailPath } from './orchestrator/fsBackend'
-import { loadAgentsContent } from './agentsDir'
+import { hasProjectAgentsConfig, loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
 import { suggestFiles, manualRuleInfos, skillInfos } from './orchestrator/mentionSuggest'
 import { createSkill, deleteSkillFolder, listSkillEntries, updateSkill } from './skills'
 import { isSkillEnabled, setSkillEnabled } from './skills/state'
+import { listMemory, addMemory, updateMemory, deleteMemory, promoteMemory } from './memory'
 import { COMMAND_NAME_PATTERN } from '../shared/types'
 import {
   assertValidConversationId,
@@ -211,7 +216,11 @@ export function registerIpc(): void {
   // open: loadAgentsContent is the same mtime-cached loader the turn-time
   // rule/command assembly uses, so this stays cheap on repeated opens.
   ipcMain.handle('bearcode:commands:list', (_e, projectPath: string | null): CommandEntry[] =>
-    listCommands(loadAgentsContent(projectPath))
+    listCommands(
+      loadAgentsContent(projectPath, {
+        trusted: projectPath != null && db.isProjectTrusted(projectPath)
+      })
+    )
   )
 
   // D3 @ menu read models (design 7), mirroring commands:list. Files: a
@@ -221,10 +230,16 @@ export function registerIpc(): void {
     suggestFiles(projectPath, query)
   )
   ipcMain.handle('bearcode:mentions:rules', (_e, projectPath: string | null): ManualRuleInfo[] =>
-    manualRuleInfos(loadAgentsContent(projectPath))
+    manualRuleInfos(
+      loadAgentsContent(projectPath, {
+        trusted: projectPath != null && db.isProjectTrusted(projectPath)
+      })
+    )
   )
   ipcMain.handle('bearcode:mentions:skills', (_e, projectPath: string | null): SkillInfo[] => {
-    const content = loadAgentsContent(projectPath)
+    const content = loadAgentsContent(projectPath, {
+      trusted: projectPath != null && db.isProjectTrusted(projectPath)
+    })
     return skillInfos(content).filter((info) => {
       const src = content.skills.find((k) => k.name === info.name)?.source ?? 'global'
       return isSkillEnabled(info.name, src, projectPath)
@@ -618,6 +633,53 @@ export function registerIpc(): void {
     }
     db.upsertProjectSettings(path, patch as ProjectSettings)
     return db.getProjectSettings(path)
+  })
+  const reqPath = (p: unknown): string => {
+    if (typeof p !== 'string' || p.length === 0)
+      throw new Error(`Invalid project path: ${String(p)}`)
+    return p
+  }
+  ipcMain.handle('bearcode:project:is-trusted', (_e, p: unknown) => db.isProjectTrusted(reqPath(p)))
+  ipcMain.handle('bearcode:project:trust', (_e, p: unknown) => {
+    const path = reqPath(p)
+    db.trustProject(path)
+    return db.getProjectSettings(path)
+  })
+  ipcMain.handle('bearcode:project:untrust', (_e, p: unknown) => {
+    const path = reqPath(p)
+    db.untrustProject(path)
+    return db.getProjectSettings(path)
+  })
+  ipcMain.handle('bearcode:project:has-config', (_e, p: unknown) =>
+    hasProjectAgentsConfig(reqPath(p))
+  )
+  ipcMain.handle('bearcode:project:outside-access:get', (_e, p: unknown) =>
+    db.listOutsidePaths(reqPath(p))
+  )
+  ipcMain.handle('bearcode:project:outside-access:set', (_e, p: unknown, pol: unknown) => {
+    const path = reqPath(p)
+    if (pol !== 'allow' && pol !== 'ask' && pol !== 'deny')
+      throw new Error(`Invalid policy: ${String(pol)}`)
+    db.setOutsideFolderPolicy(path, pol)
+    return db.listOutsidePaths(path)
+  })
+  ipcMain.handle('bearcode:project:outside-access:allow', (_e, p: unknown, abs: unknown) => {
+    const path = reqPath(p)
+    db.allowOutsidePath(path, reqPath(abs))
+    return db.listOutsidePaths(path)
+  })
+  ipcMain.handle('bearcode:project:outside-access:deny', (_e, p: unknown, abs: unknown) => {
+    const path = reqPath(p)
+    db.denyOutsidePath(path, reqPath(abs))
+    return db.listOutsidePaths(path)
+  })
+  ipcMain.handle('bearcode:project:outside-access:list', (_e, p: unknown) =>
+    db.listOutsidePaths(reqPath(p))
+  )
+  ipcMain.handle('bearcode:project:outside-access:remove', (_e, p: unknown, abs: unknown) => {
+    const path = reqPath(p)
+    db.removeOutsidePath(path, reqPath(abs))
+    return db.listOutsidePaths(path)
   })
   ipcMain.handle('bearcode:conversations:set-pinned', (_e, id: string, pinned: unknown) => {
     if (typeof pinned !== 'boolean') throw new Error(`Invalid pinned: ${String(pinned)}`)
@@ -1076,6 +1138,37 @@ export function registerIpc(): void {
     return { save: true, name: r.name, description: r.description, body: r.body, scope: r.scope }
   }
 
+  const asMemoryScope = (x: unknown): MemoryScopeName => {
+    if (x !== 'global' && x !== 'project') throw new Error('Invalid memory scope.')
+    return x
+  }
+  const asMemoryIndex = (x: unknown): number => {
+    if (typeof x !== 'number' || !Number.isInteger(x) || x < 0)
+      throw new Error('Invalid memory index.')
+    return x
+  }
+  function assertValidPromoteInput(raw: unknown): MemoryPromoteInput {
+    if (raw == null || typeof raw !== 'object') throw new Error('Invalid promote input.')
+    const r = raw as Partial<MemoryPromoteInput>
+    const scope = asMemoryScope(r.scope)
+    const index = asMemoryIndex(r.index)
+    const target = r.target
+    if (target !== 'rule' && target !== 'skill') throw new Error('Invalid promote target.')
+    if (typeof r.name !== 'string' || !COMMAND_NAME_PATTERN.test(r.name)) {
+      throw new Error('Promotion name must be kebab-case.')
+    }
+    if (target === 'skill' && (typeof r.description !== 'string' || r.description.trim() === '')) {
+      throw new Error('A description is required to promote to a skill.')
+    }
+    return {
+      scope,
+      index,
+      target: target as PromoteTarget,
+      name: r.name,
+      ...(typeof r.description === 'string' ? { description: r.description } : {})
+    }
+  }
+
   ipcMain.handle('bearcode:skills:list', (_e, projectPath: unknown): SkillEntry[] =>
     listSkillEntries(asProjectPath(projectPath))
   )
@@ -1115,6 +1208,33 @@ export function registerIpc(): void {
       return resolveSkillProposalOrchestrator(callId, assertValidSkillResolution(resolution))
     }
   )
+
+  ipcMain.handle('bearcode:memory:list', (_e, projectPath: unknown): MemoryList =>
+    listMemory(asProjectPath(projectPath))
+  )
+  ipcMain.handle(
+    'bearcode:memory:add',
+    (_e, scope: unknown, text: unknown, projectPath: unknown): 'ok' | 'full' => {
+      if (typeof text !== 'string') throw new Error('Memory text must be a string.')
+      return addMemory(asMemoryScope(scope), text, asProjectPath(projectPath))
+    }
+  )
+  ipcMain.handle(
+    'bearcode:memory:update',
+    (_e, scope: unknown, index: unknown, text: unknown, projectPath: unknown): void => {
+      if (typeof text !== 'string') throw new Error('Memory text must be a string.')
+      updateMemory(asMemoryScope(scope), asMemoryIndex(index), text, asProjectPath(projectPath))
+    }
+  )
+  ipcMain.handle(
+    'bearcode:memory:delete',
+    (_e, scope: unknown, index: unknown, projectPath: unknown): void => {
+      deleteMemory(asMemoryScope(scope), asMemoryIndex(index), asProjectPath(projectPath))
+    }
+  )
+  ipcMain.handle('bearcode:memory:promote', (_e, input: unknown, projectPath: unknown): void => {
+    promoteMemory(assertValidPromoteInput(input), asProjectPath(projectPath))
+  })
 
   // navigator.clipboard in the sandboxed renderer is blocked by our tight
   // permission handlers (media-only), so copy went through main's clipboard.
