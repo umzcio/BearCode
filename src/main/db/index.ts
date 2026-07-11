@@ -460,23 +460,29 @@ export function createConversation(projectPath: string | null, id?: string): Con
 }
 
 export function listConversations(): ConversationMeta[] {
-  const rows = getDb()
-    .prepare(`SELECT * FROM conversations ORDER BY updated_at DESC`)
-    .all() as ConversationRow[]
   // The first user message serves two browse-list needs: a fallback title when
   // none was generated, and a preview snippet. Sourcing the preview here (from
   // the DB) means the History browse list can show it even for conversations
-  // never opened this session, whose in-memory events array is empty.
-  const firstMsg = getDb().prepare(
-    `SELECT payload FROM events WHERE conversation_id = ? AND type = 'user_message'
-     ORDER BY seq ASC LIMIT 1`
-  )
+  // never opened this session, whose in-memory events array is empty. Folded
+  // into one correlated subquery (audit L-16 / #45) instead of a per-row
+  // firstMsg.get() -- the idx_events_convo (conversation_id, seq) index makes
+  // this cheap.
+  const rows = getDb()
+    .prepare(
+      `SELECT c.*, (
+         SELECT e.payload FROM events e
+         WHERE e.conversation_id = c.id AND e.type = 'user_message'
+         ORDER BY e.seq ASC LIMIT 1
+       ) AS first_msg
+       FROM conversations c
+       ORDER BY c.updated_at DESC`
+    )
+    .all() as (ConversationRow & { first_msg: string | null })[]
   return rows.map((row) => {
-    const msg = firstMsg.get(row.id) as { payload: string } | undefined
     let firstText: string | null = null
-    if (msg) {
+    if (row.first_msg) {
       try {
-        firstText = (JSON.parse(msg.payload) as { text: string }).text
+        firstText = (JSON.parse(row.first_msg) as { text: string }).text
       } catch {
         // A single corrupt payload row must not break the entire conversation
         // list at boot -- degrade to no preview/fallback for this row instead
