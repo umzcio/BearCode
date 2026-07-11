@@ -16,7 +16,10 @@ export function buildSeatbeltProfile(policy: SandboxPolicy): string {
     '(allow sysctl-read)',
     '(allow mach-lookup)',
     '(allow ipc-posix-shm)',
-    '(allow signal (target self))'
+    '(allow signal (target self))',
+    // Shells routinely redirect to /dev/null (e.g. `> /dev/null`); deny-default
+    // would otherwise block that extremely common, harmless pattern.
+    '(allow file-write-data (literal "/dev/null"))'
   )
   // Broad read, then subtract the secret paths (last-match-wins).
   lines.push('(allow file-read*)')
