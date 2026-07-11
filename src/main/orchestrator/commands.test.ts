@@ -36,6 +36,11 @@ describe('listCommands', () => {
     expect(result.find((c) => c.name === 'learn')?.status).toBe('live')
   })
 
+  it('includes /remember as a live built-in', () => {
+    const remember = BUILTIN_COMMANDS.find((c) => c.name === 'remember')
+    expect(remember?.status).toBe('live')
+  })
+
   it('lists non-erroring workflows alphabetically after the built-ins', () => {
     const b = workflow({ name: 'beta', description: 'second' })
     const a = workflow({ name: 'alpha', description: 'first' })

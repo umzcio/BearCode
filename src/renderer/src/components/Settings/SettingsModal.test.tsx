@@ -65,6 +65,18 @@ beforeEach(() => {
       delete: vi.fn(),
       setEnabled: vi.fn(() => Promise.resolve()),
       save: vi.fn()
+    },
+    memory: {
+      list: vi.fn(() =>
+        Promise.resolve({
+          global: { entries: [], sizeBytes: 0 },
+          project: { entries: [], sizeBytes: 0 }
+        })
+      ),
+      add: vi.fn(() => Promise.resolve('ok')),
+      update: vi.fn(() => Promise.resolve()),
+      delete: vi.fn(() => Promise.resolve()),
+      promote: vi.fn(() => Promise.resolve())
     }
   }
   useAppStore.setState({
@@ -175,14 +187,11 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
     expect(screen.getByPlaceholderText('sk-ant-…')).toBeTruthy()
   })
 
-  it('each remaining Customize tab shows an intentional placeholder', () => {
+  it('the Memory tab renders the real Memory page (not a placeholder)', () => {
     render(<SettingsModal />)
-    // Browser (F4), Connectors, Integrations, and Skills (Task 9) are now
-    // real pages; the rest of Customize is still WIP.
-    for (const label of ['Memory']) {
-      fireEvent.click(screen.getByText(label))
-      expect(document.querySelector('.coming-block')).toBeTruthy()
-    }
+    fireEvent.click(within(rail()).getByText('Memory'))
+    expect(document.querySelector('.coming-block')).toBeNull()
+    expect(document.querySelector('.page-title')?.textContent).toBe('Memory')
   })
 
   it('the Skills tab renders the real Skills page (not a placeholder)', () => {

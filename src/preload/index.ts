@@ -18,6 +18,9 @@ import type {
   McpServerConfig,
   McpServerStatus,
   McpServerView,
+  MemoryList,
+  MemoryPromoteInput,
+  MemoryScopeName,
   PermissionMode,
   PermissionRulesInfo,
   PlanReviewResolveResult,
@@ -286,6 +289,27 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:skills:set-enabled', name, source, projectPath, enabled),
     save: (callId: string, resolution: SkillProposalResolution): Promise<SkillSaveResult> =>
       ipcRenderer.invoke('bearcode:skills:save', callId, resolution)
+  },
+  memory: {
+    list: (projectPath: string | null): Promise<MemoryList> =>
+      ipcRenderer.invoke('bearcode:memory:list', projectPath),
+    add: (
+      scope: MemoryScopeName,
+      text: string,
+      projectPath: string | null
+    ): Promise<'ok' | 'full'> =>
+      ipcRenderer.invoke('bearcode:memory:add', scope, text, projectPath),
+    update: (
+      scope: MemoryScopeName,
+      index: number,
+      text: string,
+      projectPath: string | null
+    ): Promise<void> =>
+      ipcRenderer.invoke('bearcode:memory:update', scope, index, text, projectPath),
+    delete: (scope: MemoryScopeName, index: number, projectPath: string | null): Promise<void> =>
+      ipcRenderer.invoke('bearcode:memory:delete', scope, index, projectPath),
+    promote: (input: MemoryPromoteInput, projectPath: string | null): Promise<void> =>
+      ipcRenderer.invoke('bearcode:memory:promote', input, projectPath)
   },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>

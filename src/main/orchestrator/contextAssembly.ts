@@ -7,7 +7,7 @@
 import type { AgentsContent, Rule, Skill, Workflow } from '../agentsDir/types'
 import { matchesEditPath } from '../permissions/rules'
 import { resolveWorkflowSteps } from './commands'
-import type { CommandRef, MentionRef } from '../../shared/types'
+import type { CommandRef, MentionRef, MemoryEntry } from '../../shared/types'
 
 export interface RuleAssemblyInput {
   content: AgentsContent
@@ -180,6 +180,23 @@ export function assembleCommandAdditions(
         ]
       }
     }
+    // /remember (Memory Task 4): steer the turn to persist the user's stated
+    // fact via the remember tool. The user's text rides as the turn's user
+    // message (graph.ts modelText), so the directive only names the tool + the
+    // durable-facts guideline; the model supplies text + scope.
+    if (command.name === 'remember') {
+      return {
+        systemAdditions: [
+          '',
+          'Turn modifier: /remember. The user wants you to persist a durable fact to memory.',
+          'Call the remember tool with a concise sentence capturing what the user just told you,',
+          'choosing scope "global" for a fact about the user across projects or "project" for a',
+          'fact about this repository. Remember only stable, factual things -- never secrets. Then',
+          'briefly confirm what you saved.',
+          ...PRECEDENCE_LINES
+        ]
+      }
+    }
     return { systemAdditions: [], error: `Unknown command: /${command.name}` }
   }
 
@@ -316,6 +333,31 @@ export function assembleSkillAdditions(enabledSkills: Skill[]): SkillAssembly {
 // Skill-kind mention names (@skill:). Pure.
 export function mentionedSkillNames(mentions: MentionRef[]): string[] {
   return mentions.filter((m) => m.kind === 'skill').map((m) => m.name)
+}
+
+export interface MemoryAssemblyInput {
+  global: MemoryEntry[]
+  project: MemoryEntry[]
+}
+export interface MemoryAssembly {
+  systemAdditions: string[]
+}
+
+// Always-on memory injection (design 4.2): durable facts the agent wrote
+// previously, prepended alongside the rules/skills blocks every turn. One
+// bullet per entry under a per-scope heading; a scope with no entries emits
+// nothing. Pure — the caller (graph.ts) supplies the loaded entries.
+export function assembleMemoryAdditions(input: MemoryAssemblyInput): MemoryAssembly {
+  const additions: string[] = []
+  if (input.global.length > 0) {
+    additions.push('', '## Memory (global)')
+    for (const entry of input.global) additions.push(`- ${entry.text}`)
+  }
+  if (input.project.length > 0) {
+    additions.push('', '## Memory (project)')
+    for (const entry of input.project) additions.push(`- ${entry.text}`)
+  }
+  return { systemAdditions: additions }
 }
 
 // Force-use (design 4.2 step 3): a @skill: mention injects that skill's FULL
