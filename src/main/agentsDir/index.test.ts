@@ -85,7 +85,7 @@ describe('loadAgentsContent', () => {
     writeRule(globalRulesDir(), 'shared', '# global version\nglobal body')
     writeRule(globalRulesDir(), 'only-global', 'global only body')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
 
     expect(content.rules).toHaveLength(2)
     const shared = content.rules.find((r) => r.name === 'shared')
@@ -96,15 +96,15 @@ describe('loadAgentsContent', () => {
   })
 
   it('returns an empty rule and workflow list when all directories are missing', () => {
-    const content = loadAgentsContent(projectDir)
-    expect(content).toEqual({ rules: [], workflows: [], skills: [] })
+    const content = loadAgentsContent(projectDir, { trusted: true })
+    expect(content).toEqual({ rules: [], workflows: [], skills: [], pendingOutside: [] })
   })
 
   it('returns the same Rule object across two loads when nothing changed', () => {
     writeRule(projectRulesDir(), 'stable', 'stable body')
 
-    const first = loadAgentsContent(projectDir)
-    const second = loadAgentsContent(projectDir)
+    const first = loadAgentsContent(projectDir, { trusted: true })
+    const second = loadAgentsContent(projectDir, { trusted: true })
 
     const firstRule = first.rules.find((r) => r.name === 'stable')
     const secondRule = second.rules.find((r) => r.name === 'stable')
@@ -114,14 +114,14 @@ describe('loadAgentsContent', () => {
 
   it('re-parses a file whose mtime and content changed', () => {
     const path = writeRule(projectRulesDir(), 'changing', 'original body')
-    const first = loadAgentsContent(projectDir)
+    const first = loadAgentsContent(projectDir, { trusted: true })
     const firstRule = first.rules.find((r) => r.name === 'changing')
 
     writeFileSync(path, 'updated body')
     const future = new Date(Date.now() + 5000)
     utimesSync(path, future, future)
 
-    const second = loadAgentsContent(projectDir)
+    const second = loadAgentsContent(projectDir, { trusted: true })
     const secondRule = second.rules.find((r) => r.name === 'changing')
 
     expect(secondRule).not.toBe(firstRule)
@@ -134,7 +134,7 @@ describe('loadAgentsContent', () => {
     mkdirSync(join(projectDir, 'shared'), { recursive: true })
     writeFileSync(join(projectDir, 'shared', 'snippet.md'), 'THE SNIPPET CONTENT')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const rule = content.rules.find((r) => r.name === 'main')
 
     expect(rule?.body).toContain('THE SNIPPET CONTENT')
@@ -148,7 +148,7 @@ describe('loadAgentsContent', () => {
       writeFileSync(outsideFile, 'EXTERNAL FILE CONTENT')
       writeRule(projectRulesDir(), 'main', `See @${outsideFile} for details.`)
 
-      const content = loadAgentsContent(projectDir)
+      const content = loadAgentsContent(projectDir, { trusted: true })
       const rule = content.rules.find((r) => r.name === 'main')
 
       expect(rule?.body).toContain('EXTERNAL FILE CONTENT')
@@ -163,7 +163,7 @@ describe('loadAgentsContent', () => {
     writeFileSync(join(projectDir, 'shared', 'big.md'), big)
     writeRule(projectRulesDir(), 'main', 'See @shared/big.md for details.')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const rule = content.rules.find((r) => r.name === 'main')
 
     // Extract just the inlined block's content (between the fence markers),
@@ -190,7 +190,7 @@ describe('loadAgentsContent', () => {
     )
     writeRule(projectRulesDir(), 'a-ref', 'A content references @shared/b.md')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const rule = content.rules.find((r) => r.name === 'a-ref')
 
     expect(rule).toBeDefined()
@@ -207,7 +207,7 @@ describe('loadAgentsContent', () => {
     try {
       writeRule(projectRulesDir(), 'main', 'See @../secret.md for details.')
 
-      const content = loadAgentsContent(projectDir)
+      const content = loadAgentsContent(projectDir, { trusted: true })
       const rule = content.rules.find((r) => r.name === 'main')
 
       expect(rule?.body).toContain('@../secret.md')
@@ -229,7 +229,7 @@ describe('loadAgentsContent', () => {
       const evilRelative = `../${evilDir.slice(evilDir.lastIndexOf(sep) + 1)}/secret.md`
       writeRule(projectRulesDir(), 'main', `See @${evilRelative} for details.`)
 
-      const content = loadAgentsContent(projectDir)
+      const content = loadAgentsContent(projectDir, { trusted: true })
       const rule = content.rules.find((r) => r.name === 'main')
 
       expect(rule?.body).toContain(`@${evilRelative}`)
@@ -242,7 +242,7 @@ describe('loadAgentsContent', () => {
   it('leaves an unresolvable reference literal with a warning', () => {
     writeRule(projectRulesDir(), 'main', 'See @shared/missing.md for details.')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const rule = content.rules.find((r) => r.name === 'main')
 
     expect(rule?.body).toContain('@shared/missing.md')
@@ -264,7 +264,7 @@ describe('loadAgentsContent', () => {
     closeSync(fd)
     writeRule(projectRulesDir(), 'main', 'See @shared/huge.md for details.')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const rule = content.rules.find((r) => r.name === 'main')
 
     const inlined = /--- begin @shared\/huge\.md \([^)]*\) ---\n([\s\S]*?)\n--- end/.exec(
@@ -278,7 +278,7 @@ describe('loadAgentsContent', () => {
     mkdirSync(join(projectDir, 'shared', 'a-directory'), { recursive: true })
     writeRule(projectRulesDir(), 'main', 'See @shared/a-directory for details.')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const rule = content.rules.find((r) => r.name === 'main')
 
     expect(rule?.body).toContain('@shared/a-directory')
@@ -295,7 +295,7 @@ describe('loadAgentsContent', () => {
     execFileSync('mkfifo', [fifoPath])
     writeRule(projectRulesDir(), 'main', 'See @shared/pipe.md for details.')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const rule = content.rules.find((r) => r.name === 'main')
 
     expect(rule?.body).toContain('@shared/pipe.md')
@@ -310,7 +310,7 @@ describe('loadAgentsContent', () => {
     writeFileSync(join(projectDir, 'shared', 'c.md'), 'C-CONTENT then @shared/d.md')
     writeRule(projectRulesDir(), 'main', 'Top: @shared/b.md and @shared/c.md')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const rule = content.rules.find((r) => r.name === 'main')
 
     expect(rule?.body).toContain('B-CONTENT')
@@ -333,7 +333,7 @@ describe('loadAgentsContent', () => {
     }
     writeRule(projectRulesDir(), 'main', tokens.join('\n'))
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const rule = content.rules.find((r) => r.name === 'main')
 
     const inlinedCount = (rule?.body.match(/--- begin /g) ?? []).length
@@ -345,7 +345,7 @@ describe('loadAgentsContent', () => {
   it('truncates an oversized rule file itself and records a warning', () => {
     writeRule(projectRulesDir(), 'huge-rule', 'y'.repeat(100 * 1024))
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const rule = content.rules.find((r) => r.name === 'huge-rule')
 
     expect(rule).toBeDefined()
@@ -367,7 +367,7 @@ describe('loadAgentsContent', () => {
       mkdirSync(join(otherProject, 'shared'), { recursive: true })
       writeFileSync(join(otherProject, 'shared', 'marker.md'), 'BETA-PROJECT-CONTENT')
 
-      const first = loadAgentsContent(projectDir)
+      const first = loadAgentsContent(projectDir, { trusted: true })
       const firstRule = first.rules.find((r) => r.name === 'shared-global')
       expect(firstRule?.body).toContain('ALPHA-PROJECT-CONTENT')
 
@@ -390,7 +390,7 @@ describe('loadAgentsContent', () => {
     writeRule(projectRulesDir(), 'main', 'See @shared/link-0.md for details.')
 
     // Must not throw/stack-overflow, and must terminate.
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const rule = content.rules.find((r) => r.name === 'main')
 
     expect(rule).toBeDefined()
@@ -403,7 +403,7 @@ describe('loadAgentsContent workflows', () => {
     writeWorkflow(projectWorkflowsDir(), 'release-check', '1. Build\n2. Test')
     writeWorkflow(globalWorkflowsDir(), 'global-only', '1. Do the global thing')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
 
     expect(content.workflows).toHaveLength(2)
     const releaseCheck = content.workflows.find((w) => w.name === 'release-check')
@@ -417,7 +417,7 @@ describe('loadAgentsContent workflows', () => {
     writeWorkflow(projectWorkflowsDir(), 'shared', '1. project version')
     writeWorkflow(globalWorkflowsDir(), 'shared', '1. global version')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
 
     expect(content.workflows).toHaveLength(1)
     const shared = content.workflows.find((w) => w.name === 'shared')
@@ -428,8 +428,8 @@ describe('loadAgentsContent workflows', () => {
   it('returns the same Workflow object across two loads when nothing changed', () => {
     writeWorkflow(projectWorkflowsDir(), 'stable', '1. stable step')
 
-    const first = loadAgentsContent(projectDir)
-    const second = loadAgentsContent(projectDir)
+    const first = loadAgentsContent(projectDir, { trusted: true })
+    const second = loadAgentsContent(projectDir, { trusted: true })
 
     const firstWorkflow = first.workflows.find((w) => w.name === 'stable')
     const secondWorkflow = second.workflows.find((w) => w.name === 'stable')
@@ -439,14 +439,14 @@ describe('loadAgentsContent workflows', () => {
 
   it('re-parses a workflow file whose mtime and content changed', () => {
     const path = writeWorkflow(projectWorkflowsDir(), 'changing', '1. original step')
-    const first = loadAgentsContent(projectDir)
+    const first = loadAgentsContent(projectDir, { trusted: true })
     const firstWorkflow = first.workflows.find((w) => w.name === 'changing')
 
     writeFileSync(path, '1. updated step')
     const future = new Date(Date.now() + 5000)
     utimesSync(path, future, future)
 
-    const second = loadAgentsContent(projectDir)
+    const second = loadAgentsContent(projectDir, { trusted: true })
     const secondWorkflow = second.workflows.find((w) => w.name === 'changing')
 
     expect(secondWorkflow).not.toBe(firstWorkflow)
@@ -454,7 +454,7 @@ describe('loadAgentsContent workflows', () => {
   })
 
   it('returns an empty workflow list when both workflow directories are missing', () => {
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     expect(content.workflows).toEqual([])
   })
 
@@ -463,7 +463,7 @@ describe('loadAgentsContent workflows', () => {
     writeFileSync(join(projectDir, 'shared', 'snippet.md'), 'THE SNIPPET CONTENT')
     writeWorkflow(projectWorkflowsDir(), 'main', 'See @shared/snippet.md for details.')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const workflow = content.workflows.find((w) => w.name === 'main')
 
     expect(workflow?.body).toContain('@shared/snippet.md')
@@ -473,7 +473,7 @@ describe('loadAgentsContent workflows', () => {
   it('truncates an oversized workflow file and records a warning', () => {
     writeWorkflow(projectWorkflowsDir(), 'huge-workflow', 'y'.repeat(100 * 1024))
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const workflow = content.workflows.find((w) => w.name === 'huge-workflow')
 
     expect(workflow).toBeDefined()
@@ -484,7 +484,7 @@ describe('loadAgentsContent workflows', () => {
   it('keeps a malformed workflow file listed with its error, never throwing', () => {
     writeWorkflow(projectWorkflowsDir(), 'broken', '---\ndescription: broken\nno closer here')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const workflow = content.workflows.find((w) => w.name === 'broken')
 
     expect(workflow).toBeDefined()
@@ -496,7 +496,7 @@ describe('loadAgentsContent skills', () => {
   it('loads project skills from .agents/skills/<name>/SKILL.md', () => {
     writeSkill(projectSkillsDir(), 'alpha', '---\ndescription: Alpha does A.\n---\nbody a')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const alpha = content.skills.find((s) => s.name === 'alpha')
 
     expect(alpha?.description).toBe('Alpha does A.')
@@ -511,7 +511,7 @@ describe('loadAgentsContent skills', () => {
     )
     writeSkill(projectSkillsDir(), 'alpha', '---\ndescription: Project alpha.\n---\nproject body')
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const alphas = content.skills.filter((s) => s.name === 'alpha')
 
     expect(alphas).toHaveLength(1)
@@ -521,7 +521,7 @@ describe('loadAgentsContent skills', () => {
   it('ignores a skill folder with no SKILL.md', () => {
     mkdirSync(join(projectSkillsDir(), 'empty-dir'), { recursive: true })
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
 
     expect(content.skills.find((s) => s.name === 'empty-dir')).toBeUndefined()
   })
@@ -537,8 +537,8 @@ describe('loadAgentsContent skills', () => {
   it('returns the same Skill object across two loads when nothing changed', () => {
     writeSkill(projectSkillsDir(), 'stable', '---\ndescription: Stable skill.\n---\nstable body')
 
-    const first = loadAgentsContent(projectDir)
-    const second = loadAgentsContent(projectDir)
+    const first = loadAgentsContent(projectDir, { trusted: true })
+    const second = loadAgentsContent(projectDir, { trusted: true })
 
     const firstSkill = first.skills.find((s) => s.name === 'stable')
     const secondSkill = second.skills.find((s) => s.name === 'stable')
@@ -552,14 +552,14 @@ describe('loadAgentsContent skills', () => {
       'changing',
       '---\ndescription: Original.\n---\noriginal body'
     )
-    const first = loadAgentsContent(projectDir)
+    const first = loadAgentsContent(projectDir, { trusted: true })
     const firstSkill = first.skills.find((s) => s.name === 'changing')
 
     writeFileSync(path, '---\ndescription: Updated.\n---\nupdated body')
     const future = new Date(Date.now() + 5000)
     utimesSync(path, future, future)
 
-    const second = loadAgentsContent(projectDir)
+    const second = loadAgentsContent(projectDir, { trusted: true })
     const secondSkill = second.skills.find((s) => s.name === 'changing')
 
     expect(secondSkill).not.toBe(firstSkill)
@@ -569,7 +569,7 @@ describe('loadAgentsContent skills', () => {
   it('truncates an oversized skill file and records a warning', () => {
     writeSkill(projectSkillsDir(), 'huge-skill', 'y'.repeat(100 * 1024))
 
-    const content = loadAgentsContent(projectDir)
+    const content = loadAgentsContent(projectDir, { trusted: true })
     const skill = content.skills.find((s) => s.name === 'huge-skill')
 
     expect(skill).toBeDefined()

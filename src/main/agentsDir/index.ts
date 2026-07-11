@@ -14,6 +14,18 @@ import { parseRuleFile } from './parseRule'
 import { parseSkillFolder } from './parseSkill'
 import { parseWorkflowFile } from './parseWorkflow'
 import type { AgentsContent, Rule, Skill, Workflow } from './types'
+import type { OutsideFolderAccess } from '../../shared/types'
+
+// Loader-side outside-of-folder policy (design §7). Consumed by the ref
+// resolver (Task 3) to decide whether an absolute @-ref outside the project
+// folder is inlined, dropped-pending, or dropped-denied. Kept local to the
+// loader (not re-exported from shared/types) since only main-process loader
+// code needs the allow/deny lists alongside the policy.
+export interface OutsidePolicy {
+  policy: OutsideFolderAccess
+  allowed: string[]
+  denied: string[]
+}
 
 const MAX_REF_BYTES = 64 * 1024
 // Rule files themselves get the same cap as cross-refs: a rule is prompt
@@ -292,8 +304,19 @@ function loadOneSkill(
 // Task 2's command registry is where cross-kind collisions with built-ins
 // are handled), and return the live content. Missing directories are treated
 // as empty, never an error.
-export function loadAgentsContent(projectPath: string | null): AgentsContent {
-  const projectRulesDir = projectPath ? join(projectPath, '.agents', 'rules') : null
+export function loadAgentsContent(
+  projectPath: string | null,
+  opts?: { trusted?: boolean; outside?: OutsidePolicy }
+): AgentsContent {
+  // Secure default (Global Constraints / design §7): an unspecified project
+  // is untrusted, so a caller that forgets to pass `trusted` never gets
+  // project-authored rules/workflows/skills injected into agent context --
+  // only the user's own global entries load. `outside` is threaded through
+  // for Task 3's ref resolver; this task only builds the (currently always
+  // empty) pendingOutside accumulator so the shape is stable end to end.
+  const trusted = opts?.trusted ?? false
+  const pendingOutside = new Set<string>()
+  const projectRulesDir = trusted && projectPath ? join(projectPath, '.agents', 'rules') : null
   const projectRuleFiles = projectRulesDir ? listMdFiles(projectRulesDir) : []
   const globalRuleFiles = listMdFiles(globalRulesDir())
 
@@ -312,7 +335,8 @@ export function loadAgentsContent(projectPath: string | null): AgentsContent {
     if (rule) rulesByName.set(name, rule)
   }
 
-  const projectWorkflowsDir = projectPath ? join(projectPath, '.agents', 'workflows') : null
+  const projectWorkflowsDir =
+    trusted && projectPath ? join(projectPath, '.agents', 'workflows') : null
   const projectWorkflowFiles = projectWorkflowsDir ? listMdFiles(projectWorkflowsDir) : []
   const globalWorkflowFiles = listMdFiles(globalWorkflowsDir())
 
@@ -331,7 +355,7 @@ export function loadAgentsContent(projectPath: string | null): AgentsContent {
     if (workflow) workflowsByName.set(name, workflow)
   }
 
-  const projectSkillsDir = projectPath ? join(projectPath, '.agents', 'skills') : null
+  const projectSkillsDir = trusted && projectPath ? join(projectPath, '.agents', 'skills') : null
   const projectSkillFolders = projectSkillsDir ? listSkillFolders(projectSkillsDir) : []
   const globalSkillFolders = listSkillFolders(globalSkillsDir())
 
@@ -351,7 +375,8 @@ export function loadAgentsContent(projectPath: string | null): AgentsContent {
   return {
     rules: Array.from(rulesByName.values()),
     workflows: Array.from(workflowsByName.values()),
-    skills: Array.from(skillsByName.values())
+    skills: Array.from(skillsByName.values()),
+    pendingOutside: Array.from(pendingOutside)
   }
 }
 
