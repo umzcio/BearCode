@@ -179,6 +179,18 @@ const turnStartByConvo = new Map<string, { turnId: string; startedAt: number; fr
 // browser steps. Cleared when a new user_message turn begins for the convo.
 const browserPaneAutoOpened = new Set<string>()
 
+// Prune all per-conversation tracking entries so a deleted conversation leaves
+// no permanent residue (turnStartByConvo/browserPaneAutoOpened keyed by convoId;
+// workedSecondsByTurn keyed by the turn's user_message id — only ever set for
+// turns run this session, whose events are in memory). (audit L-1 / L-19)
+export function pruneConvoTracking(id: string, events: readonly Event[]): void {
+  turnStartByConvo.delete(id)
+  browserPaneAutoOpened.delete(id)
+  for (const ev of events) {
+    if (ev.type === 'user_message') workedSecondsByTurn.delete(ev.id)
+  }
+}
+
 function basename(p: string): string {
   const parts = p.replace(/\/$/, '').split('/')
   return parts[parts.length - 1] || p
@@ -905,6 +917,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
     deleteConvo: (id) => {
       void window.bearcode.conversations.delete(id).then(() => {
+        pruneConvoTracking(id, get().conversations[id]?.events ?? [])
         set((s) => {
           const conversations = { ...s.conversations }
           delete conversations[id]
@@ -1283,6 +1296,7 @@ export const useAppStore = create<AppState>((set, get) => {
       await window.bearcode.conversations.clear()
       turnStartByConvo.clear()
       workedSecondsByTurn.clear()
+      browserPaneAutoOpened.clear()
       set((s) => ({
         conversations: {},
         convoOrder: [],
