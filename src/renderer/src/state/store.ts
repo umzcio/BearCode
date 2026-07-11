@@ -30,6 +30,7 @@ import type {
 } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
 import { describeError } from '../lib/errors'
+import { mergeEvent } from '../lib/mergeEvent'
 import { resolveProjectDefaults } from '@shared/projectDefaults'
 
 export type ConvoRunState = RunState | 'idle'
@@ -464,7 +465,9 @@ export const useAppStore = create<AppState>((set, get) => {
   // there is no conversation yet.
   function activeProjectPath(): string | null {
     const { view, conversations, workspacePath } = get()
-    return view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
+    return view.kind === 'conversation'
+      ? (conversations[view.id]?.projectPath ?? null)
+      : workspacePath
   }
 
   function patchConvo(id: string, patch: Partial<Convo>): void {
@@ -479,11 +482,7 @@ export const useAppStore = create<AppState>((set, get) => {
     set((s) => {
       const convo = s.conversations[convoId]
       if (!convo) return s
-      const index = convo.events.findIndex((e) => e.id === event.id)
-      const events =
-        index >= 0
-          ? convo.events.map((e, i) => (i === index ? event : e))
-          : [...convo.events, event]
+      const events = mergeEvent(convo.events, event)
       return { conversations: { ...s.conversations, [convoId]: { ...convo, events } } }
     })
   }
@@ -796,25 +795,28 @@ export const useAppStore = create<AppState>((set, get) => {
       // resume (A2): a conversation the app re-surfaced at boot is `!loaded`
       // with a persisted pending approval in its history that must be read in.
       if (!convo.loaded && (convo.runState === 'idle' || convo.runState === 'awaiting-approval')) {
-        void window.bearcode.conversations.get(id).then((events) => {
-          // Derive awaiting-approval from a trailing pending tool_call: a crash-
-          // resumed conversation (A2) persists its re-surfaced pending approval
-          // to history, but the boot-time run-state broadcast can be lost to a
-          // startup race, so reading it back from the loaded events is the
-          // robust source of truth for the composer state.
-          const last = events[events.length - 1]
-          const pending = last && last.type === 'tool_call' && last.approvalState === 'pending'
-          patchConvo(id, {
-            events,
-            loaded: true,
-            ...(pending ? { runState: 'awaiting-approval' as const } : {})
+        void window.bearcode.conversations
+          .get(id)
+          .then((events) => {
+            // Derive awaiting-approval from a trailing pending tool_call: a crash-
+            // resumed conversation (A2) persists its re-surfaced pending approval
+            // to history, but the boot-time run-state broadcast can be lost to a
+            // startup race, so reading it back from the loaded events is the
+            // robust source of truth for the composer state.
+            const last = events[events.length - 1]
+            const pending = last && last.type === 'tool_call' && last.approvalState === 'pending'
+            patchConvo(id, {
+              events,
+              loaded: true,
+              ...(pending ? { runState: 'awaiting-approval' as const } : {})
+            })
           })
-        }).catch((err) => {
-          // A failed history load must still flip `loaded` so the UI doesn't
-          // hang forever on a blank transcript with no way to retry.
-          get().showToast(describeError(err))
-          patchConvo(id, { loaded: true })
-        })
+          .catch((err) => {
+            // A failed history load must still flip `loaded` so the UI doesn't
+            // hang forever on a blank transcript with no way to retry.
+            get().showToast(describeError(err))
+            patchConvo(id, { loaded: true })
+          })
       }
     },
 
