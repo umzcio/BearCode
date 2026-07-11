@@ -60,6 +60,12 @@ export const BUILTIN_COMMANDS: CommandEntry[] = [
     description: 'Teach the agent a reusable skill from this session.',
     kind: 'builtin',
     status: 'live'
+  },
+  {
+    name: 'remember',
+    description: 'Remember a durable fact across conversations.',
+    kind: 'builtin',
+    status: 'live'
   }
 ]
 

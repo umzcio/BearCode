@@ -281,6 +281,13 @@ describe('assembleCommandAdditions', () => {
     expect(joined).toContain(PRECEDENCE_SUBSTRING)
   })
 
+  it('steers /remember toward the remember tool', () => {
+    const out = assembleCommandAdditions({ kind: 'builtin', name: 'remember' }, [])
+    expect(out.error).toBeUndefined()
+    const text = out.systemAdditions.join('\n')
+    expect(text).toMatch(/remember tool/i)
+  })
+
   it('produces a workflow frame with numbered resolved steps, the write_todos bootstrap, and the precedence line', () => {
     const wf = workflow({ name: 'release-check', steps: ['first step', 'second step'] })
     const command: CommandRef = { name: 'release-check', kind: 'workflow' }

@@ -180,6 +180,23 @@ export function assembleCommandAdditions(
         ]
       }
     }
+    // /remember (Memory Task 4): steer the turn to persist the user's stated
+    // fact via the remember tool. The user's text rides as the turn's user
+    // message (graph.ts modelText), so the directive only names the tool + the
+    // durable-facts guideline; the model supplies text + scope.
+    if (command.name === 'remember') {
+      return {
+        systemAdditions: [
+          '',
+          'Turn modifier: /remember. The user wants you to persist a durable fact to memory.',
+          'Call the remember tool with a concise sentence capturing what the user just told you,',
+          'choosing scope "global" for a fact about the user across projects or "project" for a',
+          'fact about this repository. Remember only stable, factual things -- never secrets. Then',
+          'briefly confirm what you saved.',
+          ...PRECEDENCE_LINES
+        ]
+      }
+    }
     return { systemAdditions: [], error: `Unknown command: /${command.name}` }
   }
 
