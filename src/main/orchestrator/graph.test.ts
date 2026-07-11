@@ -39,6 +39,7 @@ import {
   synthesizedApprovalCard,
   pairedApprovalInput,
   isRehydratableInterrupt,
+  isSkillProposalInterrupt,
   planReviewArtifactIdOf,
   planProceedModeFlip,
   resolvePlanInterrupt,
@@ -1333,6 +1334,54 @@ describe('propose_skill resume shape (SECURITY: the kind branch, G-skills Task 8
 
   it('isRehydratableInterrupt accepts propose_skill (the pause survives a crash)', () => {
     expect(isRehydratableInterrupt({ kind: 'propose_skill', name: 'n' })).toBe(true)
+  })
+
+  it('isSkillProposalInterrupt marks a propose_skill payload and only that kind (review findings 1/2/3/4)', () => {
+    expect(isSkillProposalInterrupt({ kind: 'propose_skill', name: 'n' })).toBe(true)
+    expect(isSkillProposalInterrupt({ kind: 'plan_review', artifactId: 'a' })).toBe(false)
+    expect(isSkillProposalInterrupt({ kind: 'run_command', command: 'ls' })).toBe(false)
+    expect(isSkillProposalInterrupt(undefined)).toBe(false)
+    expect(isSkillProposalInterrupt(null)).toBe(false)
+  })
+
+  it("crash-resume: a propose_skill interrupt pairs to NO run_command candidate, then synthesizes its real card and is markable via isSkillProposalInterrupt (finding 4, rehydratePausedRun's composition)", () => {
+    const skillInterrupt = {
+      interruptId: 'is1',
+      value: {
+        kind: 'propose_skill',
+        name: 'my-skill',
+        description: 'A specific description',
+        body: '# Body',
+        toolCallId: 'tcSkill'
+      }
+    }
+    const dangling = findDanglingRunCommandCalls([
+      { tool_calls: [{ id: 'tcSkill', name: 'propose_skill', args: { name: 'my-skill' } }] }
+    ])
+    // propose_skill is not run_command, so the dangling scan yields nothing --
+    // exactly like plan_review/edit/browser, this pause re-parks from the
+    // payload alone (rehydratePausedRun's isSkillProposalInterrupt branch).
+    expect(dangling).toEqual([])
+    const out = pairInterruptsToCalls([skillInterrupt], dangling)
+    expect(out[0].call).toBeNull()
+    expect(isSkillProposalInterrupt(out[0].value)).toBe(true)
+    const card = synthesizedApprovalCard(out[0].value)
+    expect(card).toEqual({
+      tool: 'propose_skill',
+      input: { name: 'my-skill', description: 'A specific description', body: '# Body' },
+      toolCallId: 'tcSkill'
+    })
+    // The full parked ApprovalItem rehydratePausedRun now constructs (finding
+    // 4's fix): skillProposal must be present so resolveSkillProposalInterrupt
+    // can ever find this item again instead of reporting 'stale'.
+    const item: ApprovalItem = {
+      interruptId: out[0].interruptId,
+      tool: card.tool,
+      input: card.input,
+      toolCallId: card.toolCallId,
+      ...(isSkillProposalInterrupt(out[0].value) ? { skillProposal: {} } : {})
+    }
+    expect(item.skillProposal).toEqual({})
   })
 
   it("resolveSkillProposalInterrupt returns 'stale' when nothing is parked (stale IPC)", () => {

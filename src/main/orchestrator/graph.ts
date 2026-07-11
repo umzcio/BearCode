@@ -347,6 +347,11 @@ interface PendingItem {
   // submit_plan interrupt -- the kind-branched resume shape. Command/edit
   // items keep using `decision`; the two are mutually exclusive.
   planReview?: { artifactId: string; resolution?: PlanReviewResolution }
+  // Present iff this card is a propose_skill pause (G-skills Task 8), mirror of
+  // planReview above. Set at construction time from isSkillProposalInterrupt
+  // (never from renderer input); settleTurn forwards it into the parked
+  // ApprovalItem so resolveSkillProposalInterrupt can find the item later.
+  skillProposal?: { resolution?: SkillProposalResolution }
 }
 
 interface DriveResult {
@@ -608,6 +613,19 @@ export function planReviewArtifactIdOf(interruptValue: unknown): string | undefi
   return value?.kind === 'plan_review' && typeof value.artifactId === 'string'
     ? value.artifactId
     : undefined
+}
+
+// True iff the interrupt payload is a propose_skill pause (G-skills Task 8),
+// mirroring planReviewArtifactIdOf above: this is what marks a parked item's
+// `skillProposal` field at every construction site (drive()'s paired/
+// synthesized post-loop branches, settleTurn, rehydratePausedRun) so
+// resolveSkillProposalInterrupt/buildResumeMap/allDecided/resolvedToolCallEvents
+// can find it later -- without this the card parks with no skillProposal at
+// all and resolveSkillProposalInterrupt always reports 'stale'. Exported for
+// tests.
+export function isSkillProposalInterrupt(interruptValue: unknown): boolean {
+  const value = interruptValue as { kind?: string } | null | undefined
+  return value?.kind === 'propose_skill'
 }
 
 // Locate the checkpointed tool calls a rehydrated approval set belongs to
@@ -1683,8 +1701,13 @@ async function drive(
           }
           // item.planReview is set EXCLUSIVELY from the checkpointed interrupt
           // payload's kind (planReviewArtifactIdOf), never from renderer
-          // input: it is what buildResumeMap's kind branch keys on.
+          // input: it is what buildResumeMap's kind branch keys on. Same for
+          // item.skillProposal (isSkillProposalInterrupt) -- without it a live
+          // propose_skill pause parks with no skillProposal at all and
+          // resolveSkillProposalInterrupt always reports 'stale' (reviewer
+          // finding 1).
           const planArtifactId = planReviewArtifactIdOf(pairing.value)
+          const isSkillProposal = isSkillProposalInterrupt(pairing.value)
           item = {
             callId: localId,
             interruptId: pairing.interruptId,
@@ -1697,7 +1720,8 @@ async function drive(
             // way, for card <-> pane pairing.
             input: pairedApprovalInput(pairing.value, pairing.call.args),
             toolCallId: pairing.call.id,
-            ...(planArtifactId !== undefined ? { planReview: { artifactId: planArtifactId } } : {})
+            ...(planArtifactId !== undefined ? { planReview: { artifactId: planArtifactId } } : {}),
+            ...(isSkillProposal ? { skillProposal: {} } : {})
           }
           agentId = agentIdByTcId.get(pairing.call.id)
         } else {
@@ -1705,13 +1729,15 @@ async function drive(
           // bridge also missed): synthesize the card from the interrupt
           // payload so the approval still surfaces instead of hanging
           // (synthesizedApprovalCard branches run_command vs edit_file vs
-          // plan_review and keeps the pin identity intact).
+          // plan_review vs propose_skill and keeps the pin identity intact).
           const planArtifactId = planReviewArtifactIdOf(pairing.value)
+          const isSkillProposal = isSkillProposalInterrupt(pairing.value)
           item = {
             callId: randomUUID(),
             interruptId: pairing.interruptId,
             ...synthesizedApprovalCard(pairing.value),
-            ...(planArtifactId !== undefined ? { planReview: { artifactId: planArtifactId } } : {})
+            ...(planArtifactId !== undefined ? { planReview: { artifactId: planArtifactId } } : {}),
+            ...(isSkillProposal ? { skillProposal: {} } : {})
           }
         }
         // Not persisted here (matching legacy run.ts): only the final
@@ -2077,7 +2103,8 @@ async function settleTurn(
             tool: p.tool,
             input: p.input,
             toolCallId: p.toolCallId,
-            ...(p.planReview ? { planReview: { artifactId: p.planReview.artifactId } } : {})
+            ...(p.planReview ? { planReview: { artifactId: p.planReview.artifactId } } : {}),
+            ...(p.skillProposal ? { skillProposal: {} } : {})
           }
         ])
       )
@@ -2658,6 +2685,19 @@ export async function rehydratePausedRun(
       tool = card.tool
       input = card.input
       toolCallId = card.toolCallId
+    } else if (isSkillProposalInterrupt(pairing.value)) {
+      // propose_skill re-parks from the payload like plan_review/edit/browser
+      // above (reviewer finding 4): the dangling-call scan is run_command-only
+      // so pairing.call is always null here, and synthesizedApprovalCard
+      // reconstructs the real propose_skill card (name/description/body) the
+      // renderer's inline editable card needs. No ctx seeding (the Bb3 edit
+      // precedent): the replayed propose_skill tool re-executes from its own
+      // interrupt() and writes the skill itself once resumed; the
+      // crash-resumed tool_result row is a cosmetic history gap.
+      const card = synthesizedApprovalCard(pairing.value)
+      tool = card.tool
+      input = card.input
+      toolCallId = card.toolCallId
     } else {
       const value = pairing.value as { command?: string; toolCallId?: unknown } | undefined
       tool = 'run_command'
@@ -2701,7 +2741,8 @@ export async function rehydratePausedRun(
       tool,
       input,
       toolCallId,
-      ...(planArtifactId !== undefined ? { planReview: { artifactId: planArtifactId } } : {})
+      ...(planArtifactId !== undefined ? { planReview: { artifactId: planArtifactId } } : {}),
+      ...(isSkillProposalInterrupt(pairing.value) ? { skillProposal: {} } : {})
     })
   }
   pendingApprovals.set(conversationId, { ...ctx, agent, items })
