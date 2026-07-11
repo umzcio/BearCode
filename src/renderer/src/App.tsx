@@ -110,7 +110,7 @@ function App(): React.JSX.Element {
         <div className="topbar">
           {collapsed ? (
             <Hint label="Toggle Sidebar" keys="⌘B" side="bottom">
-              <button className="chrome-btn" onClick={toggleSidebar}>
+              <button className="chrome-btn" onClick={toggleSidebar} aria-label="Toggle sidebar">
                 <IconPanel />
               </button>
             </Hint>
