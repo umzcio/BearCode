@@ -11,6 +11,7 @@ import { ModePicker } from '../ModePicker/ModePicker'
 import { EffortPicker } from '../EffortPicker/EffortPicker'
 import { ContextMeter } from '../ContextMeter/ContextMeter'
 import { Hint } from '../Hint'
+import { useShallow } from 'zustand/react/shallow'
 import { refConfigured, useAppStore } from '../../state/store'
 import { attachmentBadge } from '../../lib/attachmentBadge'
 import {
@@ -78,8 +79,27 @@ export function Composer({
   const refreshManualRules = useAppStore((s) => s.refreshManualRules)
   const refreshMcpConnectors = useAppStore((s) => s.refreshMcpConnectors)
   const refreshManualSkills = useAppStore((s) => s.refreshManualSkills)
-  const conversations = useAppStore((s) => s.conversations)
   const convoOrder = useAppStore((s) => s.convoOrder)
+  // Scoped to the active conversation's fields the env-lock check reads --
+  // avoids re-rendering on every streamed event of any other conversation.
+  const activeConvo = useAppStore(
+    useShallow((s) => {
+      if (!conversationId) return undefined
+      const c = s.conversations[conversationId]
+      return c ? { eventsLen: c.events.length, environment: c.environment } : undefined
+    })
+  )
+  // Scoped to id/title (primitives, so shallow-compare actually catches
+  // no-op re-renders) for the @-mention "Conversations" category list --
+  // never re-renders on unrelated conversations' streamed events.
+  const mentionConvoEntries = useAppStore(
+    useShallow((s) =>
+      convoOrder
+        .map((id) => s.conversations[id])
+        .filter((c): c is NonNullable<typeof c> => c != null)
+        .flatMap((c) => [c.id, c.title])
+    )
+  )
   const pickAttachments = useAppStore((s) => s.pickAttachments)
   const showToast = useAppStore((s) => s.showToast)
   const composerEnvironment = useAppStore((s) => s.composerEnvironment)
@@ -117,8 +137,7 @@ export function Composer({
   // (Home / a fresh convo with no events). Once a conversation has run, its
   // environment is locked; the pill then reads from the convo's own
   // environment rather than the shared draft field.
-  const activeConvo = conversationId ? conversations[conversationId] : undefined
-  const envLocked = activeConvo ? activeConvo.events.length > 0 : false
+  const envLocked = activeConvo ? activeConvo.eventsLen > 0 : false
   const displayEnv = envLocked && activeConvo ? activeConvo.environment : composerEnvironment
   const workspacePath = useAppStore((s) => s.workspacePath)
   const [worktreeAvailable, setWorktreeAvailable] = useState(false)
@@ -150,12 +169,15 @@ export function Composer({
           sub: mentionParsed.sub,
           files: fileSuggestions,
           rules: manualRules,
-          // Guard against a convoOrder id missing from the conversations map
-          // (e.g. stale ordering during a delete) so a lookup can't crash.
-          conversations: convoOrder
-            .map((id) => conversations[id])
-            .filter((c): c is NonNullable<typeof c> => c != null)
-            .map((c) => ({ id: c.id, title: c.title })),
+          // mentionConvoEntries is a flat [id, title, id, title, ...] array
+          // scoped from the store above (see useShallow selector).
+          conversations: (() => {
+            const rows: { id: string; title: string }[] = []
+            for (let i = 0; i < mentionConvoEntries.length; i += 2) {
+              rows.push({ id: mentionConvoEntries[i], title: mentionConvoEntries[i + 1] })
+            }
+            return rows
+          })(),
           connectors: mcpConnectors,
           skills: manualSkills
         })

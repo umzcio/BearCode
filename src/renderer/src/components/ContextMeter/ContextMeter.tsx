@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../../state/store'
 import {
   conversationTokens,
@@ -31,7 +32,14 @@ const CIRC = 2 * Math.PI * R
 // usage; click it for the token detail.
 export function ContextMeter(): React.JSX.Element | null {
   const view = useAppStore((s) => s.view)
-  const conversations = useAppStore((s) => s.conversations)
+  const convoId = view.kind === 'conversation' ? view.id : null
+  const convo = useAppStore(
+    useShallow((s) => {
+      if (!convoId) return null
+      const c = s.conversations[convoId]
+      return c ? { events: c.events } : null
+    })
+  )
   const providers = useAppStore((s) => s.providers)
   const modelRef = useAppStore((s) => s.modelRef)
   const modelPricing = useAppStore((s) => s.settings?.modelPricing)
@@ -54,8 +62,6 @@ export function ContextMeter(): React.JSX.Element | null {
     }
   }, [open])
 
-  const convoId = view.kind === 'conversation' ? view.id : null
-  const convo = convoId ? conversations[convoId] : null
   const ctxWindow = contextWindowFor(providers, modelRef)
   if (!convo || !convoId || !ctxWindow) return null
 

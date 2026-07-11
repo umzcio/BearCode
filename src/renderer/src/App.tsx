@@ -14,12 +14,19 @@ import { TrustBanner } from './components/TrustBanner'
 import { OutsideAccessCard } from './components/OutsideAccessCard'
 import { useAppStore } from './state/store'
 import { useCmdHeld } from './lib/useCmdHeld'
+import { useShallow } from 'zustand/react/shallow'
 import './App.css'
 
 function App(): React.JSX.Element {
   const collapsed = useAppStore((s) => s.sidebarCollapsed)
   const view = useAppStore((s) => s.view)
-  const conversations = useAppStore((s) => s.conversations)
+  const convo = useAppStore(
+    useShallow((s) => {
+      if (s.view.kind !== 'conversation') return null
+      const c = s.conversations[s.view.id]
+      return c ? { id: c.id, projectLabel: c.projectLabel, title: c.title } : null
+    })
+  )
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const auxSelection = useAppStore((s) => s.auxSelection)
   const setSidebarWidth = useAppStore((s) => s.setSidebarWidth)
@@ -99,8 +106,6 @@ function App(): React.JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-
-  const convo = view.kind === 'conversation' ? conversations[view.id] : null
 
   return (
     <div className={'app' + (cmdHeld ? ' cmd-held' : '')}>
