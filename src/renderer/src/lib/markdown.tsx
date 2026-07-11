@@ -4,7 +4,7 @@
 // (amber chips). No raw HTML ever touches the DOM.
 // `trailing` (the streaming cursor) is appended inside the last block.
 
-import type { ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 
 // Inline code that names a workspace file, e.g. `index.html`, `src/app.ts`, or
 // an absolute path with spaces. Still requires a trailing .ext so prose isn't matched.
@@ -193,7 +193,7 @@ export function Markdown({
   onFileClick?: (path: string) => void
   onFileOpen?: (path: string) => void
 }): React.JSX.Element {
-  const blocks = parseBlocks(text)
+  const blocks = useMemo(() => parseBlocks(text), [text])
   const lastIndex = blocks.length - 1
   return (
     <>
