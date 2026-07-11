@@ -1898,6 +1898,15 @@ export function resolveInterrupt(
   // batch would simply never dispatch -- but reject explicitly so the wire
   // contract is visible and the card is not half-flipped.
   if (item.planReview) return false
+  // Kind cross-guard (SECURITY): mirror of the planReview guard above -- the
+  // boolean command/edit channel can never resolve a skill proposal either.
+  // Without this guard, a bare `decision` recorded here would never dispatch
+  // (allDecided treats a skillProposal item as decided only via
+  // skillProposal.resolution, never item.decision), so the card would flip to
+  // resolved in the UI while the batch silently never dispatches, hanging the
+  // run in 'awaiting-approval' forever. Reject explicitly so the wire
+  // contract is visible and the card is not half-flipped.
+  if (item.skillProposal) return false
   // Defense in depth: cancelRunOrchestrator (src/main/orchestrator/index.ts)
   // is the primary fix -- it deletes this conversation's pendingApprovals
   // entry (via cancelPendingApproval below) the instant Stop is clicked, so

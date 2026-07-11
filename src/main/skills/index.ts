@@ -13,10 +13,6 @@ import { isSkillEnabled } from './state'
 
 const MAX_SKILL_BYTES = 64 * 1024
 
-export const SKILL_TEMPLATE = (name: string): string =>
-  `Describe here, in the imperative and third person, what this skill teaches the agent.\n\n` +
-  `## When to use\n\nExplain the situations where "${name}" applies.\n\n## Steps\n\n1. ...\n`
-
 export function skillsDir(source: 'project' | 'global', projectPath: string | null): string {
   if (source === 'global') return join(homedir(), '.bearcode', 'agents', 'skills')
   if (!projectPath) throw new Error('A project must be open to write a project-scope skill.')

@@ -131,25 +131,3 @@
 .breadcrumb .sep {
   color: var(--text-dim);
 }
-
-.empty-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 0 24px 8vh;
-}
-.empty-state .roar-bear {
-  margin-bottom: 12px;
-}
-.empty-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-}
-.empty-sub {
-  font-size: 13.5px;
-  color: var(--text-dim);
-}

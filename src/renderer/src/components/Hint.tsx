@@ -36,9 +36,17 @@ export function Hint({
     timer.current = window.setTimeout(() => {
       const rect = wrapRef.current?.firstElementChild?.getBoundingClientRect()
       if (!rect) return
-      if (side === 'right') setPos({ x: rect.right + 10, y: rect.top + rect.height / 2 })
-      else if (side === 'top') setPos({ x: rect.left + rect.width / 2, y: rect.top - 8 })
-      else setPos({ x: rect.left + rect.width / 2, y: rect.bottom + 8 })
+      // The app sets CSS `zoom` on <html> for font size (appearance.ts). A
+      // position:fixed bubble is re-scaled by that zoom, while getBoundingClientRect
+      // already returns zoom-scaled coords -- so a raw rect lands the bubble at
+      // position*zoom^2. Divide by the zoom factor so it sits exactly under the
+      // trigger regardless of font-size setting (mirrors Select.tsx).
+      const zoom = Number(document.documentElement.style.zoom) || 1
+      if (side === 'right')
+        setPos({ x: rect.right / zoom + 10, y: rect.top / zoom + rect.height / zoom / 2 })
+      else if (side === 'top')
+        setPos({ x: rect.left / zoom + rect.width / zoom / 2, y: rect.top / zoom - 8 })
+      else setPos({ x: rect.left / zoom + rect.width / zoom / 2, y: rect.bottom / zoom + 8 })
     }, 450)
   }
 

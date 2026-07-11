@@ -8,7 +8,7 @@
 import { homedir } from 'os'
 import { join } from 'path'
 import type { MemoryEntry, MemoryScopeName } from '../../shared/types'
-import { readFileCapped } from './index'
+import { readFileCapped } from '../fsCapped'
 
 const MAX_MEMORY_READ_BYTES = 64 * 1024
 

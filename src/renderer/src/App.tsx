@@ -112,7 +112,7 @@ function App(): React.JSX.Element {
         <div className="topbar">
           {collapsed ? (
             <Hint label="Toggle Sidebar" keys="⌘B" side="bottom">
-              <button className="chrome-btn" onClick={toggleSidebar}>
+              <button className="chrome-btn" onClick={toggleSidebar} aria-label="Toggle sidebar">
                 <IconPanel />
               </button>
             </Hint>
@@ -139,7 +139,7 @@ function App(): React.JSX.Element {
       ) : null}
       <AuxiliaryPane />
       {toast ? (
-        <div className="toast">
+        <div className="toast" role="status" aria-live="polite">
           <span className="toast-msg">{toast.message}</span>
           {toast.action ? (
             <span className="toast-actions">

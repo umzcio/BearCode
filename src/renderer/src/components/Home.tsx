@@ -63,13 +63,17 @@ export function Home(): React.JSX.Element {
       <div className="composer-wrap">
         <div className="project-picker" ref={rootRef}>
           <Hint label="Select Folder" keys="⌘;" side="top" disabled={open}>
-            <div className="workspace-row" onClick={() => setOpen((o) => !o)}>
+            <button
+              type="button"
+              className="workspace-row"
+              onClick={() => setOpen((o) => !o)}
+            >
               <IconFolder />
               <span>{workspacePath ? shorten(workspacePath) : 'Choose a folder'}</span>
               <span className="workspace-chev">
                 <IconChevronDown />
               </span>
-            </div>
+            </button>
           </Hint>
           {open ? (
             <div className="menu project-menu">

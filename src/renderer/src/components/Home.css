@@ -17,6 +17,10 @@
   cursor: pointer;
   width: fit-content;
   border-radius: 7px;
+  background: none;
+  border: none;
+  font-family: inherit;
+  text-align: left;
 }
 .workspace-row:hover {
   color: var(--text);

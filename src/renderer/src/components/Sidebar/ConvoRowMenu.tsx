@@ -49,7 +49,13 @@ export function ConvoRowMenu({
     e.stopPropagation()
     if (!open && btnRef.current) {
       const r = btnRef.current.getBoundingClientRect()
-      setPos({ top: r.bottom + 4, left: r.left })
+      // The app sets CSS `zoom` on <html> for font size (appearance.ts). A
+      // position:fixed menu is re-scaled by that zoom, while getBoundingClientRect
+      // already returns zoom-scaled coords -- so a raw rect lands the menu at
+      // position*zoom^2. Divide by the zoom factor so it sits exactly under the
+      // trigger at every font size (small/medium/large). See Select.tsx.
+      const zoom = Number(document.documentElement.style.zoom) || 1
+      setPos({ top: r.bottom / zoom + 4, left: r.left / zoom })
     }
     setOpen((o) => !o)
   }
