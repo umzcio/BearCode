@@ -39,6 +39,7 @@ import { buildSandboxPolicy } from './sandbox/policy'
 import type { SandboxPlan } from './sandbox/types'
 import { loadAgentsContent } from '../agentsDir'
 import { writeSkillFile } from '../skills'
+import { addMemory } from '../memory'
 import { isSkillEnabled } from '../skills/state'
 import type { RunSink } from '../sink'
 import {
@@ -919,6 +920,53 @@ export function buildSkillTools(_conversationId: string, projectPath: string | n
     }
   )
   return [activateSkillTool, proposeSkillTool]
+}
+
+const rememberSchema = z.object({
+  text: z.string().describe('The durable fact to remember, phrased as one concise sentence.'),
+  scope: z
+    .enum(['global', 'project'])
+    .describe("'global' for facts about the user across projects; 'project' for this repo.")
+})
+
+// remember is folder-independent (twin of activate_skill): global memory writes
+// with no project open, so it is wired via buildMemoryTools(...) unconditionally
+// in graph.ts, NOT inside folder-gated buildTools. It AUTO-WRITES with no
+// approval interrupt (governed-not-gated, design 4.3) but the tool_call/
+// tool_result pair surfaces the write in the transcript. The description carries
+// the confabulation-control write guideline (design 4.3): durable facts only,
+// never secrets/credentials.
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+export function buildMemoryTools(_conversationId: string, projectPath: string | null) {
+  const rememberTool = tool(
+    async ({ text, scope }: { text: string; scope: 'global' | 'project' }): Promise<string> => {
+      if (scope === 'project' && !projectPath) {
+        return 'No project folder is open, so project memory is unavailable. Use scope "global" instead.'
+      }
+      const clean = text.trim()
+      if (clean === '') return 'Nothing to remember (empty text).'
+      try {
+        const result = addMemory(scope, clean, projectPath)
+        if (result === 'full') {
+          return `Memory (${scope}) is full — ask the user to prune entries in Settings › Memory before remembering more.`
+        }
+        return `Remembered (${scope}): ${clean}`
+      } catch (err) {
+        return `Could not save to memory: ${err instanceof Error ? err.message : String(err)}`
+      }
+    },
+    {
+      name: 'remember',
+      description:
+        'Save a durable, cross-session fact to memory so future conversations recall it. Use ' +
+        'sparingly for STABLE, FACTUAL things: a stated user preference, a project fact, or a ' +
+        'correction the user made. Do NOT remember speculation, one-off details, or anything ' +
+        'secret (passwords, tokens, keys). Choose scope "global" for facts about the user across ' +
+        'all projects, "project" for facts about the current repository.',
+      schema: rememberSchema
+    }
+  )
+  return [rememberTool]
 }
 
 // buildBrowserTools(conversationId) returns the F4 browser_* tool array. Unlike

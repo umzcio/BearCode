@@ -262,6 +262,7 @@ export type ToolName =
   | 'bitbucket_list_repos'
   | 'bitbucket_create_pr'
   | 'propose_skill'
+  | 'remember'
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 

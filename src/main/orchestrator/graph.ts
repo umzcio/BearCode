@@ -88,6 +88,7 @@ import { DiffFsBackend, GatedDiffFsBackend } from './fsBackend'
 import {
   buildTools,
   buildBrowserTools,
+  buildMemoryTools,
   buildSkillTools,
   buildMcpTools,
   buildIntegrationTools,
@@ -2462,7 +2463,10 @@ function buildAgentAndContext(
       // DynamicStructuredTool type that doesn't structurally overlap with
       // browserTools' union, so widen through unknown first (same pattern
       // buildMcpTools/buildIntegrationTools hit at their source).
-      ...(buildSkillTools(conversationId, projectPath) as unknown as typeof browserTools)
+      ...(buildSkillTools(conversationId, projectPath) as unknown as typeof browserTools),
+      // remember is folder-independent (global memory writes with no project),
+      // so it is appended unconditionally like buildSkillTools/browserTools.
+      ...(buildMemoryTools(conversationId, projectPath) as unknown as typeof browserTools)
     ]
   })
   const ctx: DriveContext = {
