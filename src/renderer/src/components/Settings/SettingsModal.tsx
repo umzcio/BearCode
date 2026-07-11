@@ -24,6 +24,7 @@ import { BrowserPage } from './pages/BrowserPage'
 import { ConnectorsPage } from './pages/ConnectorsPage'
 import { IntegrationsPage } from './pages/IntegrationsPage'
 import { SkillsPage } from './pages/SkillsPage'
+import { MemoryPage } from './pages/MemoryPage'
 import { SettingPlaceholder } from './SettingPlaceholder'
 import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
 import type { SettingsPageId } from './SettingsNav'
@@ -60,13 +61,7 @@ const NAV_ICONS: Record<string, (props: { size?: number }) => React.JSX.Element>
 }
 
 // Intentional WIP panels for the Customize group (not "coming soon" badges).
-const PLACEHOLDERS: Record<string, { title: string; description: string }> = {
-  memory: {
-    title: 'Memory',
-    description:
-      'Persistent memory the agent carries across conversations — arriving in a future update.'
-  }
-}
+const PLACEHOLDERS: Record<string, { title: string; description: string }> = {}
 
 export function SettingsModal(): React.JSX.Element | null {
   const open = useAppStore((s) => s.settingsOpen)
@@ -299,6 +294,8 @@ function SettingsPanel({
           {page === 'integrations' ? <IntegrationsPage /> : null}
 
           {page === 'skills' ? <SkillsPage /> : null}
+
+          {page === 'memory' ? <MemoryPage /> : null}
 
           {PLACEHOLDERS[page] ? (
             <SettingPlaceholder
