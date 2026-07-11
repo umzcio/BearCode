@@ -69,7 +69,8 @@ function skillEntryFromInput(input: SkillInput, projectPath: string | null): Ski
     source: input.scope,
     enabled: isSkillEnabled(input.name, input.scope, projectPath),
     sizeBytes: Buffer.byteLength(input.body, 'utf8'),
-    error: undefined
+    error: undefined,
+    body: input.body
   }
 }
 
@@ -100,6 +101,7 @@ export function listSkillEntries(projectPath: string | null): SkillEntry[] {
     source: s.source,
     enabled: isSkillEnabled(s.name, s.source, projectPath),
     sizeBytes: Buffer.byteLength(s.body, 'utf8'),
-    error: s.error
+    error: s.error,
+    body: s.body
   }))
 }

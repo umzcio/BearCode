@@ -151,6 +151,11 @@ export interface SkillEntry {
   enabled: boolean
   sizeBytes: number
   error?: string
+  // The skill's current on-disk body (empty string for a parse-errored entry
+  // whose body couldn't be extracted). Carried so the Settings page's Edit
+  // affordance can pre-fill the editor without wiping the user's content
+  // (design 4.6 / Task 9 fix).
+  body: string
 }
 
 // Create/update payload for a skill (Settings page editor + /learn's proposal

@@ -59,7 +59,7 @@ export function SkillsPage(): JSX.Element | null {
       originalName: entry.name,
       name: entry.name,
       description: entry.description,
-      body: '',
+      body: entry.body,
       scope: entry.source
     })
   }
@@ -122,7 +122,11 @@ export function SkillsPage(): JSX.Element | null {
           <div className="set-row-desc">No skills yet.</div>
         ) : (
           skills.map((entry) => (
-            <div className="set-row" key={`${entry.source}:${entry.name}`}>
+            <div
+              className="set-row"
+              style={entry.error ? { opacity: 0.5 } : undefined}
+              key={`${entry.source}:${entry.name}`}
+            >
               <div className="set-row-text">
                 <div className="set-row-title">
                   {entry.name}

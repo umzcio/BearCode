@@ -6,14 +6,22 @@ import { SkillsPage } from './SkillsPage'
 
 const listSpy = vi.fn(() =>
   Promise.resolve([
-    { name: 'pdf', description: 'Extract PDFs.', source: 'global', enabled: true, sizeBytes: 1200 },
+    {
+      name: 'pdf',
+      description: 'Extract PDFs.',
+      source: 'global',
+      enabled: true,
+      sizeBytes: 1200,
+      body: 'Full pdf skill body content that must survive an edit.'
+    },
     {
       name: 'broken',
       description: '',
       source: 'project',
       enabled: true,
       sizeBytes: 40,
-      error: 'SKILL.md requires a non-empty description'
+      error: 'SKILL.md requires a non-empty description',
+      body: ''
     }
   ])
 )
@@ -73,7 +81,27 @@ describe('SkillsPage', () => {
   })
   it('shows a parse-errored skill greyed with its error', async () => {
     mount()
-    expect(await screen.findByText(/requires a non-empty description/i)).toBeTruthy()
+    const errorText = await screen.findByText(/requires a non-empty description/i)
+    expect(errorText).toBeTruthy()
+    const row = errorText.closest('.set-row') as HTMLElement
+    expect(row).toBeTruthy()
+    expect(row.style.opacity).not.toBe('')
+    expect(Number(row.style.opacity)).toBeLessThan(1)
+  })
+  it('editing a skill pre-fills its existing body instead of wiping it', async () => {
+    mount()
+    await screen.findByText('pdf')
+    fireEvent.click(screen.getAllByRole('button', { name: /^edit$/i })[0])
+    const bodyField = screen.getByLabelText(/^body$/i) as HTMLTextAreaElement
+    expect(bodyField.value).toBe('Full pdf skill body content that must survive an edit.')
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(updateSpy).toHaveBeenCalledWith(
+        'pdf',
+        expect.objectContaining({ body: 'Full pdf skill body content that must survive an edit.' }),
+        '/proj'
+      )
+    )
   })
   it('toggling a skill calls setEnabled', async () => {
     mount()
