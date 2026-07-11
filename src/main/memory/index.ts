@@ -41,8 +41,16 @@ export function writeMemory(
   writeFileSync(file, body)
 }
 
+// { trusted: true } here is intentional and NOT the automatic agent-context
+// loading path Task 2's secure default targets: every caller of
+// currentTexts is direct user action through the Settings page (add/edit/
+// delete/promote a memory bullet the user is looking at), so gating it
+// behind project trust would silently corrupt an untrusted project's memory
+// file on the next write (currentTexts would read back [] and the write
+// would clobber existing content). The agent-context read path (graph.ts)
+// threads the real trust flag separately.
 function currentTexts(scope: MemoryScopeName, projectPath: string | null): string[] {
-  const mem = loadMemory(scope === 'project' ? projectPath : null)
+  const mem = loadMemory(scope === 'project' ? projectPath : null, { trusted: true })
   return (scope === 'global' ? mem.global : mem.project).map((e) => e.text)
 }
 
@@ -89,7 +97,9 @@ export function deleteMemory(
 // The settings-page read model (design 4.6): both scopes, each with its entries
 // and on-disk byte size (the page shows per-scope size, design 4.4).
 export function listMemory(projectPath: string | null): MemoryList {
-  const mem = loadMemory(projectPath)
+  // See currentTexts above: the Settings page shows project memory
+  // regardless of trust state so the user can review/prune it.
+  const mem = loadMemory(projectPath, { trusted: true })
   const size = (entries: { text: string }[]): number =>
     Buffer.byteLength(serializeMemoryBullets(entries.map((e) => e.text)), 'utf8')
   return {

@@ -39,7 +39,10 @@ describe('addMemory (append)', () => {
   it('appends a bullet and reports ok', () => {
     expect(addMemory('project', 'first', proj)).toBe('ok')
     expect(addMemory('project', 'second', proj)).toBe('ok')
-    expect(loadMemory(proj).project.map((e) => e.text)).toEqual(['first', 'second'])
+    expect(loadMemory(proj, { trusted: true }).project.map((e) => e.text)).toEqual([
+      'first',
+      'second'
+    ])
   })
   it('returns "full" instead of throwing when the append would exceed the cap', () => {
     writeMemory('project', ['x'.repeat(MAX_MEMORY_BYTES - 100)], proj)
@@ -51,12 +54,12 @@ describe('update/delete by index', () => {
   it('updates the addressed bullet', () => {
     writeMemory('project', ['a', 'b', 'c'], proj)
     updateMemory('project', 1, 'B!', proj)
-    expect(loadMemory(proj).project.map((e) => e.text)).toEqual(['a', 'B!', 'c'])
+    expect(loadMemory(proj, { trusted: true }).project.map((e) => e.text)).toEqual(['a', 'B!', 'c'])
   })
   it('deletes the addressed bullet and reindexes', () => {
     writeMemory('project', ['a', 'b', 'c'], proj)
     deleteMemory('project', 0, proj)
-    expect(loadMemory(proj).project.map((e) => e.text)).toEqual(['b', 'c'])
+    expect(loadMemory(proj, { trusted: true }).project.map((e) => e.text)).toEqual(['b', 'c'])
   })
 })
 
@@ -75,7 +78,7 @@ describe('promoteMemory', () => {
     writeMemory('project', ['always use tabs', 'keep'], proj)
     promoteMemory({ scope: 'project', index: 0, target: 'rule', name: 'tabs-rule' }, proj)
     expect(existsSync(join(proj, '.agents', 'rules', 'tabs-rule.md'))).toBe(true)
-    expect(loadMemory(proj).project.map((e) => e.text)).toEqual(['keep'])
+    expect(loadMemory(proj, { trusted: true }).project.map((e) => e.text)).toEqual(['keep'])
   })
   it('promotes a bullet to a project skill (name + description) and drops the bullet', () => {
     writeMemory('project', ['run the suite with pnpm test'], proj)
@@ -90,13 +93,13 @@ describe('promoteMemory', () => {
       proj
     )
     expect(existsSync(join(proj, '.agents', 'skills', 'run-tests', 'SKILL.md'))).toBe(true)
-    expect(loadMemory(proj).project).toEqual([])
+    expect(loadMemory(proj, { trusted: true }).project).toEqual([])
   })
   it('does NOT drop the bullet if the promotion write fails', () => {
     writeMemory('project', ['x'], proj)
     expect(() =>
       promoteMemory({ scope: 'project', index: 0, target: 'skill', name: 'no-desc' }, proj)
     ).toThrow()
-    expect(loadMemory(proj).project.map((e) => e.text)).toEqual(['x'])
+    expect(loadMemory(proj, { trusted: true }).project.map((e) => e.text)).toEqual(['x'])
   })
 })

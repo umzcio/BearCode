@@ -12,6 +12,10 @@ vi.mock('../skills', async (importOriginal) => ({
   writeSkillFile: vi.fn()
 }))
 vi.mock('../agentsDir', () => ({ loadAgentsContent: vi.fn() }))
+vi.mock('../db', () => ({
+  isProjectTrusted: vi.fn(() => false),
+  getOutsidePolicy: vi.fn(() => ({ policy: 'ask', allowed: [], denied: [] }))
+}))
 import { interrupt } from '@langchain/langgraph'
 import { writeSkillFile } from '../skills'
 import { loadAgentsContent } from '../agentsDir'

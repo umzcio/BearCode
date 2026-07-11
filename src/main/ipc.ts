@@ -92,7 +92,7 @@ import { bitbucketConnect } from './integrations/bitbucket'
 import { gitAuthEnv } from './integrations/gitCredentials'
 import { setGitCredentialResolver } from './worktree/git'
 import { jailPath } from './orchestrator/fsBackend'
-import { loadAgentsContent } from './agentsDir'
+import { hasProjectAgentsConfig, loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
 import { suggestFiles, manualRuleInfos, skillInfos } from './orchestrator/mentionSuggest'
 import { createSkill, deleteSkillFolder, listSkillEntries, updateSkill } from './skills'
@@ -216,7 +216,11 @@ export function registerIpc(): void {
   // open: loadAgentsContent is the same mtime-cached loader the turn-time
   // rule/command assembly uses, so this stays cheap on repeated opens.
   ipcMain.handle('bearcode:commands:list', (_e, projectPath: string | null): CommandEntry[] =>
-    listCommands(loadAgentsContent(projectPath))
+    listCommands(
+      loadAgentsContent(projectPath, {
+        trusted: projectPath != null && db.isProjectTrusted(projectPath)
+      })
+    )
   )
 
   // D3 @ menu read models (design 7), mirroring commands:list. Files: a
@@ -226,10 +230,16 @@ export function registerIpc(): void {
     suggestFiles(projectPath, query)
   )
   ipcMain.handle('bearcode:mentions:rules', (_e, projectPath: string | null): ManualRuleInfo[] =>
-    manualRuleInfos(loadAgentsContent(projectPath))
+    manualRuleInfos(
+      loadAgentsContent(projectPath, {
+        trusted: projectPath != null && db.isProjectTrusted(projectPath)
+      })
+    )
   )
   ipcMain.handle('bearcode:mentions:skills', (_e, projectPath: string | null): SkillInfo[] => {
-    const content = loadAgentsContent(projectPath)
+    const content = loadAgentsContent(projectPath, {
+      trusted: projectPath != null && db.isProjectTrusted(projectPath)
+    })
     return skillInfos(content).filter((info) => {
       const src = content.skills.find((k) => k.name === info.name)?.source ?? 'global'
       return isSkillEnabled(info.name, src, projectPath)
@@ -623,6 +633,53 @@ export function registerIpc(): void {
     }
     db.upsertProjectSettings(path, patch as ProjectSettings)
     return db.getProjectSettings(path)
+  })
+  const reqPath = (p: unknown): string => {
+    if (typeof p !== 'string' || p.length === 0)
+      throw new Error(`Invalid project path: ${String(p)}`)
+    return p
+  }
+  ipcMain.handle('bearcode:project:is-trusted', (_e, p: unknown) => db.isProjectTrusted(reqPath(p)))
+  ipcMain.handle('bearcode:project:trust', (_e, p: unknown) => {
+    const path = reqPath(p)
+    db.trustProject(path)
+    return db.getProjectSettings(path)
+  })
+  ipcMain.handle('bearcode:project:untrust', (_e, p: unknown) => {
+    const path = reqPath(p)
+    db.untrustProject(path)
+    return db.getProjectSettings(path)
+  })
+  ipcMain.handle('bearcode:project:has-config', (_e, p: unknown) =>
+    hasProjectAgentsConfig(reqPath(p))
+  )
+  ipcMain.handle('bearcode:project:outside-access:get', (_e, p: unknown) =>
+    db.listOutsidePaths(reqPath(p))
+  )
+  ipcMain.handle('bearcode:project:outside-access:set', (_e, p: unknown, pol: unknown) => {
+    const path = reqPath(p)
+    if (pol !== 'allow' && pol !== 'ask' && pol !== 'deny')
+      throw new Error(`Invalid policy: ${String(pol)}`)
+    db.setOutsideFolderPolicy(path, pol)
+    return db.listOutsidePaths(path)
+  })
+  ipcMain.handle('bearcode:project:outside-access:allow', (_e, p: unknown, abs: unknown) => {
+    const path = reqPath(p)
+    db.allowOutsidePath(path, reqPath(abs))
+    return db.listOutsidePaths(path)
+  })
+  ipcMain.handle('bearcode:project:outside-access:deny', (_e, p: unknown, abs: unknown) => {
+    const path = reqPath(p)
+    db.denyOutsidePath(path, reqPath(abs))
+    return db.listOutsidePaths(path)
+  })
+  ipcMain.handle('bearcode:project:outside-access:list', (_e, p: unknown) =>
+    db.listOutsidePaths(reqPath(p))
+  )
+  ipcMain.handle('bearcode:project:outside-access:remove', (_e, p: unknown, abs: unknown) => {
+    const path = reqPath(p)
+    db.removeOutsidePath(path, reqPath(abs))
+    return db.listOutsidePaths(path)
   })
   ipcMain.handle('bearcode:conversations:set-pinned', (_e, id: string, pinned: unknown) => {
     if (typeof pinned !== 'boolean') throw new Error(`Invalid pinned: ${String(pinned)}`)

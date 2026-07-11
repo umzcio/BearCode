@@ -14,6 +14,7 @@ import type {
   ManualRuleInfo,
   MentionRef,
   ModelRef,
+  OutsideAccessInfo,
   PermissionMode,
   PermissionRulesInfo,
   PickedAttachmentWire,
@@ -243,6 +244,11 @@ interface AppState {
   // Permissions manager read model; null until the Settings section first loads it.
   permissionRules: PermissionRulesInfo | null
   workspacePath: string | null
+  // Project Trust: whether the current workspace has been explicitly trusted.
+  workspaceTrusted: boolean
+  workspaceHasAgentsConfig: boolean
+  outsideAccess: OutsideAccessInfo | null
+  trustBannerDismissed: boolean
   settingsOpen: boolean
   // Which settings page to open on (e.g. 'providers' for the missing-key flow);
   // null → default page. Consumed once by SettingsModal on open.
@@ -376,6 +382,12 @@ interface AppState {
   togglePermMenu(): void
   pickWorkspace(): Promise<void>
   setWorkspace(path: string | null): void
+  refreshTrustState(path: string | null): Promise<void>
+  trustWorkspace(): Promise<void>
+  dismissTrustBanner(): void
+  allowOutside(abs: string): Promise<void>
+  denyOutside(abs: string): Promise<void>
+  removeOutside(path: string, abs: string): Promise<void>
   toggleProjectMenu(): void
   openSettings(page?: string): void
   closeSettings(): void
@@ -535,6 +547,10 @@ export const useAppStore = create<AppState>((set, get) => {
     settings: null,
     permissionRules: null,
     workspacePath: null,
+    workspaceTrusted: false,
+    workspaceHasAgentsConfig: false,
+    outsideAccess: null,
+    trustBannerDismissed: false,
     settingsOpen: false,
     settingsInitialPage: null,
     auxSelection: null,
@@ -1170,9 +1186,59 @@ export const useAppStore = create<AppState>((set, get) => {
 
     pickWorkspace: async () => {
       const path = await window.bearcode.workspace.pick()
-      if (path) set({ workspacePath: path })
+      if (path) get().setWorkspace(path)
     },
-    setWorkspace: (path) => set({ workspacePath: path }),
+    setWorkspace: (path) => {
+      set({ workspacePath: path })
+      void get().refreshTrustState(path)
+    },
+    refreshTrustState: async (path) => {
+      if (!path) {
+        set({
+          workspaceTrusted: false,
+          workspaceHasAgentsConfig: false,
+          outsideAccess: null,
+          trustBannerDismissed: false
+        })
+        return
+      }
+      const [trusted, hasConfig, outsideAccess] = await Promise.all([
+        window.bearcode.project.isTrusted(path),
+        window.bearcode.project.hasConfig(path),
+        window.bearcode.project.outsideAccess.get(path)
+      ])
+      set({
+        workspaceTrusted: trusted,
+        workspaceHasAgentsConfig: hasConfig,
+        outsideAccess,
+        trustBannerDismissed: false
+      })
+    },
+    trustWorkspace: async () => {
+      const path = get().workspacePath
+      if (!path) return
+      await window.bearcode.project.trust(path)
+      await get().refreshProjectSettings()
+      set({ workspaceTrusted: true })
+    },
+    dismissTrustBanner: () => set({ trustBannerDismissed: true }),
+    allowOutside: async (abs) => {
+      const path = get().workspacePath
+      if (!path) return
+      const outsideAccess = await window.bearcode.project.outsideAccess.allow(path, abs)
+      set({ outsideAccess })
+    },
+    denyOutside: async (abs) => {
+      const path = get().workspacePath
+      if (!path) return
+      const outsideAccess = await window.bearcode.project.outsideAccess.deny(path, abs)
+      set({ outsideAccess })
+    },
+    removeOutside: async (path, abs) => {
+      await window.bearcode.project.outsideAccess.remove(path, abs)
+      await get().refreshProjectSettings()
+      void get().refreshTrustState(path)
+    },
     toggleProjectMenu: () => set((s) => ({ projectMenuTick: s.projectMenuTick + 1 })),
 
     openSettings: (page) => set({ settingsOpen: true, settingsInitialPage: page ?? null }),

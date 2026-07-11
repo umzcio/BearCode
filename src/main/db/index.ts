@@ -20,12 +20,15 @@ import type {
   Project,
   ProjectSettings,
   FolderProject,
-  WorktreeInfo
+  WorktreeInfo,
+  OutsideFolderAccess,
+  OutsideAccessInfo
 } from '../../shared/types'
 import { isEffortLevel } from '../../shared/effort'
 import { isSelectableDefaultMode } from '../../shared/permissionMode'
 import { getSettings } from '../settings'
 import { extractSearchText } from './searchText'
+import type { OutsidePolicy } from '../agentsDir'
 
 let db: Database.Database | null = null
 
@@ -221,6 +224,22 @@ function getDb(): Database.Database {
     db.exec(`ALTER TABLE projects ADD COLUMN sandbox_allow_network INTEGER`)
   } catch {
     // column already exists
+  }
+  // Project Trust + Outside-of-Folder Access (audit C-1): per-project columns on
+  // project_settings. Same idempotent-guarded ALTER idiom; old DBs upgrade in
+  // place. Secure default: trusted stays NULL (=untrusted), policy NULL (=ask).
+  for (const col of [
+    'trusted INTEGER',
+    'outside_folder_access TEXT',
+    'outside_folder_allowed_paths TEXT',
+    'outside_folder_denied_paths TEXT',
+    'outside_folder_pending_paths TEXT'
+  ]) {
+    try {
+      db.exec(`ALTER TABLE project_settings ADD COLUMN ${col}`)
+    } catch {
+      // column already exists
+    }
   }
   backfillEventFts(db)
   zombieRunIds = cancelZombieRuns(db)
@@ -768,6 +787,25 @@ interface ProjectSettingsRow {
   default_permission_mode: string | null
   sandbox_mode: number | null
   sandbox_allow_network: number | null
+  trusted: number | null
+  outside_folder_access: string | null
+  outside_folder_allowed_paths: string | null
+  outside_folder_denied_paths: string | null
+  outside_folder_pending_paths: string | null
+}
+
+function parseJsonStringArray(raw: string | null): string[] {
+  if (!raw) return []
+  try {
+    const v: unknown = JSON.parse(raw)
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function coerceOutsidePolicy(raw: string | null): OutsideFolderAccess {
+  return raw === 'allow' || raw === 'deny' ? raw : 'ask'
 }
 
 function rowToFolderProject(r: ProjectSettingsRow): FolderProject {
@@ -783,7 +821,12 @@ function rowToFolderProject(r: ProjectSettingsRow): FolderProject {
       ? r.default_permission_mode
       : null,
     sandboxMode: r.sandbox_mode === 1,
-    sandboxAllowNetwork: r.sandbox_allow_network === 1
+    sandboxAllowNetwork: r.sandbox_allow_network === 1,
+    trusted: r.trusted === 1,
+    outsideFolderAccess: coerceOutsidePolicy(r.outside_folder_access),
+    outsideFolderAllowedPaths: parseJsonStringArray(r.outside_folder_allowed_paths),
+    outsideFolderDeniedPaths: parseJsonStringArray(r.outside_folder_denied_paths),
+    outsideFolderPendingPaths: parseJsonStringArray(r.outside_folder_pending_paths)
   }
 }
 
@@ -830,6 +873,14 @@ export function upsertProjectSettings(path: string, patch: ProjectSettings): voi
     cols.push('sandbox_allow_network = ?')
     vals.push(patch.sandboxAllowNetwork === true ? 1 : 0)
   }
+  if (patch.trusted !== undefined) {
+    cols.push('trusted = ?')
+    vals.push(patch.trusted === true ? 1 : 0)
+  }
+  if (patch.outsideFolderAccess !== undefined) {
+    cols.push('outside_folder_access = ?')
+    vals.push(coerceOutsidePolicy(patch.outsideFolderAccess ?? null))
+  }
   // Empty patch is a no-op — return BEFORE touching the table so an INSERT OR
   // IGNORE never leaves a phantom all-null row that then haunts listProjectSettings.
   if (cols.length === 0) return
@@ -838,6 +889,101 @@ export function upsertProjectSettings(path: string, patch: ProjectSettings): voi
   database
     .prepare(`UPDATE project_settings SET ${cols.join(', ')} WHERE path = ?`)
     .run(...vals, path)
+}
+
+// ---- Project Trust + Outside-of-Folder Access (audit C-1) ----
+
+export function isProjectTrusted(path: string): boolean {
+  return getProjectSettings(path)?.trusted ?? false
+}
+export function trustProject(path: string): void {
+  upsertProjectSettings(path, { trusted: true })
+}
+export function untrustProject(path: string): void {
+  upsertProjectSettings(path, { trusted: false })
+}
+export function getOutsideFolderPolicy(path: string): OutsideFolderAccess {
+  return getProjectSettings(path)?.outsideFolderAccess ?? 'ask'
+}
+export function setOutsideFolderPolicy(path: string, policy: OutsideFolderAccess): void {
+  upsertProjectSettings(path, { outsideFolderAccess: policy })
+}
+function writeOutsideList(path: string, col: string, list: string[]): void {
+  const db = getDb()
+  db.prepare(`INSERT OR IGNORE INTO project_settings (path) VALUES (?)`).run(path)
+  db.prepare(`UPDATE project_settings SET ${col} = ? WHERE path = ?`).run(
+    JSON.stringify(list),
+    path
+  )
+}
+export function allowOutsidePath(path: string, abs: string): void {
+  const l = listOutsidePaths(path)
+  writeOutsideList(path, 'outside_folder_allowed_paths', Array.from(new Set([...l.allowed, abs])))
+  writeOutsideList(
+    path,
+    'outside_folder_denied_paths',
+    l.denied.filter((x) => x !== abs)
+  )
+  writeOutsideList(
+    path,
+    'outside_folder_pending_paths',
+    l.pending.filter((x) => x !== abs)
+  )
+}
+export function denyOutsidePath(path: string, abs: string): void {
+  const l = listOutsidePaths(path)
+  writeOutsideList(path, 'outside_folder_denied_paths', Array.from(new Set([...l.denied, abs])))
+  writeOutsideList(
+    path,
+    'outside_folder_allowed_paths',
+    l.allowed.filter((x) => x !== abs)
+  )
+  writeOutsideList(
+    path,
+    'outside_folder_pending_paths',
+    l.pending.filter((x) => x !== abs)
+  )
+}
+export function recordPendingOutsidePath(path: string, abs: string): void {
+  const l = listOutsidePaths(path)
+  if (l.pending.includes(abs) || l.allowed.includes(abs) || l.denied.includes(abs)) return
+  writeOutsideList(path, 'outside_folder_pending_paths', [...l.pending, abs])
+}
+export function removeOutsidePath(path: string, abs: string): void {
+  const l = listOutsidePaths(path)
+  writeOutsideList(
+    path,
+    'outside_folder_allowed_paths',
+    l.allowed.filter((x) => x !== abs)
+  )
+  writeOutsideList(
+    path,
+    'outside_folder_denied_paths',
+    l.denied.filter((x) => x !== abs)
+  )
+  writeOutsideList(
+    path,
+    'outside_folder_pending_paths',
+    l.pending.filter((x) => x !== abs)
+  )
+}
+export function listOutsidePaths(path: string): OutsideAccessInfo {
+  const f = getProjectSettings(path)
+  return {
+    policy: f?.outsideFolderAccess ?? 'ask',
+    allowed: f?.outsideFolderAllowedPaths ?? [],
+    denied: f?.outsideFolderDeniedPaths ?? [],
+    pending: f?.outsideFolderPendingPaths ?? []
+  }
+}
+
+// Bundles the loader's OutsidePolicy (policy + allow/deny lists, no pending)
+// from the stored lists -- the shape agentsDir's ref resolver (Task 3)
+// consumes. `listOutsidePaths` above stays the full accessor (includes
+// `pending`, used by the trust settings UI); this is the narrower slice.
+export function getOutsidePolicy(path: string): OutsidePolicy {
+  const l = listOutsidePaths(path)
+  return { policy: l.policy, allowed: l.allowed, denied: l.denied }
 }
 
 export function createProject(name: string, color: string | null = null): Project {

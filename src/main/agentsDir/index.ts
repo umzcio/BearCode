@@ -14,6 +14,18 @@ import { parseRuleFile } from './parseRule'
 import { parseSkillFolder } from './parseSkill'
 import { parseWorkflowFile } from './parseWorkflow'
 import type { AgentsContent, Rule, Skill, Workflow } from './types'
+import type { OutsideFolderAccess } from '../../shared/types'
+
+// Loader-side outside-of-folder policy (design §7). Consumed by the ref
+// resolver (Task 3) to decide whether an absolute @-ref outside the project
+// folder is inlined, dropped-pending, or dropped-denied. Kept local to the
+// loader (not re-exported from shared/types) since only main-process loader
+// code needs the allow/deny lists alongside the policy.
+export interface OutsidePolicy {
+  policy: OutsideFolderAccess
+  allowed: string[]
+  denied: string[]
+}
 
 const MAX_REF_BYTES = 64 * 1024
 // Rule files themselves get the same cap as cross-refs: a rule is prompt
@@ -153,7 +165,9 @@ function loadOneRule(
   path: string,
   name: string,
   source: 'project' | 'global',
-  projectPath: string | null
+  projectPath: string | null,
+  outside?: OutsidePolicy,
+  pendingSink?: Set<string>
 ): Rule | null {
   let mtimeMs: number
   try {
@@ -162,7 +176,16 @@ function loadOneRule(
     return null
   }
 
-  const key = cacheKey(path, projectPath)
+  // Cache correctness (Task 3 decision 3): fold an outside-policy fingerprint
+  // into the cache key for PROJECT rules only. Allowing/denying a
+  // previously-pending path changes ref resolution without touching the rule
+  // file's own mtime, so the fingerprint must change too or the cache would
+  // keep serving the stale (ref-dropped) body.
+  const fp =
+    source === 'project' && outside
+      ? `${outside.policy}|${[...outside.allowed].sort().join(',')}|${[...outside.denied].sort().join(',')}`
+      : ''
+  const key = cacheKey(path, projectPath) + '|' + fp
   const cached = cache.get(key)
   if (cached && cached.mtimeMs === mtimeMs) {
     return cached.rule
@@ -182,7 +205,11 @@ function loadOneRule(
   if (!parsed.error) {
     // Seed the cycle-detection chain with this file's own absolute path, so
     // a ref chain that loops back to the rule file itself is caught.
-    const { body, warnings } = resolveRuleRefs(parsed.body, projectPath, new Set([path]))
+    const { body, warnings, pendingOutside } = resolveRuleRefs(parsed.body, projectPath, {
+      outside: source === 'project' ? outside : undefined,
+      inlinedChain: new Set([path])
+    })
+    if (pendingSink) for (const p of pendingOutside) pendingSink.add(p)
     const allWarnings = [...fileWarnings, ...warnings]
     if (body !== parsed.body || allWarnings.length > 0) {
       rule = { ...parsed, body, warnings: allWarnings.length > 0 ? allWarnings : undefined }
@@ -292,8 +319,20 @@ function loadOneSkill(
 // Task 2's command registry is where cross-kind collisions with built-ins
 // are handled), and return the live content. Missing directories are treated
 // as empty, never an error.
-export function loadAgentsContent(projectPath: string | null): AgentsContent {
-  const projectRulesDir = projectPath ? join(projectPath, '.agents', 'rules') : null
+export function loadAgentsContent(
+  projectPath: string | null,
+  opts?: { trusted?: boolean; outside?: OutsidePolicy }
+): AgentsContent {
+  // Secure default (Global Constraints / design §7): an unspecified project
+  // is untrusted, so a caller that forgets to pass `trusted` never gets
+  // project-authored rules/workflows/skills injected into agent context --
+  // only the user's own global entries load. `outside` is threaded through
+  // for Task 3's ref resolver; this task only builds the (currently always
+  // empty) pendingOutside accumulator so the shape is stable end to end.
+  const trusted = opts?.trusted ?? false
+  const outside = opts?.outside
+  const pendingOutside = new Set<string>()
+  const projectRulesDir = trusted && projectPath ? join(projectPath, '.agents', 'rules') : null
   const projectRuleFiles = projectRulesDir ? listMdFiles(projectRulesDir) : []
   const globalRuleFiles = listMdFiles(globalRulesDir())
 
@@ -301,6 +340,8 @@ export function loadAgentsContent(projectPath: string | null): AgentsContent {
 
   for (const path of globalRuleFiles) {
     const name = mdNameFromPath(path)
+    // Global rules keep legacy allow-everything behavior (design decision 2):
+    // no outside policy, no pending sink.
     const rule = loadOneRule(path, name, 'global', projectPath)
     if (rule) rulesByName.set(name, rule)
   }
@@ -308,11 +349,12 @@ export function loadAgentsContent(projectPath: string | null): AgentsContent {
   // project always wins on collision.
   for (const path of projectRuleFiles) {
     const name = mdNameFromPath(path)
-    const rule = loadOneRule(path, name, 'project', projectPath)
+    const rule = loadOneRule(path, name, 'project', projectPath, outside, pendingOutside)
     if (rule) rulesByName.set(name, rule)
   }
 
-  const projectWorkflowsDir = projectPath ? join(projectPath, '.agents', 'workflows') : null
+  const projectWorkflowsDir =
+    trusted && projectPath ? join(projectPath, '.agents', 'workflows') : null
   const projectWorkflowFiles = projectWorkflowsDir ? listMdFiles(projectWorkflowsDir) : []
   const globalWorkflowFiles = listMdFiles(globalWorkflowsDir())
 
@@ -331,7 +373,7 @@ export function loadAgentsContent(projectPath: string | null): AgentsContent {
     if (workflow) workflowsByName.set(name, workflow)
   }
 
-  const projectSkillsDir = projectPath ? join(projectPath, '.agents', 'skills') : null
+  const projectSkillsDir = trusted && projectPath ? join(projectPath, '.agents', 'skills') : null
   const projectSkillFolders = projectSkillsDir ? listSkillFolders(projectSkillsDir) : []
   const globalSkillFolders = listSkillFolders(globalSkillsDir())
 
@@ -351,7 +393,8 @@ export function loadAgentsContent(projectPath: string | null): AgentsContent {
   return {
     rules: Array.from(rulesByName.values()),
     workflows: Array.from(workflowsByName.values()),
-    skills: Array.from(skillsByName.values())
+    skills: Array.from(skillsByName.values()),
+    pendingOutside: Array.from(pendingOutside)
   }
 }
 
@@ -399,15 +442,23 @@ const MAX_INCLUSIONS = 64
 interface ResolveState {
   visited: Set<string>
   inclusions: number
+  outside?: OutsidePolicy
+  pending: Set<string>
 }
 
 export function resolveRuleRefs(
   body: string,
   projectPath: string | null,
-  inlinedChain: Set<string> = new Set()
-): { body: string; warnings: string[] } {
-  const state: ResolveState = { visited: new Set(), inclusions: 0 }
-  return resolveRefsInner(body, projectPath, inlinedChain, 0, state)
+  opts?: { outside?: OutsidePolicy; inlinedChain?: Set<string> }
+): { body: string; warnings: string[]; pendingOutside: string[] } {
+  const state: ResolveState = {
+    visited: new Set(),
+    inclusions: 0,
+    outside: opts?.outside,
+    pending: new Set()
+  }
+  const r = resolveRefsInner(body, projectPath, opts?.inlinedChain ?? new Set(), 0, state)
+  return { body: r.body, warnings: r.warnings, pendingOutside: Array.from(state.pending) }
 }
 
 function resolveRefsInner(
@@ -443,20 +494,22 @@ function resolveRefsInner(
       continue
     }
 
-    const resolution = resolveRefPath(refPath, projectPath)
-    if (!resolution) {
+    const resolution = resolveRefPath(refPath, projectPath, state.outside)
+    if (resolution.pending) state.pending.add(resolution.pending)
+    if (!resolution.path) {
       result += token
       warnings.push(`Could not resolve rule reference: @${refPath}`)
       continue
     }
+    const resolved = resolution.path
 
-    if (inlinedChain.has(resolution)) {
+    if (inlinedChain.has(resolved)) {
       result += token
       warnings.push(`Could not resolve rule reference: @${refPath} (reference cycle detected)`)
       continue
     }
 
-    if (state.visited.has(resolution)) {
+    if (state.visited.has(resolved)) {
       result += token
       warnings.push(
         `Could not resolve rule reference: @${refPath} (already included once in this rule)`
@@ -467,28 +520,28 @@ function resolveRefsInner(
     // Bounded, non-regular-rejecting read: a missing file, a directory, a
     // FIFO, a device node, or any read error all degrade to the literal
     // token + warning, and at most MAX_REF_BYTES are ever read.
-    const read = readFileCapped(resolution, MAX_REF_BYTES)
+    const read = readFileCapped(resolved, MAX_REF_BYTES)
     if (!read) {
       result += token
       warnings.push(`Could not resolve rule reference: @${refPath}`)
       continue
     }
 
-    state.visited.add(resolution)
+    state.visited.add(resolved)
     state.inclusions += 1
 
     // Recurse into the referenced file's own content so nested refs resolve
     // too, extending the chain with this file's resolved path so a cycle
     // back to it (or to any ancestor in the chain) is caught.
     const nestedChain = new Set(inlinedChain)
-    nestedChain.add(resolution)
+    nestedChain.add(resolved)
     const nested = resolveRefsInner(read.text, projectPath, nestedChain, depth + 1, state)
     warnings.push(...nested.warnings)
 
     // Read-only text inclusion, never executed: fenced with a header line
     // naming the resolved path so the inclusion is clearly attributed and
     // machine-testable.
-    result += `\n--- begin @${refPath} (${resolution}) ---\n${nested.body}\n--- end @${refPath} ---\n`
+    result += `\n--- begin @${refPath} (${resolved}) ---\n${nested.body}\n--- end @${refPath} ---\n`
   }
   result += body.slice(lastIndex)
 
@@ -499,16 +552,36 @@ function resolveRefsInner(
 // cannot be resolved (missing projectPath for a relative ref, or a relative
 // ref that escapes the workspace). Existence is NOT checked here -- callers
 // attempt the read and treat a failure the same as an unresolvable path.
-function resolveRefPath(refPath: string, projectPath: string | null): string | null {
+//
+// Outside-of-folder policy (Task 3, audit C-1): an ABSOLUTE ref that points
+// outside the workspace is now gated by `outside` (only ever passed for
+// PROJECT-source rules -- global rules keep legacy allow-everything, see
+// design decision 2). In-workspace refs (absolute or relative) are always
+// resolved regardless of policy.
+function resolveRefPath(
+  refPath: string,
+  projectPath: string | null,
+  outside?: OutsidePolicy
+): { path: string | null; pending: string | null } {
   if (isAbsolute(refPath)) {
-    // Absolute refs may point outside the workspace: documented, intentional
-    // Antigravity-parity behavior (design 10), still read-only and capped.
-    return refPath
+    const abs = resolve(refPath)
+    // Inside the workspace? treat like a relative in-folder ref (always ok).
+    const root = projectPath ? resolve(projectPath) : null
+    if (root && isInsideWorkspace(root, abs)) return { path: abs, pending: null }
+    // Out-of-folder absolute ref: apply policy. No policy = legacy allow (global).
+    if (!outside || outside.policy === 'allow') return { path: abs, pending: null }
+    if (outside.policy === 'deny') return { path: null, pending: null }
+    // 'ask': allowed-list wins, denied-list drops, otherwise drop + record pending.
+    if (outside.allowed.includes(abs)) return { path: abs, pending: null }
+    if (outside.denied.includes(abs)) return { path: null, pending: null }
+    return { path: null, pending: abs }
   }
-  if (!projectPath) return null
+  if (!projectPath) return { path: null, pending: null }
   const root = resolve(projectPath)
   const candidate = resolve(root, refPath)
-  return isInsideWorkspace(root, candidate) ? candidate : null
+  return isInsideWorkspace(root, candidate)
+    ? { path: candidate, pending: null }
+    : { path: null, pending: null }
 }
 
 // Boundary-safe containment check (mirrors fsBackend.ts's jailPath idiom,
@@ -519,4 +592,13 @@ function resolveRefPath(refPath: string, projectPath: string | null): string | n
 // as inside the workspace.
 function isInsideWorkspace(root: string, candidate: string): boolean {
   return candidate === root || candidate.startsWith(root + sep)
+}
+
+// Cheap existence check used by the renderer to decide whether to show the
+// "this project has an .agents config" affordance before the user trusts it
+// (trust gating itself happens in loadAgentsContent above).
+export function hasProjectAgentsConfig(projectPath: string | null): boolean {
+  if (!projectPath) return false
+  const base = join(projectPath, '.agents')
+  return ['rules', 'workflows', 'skills', 'memory'].some((d) => existsSync(join(base, d)))
 }

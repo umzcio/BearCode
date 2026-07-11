@@ -52,12 +52,20 @@ function loadScope(scope: MemoryScopeName, projectPath: string | null): MemoryEn
   return parseMemoryBullets(read.text, scope)
 }
 
-export function loadMemory(projectPath: string | null): {
+export function loadMemory(
+  projectPath: string | null,
+  opts?: { trusted?: boolean }
+): {
   global: MemoryEntry[]
   project: MemoryEntry[]
 } {
+  // Secure default (Global Constraints / design §7): an unspecified project
+  // is untrusted, so project-scope memory is never auto-loaded into agent
+  // context unless the caller explicitly passes trusted:true. Global memory
+  // is user-authored and always loads.
+  const trusted = opts?.trusted ?? false
   return {
     global: loadScope('global', null),
-    project: projectPath ? loadScope('project', projectPath) : []
+    project: trusted && projectPath ? loadScope('project', projectPath) : []
   }
 }

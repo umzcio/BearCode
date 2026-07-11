@@ -55,4 +55,7 @@ export interface AgentsContent {
   rules: Rule[]
   workflows: Workflow[]
   skills: Skill[]
+  // Absolute out-of-folder @-refs seen this load under policy 'ask' that are not
+  // yet allowed/denied — the graph turn-build persists these as pending requests.
+  pendingOutside?: string[]
 }

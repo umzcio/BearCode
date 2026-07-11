@@ -59,7 +59,7 @@ describe('loadMemory', () => {
   it('loads both scopes independently', () => {
     writeMemFile(memoryDir('global', null), '- g1\n- g2\n')
     writeMemFile(memoryDir('project', projectDir), '- p1\n')
-    const mem = loadMemory(projectDir)
+    const mem = loadMemory(projectDir, { trusted: true })
     expect(mem.global.map((e) => e.text)).toEqual(['g1', 'g2'])
     expect(mem.project.map((e) => e.text)).toEqual(['p1'])
   })
@@ -70,6 +70,13 @@ describe('loadMemory', () => {
   })
   it('truncates a memory file past the 64KB read cap without throwing', () => {
     writeMemFile(memoryDir('global', null), '- ' + 'x'.repeat(70 * 1024) + '\n')
-    expect(() => loadMemory(projectDir)).not.toThrow()
+    expect(() => loadMemory(projectDir, { trusted: true })).not.toThrow()
+  })
+  it('drops project memory when untrusted (secure default), always loads global', () => {
+    writeMemFile(memoryDir('global', null), '- g1\n')
+    writeMemFile(memoryDir('project', projectDir), '- p1\n')
+    expect(loadMemory(projectDir).project).toEqual([])
+    expect(loadMemory(projectDir).global.map((e) => e.text)).toEqual(['g1'])
+    expect(loadMemory(projectDir, { trusted: true }).project.map((e) => e.text)).toEqual(['p1'])
   })
 })
