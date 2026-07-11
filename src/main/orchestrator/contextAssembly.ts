@@ -7,7 +7,7 @@
 import type { AgentsContent, Rule, Skill, Workflow } from '../agentsDir/types'
 import { matchesEditPath } from '../permissions/rules'
 import { resolveWorkflowSteps } from './commands'
-import type { CommandRef, MentionRef } from '../../shared/types'
+import type { CommandRef, MentionRef, MemoryEntry } from '../../shared/types'
 
 export interface RuleAssemblyInput {
   content: AgentsContent
@@ -316,6 +316,31 @@ export function assembleSkillAdditions(enabledSkills: Skill[]): SkillAssembly {
 // Skill-kind mention names (@skill:). Pure.
 export function mentionedSkillNames(mentions: MentionRef[]): string[] {
   return mentions.filter((m) => m.kind === 'skill').map((m) => m.name)
+}
+
+export interface MemoryAssemblyInput {
+  global: MemoryEntry[]
+  project: MemoryEntry[]
+}
+export interface MemoryAssembly {
+  systemAdditions: string[]
+}
+
+// Always-on memory injection (design 4.2): durable facts the agent wrote
+// previously, prepended alongside the rules/skills blocks every turn. One
+// bullet per entry under a per-scope heading; a scope with no entries emits
+// nothing. Pure — the caller (graph.ts) supplies the loaded entries.
+export function assembleMemoryAdditions(input: MemoryAssemblyInput): MemoryAssembly {
+  const additions: string[] = []
+  if (input.global.length > 0) {
+    additions.push('', '## Memory (global)')
+    for (const entry of input.global) additions.push(`- ${entry.text}`)
+  }
+  if (input.project.length > 0) {
+    additions.push('', '## Memory (project)')
+    for (const entry of input.project) additions.push(`- ${entry.text}`)
+  }
+  return { systemAdditions: additions }
 }
 
 // Force-use (design 4.2 step 3): a @skill: mention injects that skill's FULL

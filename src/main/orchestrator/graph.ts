@@ -47,11 +47,13 @@ import {
 } from '../db'
 import { readAttachmentBase64, readAttachmentSidecar } from '../attachments/ingest'
 import { loadAgentsContent } from '../agentsDir'
+import { loadMemory } from '../agentsDir/memory'
 import type { Workflow } from '../agentsDir/types'
 import { isSkillEnabled } from '../skills/state'
 import {
   assembleActivatedSkills,
   assembleCommandAdditions,
+  assembleMemoryAdditions,
   assembleRuleAdditions,
   assembleSkillAdditions,
   assembleUserMentions,
@@ -2334,6 +2336,14 @@ function buildAgentAndContext(
     const activatedAsm = assembleActivatedSkills(mentionedSkillNames(mentions), enabledSkills)
     const skillLines = [...skillAsm.systemAdditions, ...activatedAsm.systemAdditions]
     if (skillLines.length > 0) ruleAdditions += '\n\n' + skillLines.join('\n\n')
+    // design 4.2: memory rides the same always-on turn-build path as rules and
+    // skills. loadMemory is dual-scope (global always, project when a folder is
+    // open) and never throws; empty scopes contribute nothing.
+    const memory = loadMemory(projectPath)
+    const memoryAsm = assembleMemoryAdditions({ global: memory.global, project: memory.project })
+    if (memoryAsm.systemAdditions.length > 0) {
+      ruleAdditions += '\n\n' + memoryAsm.systemAdditions.join('\n\n')
+    }
   } catch (err) {
     console.warn('[bearcode] .agents rules skipped:', err)
   }
