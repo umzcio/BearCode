@@ -1,5 +1,12 @@
 import type { MentionKind, MentionRow } from './mentionQuery'
-import { IconFile, IconLines, IconHistory, IconChevronRight, IconBlocks } from '../icons'
+import {
+  IconFile,
+  IconLines,
+  IconHistory,
+  IconChevronRight,
+  IconBlocks,
+  IconScroll
+} from '../icons'
 import './SlashMenu.css'
 
 interface MentionMenuProps {
@@ -16,6 +23,7 @@ function KindIcon({ kind }: { kind: MentionKind }): React.JSX.Element {
   if (kind === 'file') return <IconFile size={14} />
   if (kind === 'conversation') return <IconHistory size={14} />
   if (kind === 'connector') return <IconBlocks size={14} />
+  if (kind === 'skill') return <IconScroll size={14} />
   return <IconLines size={14} />
 }
 

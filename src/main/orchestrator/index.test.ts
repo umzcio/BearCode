@@ -93,8 +93,15 @@ describe('assertValidCommand', () => {
     })
   })
 
+  it('passes the learn built-in through (G-skills Task 8: /learn is sendable)', () => {
+    expect(assertValidCommand({ name: 'learn', kind: 'builtin' })).toEqual({
+      name: 'learn',
+      kind: 'builtin'
+    })
+  })
+
   it('rejects a non-sendable built-in', () => {
-    expect(() => assertValidCommand({ name: 'learn', kind: 'builtin' })).toThrow(
+    expect(() => assertValidCommand({ name: 'teamwork-preview', kind: 'builtin' })).toThrow(
       /cannot be sent as a command/
     )
   })

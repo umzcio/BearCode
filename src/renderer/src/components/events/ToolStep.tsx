@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Event } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { IconChevronRightSmall } from '../icons'
+import { Select } from '../Select'
 import './events.css'
 
 type ToolCallEvent = Extract<Event, { type: 'tool_call' }>
@@ -354,6 +355,36 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
             ) : (
               <>
                 Did not proceed with plan <b>{planTitle}</b>
+              </>
+            )}
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  // G-skills Task 8: /learn's propose_skill card. Selected by tool + pending
+  // state alone (the payload is always well-formed input from tools.ts), not
+  // by a marker field -- there is no artifactId analog to guard on here.
+  if (call.tool === 'propose_skill' && call.approvalState === 'pending') {
+    return <PendingSkillProposal callId={call.id} input={call.input} />
+  }
+  if (
+    call.tool === 'propose_skill' &&
+    (call.approvalState === 'approved' || call.approvalState === 'denied')
+  ) {
+    const name = inputStr(call, 'name') ?? 'a skill'
+    return (
+      <div className="step">
+        <div className="step-row static">
+          <span>
+            {call.approvalState === 'approved' ? (
+              <>
+                Saved skill <b>{name}</b>
+              </>
+            ) : (
+              <>
+                Discarded proposed skill <b>{name}</b>
               </>
             )}
           </span>
@@ -1163,6 +1194,89 @@ function PendingPlan({
           Send feedback
           <span className="opt-hint">opens the plan with the comment box focused</span>
         </button>
+      </div>
+    </div>
+  )
+}
+
+// G-skills Task 8: the inline editable /learn approval card. The renderer may
+// EDIT the model's drafted name/description/body and pick a scope before
+// saving -- the resume carries these FINAL values, never the tool's original
+// args (tools.ts's proposeSkillTool writes exactly what the resolution says).
+function PendingSkillProposal({
+  callId,
+  input
+}: {
+  callId: string
+  input: unknown
+}): React.JSX.Element {
+  const resolve = useAppStore((s) => s.resolveSkillProposal)
+  const workspacePath = useAppStore((s) => s.workspacePath)
+  const p = (input ?? {}) as { name?: string; description?: string; body?: string }
+  const [name, setName] = useState(p.name ?? '')
+  const [description, setDescription] = useState(p.description ?? '')
+  const [body, setBody] = useState(p.body ?? '')
+  const [scope, setScope] = useState<'project' | 'global'>(workspacePath ? 'project' : 'global')
+  const kebabOk = /^[a-z0-9][a-z0-9-]{0,63}$/.test(name)
+  const canSave = kebabOk && description.trim() !== ''
+  return (
+    <div className="step">
+      <div className="step-row static">
+        <span>/learn: a skill was proposed from this session</span>
+      </div>
+      <div className="waiting-note">Waiting for your review…</div>
+      <div className="approval-card pulse-once skill-proposal-card">
+        <div className="approval-title">Save this skill?</div>
+        <label className="skill-field">
+          <span>Name</span>
+          <input className="set-input" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        {!kebabOk && name !== '' ? (
+          <div className="set-row-desc">Name must be kebab-case.</div>
+        ) : null}
+        <label className="skill-field">
+          <span>Description</span>
+          <input
+            className="set-input"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
+        <label className="skill-field">
+          <span>Instructions</span>
+          <textarea
+            className="set-input skill-body"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+        </label>
+        {workspacePath ? (
+          <Select
+            ariaLabel="Skill scope"
+            value={scope}
+            options={[
+              {
+                value: 'project',
+                label: 'Project',
+                description: 'Written to .agents/skills, shared with the repo'
+              },
+              { value: 'global', label: 'Global', description: 'Private to you; this machine only' }
+            ]}
+            onChange={setScope}
+          />
+        ) : null}
+        <div className="approval-actions">
+          <button
+            className="pill-btn primary"
+            disabled={!canSave}
+            onClick={() => resolve(callId, { save: true, name, description, body, scope })}
+          >
+            Save skill
+          </button>
+          <button className="pill-btn" onClick={() => resolve(callId, { save: false })}>
+            Discard
+          </button>
+        </div>
       </div>
     </div>
   )

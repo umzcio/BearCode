@@ -19,7 +19,7 @@ import { createHash, randomUUID } from 'crypto'
 import { interrupt } from '@langchain/langgraph'
 import { tool } from 'langchain'
 import { z } from 'zod'
-import type { Artifact, Event, ToolName } from '../../shared/types'
+import type { Artifact, Event, SkillProposalResolution, ToolName } from '../../shared/types'
 import { appendOrReplaceEvent, getConversationMeta } from '../db'
 import {
   approvePlanArtifact,
@@ -34,6 +34,8 @@ import {
   resolveConversationMode
 } from '../permissions'
 import { loadAgentsContent } from '../agentsDir'
+import { writeSkillFile } from '../skills'
+import { isSkillEnabled } from '../skills/state'
 import type { RunSink } from '../sink'
 import {
   jailPath,
@@ -283,6 +285,11 @@ export function takeDeniedIntegrationReplayPin(
 // delivered as steering context in the tool's return (design 3.6 Proceed).
 export type PlanReviewResolution =
   { proceed: true; comments?: string } | { proceed: false; feedback: string }
+
+// Re-exported so graph.ts (and its tests) can import the propose_skill resume
+// type from './tools' alongside PlanReviewResolution, without a second import
+// line back to shared/types -- purely a re-export, defined there (Task 8).
+export type { SkillProposalResolution }
 
 // Design 5: one plan review pause at a time per conversation ("cannot stack
 // reviews"). Entered BEFORE the pending row is created, so when the model
@@ -740,6 +747,75 @@ export function buildTools(
     activateRuleTool,
     generateDocumentTool
   ]
+}
+
+const activateSkillSchema = z.object({
+  name: z.string().describe('The skill name from the Available skills index.')
+})
+
+const proposeSkillSchema = z.object({
+  name: z.string().describe('A kebab-case skill name (lowercase letters, digits, dashes).'),
+  description: z.string().describe('A specific, third-person description with trigger keywords.'),
+  body: z.string().describe('The full skill instructions as markdown.')
+})
+
+// activate_skill is read-only by construction (twin of activate_rule) and, per
+// design 4.2, folder-independent: it must load global skills with NO project
+// open, so it is NOT wired inside folder-gated buildTools. graph.ts appends
+// buildSkillTools(...) unconditionally, like buildBrowserTools.
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+export function buildSkillTools(_conversationId: string, projectPath: string | null) {
+  const activateSkillTool = tool(
+    async ({ name }: { name: string }): Promise<string> => {
+      const content = loadAgentsContent(projectPath)
+      const skills = content.skills.filter(
+        (s) => !s.error && isSkillEnabled(s.name, s.source, projectPath)
+      )
+      const exact = skills.find((s) => s.name === name)
+      const found = exact ?? skills.find((s) => s.name.toLowerCase() === name.toLowerCase())
+      if (found) return `Skill ${found.name}:\n${found.body}`
+      const candidates = skills.map((s) => s.name).join(', ')
+      return `Unknown skill: ${name}. Available skills: ${candidates}`
+    },
+    {
+      name: 'activate_skill',
+      description:
+        'Load the full instructions of an available skill by name. Use when a task matches a skill from the Available skills index.',
+      schema: activateSkillSchema
+    }
+  )
+
+  const proposeSkillTool = tool(
+    async (
+      { name, description, body }: { name: string; description: string; body: string },
+      config?: unknown
+    ): Promise<string> => {
+      const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
+      // Pause for the inline editable approval card (design 4.5). The renderer
+      // may EDIT name/description/body and pick a scope; the resume carries the
+      // final values. Truthy-object contract as documented for run_command.
+      const raw = interrupt({ kind: 'propose_skill', name, description, body, toolCallId })
+      const res = raw as SkillProposalResolution | null | undefined
+      if (!res || res.save !== true)
+        return 'The user discarded the proposed skill. Nothing was saved.'
+      try {
+        writeSkillFile(
+          { name: res.name, description: res.description, body: res.body, scope: res.scope },
+          projectPath
+        )
+      } catch (err) {
+        return `Could not save the skill: ${err instanceof Error ? err.message : String(err)}`
+      }
+      return `Saved skill "${res.name}" (${res.scope}). It is now available for discovery.`
+    },
+    {
+      name: 'propose_skill',
+      description:
+        'Propose a reusable skill (name, description, markdown body) for the user to review, edit, and save. Use only when asked to learn/capture a skill from the session.',
+      schema: proposeSkillSchema
+    }
+  )
+  return [activateSkillTool, proposeSkillTool]
 }
 
 // buildBrowserTools(conversationId) returns the F4 browser_* tool array. Unlike

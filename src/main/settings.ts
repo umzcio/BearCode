@@ -69,7 +69,9 @@ const DEFAULTS: AppSettings = {
   mcpTrustedProjectServers: {},
   mcpUntrustedGlobalServers: [],
   mcpSpawnConsented: [],
-  githubClientId: ''
+  githubClientId: '',
+  skillsDisabledGlobal: [],
+  skillsDisabledProject: {}
 }
 
 // Custom models may only target the four first-party curated providers. Ollama
@@ -265,6 +267,8 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   merged.mcpUntrustedGlobalServers = coerceStringArray(s['mcpUntrustedGlobalServers'])
   merged.mcpSpawnConsented = coerceStringArray(s['mcpSpawnConsented'])
   merged.githubClientId = typeof s['githubClientId'] === 'string' ? s['githubClientId'] : ''
+  merged.skillsDisabledGlobal = coerceStringArray(s['skillsDisabledGlobal'])
+  merged.skillsDisabledProject = coerceStringArrayMap(s['skillsDisabledProject'])
   return merged
 }
 
@@ -366,16 +370,31 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
     patch = { ...patch, mcpEnabledServers: coerceStringArray(patch.mcpEnabledServers) }
   }
   if (patch.mcpTrustedProjectServers !== undefined) {
-    patch = { ...patch, mcpTrustedProjectServers: coerceStringArrayMap(patch.mcpTrustedProjectServers) }
+    patch = {
+      ...patch,
+      mcpTrustedProjectServers: coerceStringArrayMap(patch.mcpTrustedProjectServers)
+    }
   }
   if (patch.mcpUntrustedGlobalServers !== undefined) {
-    patch = { ...patch, mcpUntrustedGlobalServers: coerceStringArray(patch.mcpUntrustedGlobalServers) }
+    patch = {
+      ...patch,
+      mcpUntrustedGlobalServers: coerceStringArray(patch.mcpUntrustedGlobalServers)
+    }
   }
   if (patch.mcpSpawnConsented !== undefined) {
     patch = { ...patch, mcpSpawnConsented: coerceStringArray(patch.mcpSpawnConsented) }
   }
   if (patch.githubClientId !== undefined) {
-    patch = { ...patch, githubClientId: typeof patch.githubClientId === 'string' ? patch.githubClientId : '' }
+    patch = {
+      ...patch,
+      githubClientId: typeof patch.githubClientId === 'string' ? patch.githubClientId : ''
+    }
+  }
+  if (patch.skillsDisabledGlobal !== undefined) {
+    patch = { ...patch, skillsDisabledGlobal: coerceStringArray(patch.skillsDisabledGlobal) }
+  }
+  if (patch.skillsDisabledProject !== undefined) {
+    patch = { ...patch, skillsDisabledProject: coerceStringArrayMap(patch.skillsDisabledProject) }
   }
   const next = { ...getSettings(), ...patch }
   cache = next

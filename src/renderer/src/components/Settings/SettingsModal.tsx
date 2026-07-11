@@ -23,6 +23,7 @@ import { PermissionsPage } from './pages/PermissionsPage'
 import { BrowserPage } from './pages/BrowserPage'
 import { ConnectorsPage } from './pages/ConnectorsPage'
 import { IntegrationsPage } from './pages/IntegrationsPage'
+import { SkillsPage } from './pages/SkillsPage'
 import { SettingPlaceholder } from './SettingPlaceholder'
 import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
 import type { SettingsPageId } from './SettingsNav'
@@ -60,11 +61,6 @@ const NAV_ICONS: Record<string, (props: { size?: number }) => React.JSX.Element>
 
 // Intentional WIP panels for the Customize group (not "coming soon" badges).
 const PLACEHOLDERS: Record<string, { title: string; description: string }> = {
-  skills: {
-    title: 'Skills',
-    description:
-      'Teach the agent reusable workflows and domain knowledge — arriving in a future update.'
-  },
   memory: {
     title: 'Memory',
     description:
@@ -301,6 +297,8 @@ function SettingsPanel({
           {page === 'connectors' ? <ConnectorsPage /> : null}
 
           {page === 'integrations' ? <IntegrationsPage /> : null}
+
+          {page === 'skills' ? <SkillsPage /> : null}
 
           {PLACEHOLDERS[page] ? (
             <SettingPlaceholder

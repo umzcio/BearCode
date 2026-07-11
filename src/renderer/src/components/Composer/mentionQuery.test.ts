@@ -65,17 +65,25 @@ describe('buildMentionRows', () => {
     files: ['src/a.ts'],
     rules,
     conversations: [{ id: 'c1', title: 'Some chat' }],
-    connectors: [{ name: 'github', toolCount: 12 }]
+    connectors: [{ name: 'github', toolCount: 12 }],
+    skills: [{ name: 'pdf', description: 'Extract PDFs.' }]
   }
 
-  it('category mode (no category) returns the four category chooser rows', () => {
+  it('category mode (no category) returns the five category chooser rows', () => {
     const out = buildMentionRows({ category: null, sub: '', ...base })
-    expect(out.map((r) => r.type)).toEqual(['category', 'category', 'category', 'category'])
+    expect(out.map((r) => r.type)).toEqual([
+      'category',
+      'category',
+      'category',
+      'category',
+      'category'
+    ])
     expect(out.map((r) => (r.type === 'category' ? r.kind : null))).toEqual([
       'file',
       'rule',
       'conversation',
-      'connector'
+      'connector',
+      'skill'
     ])
   })
 
@@ -110,12 +118,49 @@ describe('buildMentionRows', () => {
     const [row] = buildMentionRows({ category: 'connector', sub: '', ...base })
     expect(row).toEqual({
       type: 'item',
-      suggestion: { ref: { kind: 'connector', name: 'github' }, label: 'github', detail: '12 tools' }
+      suggestion: {
+        ref: { kind: 'connector', name: 'github' },
+        label: 'github',
+        detail: '12 tools'
+      }
     })
   })
 
   it('@mcp: is an alias for the connector category', () => {
     expect(parseMentionQuery('mcp:git')).toEqual({ category: 'connector', sub: 'git' })
+  })
+
+  it('parses the skill: category prefix (and mcp/connector unaffected)', () => {
+    expect(parseMentionQuery('skill:pd')).toEqual({ category: 'skill', sub: 'pd' })
+  })
+
+  it('bare @ lists a Skills category', () => {
+    const rows = buildMentionRows({
+      category: null,
+      sub: '',
+      files: [],
+      rules: [],
+      conversations: [],
+      connectors: [],
+      skills: []
+    })
+    expect(rows.some((r) => r.type === 'category' && r.kind === 'skill')).toBe(true)
+  })
+
+  it('skill category items resolve to a kind:skill MentionRef', () => {
+    const rows = buildMentionRows({
+      category: 'skill',
+      sub: '',
+      files: [],
+      rules: [],
+      conversations: [],
+      connectors: [],
+      skills: [{ name: 'pdf', description: 'Extract PDFs.' }]
+    })
+    expect(rows[0]).toMatchObject({
+      type: 'item',
+      suggestion: { ref: { kind: 'skill', name: 'pdf' }, label: 'pdf', detail: 'Extract PDFs.' }
+    })
   })
 
   it('caps the drilled-in item list at 8', () => {
@@ -126,7 +171,8 @@ describe('buildMentionRows', () => {
       files: [],
       rules: [],
       conversations: many,
-      connectors: []
+      connectors: [],
+      skills: []
     })
     expect(out).toHaveLength(8)
   })

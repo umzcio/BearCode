@@ -23,6 +23,8 @@ import type {
   ProviderModels,
   RunState,
   SettingsInfo,
+  SkillInfo,
+  SkillProposalResolution,
   WorktreeInfo
 } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
@@ -270,6 +272,8 @@ interface AppState {
   manualRules: ManualRuleInfo[]
   // Enabled MCP servers for the @connector category (Phase G).
   mcpConnectors: { name: string; toolCount: number }[]
+  // The @skill category's read model (mirrors manualRules).
+  manualSkills: SkillInfo[]
   // D4 Media on Home: a new conversation has no id until startFromHome's first
   // send (conversations.create happens then), but Media needs a conversation
   // id to key the attachments directory at PICK time. This is a client-minted
@@ -387,6 +391,7 @@ interface AppState {
   loadArtifactComments(artifactId: string): Promise<void>
   addArtifactComment(artifactId: string, quote: string | null, body: string): Promise<void>
   resolvePlanReview(callId: string, proceed: boolean, message?: string): Promise<boolean>
+  resolveSkillProposal(callId: string, resolution: SkillProposalResolution): Promise<void>
   closeReview(): void
   showToast(message: string, action?: { label: string; run: () => void }): void
   dismissToast(): void
@@ -395,6 +400,7 @@ interface AppState {
   suggestFiles(query: string): void
   refreshManualRules(): void
   refreshMcpConnectors(): void
+  refreshManualSkills(): void
   pickAttachments(
     existingCount: number
   ): Promise<{ picked: PickedAttachmentWire[]; errors: string[] }>
@@ -542,6 +548,7 @@ export const useAppStore = create<AppState>((set, get) => {
     fileSuggestions: [],
     manualRules: [],
     mcpConnectors: [],
+    manualSkills: [],
     draftConvoId: null,
     focusEventId: null,
     focusMatches: [],
@@ -1304,6 +1311,19 @@ export const useAppStore = create<AppState>((set, get) => {
       return result === 'resolved'
     },
 
+    // propose_skill resolves over its own channel too (bearcode:skills:save),
+    // mirroring resolvePlanReview: main-side kind cross-guards keep this
+    // mutually exclusive from tools.approve. 'stale' is the only failure
+    // discriminant (no needs-substance analog); the terminal tool_call event
+    // re-renders the card as resolved either way, so a successful save is a
+    // no-op here beyond dismissing the toast path.
+    resolveSkillProposal: async (callId, resolution) => {
+      const result = await window.bearcode.skills.save(callId, resolution)
+      if (result === 'stale') {
+        get().showToast('This skill proposal is no longer pending')
+      }
+    },
+
     closeReview: () => set({ auxSelection: null, reviewFocusPath: null }),
 
     showToast: (message, action) => {
@@ -1346,6 +1366,17 @@ export const useAppStore = create<AppState>((set, get) => {
       const projectPath =
         view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
       void window.bearcode.mentions.rules(projectPath).then((manualRules) => set({ manualRules }))
+    },
+
+    // The @skill category's read model (mirrors refreshManualRules). Fetched
+    // on @ menu open.
+    refreshManualSkills: () => {
+      const { view, conversations, workspacePath } = get()
+      const projectPath =
+        view.kind === 'conversation' ? (conversations[view.id]?.projectPath ?? null) : workspacePath
+      void window.bearcode.mentions
+        .skills(projectPath)
+        .then((manualSkills) => set({ manualSkills }))
     },
 
     // Enabled + connected MCP servers for the @connector category. Fetched on @

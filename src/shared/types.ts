@@ -29,7 +29,7 @@ export interface CommandRef {
 // used only as prompt text and (for files) a pure glob-match string — never
 // opened at the IPC boundary (see assertValidMentions).
 export interface MentionRef {
-  kind: 'file' | 'rule' | 'conversation' | 'connector'
+  kind: 'file' | 'rule' | 'conversation' | 'connector' | 'skill'
   name: string
   path?: string
   conversationId?: string
@@ -133,6 +133,63 @@ export interface ManualRuleInfo {
   firstLine: string
 }
 
+// The @skill: menu read model (G-skills Task 6, parallel to ManualRuleInfo).
+// Produced main-side from the live AgentsContent (mentionSuggest.ts
+// skillInfos), filtered to non-error, enabled skills only.
+export interface SkillInfo {
+  name: string
+  description: string
+}
+
+// The Settings > Skills page's list read model (design 4.6): every skill
+// (global + project), with its enabled flag, on-disk body size, and any parse
+// error (parse-errored skills are still listed, greyed, with the error shown).
+export interface SkillEntry {
+  name: string
+  description: string
+  source: 'project' | 'global'
+  enabled: boolean
+  sizeBytes: number
+  error?: string
+  // The skill's current on-disk body (empty string for a parse-errored entry
+  // whose body couldn't be extracted). Carried so the Settings page's Edit
+  // affordance can pre-fill the editor without wiping the user's content
+  // (design 4.6 / Task 9 fix).
+  body: string
+}
+
+// Create/update payload for a skill (Settings page editor + /learn's proposal
+// card, Task 8).
+export interface SkillInput {
+  name: string
+  description: string
+  body: string
+  scope: 'project' | 'global'
+}
+
+// The propose_skill tool's interrupt payload (Task 8): the model's drafted
+// name/description/body, before the user has edited or scoped it.
+export interface ProposedSkill {
+  name: string
+  description: string
+  body: string
+}
+
+// The renderer's resolution of a pending propose_skill card (Task 8), mirror
+// of PlanReviewResolution's truthy-object contract: both variants are truthy
+// (LangGraph's mapCommand drops falsy resume values), so a discarded proposal
+// still resumes with { save: false } rather than an empty/undefined value.
+// The user may have EDITED name/description/body and picked a scope; these
+// final values ride the resolution, never the tool's original args.
+export type SkillProposalResolution =
+  | { save: true; name: string; description: string; body: string; scope: 'project' | 'global' }
+  | { save: false }
+
+// The discriminant bearcode:skills:save returns: 'resolved' once the card is
+// answered and the resolution recorded, 'stale' when no matching pending
+// propose_skill card exists (already answered / conversation gone).
+export type SkillSaveResult = 'resolved' | 'stale'
+
 // The slash menu's read model (design 6.1/6.2, D2 Task 2). Produced by
 // src/main/orchestrator/commands.ts's listCommands from the live
 // AgentsContent; 'coming-soon' covers both the not-yet-implemented built-ins
@@ -183,6 +240,7 @@ export type ToolName =
   | 'github_create_pr'
   | 'bitbucket_list_repos'
   | 'bitbucket_create_pr'
+  | 'propose_skill'
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
@@ -789,6 +847,11 @@ export interface AppSettings {
   // Optional override for the GitHub Device Flow OAuth App client_id (public/
   // secret-free). Empty → the shipped placeholder; the PAT path needs none.
   githubClientId?: string
+  // Skills (G-skills, design 4.3): the disabled-set. Global-scope disabled skill
+  // names, and a path-keyed map of disabled project-scope skill names (path-keyed
+  // like mcpTrustedProjectServers). Optional & additive.
+  skillsDisabledGlobal?: string[]
+  skillsDisabledProject?: Record<string, string[]>
 }
 
 export interface SettingsInfo extends AppSettings {
@@ -849,6 +912,7 @@ export interface BearcodeApi {
   mentions: {
     files(projectPath: string | null, query: string): Promise<string[]>
     rules(projectPath: string | null): Promise<ManualRuleInfo[]>
+    skills(projectPath: string | null): Promise<SkillInfo[]>
   }
   // D4 Media (design 8): native image picker + main-side ingest, returning the
   // accepted attachments (ref + a preview data URL for the composer thumbnail)
@@ -1040,6 +1104,23 @@ export interface BearcodeApi {
     githubConnectPat(token: string): Promise<IntegrationStatus>
     connectBitbucket(username: string, appPassword: string): Promise<IntegrationStatus>
     disconnect(provider: IntegrationProvider): Promise<void>
+  }
+  // Skills CRUD (G-skills Task 6): the Settings > Skills page's list +
+  // create/update/delete/enable-toggle. Every write is path-jailed and
+  // kebab-name validated main-side (skills/index.ts); `save(...)` is added in
+  // Task 8 for the /learn proposal card.
+  skills: {
+    list(projectPath: string | null): Promise<SkillEntry[]>
+    create(input: SkillInput, projectPath: string | null): Promise<SkillEntry>
+    update(originalName: string, input: SkillInput, projectPath: string | null): Promise<SkillEntry>
+    delete(name: string, source: 'project' | 'global', projectPath: string | null): Promise<void>
+    setEnabled(
+      name: string,
+      source: 'project' | 'global',
+      projectPath: string | null,
+      enabled: boolean
+    ): Promise<void>
+    save(callId: string, resolution: SkillProposalResolution): Promise<SkillSaveResult>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

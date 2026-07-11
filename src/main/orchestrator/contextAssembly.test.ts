@@ -7,10 +7,14 @@ import {
   mentionedFilePaths,
   mentionedRuleNames,
   mergeActiveRules,
+  assembleSkillAdditions,
+  mentionedSkillNames,
+  assembleActivatedSkills,
   type RuleAssemblyInput,
   type UserMentionsDeps
 } from './contextAssembly'
 import type { AgentsContent, Rule, Workflow } from '../agentsDir/types'
+import type { Skill } from '../agentsDir/types'
 import type { CommandRef, MentionRef } from '../../shared/types'
 
 const rule = (overrides: Partial<Rule> = {}): Rule => ({
@@ -24,10 +28,10 @@ const rule = (overrides: Partial<Rule> = {}): Rule => ({
 })
 
 const input = (
-  content: AgentsContent,
+  content: Partial<AgentsContent>,
   overrides: Partial<RuleAssemblyInput> = {}
 ): RuleAssemblyInput => ({
-  content,
+  content: { rules: [], workflows: [], skills: [], ...content },
   pinnedManualRules: [],
   mentionPaths: [],
   touchedFiles: [],
@@ -161,7 +165,11 @@ describe('withoutModelRules', () => {
     const manual = rule({ name: 'm1', activation: 'manual' })
     const glob = rule({ name: 'g1', activation: 'glob', globs: ['*.ts'] })
     const model = rule({ name: 'mod1', activation: 'model', description: 'desc' })
-    const result = withoutModelRules({ rules: [always, manual, glob, model], workflows: [] })
+    const result = withoutModelRules({
+      rules: [always, manual, glob, model],
+      workflows: [],
+      skills: []
+    })
     expect(result.rules.map((r) => r.name)).toEqual(['a1', 'm1', 'g1'])
   })
 
@@ -170,20 +178,20 @@ describe('withoutModelRules', () => {
     const workflows: AgentsContent['workflows'] = [
       { name: 'wf', description: '', body: 'step', steps: ['step'], source: 'project' }
     ]
-    const result = withoutModelRules({ rules: [always], workflows })
+    const result = withoutModelRules({ rules: [always], workflows, skills: [] })
     expect(result.workflows).toBe(workflows)
   })
 
   it('never renders the "## Available rules" index once filtered', () => {
     const model = rule({ name: 'mod1', activation: 'model', description: 'desc' })
-    const filtered = withoutModelRules({ rules: [model], workflows: [] })
+    const filtered = withoutModelRules({ rules: [model], workflows: [], skills: [] })
     const result = assembleRuleAdditions(input(filtered))
     expect(result.systemAdditions).toEqual([])
   })
 
   it('is a no-op when there are no model rules', () => {
     const always = rule({ name: 'a1' })
-    const result = withoutModelRules({ rules: [always], workflows: [] })
+    const result = withoutModelRules({ rules: [always], workflows: [], skills: [] })
     expect(result.rules.map((r) => r.name)).toEqual(['a1'])
   })
 })
@@ -260,6 +268,16 @@ describe('assembleCommandAdditions', () => {
     const result = assembleCommandAdditions(command, [])
     expect(result.error).toBeUndefined()
     expect(result.systemAdditions.join('\n')).toContain('Turn modifier: /browser.')
+  })
+
+  it('produces the /learn skill-capture block steering to propose_skill', () => {
+    const command: CommandRef = { name: 'learn', kind: 'builtin' }
+    const result = assembleCommandAdditions(command, [])
+    expect(result.error).toBeUndefined()
+    const joined = result.systemAdditions.join('\n')
+    expect(joined).toContain('Turn modifier: /learn.')
+    expect(joined).toContain('propose_skill')
+    expect(joined).toContain(PRECEDENCE_SUBSTRING)
   })
 
   it('produces a workflow frame with numbered resolved steps, the write_todos bootstrap, and the precedence line', () => {
@@ -374,5 +392,49 @@ describe('mention rule helpers', () => {
 
   it('mergeActiveRules unions and de-duplicates preserving order', () => {
     expect(mergeActiveRules(['style'], ['style', 'security'])).toEqual(['style', 'security'])
+  })
+})
+
+const sk = (
+  name: string,
+  description: string,
+  body = 'BODY',
+  source: 'project' | 'global' = 'project'
+): Skill => ({ name, description, body, source }) as Skill
+
+describe('assembleSkillAdditions', () => {
+  it('renders a ## Available skills index with the activate_skill instruction', () => {
+    const asm = assembleSkillAdditions([sk('pdf', 'Extract PDFs.', 'B', 'global')])
+    const text = asm.systemAdditions.join('\n')
+    expect(text).toContain('## Available skills')
+    expect(text).toContain('### pdf (global)')
+    expect(text).toContain('Extract PDFs.')
+    expect(text).toMatch(/activate_skill/)
+  })
+  it('emits nothing when there are no enabled skills', () => {
+    expect(assembleSkillAdditions([]).systemAdditions).toEqual([])
+  })
+})
+
+describe('mentionedSkillNames', () => {
+  it('returns names of kind skill only', () => {
+    expect(
+      mentionedSkillNames([
+        { kind: 'skill', name: 'pdf' },
+        { kind: 'rule', name: 'r' }
+      ])
+    ).toEqual(['pdf'])
+  })
+})
+
+describe('assembleActivatedSkills', () => {
+  it('injects the full body under ## Activated skills for a mentioned skill', () => {
+    const asm = assembleActivatedSkills(['pdf'], [sk('pdf', 'x', 'FULL BODY')])
+    const text = asm.systemAdditions.join('\n')
+    expect(text).toContain('## Activated skills')
+    expect(text).toContain('FULL BODY')
+  })
+  it('ignores a mentioned name that is not an enabled skill', () => {
+    expect(assembleActivatedSkills(['ghost'], []).systemAdditions).toEqual([])
   })
 })

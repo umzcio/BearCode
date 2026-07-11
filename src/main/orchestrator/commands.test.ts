@@ -16,7 +16,7 @@ const workflow = (overrides: Partial<Workflow> = {}): Workflow => ({
   ...overrides
 })
 
-const content = (workflows: Workflow[]): AgentsContent => ({ rules: [], workflows })
+const content = (workflows: Workflow[]): AgentsContent => ({ rules: [], workflows, skills: [] })
 
 describe('listCommands', () => {
   it('lists the built-ins first, in fixed order, when there are no workflows', () => {
@@ -27,6 +27,13 @@ describe('listCommands', () => {
   it('reports the browser built-in as live (F4)', () => {
     const browser = BUILTIN_COMMANDS.find((c) => c.name === 'browser')
     expect(browser?.status).toBe('live')
+  })
+
+  it('reports the learn built-in as live (G-skills Task 8)', () => {
+    const learn = BUILTIN_COMMANDS.find((c) => c.name === 'learn')
+    expect(learn?.status).toBe('live')
+    const result = listCommands(content([]))
+    expect(result.find((c) => c.name === 'learn')?.status).toBe('live')
   })
 
   it('lists non-erroring workflows alphabetically after the built-ins', () => {

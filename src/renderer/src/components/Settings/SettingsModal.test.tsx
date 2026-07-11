@@ -57,6 +57,14 @@ beforeEach(() => {
       githubConnectPat: vi.fn(),
       connectBitbucket: vi.fn(),
       disconnect: vi.fn(() => Promise.resolve())
+    },
+    skills: {
+      list: vi.fn(() => Promise.resolve([])),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      setEnabled: vi.fn(() => Promise.resolve()),
+      save: vi.fn()
     }
   }
   useAppStore.setState({
@@ -169,12 +177,19 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
 
   it('each remaining Customize tab shows an intentional placeholder', () => {
     render(<SettingsModal />)
-    // Browser (F4), Connectors (Task 9), and Integrations (Task 11) are now
+    // Browser (F4), Connectors, Integrations, and Skills (Task 9) are now
     // real pages; the rest of Customize is still WIP.
-    for (const label of ['Skills', 'Memory']) {
+    for (const label of ['Memory']) {
       fireEvent.click(screen.getByText(label))
       expect(document.querySelector('.coming-block')).toBeTruthy()
     }
+  })
+
+  it('the Skills tab renders the real Skills page (not a placeholder)', () => {
+    render(<SettingsModal />)
+    fireEvent.click(within(rail()).getByText('Skills'))
+    expect(document.querySelector('.coming-block')).toBeNull()
+    expect(document.querySelector('.page-title')?.textContent).toBe('Skills')
   })
 
   it('the Browser tab renders the real Browser page (not a placeholder)', () => {

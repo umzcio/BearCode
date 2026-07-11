@@ -6,7 +6,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { rgPath } from '@vscode/ripgrep'
 import type { AgentsContent } from '../agentsDir/types'
-import type { ManualRuleInfo } from '../../shared/types'
+import type { ManualRuleInfo, SkillInfo } from '../../shared/types'
 
 const execFileAsync = promisify(execFile)
 
@@ -99,4 +99,15 @@ export function manualRuleInfos(content: AgentsContent): ManualRuleInfo[] {
   return content.rules
     .filter((r) => !r.error && r.activation === 'manual')
     .map((r) => ({ name: r.name, firstLine: firstNonEmptyLine(r.body) }))
+}
+
+// ---- Skills ----
+
+// The @skill: menu read model (design 4.2 step 3): non-error skills only, with
+// their description for the menu row. Disabled-set exclusion happens at the IPC
+// boundary (needs the settings store); this stays pure over content.
+export function skillInfos(content: AgentsContent): SkillInfo[] {
+  return content.skills
+    .filter((s) => !s.error)
+    .map((s) => ({ name: s.name, description: s.description }))
 }

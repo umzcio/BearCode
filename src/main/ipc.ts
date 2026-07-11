@@ -22,6 +22,11 @@ import type {
   ProjectSettings,
   ProviderId,
   RunState,
+  SkillEntry,
+  SkillInfo,
+  SkillInput,
+  SkillProposalResolution,
+  SkillSaveResult,
   TranscribeMeta,
   WorktreeInfo
 } from '../shared/types'
@@ -85,7 +90,10 @@ import { setGitCredentialResolver } from './worktree/git'
 import { jailPath } from './orchestrator/fsBackend'
 import { loadAgentsContent } from './agentsDir'
 import { listCommands } from './orchestrator/commands'
-import { suggestFiles, manualRuleInfos } from './orchestrator/mentionSuggest'
+import { suggestFiles, manualRuleInfos, skillInfos } from './orchestrator/mentionSuggest'
+import { createSkill, deleteSkillFolder, listSkillEntries, updateSkill } from './skills'
+import { isSkillEnabled, setSkillEnabled } from './skills/state'
+import { COMMAND_NAME_PATTERN } from '../shared/types'
 import {
   assertValidConversationId,
   ingestPickedFiles,
@@ -102,6 +110,7 @@ import {
   pruneCheckpoints,
   resolveApprovalOrchestrator,
   resolvePlanReviewOrchestrator,
+  resolveSkillProposalOrchestrator,
   resumeInterruptedRuns,
   startRunOrchestrator
 } from './orchestrator'
@@ -214,6 +223,13 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:mentions:rules', (_e, projectPath: string | null): ManualRuleInfo[] =>
     manualRuleInfos(loadAgentsContent(projectPath))
   )
+  ipcMain.handle('bearcode:mentions:skills', (_e, projectPath: string | null): SkillInfo[] => {
+    const content = loadAgentsContent(projectPath)
+    return skillInfos(content).filter((info) => {
+      const src = content.skills.find((k) => k.name === info.name)?.source ?? 'global'
+      return isSkillEnabled(info.name, src, projectPath)
+    })
+  })
 
   // D4 Media (design 8): native image picker + main-side ingest. Returns the
   // accepted attachments (ref + a preview data URL for the composer thumbnail)
@@ -1018,6 +1034,87 @@ export function registerIpc(): void {
     }
     disconnectIntegration(provider)
   })
+
+  function assertValidSkillInput(raw: unknown): SkillInput {
+    if (raw == null || typeof raw !== 'object') throw new Error('Invalid skill input.')
+    const r = raw as Partial<SkillInput>
+    if (typeof r.name !== 'string' || !COMMAND_NAME_PATTERN.test(r.name)) {
+      throw new Error('Skill name must be kebab-case.')
+    }
+    if (typeof r.description !== 'string' || r.description.trim() === '') {
+      throw new Error('Skill description is required.')
+    }
+    if (typeof r.body !== 'string') throw new Error('Skill body must be a string.')
+    if (r.scope !== 'global' && r.scope !== 'project') throw new Error('Invalid skill scope.')
+    return { name: r.name, description: r.description, body: r.body, scope: r.scope }
+  }
+
+  // Wire-boundary guard for bearcode:skills:save's resolution argument (G-skills
+  // Task 8), the propose_skill twin of assertValidPlanReviewResolution: reject
+  // anything looser than the truthy-object contract BEFORE it ever reaches
+  // resolveSkillProposalOrchestrator -> resolveSkillProposalInterrupt, which
+  // treats `resolution` as already-trusted.
+  function assertValidSkillResolution(raw: unknown): SkillProposalResolution {
+    if (raw == null || typeof raw !== 'object') throw new Error('Invalid skill resolution.')
+    const r = raw as Partial<{
+      save: unknown
+      name: unknown
+      description: unknown
+      body: unknown
+      scope: unknown
+    }>
+    if (r.save === false) return { save: false }
+    if (r.save !== true) throw new Error('resolveSkillProposal: save must be a boolean')
+    if (typeof r.name !== 'string' || !COMMAND_NAME_PATTERN.test(r.name)) {
+      throw new Error('Skill name must be kebab-case.')
+    }
+    if (typeof r.description !== 'string' || r.description.trim() === '') {
+      throw new Error('Skill description is required.')
+    }
+    if (typeof r.body !== 'string') throw new Error('Skill body must be a string.')
+    if (r.scope !== 'global' && r.scope !== 'project') throw new Error('Invalid skill scope.')
+    return { save: true, name: r.name, description: r.description, body: r.body, scope: r.scope }
+  }
+
+  ipcMain.handle('bearcode:skills:list', (_e, projectPath: unknown): SkillEntry[] =>
+    listSkillEntries(asProjectPath(projectPath))
+  )
+  ipcMain.handle('bearcode:skills:create', (_e, input: unknown, projectPath: unknown): SkillEntry =>
+    createSkill(assertValidSkillInput(input), asProjectPath(projectPath))
+  )
+  ipcMain.handle(
+    'bearcode:skills:update',
+    (_e, originalName: unknown, input: unknown, projectPath: unknown): SkillEntry => {
+      if (typeof originalName !== 'string' || originalName.length === 0) {
+        throw new Error('Invalid skill name.')
+      }
+      return updateSkill(originalName, assertValidSkillInput(input), asProjectPath(projectPath))
+    }
+  )
+  ipcMain.handle(
+    'bearcode:skills:delete',
+    (_e, name: unknown, source: unknown, projectPath: unknown) => {
+      if (typeof name !== 'string' || name.length === 0) throw new Error('Invalid skill name.')
+      if (source !== 'global' && source !== 'project') throw new Error('Invalid skill source.')
+      deleteSkillFolder(name, source, asProjectPath(projectPath))
+    }
+  )
+  ipcMain.handle(
+    'bearcode:skills:set-enabled',
+    (_e, name: unknown, source: unknown, projectPath: unknown, enabled: unknown) => {
+      if (typeof name !== 'string' || name.length === 0) throw new Error('Invalid skill name.')
+      if (source !== 'global' && source !== 'project') throw new Error('Invalid skill source.')
+      if (typeof enabled !== 'boolean') throw new Error('Invalid enabled flag.')
+      setSkillEnabled(name, source, asProjectPath(projectPath), enabled)
+    }
+  )
+  ipcMain.handle(
+    'bearcode:skills:save',
+    (_e, callId: unknown, resolution: unknown): SkillSaveResult => {
+      if (typeof callId !== 'string' || callId.length === 0) throw new Error('Invalid callId.')
+      return resolveSkillProposalOrchestrator(callId, assertValidSkillResolution(resolution))
+    }
+  )
 
   // navigator.clipboard in the sandboxed renderer is blocked by our tight
   // permission handlers (media-only), so copy went through main's clipboard.
