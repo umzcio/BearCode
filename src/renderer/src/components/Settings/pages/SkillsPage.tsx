@@ -117,9 +117,16 @@ export function SkillsPage(): JSX.Element | null {
       <div className="set-group-title">Available skills</div>
       <div className="set-card">
         {skills === null ? (
-          <div className="set-row-desc">Loading…</div>
+          <div className="set-row">
+            <div className="set-row-desc">Loading…</div>
+          </div>
         ) : skills.length === 0 ? (
-          <div className="set-row-desc">No skills yet.</div>
+          <div className="set-row">
+            <div className="set-row-desc">
+              No skills yet — create one below, or capture one from a conversation with{' '}
+              <code>/learn</code>.
+            </div>
+          </div>
         ) : (
           skills.map((entry) => (
             <div
@@ -138,6 +145,31 @@ export function SkillsPage(): JSX.Element | null {
                 <div className="set-row-desc">
                   {entry.error ? `Error: ${entry.error}` : entry.description}
                 </div>
+                {pendingDelete &&
+                pendingDelete.name === entry.name &&
+                pendingDelete.source === entry.source ? (
+                  <div className="skill-delete-confirm">
+                    <span className="set-row-desc">
+                      Type <strong>{entry.name}</strong> to confirm:
+                    </span>
+                    <input
+                      className="set-input"
+                      aria-label={`Type ${entry.name} to confirm`}
+                      value={confirmText}
+                      onChange={(e) => setConfirmText(e.target.value)}
+                    />
+                    <button
+                      className="pill-btn primary"
+                      disabled={confirmText !== entry.name}
+                      onClick={confirmDelete}
+                    >
+                      Delete skill
+                    </button>
+                    <button className="pill-btn" onClick={() => setPendingDelete(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : null}
               </div>
               {!entry.error ? (
                 <Toggle
@@ -152,74 +184,68 @@ export function SkillsPage(): JSX.Element | null {
               <button className="pill-btn" onClick={() => startDelete(entry)}>
                 Delete
               </button>
-              {pendingDelete && pendingDelete.name === entry.name ? (
-                <div className="set-row">
-                  <input
-                    className="set-input"
-                    aria-label={`Type ${entry.name} to confirm`}
-                    value={confirmText}
-                    onChange={(e) => setConfirmText(e.target.value)}
-                  />
-                  <button
-                    className="pill-btn primary"
-                    disabled={confirmText !== entry.name}
-                    onClick={confirmDelete}
-                  >
-                    Delete skill
-                  </button>
-                </div>
-              ) : null}
             </div>
           ))
         )}
       </div>
 
       {draft ? (
-        <div className="set-card connector-add-form">
-          <label className="set-row-text">
-            <div className="set-row-title">Skill name</div>
-            <input
-              className="set-input"
-              aria-label="Skill name"
-              value={draft.name}
-              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-            />
-          </label>
-          <label className="set-row-text">
-            <div className="set-row-title">Description</div>
-            <input
-              className="set-input"
-              aria-label="Description"
-              value={draft.description}
-              onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-            />
-          </label>
-          <label className="set-row-text">
-            <div className="set-row-title">Body</div>
-            <textarea
-              aria-label="Body"
-              value={draft.body}
-              placeholder={`Describe here, in the imperative and third person, what this skill teaches the agent.`}
-              onChange={(e) => setDraft({ ...draft, body: e.target.value })}
-            />
-          </label>
-          {workspacePath ? (
-            <Select
-              value={draft.scope}
-              options={SCOPE_OPTIONS}
-              onChange={(scope) => setDraft({ ...draft, scope })}
-              ariaLabel="Skill scope"
-            />
-          ) : null}
-          <button className="pill-btn primary" disabled={!draftValid} onClick={submitDraft}>
-            {draft.originalName ? 'Save' : 'Create'}
-          </button>
-          <button className="pill-btn" onClick={() => setDraft(null)}>
-            Cancel
-          </button>
+        <div className="set-card skill-add-card">
+          <div className="skill-form">
+            <div className="skill-field">
+              <div className="set-row-title">Skill name</div>
+              <input
+                className="set-input"
+                aria-label="Skill name"
+                placeholder="e.g. run-our-tests"
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              />
+            </div>
+            <div className="skill-field">
+              <div className="set-row-title">Description</div>
+              <input
+                className="set-input"
+                aria-label="Description"
+                placeholder="One line: when should the agent reach for this skill?"
+                value={draft.description}
+                onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+              />
+            </div>
+            <div className="skill-field">
+              <div className="set-row-title">Body</div>
+              <textarea
+                className="set-textarea"
+                aria-label="Body"
+                rows={8}
+                value={draft.body}
+                placeholder={`Describe, in the imperative and third person, what this skill teaches the agent.`}
+                onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+              />
+            </div>
+            {workspacePath ? (
+              <div className="skill-field">
+                <div className="set-row-title">Scope</div>
+                <Select
+                  value={draft.scope}
+                  options={SCOPE_OPTIONS}
+                  onChange={(scope) => setDraft({ ...draft, scope })}
+                  ariaLabel="Skill scope"
+                />
+              </div>
+            ) : null}
+            <div className="skill-form-actions">
+              <button className="pill-btn" onClick={() => setDraft(null)}>
+                Cancel
+              </button>
+              <button className="pill-btn primary" disabled={!draftValid} onClick={submitDraft}>
+                {draft.originalName ? 'Save' : 'Create'}
+              </button>
+            </div>
+          </div>
         </div>
       ) : (
-        <button className="pill-btn" onClick={startCreate}>
+        <button className="pill-btn skill-new-btn" onClick={startCreate}>
           + New skill
         </button>
       )}

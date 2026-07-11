@@ -899,6 +899,77 @@
   padding: 0 16px 14px;
 }
 
+/* --- Skills settings page --- */
+.skill-add-card {
+  margin-top: 12px;
+}
+.skill-new-btn {
+  margin-top: 12px;
+}
+.skill-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+.skill-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.skill-field .set-row-title {
+  margin-bottom: 0;
+}
+.skill-field .set-input {
+  width: 100%;
+  min-width: 0;
+}
+.skill-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+.skill-form-actions .pill-btn {
+  border: 1px solid var(--border);
+  padding: 7px 16px;
+}
+.skill-form-actions .pill-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.skill-form-actions .pill-btn.primary:hover {
+  background: var(--accent-strong, var(--accent));
+}
+.skill-form-actions .pill-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.skill-delete-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.skill-delete-confirm .set-input {
+  min-width: 160px;
+}
+.skill-delete-confirm .pill-btn {
+  border: 1px solid var(--border);
+  padding: 6px 14px;
+}
+.skill-delete-confirm .pill-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.skill-delete-confirm .pill-btn.primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* Browse Smithery modal — Claude-style connector list (portaled to body). */
 .smithery-panel {
   width: min(680px, calc(100% - 56px));
