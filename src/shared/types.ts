@@ -166,14 +166,6 @@ export interface SkillInput {
   scope: 'project' | 'global'
 }
 
-// The propose_skill tool's interrupt payload (Task 8): the model's drafted
-// name/description/body, before the user has edited or scoped it.
-export interface ProposedSkill {
-  name: string
-  description: string
-  body: string
-}
-
 // The renderer's resolution of a pending propose_skill card (Task 8), mirror
 // of PlanReviewResolution's truthy-object contract: both variants are truthy
 // (LangGraph's mapCommand drops falsy resume values), so a discarded proposal
