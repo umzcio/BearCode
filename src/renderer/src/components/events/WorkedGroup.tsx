@@ -58,6 +58,11 @@ export function WorkedGroup({
     : `Worked for ${workedSeconds ?? 1}s`
 
   // Pair each tool_call with its tool_result; thinking renders on its own.
+  const resultsByCallId = new Map<string, Extract<Event, { type: 'tool_result' }>>()
+  for (const ev of steps) {
+    if (ev.type === 'tool_result') resultsByCallId.set(ev.callId, ev)
+  }
+
   const rows: React.JSX.Element[] = []
   for (let i = 0; i < steps.length; i++) {
     const ev = steps[i]
@@ -68,7 +73,7 @@ export function WorkedGroup({
         </AgentAttributed>
       )
     } else if (ev.type === 'tool_call') {
-      const result = steps.find((r) => r.type === 'tool_result' && r.callId === ev.id)
+      const result = resultsByCallId.get(ev.id)
       // F1 jump-to-match anchor: a content-search hit can land on the tool_call
       // OR its tool_result (both are FTS-indexed via extractSearchText), yet the
       // pair renders as one ToolStep. So the wrapper advertises BOTH event ids,
