@@ -384,6 +384,13 @@ export function clearBrowserConsent(): void {
   browserSessionConsent.clear()
 }
 
+// Per-conversation teardown, mirroring forgetPendingApproval: called from
+// forgetRunOrchestrator when a single conversation is deleted so its consent
+// entry doesn't outlive it for the life of the process.
+export function forgetBrowserConsent(conversationId: string): void {
+  browserSessionConsent.delete(conversationId)
+}
+
 const BROWSER_DISABLED_MESSAGE = 'Browser tool is disabled in Settings — enable it and relaunch.'
 
 // A command's sandboxed-ness, keyed by provider tool-call id, so graph.ts can

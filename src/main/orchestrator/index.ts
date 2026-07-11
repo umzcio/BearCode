@@ -34,6 +34,7 @@ import {
   runGraph,
   setOnResumeSettled
 } from './graph'
+import { clearBrowserConsent, forgetBrowserConsent } from './tools'
 
 export { pruneCheckpoints } from './checkpointer'
 
@@ -46,6 +47,7 @@ export function forgetRunOrchestrator(conversationId: string): void {
   aborts.get(conversationId)?.abort()
   aborts.delete(conversationId)
   forgetPendingApproval(conversationId)
+  forgetBrowserConsent(conversationId)
 }
 
 // Teardown for a full wipe (clear all conversations).
@@ -53,6 +55,7 @@ export function clearRunsOrchestrator(): void {
   for (const [, controller] of aborts) controller.abort()
   aborts.clear()
   clearAllPendingApprovals()
+  clearBrowserConsent()
 }
 
 // A run parked on approval keeps its AbortController in `aborts` across the
