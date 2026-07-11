@@ -1,4 +1,4 @@
-type ConvoLike = {
+export type ConvoLike = {
   id: string
   projectPath: string | null
   projectLabel: string

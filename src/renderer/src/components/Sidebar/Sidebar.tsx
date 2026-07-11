@@ -1,8 +1,39 @@
-import { useAppStore } from '../../state/store'
+import { useMemo } from 'react'
+import { useShallow } from 'zustand/react/shallow'
+import { useAppStore, type Convo } from '../../state/store'
 import { relativeAge } from '../../lib/time'
 import bearMark from '../../assets/bear.svg'
 import { Hint } from '../Hint'
-import { groupConversations } from './grouping'
+import { groupConversations, type ConvoLike } from './grouping'
+
+// Cache the projected subset per Convo object reference (audit M-15). The
+// store only replaces a convo's object when THAT convo changes (see
+// upsertEvent/patchConvo), so unrelated convos keep the same reference across
+// renders -- caching on it gives useShallow's one-level comparison a stable
+// per-id identity to compare against, instead of a fresh literal every call
+// that would always look "changed" and re-render (or loop) regardless of
+// whether the underlying data actually did.
+const convoLikeCache = new WeakMap<Convo, ConvoLike>()
+function toConvoLike(c: Convo): ConvoLike {
+  let cached = convoLikeCache.get(c)
+  if (!cached) {
+    cached = {
+      id: c.id,
+      projectPath: c.projectPath,
+      projectLabel: c.projectLabel,
+      title: c.title,
+      updatedAt: c.updatedAt,
+      createdAt: c.createdAt,
+      pinned: c.pinned,
+      archived: c.archived,
+      runState: c.runState,
+      environment: c.environment,
+      worktrees: c.worktrees
+    }
+    convoLikeCache.set(c, cached)
+  }
+  return cached
+}
 import { DisplayOptions } from './DisplayOptions'
 import { ConvoRowMenu } from './ConvoRowMenu'
 import { IconArchive, IconHistory, IconPanel, IconPin, IconPlus, IconSettings } from '../icons'
@@ -14,7 +45,18 @@ export function Sidebar(): React.JSX.Element {
   const sidebarWidth = useAppStore((s) => s.sidebarWidth)
   const view = useAppStore((s) => s.view)
   const convoOrder = useAppStore((s) => s.convoOrder)
-  const conversations = useAppStore((s) => s.conversations)
+  // Project only the fields grouping/rendering read, so streamed `events`
+  // churn no longer re-renders the whole sidebar. (audit M-15)
+  const conversations = useAppStore(
+    useShallow((s) => {
+      const out: Record<string, ConvoLike | undefined> = {}
+      for (const id of s.convoOrder) {
+        const c = s.conversations[id]
+        if (c) out[id] = toConvoLike(c)
+      }
+      return out
+    })
+  )
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const goHome = useAppStore((s) => s.goHome)
   const openHistory = useAppStore((s) => s.openHistory)
@@ -30,11 +72,10 @@ export function Sidebar(): React.JSX.Element {
   const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
   const subtitle = useAppStore((s) => s.settings?.sidebarSubtitle ?? 'none')
 
-  const groups = groupConversations(convoOrder, conversations, {
-    groupBy,
-    sort,
-    showArchived
-  })
+  const groups = useMemo(
+    () => groupConversations(convoOrder, conversations, { groupBy, sort, showArchived }),
+    [convoOrder, conversations, groupBy, sort, showArchived]
+  )
 
   return (
     <div
