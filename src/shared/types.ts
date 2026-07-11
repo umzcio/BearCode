@@ -167,6 +167,27 @@ export interface SkillInput {
   scope: 'project' | 'global'
 }
 
+export type MemoryScopeName = 'global' | 'project'
+
+// One bullet in a scope's memory.md. `index` is the 0-based position within
+// its scope file — the stable handle edit/delete/promote address (v1 has no
+// per-entry provenance metadata, out of scope).
+export interface MemoryEntry {
+  scope: MemoryScopeName
+  index: number
+  text: string
+}
+
+export interface MemoryScope {
+  entries: MemoryEntry[]
+  sizeBytes: number
+}
+
+export interface MemoryList {
+  global: MemoryScope
+  project: MemoryScope
+}
+
 // The propose_skill tool's interrupt payload (Task 8): the model's drafted
 // name/description/body, before the user has edited or scoped it.
 export interface ProposedSkill {

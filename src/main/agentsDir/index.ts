@@ -40,7 +40,10 @@ const MAX_SKILL_BYTES = MAX_REF_BYTES
 // Returns null on any error (missing, unreadable, non-regular): callers
 // never throw on a bad target. `truncated` reports whether the file held
 // more bytes than `cap`.
-function readFileCapped(path: string, cap: number): { text: string; truncated: boolean } | null {
+export function readFileCapped(
+  path: string,
+  cap: number
+): { text: string; truncated: boolean } | null {
   let fd: number
   let size: number
   try {
