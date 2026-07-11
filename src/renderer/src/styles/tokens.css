@@ -24,7 +24,7 @@
   --border-soft: #242424;
   --text: #e7e7e7;
   --text-mid: #a8a8a8;
-  --text-dim: #6f6f6f;
+  --text-dim: #8a8a8a; /* AA: 5.38:1 on --bg #131313 (audit M-11) */
   --accent: #4c8dff;
   --accent-strong: #5c98ff;
   --green: #3ecf8e;
@@ -48,7 +48,7 @@
   --border-soft: #e6e6e6;
   --text: #1a1a1a;
   --text-mid: #585858;
-  --text-dim: #8c8c8c;
+  --text-dim: #6a6a6a; /* AA: 4.54:1 on --bg #ebebeb (audit M-11) */
   --accent: #2f6fe0;
   --accent-strong: #2f6fe0;
   --green: #1a9d63;
