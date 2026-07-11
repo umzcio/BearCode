@@ -260,7 +260,7 @@ export type EffortLevel = 'adaptive' | 'low' | 'medium' | 'high' | 'xhigh' | 'ma
 
 export type PermissionRuleEffect = 'allow' | 'deny' | 'ask'
 
-export type PermissionAction = 'command' | 'edit' | 'mcp' | 'integration'
+export type PermissionAction = 'command' | 'edit' | 'mcp' | 'integration' | 'unsandboxed'
 
 // A rule is either global or bound to one project's workspace path.
 export type RuleScope = 'global' | { projectPath: string }
