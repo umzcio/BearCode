@@ -1517,7 +1517,9 @@ export function buildIntegrationTools(conversationId: string) {
         async (args): Promise<string> => {
           const { owner, repo } = args as { owner: string; repo: string }
           const state = typeof args.state === 'string' ? args.state : 'open'
-          const res = await githubApi(`/repos/${owner}/${repo}/pulls?state=${state}`)
+          const res = await githubApi(
+            `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls?state=${state}`
+          )
           if (!res.ok) return `GitHub API error (${res.status}) while listing pull requests.`
           const prs = (await res.json()) as Array<{
             number: number
@@ -1549,7 +1551,9 @@ export function buildIntegrationTools(conversationId: string) {
         githubGetIssueSchema,
         async (args): Promise<string> => {
           const { owner, repo, number } = args as { owner: string; repo: string; number: number }
-          const res = await githubApi(`/repos/${owner}/${repo}/issues/${number}`)
+          const res = await githubApi(
+            `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}`
+          )
           if (!res.ok) return `GitHub API error (${res.status}) while fetching the issue.`
           const issue = (await res.json()) as {
             number: number
@@ -1590,11 +1594,14 @@ export function buildIntegrationTools(conversationId: string) {
             base: string
           }
           const body = typeof args.body === 'string' ? args.body : undefined
-          const res = await githubApi(`/repos/${owner}/${repo}/pulls`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title, head, base, ...(body !== undefined ? { body } : {}) })
-          })
+          const res = await githubApi(
+            `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title, head, base, ...(body !== undefined ? { body } : {}) })
+            }
+          )
           if (!res.ok) {
             const detail = (await res.json().catch(() => ({}))) as { message?: string }
             return `GitHub API error (${res.status}) while creating the pull request${
