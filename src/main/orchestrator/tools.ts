@@ -135,7 +135,17 @@ export function pinDeniedReplays(
     byUnsandboxedCommand: new Map()
   }
   for (const pin of pins) {
-    if (pin.toolCallId !== undefined) {
+    if (pin.unsandboxedCommand !== undefined) {
+      // Must be checked ahead of the bare toolCallId branch below: a
+      // Task-7-shaped pin carries BOTH toolCallId and unsandboxedCommand, and
+      // this shape must always route into byUnsandboxedCommand (keyed by
+      // toolCallId when present, else the command string), never into the
+      // shared byToolCallId set -- otherwise the generic takeDeniedReplayPin
+      // guard at the top of runCommandTool would consume it and refuse the
+      // command outright instead of running it sandboxed.
+      const key = pin.toolCallId ?? pin.unsandboxedCommand
+      set.byUnsandboxedCommand.set(key, (set.byUnsandboxedCommand.get(key) ?? 0) + 1)
+    } else if (pin.toolCallId !== undefined) {
       set.byToolCallId.add(pin.toolCallId)
     } else if (pin.command !== undefined) {
       set.byCommand.set(pin.command, (set.byCommand.get(pin.command) ?? 0) + 1)
@@ -152,11 +162,6 @@ export function pinDeniedReplays(
       set.byIntegrationAction.set(
         pin.integrationAction,
         (set.byIntegrationAction.get(pin.integrationAction) ?? 0) + 1
-      )
-    } else if (pin.unsandboxedCommand !== undefined) {
-      set.byUnsandboxedCommand.set(
-        pin.unsandboxedCommand,
-        (set.byUnsandboxedCommand.get(pin.unsandboxedCommand) ?? 0) + 1
       )
     }
   }
