@@ -6,47 +6,15 @@
 // only, no new deps. Malformed or missing JSON never throws -- callers
 // always get back an array (at worst empty), per design 11 / Global
 // Constraints.
-import { closeSync, existsSync, mkdirSync, openSync, readSync, statSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
 import type { DiscoveredMcpServer, McpServerConfig, McpTransport } from '../../shared/types'
 import { getSettings, setSettings } from '../settings'
 import { resolveVaultRefs } from '../keys'
+import { readFileCapped } from '../fsCapped'
 
 const MAX_MCP_JSON_BYTES = 64 * 1024
-
-// Bounded, stat-gated file read -- same hardening as agentsDir/index.ts's
-// readFileCapped (regular-files-only via stats.isFile() before any open,
-// and a preallocated-buffer bound via readSync rather than a whole-file
-// readFileSync). Copied locally per the plan rather than exported from
-// agentsDir, which is a distinct subsystem.
-function readFileCapped(path: string, cap: number): { text: string; truncated: boolean } | null {
-  let fd: number
-  let size: number
-  try {
-    const stats = statSync(path)
-    if (!stats.isFile()) return null
-    size = stats.size
-    fd = openSync(path, 'r')
-  } catch {
-    return null
-  }
-  try {
-    const toRead = Math.min(size, cap)
-    const buf = Buffer.alloc(toRead)
-    let offset = 0
-    while (offset < toRead) {
-      const n = readSync(fd, buf, offset, toRead - offset, offset)
-      if (n === 0) break
-      offset += n
-    }
-    return { text: buf.toString('utf8', 0, offset), truncated: size > cap }
-  } catch {
-    return null
-  } finally {
-    closeSync(fd)
-  }
-}
 
 function globalMcpPath(): string {
   return join(homedir(), '.bearcode', 'agents', 'mcp.json')
