@@ -609,6 +609,9 @@ export interface ProjectSettings {
   defaultModelRef?: ModelRef | null
   defaultEffort?: EffortLevel | null
   defaultPermissionMode?: PermissionMode | null
+  // Sandbox Mode (macOS Seatbelt). Per-project; global default off.
+  sandboxMode?: boolean | null
+  sandboxAllowNetwork?: boolean | null
 }
 
 // F9 (folder = project): per-folder settings keyed by the workspace PATH. A
@@ -622,6 +625,8 @@ export interface FolderProject {
   defaultModelRef: ModelRef | null
   defaultEffort: EffortLevel | null
   defaultPermissionMode: PermissionMode | null
+  sandboxMode: boolean
+  sandboxAllowNetwork: boolean
 }
 
 // F3: an isolated git worktree spawned for a conversation running in Worktree

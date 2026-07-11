@@ -45,7 +45,9 @@ export function ProjectSettingsModal(): JSX.Element | null {
     icon: null,
     defaultModelRef: null,
     defaultEffort: null,
-    defaultPermissionMode: null
+    defaultPermissionMode: null,
+    sandboxMode: false,
+    sandboxAllowNetwork: false
   }
   return <ProjectSettingsPanel key={folder.path} folder={folder} />
 }
