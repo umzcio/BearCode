@@ -387,6 +387,7 @@ interface AppState {
   dismissTrustBanner(): void
   allowOutside(abs: string): Promise<void>
   denyOutside(abs: string): Promise<void>
+  removeOutside(path: string, abs: string): Promise<void>
   toggleProjectMenu(): void
   openSettings(page?: string): void
   closeSettings(): void
@@ -1232,6 +1233,11 @@ export const useAppStore = create<AppState>((set, get) => {
       if (!path) return
       const outsideAccess = await window.bearcode.project.outsideAccess.deny(path, abs)
       set({ outsideAccess })
+    },
+    removeOutside: async (path, abs) => {
+      await window.bearcode.project.outsideAccess.remove(path, abs)
+      await get().refreshProjectSettings()
+      void get().refreshTrustState(path)
     },
     toggleProjectMenu: () => set((s) => ({ projectMenuTick: s.projectMenuTick + 1 })),
 

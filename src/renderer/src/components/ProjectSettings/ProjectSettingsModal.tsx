@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import type { EffortLevel, FolderProject, PermissionMode } from '@shared/types'
+import type { EffortLevel, FolderProject, OutsideFolderAccess, PermissionMode } from '@shared/types'
 import { EFFORT_LEVELS, EFFORT_LABELS } from '@shared/effort'
 import { useAppStore } from '../../state/store'
 import { Select } from '../Select'
@@ -22,13 +22,15 @@ import './ProjectSettings.css'
 // Curated project colors (bounded, like the icon set — no arbitrary picker).
 const PROJECT_COLORS = ['#d97757', '#4c8dff', '#3ecf8e', '#e0b568', '#b58cff', '#e5698f', '#5ac8d8']
 
-type PageId = 'general' | 'appearance' | 'defaults' | 'sandbox' | 'connectors' | 'skills'
+type PageId =
+  'general' | 'appearance' | 'defaults' | 'sandbox' | 'security' | 'connectors' | 'skills'
 
 const PS_NAV: { id: PageId; label: string; icon: (p: { size?: number }) => JSX.Element }[] = [
   { id: 'general', label: 'General', icon: IconGear },
   { id: 'appearance', label: 'Appearance', icon: IconPalette },
   { id: 'defaults', label: 'Defaults', icon: IconBrain },
   { id: 'sandbox', label: 'Sandbox', icon: IconShield },
+  { id: 'security', label: 'Security', icon: IconShield },
   { id: 'connectors', label: 'Connectors', icon: IconPlug },
   { id: 'skills', label: 'Skills', icon: IconBlocks }
 ]
@@ -76,6 +78,7 @@ function ProjectSettingsPanel({ folder }: { folder: FolderProject }): JSX.Elemen
   const providers = useAppStore((s) => s.providers)
   const close = useAppStore((s) => s.closeProjectSettings)
   const updateProject = useAppStore((s) => s.updateProject)
+  const removeOutside = useAppStore((s) => s.removeOutside)
   const setAsNewProjectDefault = useAppStore((s) => s.setAsNewProjectDefault)
 
   const [page, setPage] = useState<PageId>('general')
@@ -347,6 +350,106 @@ function ProjectSettingsPanel({ folder }: { folder: FolderProject }): JSX.Elemen
                   />
                 </div>
               </div>
+            </>
+          ) : null}
+
+          {page === 'security' ? (
+            <>
+              <div className="page-title">Security</div>
+              <div className="page-sub">
+                Control whether this folder&apos;s project <code>.agents</code> config is trusted,
+                and whether its rules may read files outside the folder.
+              </div>
+              <div className="set-group-title">Trust</div>
+              <div className="set-card">
+                <div className="set-row">
+                  <div className="set-row-text">
+                    <div className="set-row-title">Folder trust</div>
+                    <div className="set-row-desc">
+                      {folder.trusted
+                        ? 'Trusted — project rules, skills, and memory load for this folder.'
+                        : 'Untrusted — project .agents config will not load. Only global config loads.'}
+                    </div>
+                  </div>
+                  {folder.trusted ? (
+                    <button
+                      className="pill-btn"
+                      onClick={() => void updateProject(folder.path, { trusted: false })}
+                    >
+                      Untrust
+                    </button>
+                  ) : (
+                    <button
+                      className="pill-btn primary"
+                      onClick={() => void updateProject(folder.path, { trusted: true })}
+                    >
+                      Trust folder
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="set-group-title">Outside-of-Folder Access</div>
+              <div className="set-card">
+                <div className="set-row">
+                  <div className="set-row-text">
+                    <div className="set-row-title">Absolute @-ref policy</div>
+                    <div className="set-row-desc">
+                      What happens when a project rule references an absolute path outside this
+                      folder.
+                    </div>
+                  </div>
+                  <Select
+                    ariaLabel="Outside-of-folder access policy"
+                    value={folder.outsideFolderAccess}
+                    options={[
+                      { value: 'allow', label: 'Always allow' },
+                      { value: 'ask', label: 'Always ask' },
+                      { value: 'deny', label: 'Always deny' }
+                    ]}
+                    onChange={(v) =>
+                      void updateProject(folder.path, {
+                        outsideFolderAccess: v as OutsideFolderAccess
+                      })
+                    }
+                  />
+                </div>
+              </div>
+              {folder.outsideFolderAllowedPaths.length > 0 ? (
+                <>
+                  <div className="set-group-title">Allowed paths</div>
+                  <div className="set-card">
+                    {folder.outsideFolderAllowedPaths.map((p) => (
+                      <div className="set-row" key={p}>
+                        <code className="set-row-title">{p}</code>
+                        <button
+                          className="pill-btn"
+                          onClick={() => void removeOutside(folder.path, p)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              {folder.outsideFolderDeniedPaths.length > 0 ? (
+                <>
+                  <div className="set-group-title">Denied paths</div>
+                  <div className="set-card">
+                    {folder.outsideFolderDeniedPaths.map((p) => (
+                      <div className="set-row" key={p}>
+                        <code className="set-row-title">{p}</code>
+                        <button
+                          className="pill-btn"
+                          onClick={() => void removeOutside(folder.path, p)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
             </>
           ) : null}
 
