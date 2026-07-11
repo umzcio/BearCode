@@ -385,6 +385,8 @@ interface AppState {
   refreshTrustState(path: string | null): Promise<void>
   trustWorkspace(): Promise<void>
   dismissTrustBanner(): void
+  allowOutside(abs: string): Promise<void>
+  denyOutside(abs: string): Promise<void>
   toggleProjectMenu(): void
   openSettings(page?: string): void
   closeSettings(): void
@@ -1219,6 +1221,18 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ workspaceTrusted: true })
     },
     dismissTrustBanner: () => set({ trustBannerDismissed: true }),
+    allowOutside: async (abs) => {
+      const path = get().workspacePath
+      if (!path) return
+      const outsideAccess = await window.bearcode.project.outsideAccess.allow(path, abs)
+      set({ outsideAccess })
+    },
+    denyOutside: async (abs) => {
+      const path = get().workspacePath
+      if (!path) return
+      const outsideAccess = await window.bearcode.project.outsideAccess.deny(path, abs)
+      set({ outsideAccess })
+    },
     toggleProjectMenu: () => set((s) => ({ projectMenuTick: s.projectMenuTick + 1 })),
 
     openSettings: (page) => set({ settingsOpen: true, settingsInitialPage: page ?? null }),
