@@ -303,6 +303,15 @@ describe('interruptBelongsToToolCall (pending-interrupt attribution)', () => {
     expect(interruptBelongsToToolCall(undefined, { name: 'run_command', args: {} })).toBe(true)
   })
 
+  it('pairs a run_command_unsandboxed interrupt to its run_command call', () => {
+    expect(
+      interruptBelongsToToolCall(
+        { kind: 'run_command_unsandboxed', command: 'npm i', toolCallId: 'tc1' },
+        { id: 'tc1', name: 'run_command', args: { command: 'npm i' } }
+      )
+    ).toBe(true)
+  })
+
   it('a browser payload never claims a run_command candidate (F4 finding 1)', () => {
     // The crash-resume dangling scan is run_command-only. Without the browser
     // branch an id-less browser payload hit the terminal `return true` and
@@ -627,6 +636,10 @@ describe('isRehydratableInterrupt (crash-resume kind filter)', () => {
     expect(isRehydratableInterrupt({ kind: 'future_kind' })).toBe(false)
     expect(isRehydratableInterrupt(undefined)).toBe(false)
     expect(isRehydratableInterrupt('edit_file')).toBe(false)
+  })
+
+  it('accepts run_command_unsandboxed', () => {
+    expect(isRehydratableInterrupt({ kind: 'run_command_unsandboxed' })).toBe(true)
   })
 })
 
@@ -1024,6 +1037,23 @@ describe('approval decision collection (collect-then-resume)', () => {
           items(['c1', { ...deniedBrowser({ ref: 'e1' }, 'tc9'), decision: true }])
         )
       ).toEqual([])
+    })
+
+    it('emits an unsandboxedCommand pin for an un-approved unsandboxed card', () => {
+      const items = new Map([
+        [
+          'c1',
+          {
+            interruptId: 'i1',
+            tool: 'run_command',
+            input: { command: 'npm i', unsandboxed: true },
+            toolCallId: 'tc1',
+            decision: false
+          }
+        ]
+      ])
+      const pins = deniedReplayPinsOf(items as never)
+      expect(pins[0]).toEqual({ toolCallId: 'tc1', unsandboxedCommand: 'npm i' })
     })
   })
 

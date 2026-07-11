@@ -3,7 +3,13 @@
 import type { CommandDecision, EditDecision, PermissionMode } from '../../shared/types'
 import { getConversationMeta } from '../db'
 import { getSettings } from '../settings'
-import { evaluateCommand, evaluateEdit, evaluateMcp, evaluateIntegration } from './rules'
+import {
+  evaluateCommand,
+  evaluateEdit,
+  evaluateMcp,
+  evaluateIntegration,
+  evaluateUnsandboxed
+} from './rules'
 import { getEffectiveRules } from './store'
 
 export {
@@ -15,6 +21,7 @@ export {
   matchesMcpTool,
   evaluateIntegration,
   matchesIntegration,
+  evaluateUnsandboxed,
   BUILTIN_RULES
 } from './rules'
 export {
@@ -95,6 +102,20 @@ export function evaluateMcpForConversation(
   const mode = resolveConversationMode(conversationId)
   if (mode === 'bypass') return 'run'
   return evaluateMcp(server, tool, mode, getEffectiveRules(projectPath), serverReadOnly)
+}
+
+// The unsandboxed gate's entry point (design §5.4). Consulted only when Sandbox
+// Mode is on for the project AND the command already passed the command gate.
+// Mode-independent (no bypass short-circuit): a bypass-mode conversation with
+// sandbox on still ASKS before running outside the box unless an unsandboxed
+// allow rule matches — the box is an isolation boundary, not an authorization one.
+export function evaluateUnsandboxedForConversation(
+  command: string,
+  conversationId: string,
+  projectPath: string | null
+): CommandDecision {
+  void conversationId
+  return evaluateUnsandboxed(command, getEffectiveRules(projectPath))
 }
 
 // The integration tool-call gate's single entry point (design §5, mirrors

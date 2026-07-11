@@ -59,7 +59,9 @@ describe('project_settings (folder = project)', () => {
       icon: 'IconBrain',
       defaultModelRef: 'anthropic/claude-opus-4-8',
       defaultEffort: 'high',
-      defaultPermissionMode: null
+      defaultPermissionMode: null,
+      sandboxMode: false,
+      sandboxAllowNetwork: false
     })
   })
   it('getProjectSettings returns null for an unknown path', () => {
@@ -118,7 +120,9 @@ describe('project_settings (folder = project)', () => {
         icon: null,
         defaultModelRef: null,
         defaultEffort: null,
-        defaultPermissionMode: null
+        defaultPermissionMode: null,
+        sandboxMode: false,
+        sandboxAllowNetwork: false
       }
     ])
   })

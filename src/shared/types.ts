@@ -260,7 +260,7 @@ export type EffortLevel = 'adaptive' | 'low' | 'medium' | 'high' | 'xhigh' | 'ma
 
 export type PermissionRuleEffect = 'allow' | 'deny' | 'ask'
 
-export type PermissionAction = 'command' | 'edit' | 'mcp' | 'integration'
+export type PermissionAction = 'command' | 'edit' | 'mcp' | 'integration' | 'unsandboxed'
 
 // A rule is either global or bound to one project's workspace path.
 export type RuleScope = 'global' | { projectPath: string }
@@ -472,6 +472,7 @@ export type Event =
       callId: string
       output: string
       exitCode?: number
+      sandboxed?: boolean
       durationMs: number
       truncated: boolean
       // For write_file/edit_file: the staged change, so the step row can
@@ -609,6 +610,9 @@ export interface ProjectSettings {
   defaultModelRef?: ModelRef | null
   defaultEffort?: EffortLevel | null
   defaultPermissionMode?: PermissionMode | null
+  // Sandbox Mode (macOS Seatbelt). Per-project; global default off.
+  sandboxMode?: boolean | null
+  sandboxAllowNetwork?: boolean | null
 }
 
 // F9 (folder = project): per-folder settings keyed by the workspace PATH. A
@@ -622,6 +626,8 @@ export interface FolderProject {
   defaultModelRef: ModelRef | null
   defaultEffort: EffortLevel | null
   defaultPermissionMode: PermissionMode | null
+  sandboxMode: boolean
+  sandboxAllowNetwork: boolean
 }
 
 // F3: an isolated git worktree spawned for a conversation running in Worktree

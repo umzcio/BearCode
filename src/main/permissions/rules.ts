@@ -149,6 +149,20 @@ export function evaluateCommand(
   return mode === 'auto' && terminalAutoExec === 'auto' ? 'run' : 'prompt'
 }
 
+// The 'unsandboxed' permission action (design §5.4): consulted ONLY when Sandbox
+// Mode is on and the command was already authorized. deny > allow > ask, and the
+// fallback is ALWAYS prompt (Ask) — there is deliberately no mode/auto fallback,
+// because running outside the box must never be silent. 'block' here means
+// "run sandboxed" (not "refuse"): the caller spawns the WRAPPED plan.
+export function evaluateUnsandboxed(command: string, rules: PermissionRule[]): CommandDecision {
+  const matching = rules.filter(
+    (r) => r.action === 'unsandboxed' && matchesCommand(r.match, command)
+  )
+  if (matching.some((r) => r.effect === 'deny')) return 'block'
+  if (matching.some((r) => r.effect === 'allow')) return 'run'
+  return 'prompt'
+}
+
 // MCP tool matcher. Designed grammar (Claude Code, design §4): the SERVER
 // portion is always a literal and must equal `server` exactly -- a glob may
 // appear ONLY after the literal `server.` prefix, and only as a trailing `*`.

@@ -55,6 +55,7 @@ import {
   takeDeniedBrowserReplayPin,
   takeDeniedEditReplayPin,
   takeDeniedReplayPin,
+  takeUnsandboxedDenyPin,
   tryEnterPlanReview
 } from './tools'
 
@@ -199,6 +200,44 @@ describe('denied-replay pins for browser actions (takeDeniedBrowserReplayPin)', 
     expect(takeDeniedReplayPin('convo', undefined, 'make')).toBe(false)
     expect(takeDeniedEditReplayPin('convo', undefined, 'make')).toBe(false)
     expect(takeDeniedBrowserReplayPin('convo', undefined, 'make')).toBe(true)
+  })
+})
+
+describe('denied-replay pins for unsandboxed runs (takeUnsandboxedDenyPin)', () => {
+  it('returns false when nothing is pinned', () => {
+    expect(takeUnsandboxedDenyPin('convo', 'tc1', 'echo hi')).toBe(false)
+  })
+
+  it('routes a Task-7-shaped pin (toolCallId + unsandboxedCommand) into byUnsandboxedCommand, not byToolCallId', () => {
+    // This is the exact shape Task 7's deniedReplayPinsOf emits: both fields
+    // present together. It must be claimable via takeUnsandboxedDenyPin
+    // (forcing the wrapped/sandboxed replay path), and must NOT be
+    // consumable by the generic takeDeniedReplayPin (which would refuse the
+    // command outright instead of running it sandboxed).
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1', unsandboxedCommand: 'echo hi' }])
+    expect(takeDeniedReplayPin('convo', 'tc1', 'echo hi')).toBe(false)
+    expect(takeUnsandboxedDenyPin('convo', 'tc1', 'echo hi')).toBe(true)
+    // Take-once.
+    expect(takeUnsandboxedDenyPin('convo', 'tc1', 'echo hi')).toBe(false)
+  })
+
+  it('falls back to the command multiset only for id-less pins and id-less calls', () => {
+    pinDeniedReplays('convo', [
+      { unsandboxedCommand: 'echo hi' },
+      { unsandboxedCommand: 'echo hi' }
+    ])
+    expect(takeUnsandboxedDenyPin('convo', 'tc1', 'echo hi')).toBe(false)
+    expect(takeUnsandboxedDenyPin('convo', undefined, 'echo hi')).toBe(true)
+    expect(takeUnsandboxedDenyPin('convo', undefined, 'echo hi')).toBe(true)
+    expect(takeUnsandboxedDenyPin('convo', undefined, 'echo hi')).toBe(false)
+  })
+
+  it('keeps the unsandboxed namespace separate from the plain command-deny pin', () => {
+    // A plain command-deny pin for the same command string must never be
+    // consumable by takeUnsandboxedDenyPin, and vice versa.
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1', command: 'echo hi' }])
+    expect(takeUnsandboxedDenyPin('convo', 'tc1', 'echo hi')).toBe(false)
+    expect(takeDeniedReplayPin('convo', 'tc1', 'echo hi')).toBe(true)
   })
 })
 

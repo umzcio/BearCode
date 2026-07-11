@@ -196,6 +196,32 @@ function getDb(): Database.Database {
       // column already exists
     }
   }
+  // Sandbox Mode (macOS Seatbelt): per-project columns on project_settings.
+  // Same idempotent-guarded ALTER idiom as above; old DBs upgrade in place.
+  try {
+    db.exec(`ALTER TABLE project_settings ADD COLUMN sandbox_mode INTEGER`)
+  } catch {
+    // column already exists
+  }
+  try {
+    db.exec(`ALTER TABLE project_settings ADD COLUMN sandbox_allow_network INTEGER`)
+  } catch {
+    // column already exists
+  }
+  // Sandbox Mode: parity columns on the legacy id-keyed `projects` table (the
+  // `project_settings` path-keyed store above is the one actually read/written
+  // by the app; this ALTER + updateProjectSettings handling is additive-only,
+  // harmless parity so the twin tables don't drift).
+  try {
+    db.exec(`ALTER TABLE projects ADD COLUMN sandbox_mode INTEGER`)
+  } catch {
+    // column already exists
+  }
+  try {
+    db.exec(`ALTER TABLE projects ADD COLUMN sandbox_allow_network INTEGER`)
+  } catch {
+    // column already exists
+  }
   backfillEventFts(db)
   zombieRunIds = cancelZombieRuns(db)
   return db
@@ -693,8 +719,8 @@ export function getProject(id: string): Project | null {
 // effort/mode can never persist. No-op when the patch has no settable keys.
 export function updateProjectSettings(id: string, patch: ProjectSettings): void {
   const cols: string[] = []
-  const vals: (string | null)[] = []
-  const set = (col: string, v: string | null): void => {
+  const vals: (string | number | null)[] = []
+  const set = (col: string, v: string | number | null): void => {
     cols.push(`${col} = ?`)
     vals.push(v)
   }
@@ -716,6 +742,14 @@ export function updateProjectSettings(id: string, patch: ProjectSettings): void 
       isSelectableDefaultMode(patch.defaultPermissionMode) ? patch.defaultPermissionMode : null
     )
   }
+  // Sandbox Mode parity (projects-table twin of upsertProjectSettings' handling;
+  // harmless additive — see the ALTER above).
+  if (patch.sandboxMode !== undefined) {
+    set('sandbox_mode', patch.sandboxMode === true ? 1 : 0)
+  }
+  if (patch.sandboxAllowNetwork !== undefined) {
+    set('sandbox_allow_network', patch.sandboxAllowNetwork === true ? 1 : 0)
+  }
   if (cols.length === 0) return
   getDb()
     .prepare(`UPDATE projects SET ${cols.join(', ')}, updated_at = ? WHERE id = ?`)
@@ -732,6 +766,8 @@ interface ProjectSettingsRow {
   default_model_ref: string | null
   default_effort: string | null
   default_permission_mode: string | null
+  sandbox_mode: number | null
+  sandbox_allow_network: number | null
 }
 
 function rowToFolderProject(r: ProjectSettingsRow): FolderProject {
@@ -745,7 +781,9 @@ function rowToFolderProject(r: ProjectSettingsRow): FolderProject {
     // 'bypass' is never a valid default (design §5): coerce it + garbage to null.
     defaultPermissionMode: isSelectableDefaultMode(r.default_permission_mode)
       ? r.default_permission_mode
-      : null
+      : null,
+    sandboxMode: r.sandbox_mode === 1,
+    sandboxAllowNetwork: r.sandbox_allow_network === 1
   }
 }
 
@@ -765,7 +803,7 @@ export function listProjectSettings(): FolderProject[] {
 // Enum values coerce (bypass/garbage → null); non-string color/icon/modelRef → null.
 export function upsertProjectSettings(path: string, patch: ProjectSettings): void {
   const cols: string[] = []
-  const vals: (string | null)[] = []
+  const vals: (string | number | null)[] = []
   const setStr = (col: string, v: unknown): void => {
     cols.push(`${col} = ?`)
     vals.push(typeof v === 'string' ? v : null)
@@ -783,6 +821,14 @@ export function upsertProjectSettings(path: string, patch: ProjectSettings): voi
     vals.push(
       isSelectableDefaultMode(patch.defaultPermissionMode) ? patch.defaultPermissionMode : null
     )
+  }
+  if (patch.sandboxMode !== undefined) {
+    cols.push('sandbox_mode = ?')
+    vals.push(patch.sandboxMode === true ? 1 : 0)
+  }
+  if (patch.sandboxAllowNetwork !== undefined) {
+    cols.push('sandbox_allow_network = ?')
+    vals.push(patch.sandboxAllowNetwork === true ? 1 : 0)
   }
   // Empty patch is a no-op — return BEFORE touching the table so an INSERT OR
   // IGNORE never leaves a phantom all-null row that then haunts listProjectSettings.

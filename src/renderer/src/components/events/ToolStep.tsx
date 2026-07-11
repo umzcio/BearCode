@@ -535,15 +535,32 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
       typeof call.input === 'object' && call.input !== null && 'command' in call.input
         ? String((call.input as { command: unknown }).command)
         : ''
+    const isUnsandboxed =
+      typeof call.input === 'object' &&
+      call.input !== null &&
+      (call.input as { unsandboxed?: unknown }).unsandboxed === true
     if (call.approvalState === 'pending') {
-      return <PendingCommand callId={call.id} command={command} convoId={convoId} />
+      return isUnsandboxed ? (
+        <PendingUnsandboxed callId={call.id} command={command} convoId={convoId} />
+      ) : (
+        <PendingCommand callId={call.id} command={command} convoId={convoId} />
+      )
     }
     const verb = call.approvalState === 'denied' ? 'Denied' : 'Ran'
+    const sandboxed = result?.sandboxed === true
+    // exitCode rides the first output line ("exit code N"); parse best-effort.
+    const exitLine = result?.output?.match(/^exit code (-?\d+)/)
+    const nonZero = exitLine ? Number(exitLine[1]) !== 0 : false
     return (
       <div className={'step' + (open ? ' open' : '')}>
         <div className="step-row" onClick={() => setOpen((o) => !o)}>
           <span>{verb}</span>
           <span className="mono">{command}</span>
+          {sandboxed ? (
+            <span className="sandbox-badge" title="Ran inside the sandbox">
+              sandboxed
+            </span>
+          ) : null}
           <span className="chev">
             <IconChevronRightSmall />
           </span>
@@ -555,6 +572,12 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
               {'\n'}
               <span className="ok">exit code {result.exitCode}</span>
             </>
+          ) : null}
+          {sandboxed && nonZero ? (
+            <div className="sandbox-hint" role="note">
+              This command may have been blocked by the sandbox. Ask the agent to re-run it outside
+              the sandbox to check.
+            </div>
           ) : null}
         </div>
       </div>
@@ -704,6 +727,102 @@ function PendingCommand({
           {isFirstPending ? <span className="opt-num">3</span> : null}
           No, deny it
           <span className="opt-hint">the agent is told you declined</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Task 7: the "run outside the sandbox?" card for a run_command call whose
+// pending input carries `unsandboxed: true` (synthesizedApprovalCard /
+// tools.ts's Seatbelt gate). Modeled on PendingCommand -- same hotkeys,
+// allow-grid shape, and generic approveTool resume -- but the copy reflects
+// the opposite direction: Approved (1/allow-rule) runs the command RAW
+// outside the sandbox; Denied (3) keeps it running inside the sandbox rather
+// than blocking it outright.
+function PendingUnsandboxed({
+  callId,
+  command,
+  convoId
+}: {
+  callId: string
+  command: string
+  convoId: string
+}): React.JSX.Element {
+  const approveTool = useAppStore((s) => s.approveTool)
+  const addPermissionRule = useAppStore((s) => s.addPermissionRule)
+  const projectPath = useAppStore((s) => s.conversations[convoId]?.projectPath ?? null)
+  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const [showAllow, setShowAllow] = useState(false)
+  const prefix = command.trim().split(/\s+/)[0] + ' *'
+
+  const allowOnce = (): void => approveTool(callId, true) // approved => run RAW (outside the box)
+  const keepSandboxed = (): void => approveTool(callId, false) // denied => run wrapped
+
+  useEffect(() => {
+    if (!isFirstPending) return undefined
+    const onKey = (e: KeyboardEvent): void => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === '1') allowOnce()
+      else if (e.key === '2') setShowAllow((s) => !s)
+      else if (e.key === '3') keepSandboxed()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId, isFirstPending])
+
+  const allowRule = (scope: 'global' | { projectPath: string }, match: string): void => {
+    addPermissionRule({ scope, action: 'unsandboxed', match, effect: 'allow' })
+    approveTool(callId, true)
+  }
+
+  return (
+    <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
+      <div className="step-row static">
+        <span>
+          Run <span className="mono">{command}</span> outside the sandbox?
+        </span>
+      </div>
+      <div className="waiting-note">Waiting for your input…</div>
+      <div className="approval-card pulse-once">
+        <div className="approval-title">Run this command outside the sandbox?</div>
+        <div className="approval-cmd">{command}</div>
+        <button className="approval-opt" onClick={allowOnce}>
+          {isFirstPending ? <span className="opt-num">1</span> : null}
+          Yes, run it unsandboxed this time
+        </button>
+        <button className="approval-opt" onClick={() => setShowAllow((s) => !s)}>
+          {isFirstPending ? <span className="opt-num">2</span> : null}
+          Yes, always run unsandboxed
+          <span className="opt-hint">save an unsandboxed rule instead of asking again</span>
+        </button>
+        {showAllow ? (
+          <div className="allow-grid">
+            <button className="allow-cell" onClick={() => allowRule('global', command)}>
+              This exact command, everywhere
+            </button>
+            <button className="allow-cell" onClick={() => allowRule('global', prefix)}>
+              Anything starting with <span className="mono">{prefix}</span>, everywhere
+            </button>
+            {projectPath ? (
+              <>
+                <button className="allow-cell" onClick={() => allowRule({ projectPath }, command)}>
+                  This exact command, this project only
+                </button>
+                <button className="allow-cell" onClick={() => allowRule({ projectPath }, prefix)}>
+                  Anything starting with <span className="mono">{prefix}</span>, this project only
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        <button className="approval-opt" onClick={keepSandboxed}>
+          {isFirstPending ? <span className="opt-num">3</span> : null}
+          No, keep it sandboxed
+          <span className="opt-hint">the command still runs, inside the sandbox</span>
         </button>
       </div>
     </div>
