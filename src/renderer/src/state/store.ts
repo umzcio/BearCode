@@ -28,6 +28,7 @@ import type {
   WorktreeInfo
 } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
+import { describeError } from '../lib/errors'
 import { resolveProjectDefaults } from '@shared/projectDefaults'
 
 export type ConvoRunState = RunState | 'idle'
@@ -784,6 +785,11 @@ export const useAppStore = create<AppState>((set, get) => {
             loaded: true,
             ...(pending ? { runState: 'awaiting-approval' as const } : {})
           })
+        }).catch((err) => {
+          // A failed history load must still flip `loaded` so the UI doesn't
+          // hang forever on a blank transcript with no way to retry.
+          get().showToast(describeError(err))
+          patchConvo(id, { loaded: true })
         })
       }
     },
