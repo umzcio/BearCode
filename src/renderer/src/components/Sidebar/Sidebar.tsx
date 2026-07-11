@@ -158,7 +158,18 @@ export function Sidebar(): React.JSX.Element {
                     className={
                       'convo' + (running ? ' active-run' : '') + (selected ? ' selected' : '')
                     }
+                    role="button"
+                    tabIndex={0}
                     onClick={() => openConvo(id)}
+                    onKeyDown={(e) => {
+                      // Ignore keys that originated on a nested action button (Pin/Archive/⋮);
+                      // only the row's own focus target should open the conversation.
+                      if (e.target !== e.currentTarget) return
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        openConvo(id)
+                      }
+                    }}
                   >
                     {convo.pinned ? <IconPin size={11} /> : null}
                     <span className="name-wrap">
