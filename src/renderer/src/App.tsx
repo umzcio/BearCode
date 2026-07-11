@@ -135,7 +135,7 @@ function App(): React.JSX.Element {
       ) : null}
       <AuxiliaryPane />
       {toast ? (
-        <div className="toast">
+        <div className="toast" role="status" aria-live="polite">
           <span className="toast-msg">{toast.message}</span>
           {toast.action ? (
             <span className="toast-actions">
