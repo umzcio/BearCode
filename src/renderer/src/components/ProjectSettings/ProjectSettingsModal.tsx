@@ -5,23 +5,38 @@ import { EFFORT_LEVELS, EFFORT_LABELS } from '@shared/effort'
 import { useAppStore } from '../../state/store'
 import { Select } from '../Select'
 import { SettingPlaceholder } from '../Settings/SettingPlaceholder'
-import { IconClose, IconGear, IconPalette, IconBrain, IconPlug, IconBlocks } from '../icons'
+import {
+  IconClose,
+  IconGear,
+  IconPalette,
+  IconBrain,
+  IconPlug,
+  IconBlocks,
+  IconShield
+} from '../icons'
 import { PROJECT_ICONS } from './projectIcons'
+import { Toggle } from '../Toggle'
 import '../Settings/Settings.css'
 import './ProjectSettings.css'
 
 // Curated project colors (bounded, like the icon set — no arbitrary picker).
 const PROJECT_COLORS = ['#d97757', '#4c8dff', '#3ecf8e', '#e0b568', '#b58cff', '#e5698f', '#5ac8d8']
 
-type PageId = 'general' | 'appearance' | 'defaults' | 'connectors' | 'skills'
+type PageId = 'general' | 'appearance' | 'defaults' | 'sandbox' | 'connectors' | 'skills'
 
 const PS_NAV: { id: PageId; label: string; icon: (p: { size?: number }) => JSX.Element }[] = [
   { id: 'general', label: 'General', icon: IconGear },
   { id: 'appearance', label: 'Appearance', icon: IconPalette },
   { id: 'defaults', label: 'Defaults', icon: IconBrain },
+  { id: 'sandbox', label: 'Sandbox', icon: IconShield },
   { id: 'connectors', label: 'Connectors', icon: IconPlug },
   { id: 'skills', label: 'Skills', icon: IconBlocks }
 ]
+
+// No preload-exposed platform signal exists yet (grepped); a real Mac vs. non-Mac
+// distinction here is a pragmatic renderer-side check, not a security boundary —
+// the actual macOS-only guard lives server-side in the Seatbelt runner.
+const isMacPlatform = (): boolean => navigator.userAgent.includes('Mac')
 
 function basename(path: string): string {
   const parts = path.replace(/\/$/, '').split('/')
@@ -59,6 +74,7 @@ function ProjectSettingsPanel({ folder }: { folder: FolderProject }): JSX.Elemen
   const setAsNewProjectDefault = useAppStore((s) => s.setAsNewProjectDefault)
 
   const [page, setPage] = useState<PageId>('general')
+  const isMac = isMacPlatform()
   const folderName = basename(folder.path)
   const displayName = folder.name ?? folderName
   const [name, setName] = useState(folder.name ?? '')
@@ -274,6 +290,55 @@ function ProjectSettingsPanel({ folder }: { folder: FolderProject }): JSX.Elemen
                       })
                     }
                     options={modeOptions}
+                  />
+                </div>
+              </div>
+            </>
+          ) : null}
+
+          {page === 'sandbox' ? (
+            <>
+              <div className="page-title">Sandbox</div>
+              <div className="page-sub">
+                Run this folder&apos;s shell commands inside a macOS sandbox: no network, writes
+                confined to the folder, and secrets hidden. Commands still run — the sandbox just
+                limits what they can touch.
+              </div>
+              {isMac ? null : (
+                <div className="set-note" role="note">
+                  Sandbox Mode requires macOS.
+                </div>
+              )}
+              <div className="set-group-title">Isolation</div>
+              <div className="set-card">
+                <div className="set-row">
+                  <div className="set-row-text">
+                    <div className="set-row-title">Sandbox Mode</div>
+                    <div className="set-row-desc">
+                      Wrap every shell command in a kernel-enforced sandbox. Off by default. The
+                      agent can still ask to run a specific command outside the sandbox.
+                    </div>
+                  </div>
+                  <Toggle
+                    ariaLabel="Enable sandbox mode"
+                    checked={folder.sandboxMode}
+                    disabled={!isMac}
+                    onChange={(on) => void updateProject(folder.path, { sandboxMode: on })}
+                  />
+                </div>
+                <div className="set-row">
+                  <div className="set-row-text">
+                    <div className="set-row-title">Allow network in sandbox</div>
+                    <div className="set-row-desc">
+                      Let sandboxed commands reach the network (for installs, fetches). When off,
+                      all network access is blocked inside the sandbox.
+                    </div>
+                  </div>
+                  <Toggle
+                    ariaLabel="Allow network in sandbox"
+                    checked={folder.sandboxAllowNetwork}
+                    disabled={!isMac || !folder.sandboxMode}
+                    onChange={(on) => void updateProject(folder.path, { sandboxAllowNetwork: on })}
                   />
                 </div>
               </div>
