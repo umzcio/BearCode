@@ -1037,6 +1037,20 @@ export interface BearcodeApi {
     list(): Promise<FolderProject[]>
     update(path: string, patch: ProjectSettings): Promise<FolderProject>
   }
+  project: {
+    isTrusted(path: string): Promise<boolean>
+    trust(path: string): Promise<FolderProject>
+    untrust(path: string): Promise<FolderProject>
+    hasConfig(path: string): Promise<boolean>
+    outsideAccess: {
+      get(path: string): Promise<OutsideAccessInfo>
+      set(path: string, policy: OutsideFolderAccess): Promise<OutsideAccessInfo>
+      allow(path: string, abs: string): Promise<OutsideAccessInfo>
+      deny(path: string, abs: string): Promise<OutsideAccessInfo>
+      list(path: string): Promise<OutsideAccessInfo>
+      remove(path: string, abs: string): Promise<OutsideAccessInfo>
+    }
+  }
   permissions: {
     addRule(rule: AddRuleInput): Promise<void>
     list(): Promise<PermissionRulesInfo>

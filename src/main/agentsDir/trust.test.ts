@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { loadAgentsContent } from './index'
+import { loadAgentsContent, hasProjectAgentsConfig } from './index'
 
 let projectDir: string, homeDir: string
 const pRules = (): string => join(projectDir, '.agents', 'rules')
@@ -75,5 +75,18 @@ describe('loadAgentsContent trust gate', () => {
     writeSkill(pSkills(), 'proj-skill', '---\ndescription: Proj skill.\n---\nbody')
     const content = loadAgentsContent(projectDir, { trusted: true })
     expect(content.skills.find((s) => s.name === 'proj-skill')?.source).toBe('project')
+  })
+})
+
+describe('hasProjectAgentsConfig', () => {
+  it('returns false when there is no .agents dir', () => {
+    expect(hasProjectAgentsConfig(projectDir)).toBe(false)
+  })
+  it('returns false for a null path', () => {
+    expect(hasProjectAgentsConfig(null)).toBe(false)
+  })
+  it('returns true after writing .agents/rules/x.md', () => {
+    write(pRules(), 'x', 'body')
+    expect(hasProjectAgentsConfig(projectDir)).toBe(true)
   })
 })

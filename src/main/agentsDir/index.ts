@@ -593,3 +593,12 @@ function resolveRefPath(
 function isInsideWorkspace(root: string, candidate: string): boolean {
   return candidate === root || candidate.startsWith(root + sep)
 }
+
+// Cheap existence check used by the renderer to decide whether to show the
+// "this project has an .agents config" affordance before the user trusts it
+// (trust gating itself happens in loadAgentsContent above).
+export function hasProjectAgentsConfig(projectPath: string | null): boolean {
+  if (!projectPath) return false
+  const base = join(projectPath, '.agents')
+  return ['rules', 'workflows', 'skills', 'memory'].some((d) => existsSync(join(base, d)))
+}

@@ -21,6 +21,8 @@ import type {
   MemoryList,
   MemoryPromoteInput,
   MemoryScopeName,
+  OutsideAccessInfo,
+  OutsideFolderAccess,
   PermissionMode,
   PermissionRulesInfo,
   PlanReviewResolveResult,
@@ -142,6 +144,30 @@ const bearcode: BearcodeApi = {
     list: (): Promise<FolderProject[]> => ipcRenderer.invoke('bearcode:projects:list'),
     update: (path: string, patch: ProjectSettings): Promise<FolderProject> =>
       ipcRenderer.invoke('bearcode:projects:update', path, patch)
+  },
+  project: {
+    isTrusted: (path: string): Promise<boolean> =>
+      ipcRenderer.invoke('bearcode:project:is-trusted', path),
+    trust: (path: string): Promise<FolderProject> =>
+      ipcRenderer.invoke('bearcode:project:trust', path),
+    untrust: (path: string): Promise<FolderProject> =>
+      ipcRenderer.invoke('bearcode:project:untrust', path),
+    hasConfig: (path: string): Promise<boolean> =>
+      ipcRenderer.invoke('bearcode:project:has-config', path),
+    outsideAccess: {
+      get: (path: string): Promise<OutsideAccessInfo> =>
+        ipcRenderer.invoke('bearcode:project:outside-access:get', path),
+      set: (path: string, policy: OutsideFolderAccess): Promise<OutsideAccessInfo> =>
+        ipcRenderer.invoke('bearcode:project:outside-access:set', path, policy),
+      allow: (path: string, abs: string): Promise<OutsideAccessInfo> =>
+        ipcRenderer.invoke('bearcode:project:outside-access:allow', path, abs),
+      deny: (path: string, abs: string): Promise<OutsideAccessInfo> =>
+        ipcRenderer.invoke('bearcode:project:outside-access:deny', path, abs),
+      list: (path: string): Promise<OutsideAccessInfo> =>
+        ipcRenderer.invoke('bearcode:project:outside-access:list', path),
+      remove: (path: string, abs: string): Promise<OutsideAccessInfo> =>
+        ipcRenderer.invoke('bearcode:project:outside-access:remove', path, abs)
+    }
   },
   permissions: {
     addRule: (rule: AddRuleInput): Promise<void> =>
