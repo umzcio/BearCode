@@ -30,9 +30,18 @@ function renderInline(
           <code
             key={key++}
             className="tok file"
+            role="button"
+            tabIndex={0}
             onClick={(e) => {
               if ((e.metaKey || e.ctrlKey) && onFileOpen) onFileOpen(inner)
               else onFileClick(inner)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                if ((e.metaKey || e.ctrlKey) && onFileOpen) onFileOpen(inner)
+                else onFileClick(inner)
+              }
             }}
           >
             {inner}

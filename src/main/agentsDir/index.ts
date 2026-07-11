@@ -11,6 +11,7 @@ import { existsSync, readdirSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { isAbsolute, join, resolve, sep } from 'path'
 import { readFileCapped } from '../fsCapped'
+import { capMap } from './lruCap'
 import { parseRuleFile } from './parseRule'
 import { parseSkillFolder } from './parseSkill'
 import { parseWorkflowFile } from './parseWorkflow'
@@ -38,6 +39,11 @@ const MAX_RULE_BYTES = MAX_REF_BYTES
 const MAX_WORKFLOW_BYTES = MAX_REF_BYTES
 // SKILL.md is prompt text too; same cap and same rationale.
 const MAX_SKILL_BYTES = MAX_REF_BYTES
+// Cap on each parse cache's entry count (audit M-13). Rules/workflows/skills
+// per project number in the dozens in real usage; 512 is comfortably above
+// any real working set while bounding growth across a long multi-folder
+// session.
+const CACHE_CAP = 512
 
 // readFileCapped (bounded, stat-gated file read; security review item 1) now
 // lives in ../fsCapped, shared with mcp/store.ts.
@@ -177,7 +183,7 @@ function loadOneRule(
     rule = { ...parsed, warnings: fileWarnings }
   }
 
-  cache.set(key, { mtimeMs, rule })
+  capMap(cache, key, { mtimeMs, rule }, CACHE_CAP)
   return rule
 }
 
@@ -221,7 +227,7 @@ function loadOneWorkflow(
       ? { ...parsed, warnings: [...(parsed.warnings ?? []), ...fileWarnings] }
       : parsed
 
-  workflowCache.set(key, { mtimeMs, workflow })
+  capMap(workflowCache, key, { mtimeMs, workflow }, CACHE_CAP)
   return workflow
 }
 
@@ -266,7 +272,7 @@ function loadOneSkill(
   const skill: Skill = read.truncated
     ? { ...parsed, warnings: [`SKILL.md exceeds ${MAX_SKILL_BYTES / 1024}KB and was truncated`] }
     : parsed
-  skillCache.set(key, { mtimeMs, skill })
+  capMap(skillCache, key, { mtimeMs, skill }, CACHE_CAP)
   return skill
 }
 

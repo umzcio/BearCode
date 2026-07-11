@@ -12,16 +12,21 @@ function vaultPath(): string {
   return join(app.getPath('userData'), 'keys.json')
 }
 
+let vaultCache: Record<string, string> | null = null
+
 function readVault(): Record<string, string> {
+  if (vaultCache) return vaultCache
   try {
-    return JSON.parse(readFileSync(vaultPath(), 'utf8')) as Record<string, string>
+    vaultCache = JSON.parse(readFileSync(vaultPath(), 'utf8')) as Record<string, string>
   } catch {
-    return {}
+    vaultCache = {}
   }
+  return vaultCache
 }
 
 function writeVault(vault: Record<string, string>): void {
   writeFileSync(vaultPath(), JSON.stringify(vault, null, 2), { mode: 0o600 })
+  vaultCache = null // invalidate so the next read reflects what's on disk
 }
 
 export function setVaultSecret(key: string, value: string): void {

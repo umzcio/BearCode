@@ -45,6 +45,12 @@
   min-width: 0;
   z-index: 1000;
 }
+/* Roving-tabindex keyboard highlight -- mirrors .menu-item:hover so the
+   active option is visible whether reached by mouse or keyboard. */
+.menu-item.active {
+  background: var(--bg-hover);
+  color: var(--text);
+}
 .app-select.compact .app-select-trigger {
   min-width: 0;
 }

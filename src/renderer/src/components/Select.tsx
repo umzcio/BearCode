@@ -74,6 +74,46 @@ export function Select<T extends string>({
     }
   }, [open])
 
+  const [activeIndex, setActiveIndex] = useState(0)
+
+  // When the menu opens, start the active option on the current value and focus
+  // the listbox so it receives arrow keys.
+  useEffect(() => {
+    if (!open) return
+    const i = options.findIndex((o) => o.value === value)
+    setActiveIndex(i >= 0 ? i : 0)
+    menuRef.current?.focus()
+  }, [open, options, value])
+
+  const commit = (i: number): void => {
+    const o = options[i]
+    if (o) {
+      onChange(o.value)
+      setOpen(false)
+    }
+  }
+
+  const onMenuKey = (e: React.KeyboardEvent): void => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIndex((i) => Math.min(options.length - 1, i + 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIndex((i) => Math.max(0, i - 1))
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      setActiveIndex(0)
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      setActiveIndex(options.length - 1)
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      commit(activeIndex)
+    } else if (e.key === 'Escape') {
+      setOpen(false)
+    }
+  }
+
   const current = options.find((o) => o.value === value)
 
   const toggle = (): void => {
@@ -116,6 +156,9 @@ export function Select<T extends string>({
               className="menu app-select-menu"
               role="listbox"
               ref={menuRef}
+              tabIndex={-1}
+              aria-activedescendant={`opt-${options[activeIndex]?.value}`}
+              onKeyDown={onMenuKey}
               style={{
                 position: 'fixed',
                 top: pos.top,
@@ -125,20 +168,20 @@ export function Select<T extends string>({
                 zIndex: 1000
               }}
             >
-              {options.map((o) => (
+              {options.map((o, i) => (
                 <div
                   key={o.value}
+                  id={`opt-${o.value}`}
                   role="option"
                   aria-selected={o.value === value}
                   className={
                     'menu-item' +
                     (o.value === value ? ' selected' : '') +
+                    (i === activeIndex ? ' active' : '') +
                     (o.description ? ' has-desc' : '')
                   }
-                  onClick={() => {
-                    onChange(o.value)
-                    setOpen(false)
-                  }}
+                  onClick={() => commit(i)}
+                  onMouseEnter={() => setActiveIndex(i)}
                 >
                   {o.description ? (
                     <span className="mi-text">

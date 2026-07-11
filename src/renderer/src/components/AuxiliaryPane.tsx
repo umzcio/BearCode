@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import type { Event, FileDiff, FileDiffFile } from '@shared/types'
 import { useAppStore, type AuxSelection } from '../state/store'
 import { useCmdHeld } from '../lib/useCmdHeld'
@@ -86,8 +87,13 @@ function ApBrand(): React.JSX.Element {
 }
 
 function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Element | null {
-  const view = useAppStore((s) => s.view)
-  const conversations = useAppStore((s) => s.conversations)
+  const convo = useAppStore(
+    useShallow((s) => {
+      if (s.view.kind !== 'conversation') return null
+      const c = s.conversations[s.view.id]
+      return c ? { events: c.events } : null
+    })
+  )
   const closeReview = useAppStore((s) => s.closeReview)
   const openTick = useAppStore((s) => s.auxPaneOpenTick)
   const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
@@ -136,7 +142,6 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
     )
   }
 
-  const convo = view.kind === 'conversation' ? conversations[view.id] : null
   if (!convo) return null
 
   const entries = deriveRailEntries(convo.events)
@@ -251,7 +256,14 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
   const closeReview = useAppStore((s) => s.closeReview)
   const focusPath = useAppStore((s) => s.reviewFocusPath)
   const view = useAppStore((s) => s.view)
-  const conversations = useAppStore((s) => s.conversations)
+  const convoId = view.kind === 'conversation' ? view.id : null
+  const convo = useAppStore(
+    useShallow((s) => {
+      if (s.view.kind !== 'conversation') return null
+      const c = s.conversations[s.view.id]
+      return c ? { events: c.events } : null
+    })
+  )
   const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
   const send = useAppStore((s) => s.send)
   const showToast = useAppStore((s) => s.showToast)
@@ -262,9 +274,6 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
   const [activeFileId, setActiveFileId] = useState<string | null>(null)
   const [bodyView, setBodyView] = useState<Record<string, BodyView>>({})
   const [comments, setComments] = useState<ReviewComment[]>([])
-
-  const convoId = view.kind === 'conversation' ? view.id : null
-  const convo = convoId ? conversations[convoId] : null
 
   // The user prompt this diff belongs to, for the For-Turn context line.
   let turnPrompt = ''

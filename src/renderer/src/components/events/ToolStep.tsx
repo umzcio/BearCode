@@ -3,6 +3,8 @@ import type { Event } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { IconChevronRightSmall } from '../icons'
 import { Select } from '../Select'
+import { usePendingCardHotkeys } from './usePendingCardHotkeys'
+import { AllowGrid } from './AllowGrid'
 import './events.css'
 
 type ToolCallEvent = Extract<Event, { type: 'tool_call' }>
@@ -216,16 +218,17 @@ function browserActionLabel(call: ToolCallEvent): string {
 // mix of run_command and write_file/edit_file); the number-key hotkeys and
 // the jump-to-approval anchor id belong only to the FIRST pending tool_call
 // in the conversation's event order, so one keypress never answers more than
-// one card. Shared by PendingCommand and PendingEdit so both tool kinds
-// participate in the same single-active-card scheme (ded9abc).
-function useIsFirstPendingCard(convoId: string, callId: string): boolean {
+// one card. Computed ONCE per ToolStep render (instead of once per Pending*
+// card, M-17) and passed down as an `isFirst` prop to whichever card is
+// rendered.
+function useFirstPendingCallId(convoId: string): string | null {
   return useAppStore((s) => {
     const events = s.conversations[convoId]?.events
-    if (!events) return false
+    if (!events) return null
     for (const e of events) {
-      if (e.type === 'tool_call' && e.approvalState === 'pending') return e.id === callId
+      if (e.type === 'tool_call' && e.approvalState === 'pending') return e.id
     }
-    return false
+    return null
   })
 }
 
@@ -233,6 +236,8 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
   const [open, setOpen] = useState(false)
   const openReviewForFile = useAppStore((s) => s.openReviewForFile)
   const openFile = useAppStore((s) => s.openFile)
+  const firstPendingCallId = useFirstPendingCallId(convoId)
+  const isFirst = call.id === firstPendingCallId
 
   if (
     (call.tool === 'write_file' || call.tool === 'edit_file') &&
@@ -246,7 +251,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
         path={path}
         requestedPath={requestedPath !== path ? requestedPath : null}
         verb={call.tool === 'write_file' ? 'write to' : 'edit'}
-        convoId={convoId}
+        isFirst={isFirst}
       />
     )
   }
@@ -285,7 +290,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
         callId={call.id}
         path={path}
         requestedPath={requestedPath !== path ? requestedPath : null}
-        convoId={convoId}
+        isFirst={isFirst}
       />
     )
   }
@@ -332,7 +337,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
         callId={call.id}
         title={inputStr(call, 'title') ?? 'Implementation plan'}
         artifactId={inputStr(call, 'artifactId')}
-        convoId={convoId}
+        isFirst={isFirst}
       />
     )
   }
@@ -400,7 +405,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
   if (call.tool.startsWith('browser_')) {
     const action = browserActionLabel(call)
     if (call.approvalState === 'pending') {
-      return <PendingBrowserAction callId={call.id} action={action} convoId={convoId} />
+      return <PendingBrowserAction callId={call.id} action={action} isFirst={isFirst} />
     }
     if (call.approvalState === 'denied') {
       return (
@@ -453,6 +458,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
           toolName={toolName}
           input={call.input}
           convoId={convoId}
+          isFirst={isFirst}
         />
       )
     }
@@ -500,6 +506,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
           toolName={toolName}
           input={call.input}
           convoId={convoId}
+          isFirst={isFirst}
         />
       )
     }
@@ -541,9 +548,14 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
       (call.input as { unsandboxed?: unknown }).unsandboxed === true
     if (call.approvalState === 'pending') {
       return isUnsandboxed ? (
-        <PendingUnsandboxed callId={call.id} command={command} convoId={convoId} />
+        <PendingUnsandboxed
+          callId={call.id}
+          command={command}
+          convoId={convoId}
+          isFirst={isFirst}
+        />
       ) : (
-        <PendingCommand callId={call.id} command={command} convoId={convoId} />
+        <PendingCommand callId={call.id} command={command} convoId={convoId} isFirst={isFirst} />
       )
     }
     const verb = call.approvalState === 'denied' ? 'Denied' : 'Ran'
@@ -600,11 +612,13 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
 function PendingCommand({
   callId,
   command,
-  convoId
+  convoId,
+  isFirst
 }: {
   callId: string
   command: string
   convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
   const addPermissionRule = useAppStore((s) => s.addPermissionRule)
@@ -616,28 +630,77 @@ function PendingCommand({
   // though the new rule would now allow its command -- the main process pins
   // denied decisions so the batch resume's rules re-evaluation cannot
   // override them (tools.ts deniedReplayPins).
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
   const [showAllow, setShowAllow] = useState(false)
   const prefix = command.trim().split(/\s+/)[0] + ' *'
 
   const allowOnce = (): void => approveTool(callId, true)
   const deny = (): void => approveTool(callId, false)
+  const toggleAllow = (): void => setShowAllow((s) => !s)
 
-  // Number keys answer the prompt, matching the option badges.
-  useEffect(() => {
-    if (!isFirstPending) return undefined
-    const onKey = (e: KeyboardEvent): void => {
-      const target = e.target as HTMLElement | null
-      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === '1') allowOnce()
-      else if (e.key === '2') setShowAllow((s) => !s)
-      else if (e.key === '3') deny()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callId, isFirstPending])
+  usePendingCardHotkeys({
+    active: isFirstPending,
+    onApprove: allowOnce,
+    onDeny: deny,
+    onAlways: toggleAllow
+  })
+
+  const allowCells = [
+    {
+      key: 'exact-global',
+      label: 'This exact command, everywhere',
+      onClick: (): void => {
+        addPermissionRule({ scope: 'global', action: 'command', match: command, effect: 'allow' })
+        approveTool(callId, true)
+      }
+    },
+    {
+      key: 'prefix-global',
+      label: (
+        <>
+          Anything starting with <span className="mono">{prefix}</span>, everywhere
+        </>
+      ),
+      onClick: (): void => {
+        addPermissionRule({ scope: 'global', action: 'command', match: prefix, effect: 'allow' })
+        approveTool(callId, true)
+      }
+    },
+    ...(projectPath
+      ? [
+          {
+            key: 'exact-project',
+            label: 'This exact command, this project only',
+            onClick: (): void => {
+              addPermissionRule({
+                scope: { projectPath },
+                action: 'command',
+                match: command,
+                effect: 'allow'
+              })
+              approveTool(callId, true)
+            }
+          },
+          {
+            key: 'prefix-project',
+            label: (
+              <>
+                Anything starting with <span className="mono">{prefix}</span>, this project only
+              </>
+            ),
+            onClick: (): void => {
+              addPermissionRule({
+                scope: { projectPath },
+                action: 'command',
+                match: prefix,
+                effect: 'allow'
+              })
+              approveTool(callId, true)
+            }
+          }
+        ]
+      : [])
+  ]
 
   return (
     <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
@@ -654,75 +717,12 @@ function PendingCommand({
           {isFirstPending ? <span className="opt-num">1</span> : null}
           Yes, allow this time
         </button>
-        <button className="approval-opt" onClick={() => setShowAllow((s) => !s)}>
+        <button className="approval-opt" onClick={toggleAllow}>
           {isFirstPending ? <span className="opt-num">2</span> : null}
           Yes, always allow
           <span className="opt-hint">save a rule instead of asking again</span>
         </button>
-        {showAllow ? (
-          <div className="allow-grid">
-            <button
-              className="allow-cell"
-              onClick={() => {
-                addPermissionRule({
-                  scope: 'global',
-                  action: 'command',
-                  match: command,
-                  effect: 'allow'
-                })
-                approveTool(callId, true)
-              }}
-            >
-              This exact command, everywhere
-            </button>
-            <button
-              className="allow-cell"
-              onClick={() => {
-                addPermissionRule({
-                  scope: 'global',
-                  action: 'command',
-                  match: prefix,
-                  effect: 'allow'
-                })
-                approveTool(callId, true)
-              }}
-            >
-              Anything starting with <span className="mono">{prefix}</span>, everywhere
-            </button>
-            {projectPath ? (
-              <>
-                <button
-                  className="allow-cell"
-                  onClick={() => {
-                    addPermissionRule({
-                      scope: { projectPath },
-                      action: 'command',
-                      match: command,
-                      effect: 'allow'
-                    })
-                    approveTool(callId, true)
-                  }}
-                >
-                  This exact command, this project only
-                </button>
-                <button
-                  className="allow-cell"
-                  onClick={() => {
-                    addPermissionRule({
-                      scope: { projectPath },
-                      action: 'command',
-                      match: prefix,
-                      effect: 'allow'
-                    })
-                    approveTool(callId, true)
-                  }}
-                >
-                  Anything starting with <span className="mono">{prefix}</span>, this project only
-                </button>
-              </>
-            ) : null}
-          </div>
-        ) : null}
+        {showAllow ? <AllowGrid cells={allowCells} /> : null}
         <button className="approval-opt" onClick={deny}>
           {isFirstPending ? <span className="opt-num">3</span> : null}
           No, deny it
@@ -743,41 +743,71 @@ function PendingCommand({
 function PendingUnsandboxed({
   callId,
   command,
-  convoId
+  convoId,
+  isFirst
 }: {
   callId: string
   command: string
   convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
   const addPermissionRule = useAppStore((s) => s.addPermissionRule)
   const projectPath = useAppStore((s) => s.conversations[convoId]?.projectPath ?? null)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
   const [showAllow, setShowAllow] = useState(false)
   const prefix = command.trim().split(/\s+/)[0] + ' *'
 
   const allowOnce = (): void => approveTool(callId, true) // approved => run RAW (outside the box)
   const keepSandboxed = (): void => approveTool(callId, false) // denied => run wrapped
+  const toggleAllow = (): void => setShowAllow((s) => !s)
 
-  useEffect(() => {
-    if (!isFirstPending) return undefined
-    const onKey = (e: KeyboardEvent): void => {
-      const target = e.target as HTMLElement | null
-      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === '1') allowOnce()
-      else if (e.key === '2') setShowAllow((s) => !s)
-      else if (e.key === '3') keepSandboxed()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callId, isFirstPending])
+  usePendingCardHotkeys({
+    active: isFirstPending,
+    onApprove: allowOnce,
+    onDeny: keepSandboxed,
+    onAlways: toggleAllow
+  })
 
   const allowRule = (scope: 'global' | { projectPath: string }, match: string): void => {
     addPermissionRule({ scope, action: 'unsandboxed', match, effect: 'allow' })
     approveTool(callId, true)
   }
+
+  const allowCells = [
+    {
+      key: 'exact-global',
+      label: 'This exact command, everywhere',
+      onClick: (): void => allowRule('global', command)
+    },
+    {
+      key: 'prefix-global',
+      label: (
+        <>
+          Anything starting with <span className="mono">{prefix}</span>, everywhere
+        </>
+      ),
+      onClick: (): void => allowRule('global', prefix)
+    },
+    ...(projectPath
+      ? [
+          {
+            key: 'exact-project',
+            label: 'This exact command, this project only',
+            onClick: (): void => allowRule({ projectPath }, command)
+          },
+          {
+            key: 'prefix-project',
+            label: (
+              <>
+                Anything starting with <span className="mono">{prefix}</span>, this project only
+              </>
+            ),
+            onClick: (): void => allowRule({ projectPath }, prefix)
+          }
+        ]
+      : [])
+  ]
 
   return (
     <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
@@ -794,31 +824,12 @@ function PendingUnsandboxed({
           {isFirstPending ? <span className="opt-num">1</span> : null}
           Yes, run it unsandboxed this time
         </button>
-        <button className="approval-opt" onClick={() => setShowAllow((s) => !s)}>
+        <button className="approval-opt" onClick={toggleAllow}>
           {isFirstPending ? <span className="opt-num">2</span> : null}
           Yes, always run unsandboxed
           <span className="opt-hint">save an unsandboxed rule instead of asking again</span>
         </button>
-        {showAllow ? (
-          <div className="allow-grid">
-            <button className="allow-cell" onClick={() => allowRule('global', command)}>
-              This exact command, everywhere
-            </button>
-            <button className="allow-cell" onClick={() => allowRule('global', prefix)}>
-              Anything starting with <span className="mono">{prefix}</span>, everywhere
-            </button>
-            {projectPath ? (
-              <>
-                <button className="allow-cell" onClick={() => allowRule({ projectPath }, command)}>
-                  This exact command, this project only
-                </button>
-                <button className="allow-cell" onClick={() => allowRule({ projectPath }, prefix)}>
-                  Anything starting with <span className="mono">{prefix}</span>, this project only
-                </button>
-              </>
-            ) : null}
-          </div>
-        ) : null}
+        {showAllow ? <AllowGrid cells={allowCells} /> : null}
         <button className="approval-opt" onClick={keepSandboxed}>
           {isFirstPending ? <span className="opt-num">3</span> : null}
           No, keep it sandboxed
@@ -836,32 +847,20 @@ function PendingRead({
   callId,
   path,
   requestedPath,
-  convoId
+  isFirst
 }: {
   callId: string
   path: string
   requestedPath: string | null
-  convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
 
   const allow = (): void => approveTool(callId, true)
   const deny = (): void => approveTool(callId, false)
 
-  useEffect(() => {
-    if (!isFirstPending) return undefined
-    const onKey = (e: KeyboardEvent): void => {
-      const target = e.target as HTMLElement | null
-      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === '1') allow()
-      else if (e.key === '2') deny()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callId, isFirstPending])
+  usePendingCardHotkeys({ active: isFirstPending, onApprove: allow, onDeny: deny })
 
   return (
     <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
@@ -900,31 +899,19 @@ function PendingRead({
 function PendingBrowserAction({
   callId,
   action,
-  convoId
+  isFirst
 }: {
   callId: string
   action: string
-  convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
 
   const allow = (): void => approveTool(callId, true)
   const deny = (): void => approveTool(callId, false)
 
-  useEffect(() => {
-    if (!isFirstPending) return undefined
-    const onKey = (e: KeyboardEvent): void => {
-      const target = e.target as HTMLElement | null
-      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === '1') allow()
-      else if (e.key === '2') deny()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callId, isFirstPending])
+  usePendingCardHotkeys({ active: isFirstPending, onApprove: allow, onDeny: deny })
 
   return (
     <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
@@ -961,18 +948,20 @@ function PendingMcpAction({
   server,
   toolName,
   input,
-  convoId
+  convoId,
+  isFirst
 }: {
   callId: string
   server: string
   toolName: string
   input: unknown
   convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
   const addPermissionRule = useAppStore((s) => s.addPermissionRule)
   const projectPath = useAppStore((s) => s.conversations[convoId]?.projectPath ?? null)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
   const [showAllow, setShowAllow] = useState(false)
   const label = `${server} · ${toolName}`
   // Render the call ARGUMENTS, not just the tool name: an "Ask" consent granted
@@ -984,21 +973,50 @@ function PendingMcpAction({
 
   const allowOnce = (): void => approveTool(callId, true)
   const deny = (): void => approveTool(callId, false)
+  const toggleAllow = (): void => setShowAllow((s) => !s)
 
-  useEffect(() => {
-    if (!isFirstPending) return undefined
-    const onKey = (e: KeyboardEvent): void => {
-      const target = e.target as HTMLElement | null
-      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === '1') allowOnce()
-      else if (e.key === '2') setShowAllow((s) => !s)
-      else if (e.key === '3') deny()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callId, isFirstPending])
+  usePendingCardHotkeys({
+    active: isFirstPending,
+    onApprove: allowOnce,
+    onDeny: deny,
+    onAlways: toggleAllow
+  })
+
+  const allowCells = [
+    {
+      key: 'server-global',
+      label: (
+        <>
+          Any tool on <span className="mono">{server}</span>, everywhere
+        </>
+      ),
+      onClick: (): void => {
+        addPermissionRule({ scope: 'global', action: 'mcp', match: `${server}.*`, effect: 'allow' })
+        approveTool(callId, true)
+      }
+    },
+    ...(projectPath
+      ? [
+          {
+            key: 'server-project',
+            label: (
+              <>
+                Any tool on <span className="mono">{server}</span>, this project only
+              </>
+            ),
+            onClick: (): void => {
+              addPermissionRule({
+                scope: { projectPath },
+                action: 'mcp',
+                match: `${server}.*`,
+                effect: 'allow'
+              })
+              approveTool(callId, true)
+            }
+          }
+        ]
+      : [])
+  ]
 
   return (
     <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
@@ -1016,45 +1034,12 @@ function PendingMcpAction({
           {isFirstPending ? <span className="opt-num">1</span> : null}
           Yes, allow this time
         </button>
-        <button className="approval-opt" onClick={() => setShowAllow((s) => !s)}>
+        <button className="approval-opt" onClick={toggleAllow}>
           {isFirstPending ? <span className="opt-num">2</span> : null}
           Yes, always allow
           <span className="opt-hint">save a rule instead of asking again</span>
         </button>
-        {showAllow ? (
-          <div className="allow-grid">
-            <button
-              className="allow-cell"
-              onClick={() => {
-                addPermissionRule({
-                  scope: 'global',
-                  action: 'mcp',
-                  match: `${server}.*`,
-                  effect: 'allow'
-                })
-                approveTool(callId, true)
-              }}
-            >
-              Any tool on <span className="mono">{server}</span>, everywhere
-            </button>
-            {projectPath ? (
-              <button
-                className="allow-cell"
-                onClick={() => {
-                  addPermissionRule({
-                    scope: { projectPath },
-                    action: 'mcp',
-                    match: `${server}.*`,
-                    effect: 'allow'
-                  })
-                  approveTool(callId, true)
-                }}
-              >
-                Any tool on <span className="mono">{server}</span>, this project only
-              </button>
-            ) : null}
-          </div>
-        ) : null}
+        {showAllow ? <AllowGrid cells={allowCells} /> : null}
         <button className="approval-opt" onClick={deny}>
           {isFirstPending ? <span className="opt-num">3</span> : null}
           No, deny it
@@ -1074,18 +1059,20 @@ function PendingIntegrationAction({
   provider,
   toolName,
   input,
-  convoId
+  convoId,
+  isFirst
 }: {
   callId: string
   provider: 'github' | 'bitbucket'
   toolName: string
   input: unknown
   convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
   const addPermissionRule = useAppStore((s) => s.addPermissionRule)
   const projectPath = useAppStore((s) => s.conversations[convoId]?.projectPath ?? null)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
   const [showAllow, setShowAllow] = useState(false)
   const providerLabel = provider === 'github' ? 'GitHub' : 'Bitbucket'
   const label = `${providerLabel} · ${toolName}`
@@ -1096,21 +1083,47 @@ function PendingIntegrationAction({
 
   const allowOnce = (): void => approveTool(callId, true)
   const deny = (): void => approveTool(callId, false)
+  const toggleAllow = (): void => setShowAllow((s) => !s)
 
-  useEffect(() => {
-    if (!isFirstPending) return undefined
-    const onKey = (e: KeyboardEvent): void => {
-      const target = e.target as HTMLElement | null
-      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === '1') allowOnce()
-      else if (e.key === '2') setShowAllow((s) => !s)
-      else if (e.key === '3') deny()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callId, isFirstPending])
+  usePendingCardHotkeys({
+    active: isFirstPending,
+    onApprove: allowOnce,
+    onDeny: deny,
+    onAlways: toggleAllow
+  })
+
+  const allowCells = [
+    {
+      key: 'provider-global',
+      label: `Any ${providerLabel} tool, everywhere`,
+      onClick: (): void => {
+        addPermissionRule({
+          scope: 'global',
+          action: 'integration',
+          match: `${provider}.*`,
+          effect: 'allow'
+        })
+        approveTool(callId, true)
+      }
+    },
+    ...(projectPath
+      ? [
+          {
+            key: 'provider-project',
+            label: `Any ${providerLabel} tool, this project only`,
+            onClick: (): void => {
+              addPermissionRule({
+                scope: { projectPath },
+                action: 'integration',
+                match: `${provider}.*`,
+                effect: 'allow'
+              })
+              approveTool(callId, true)
+            }
+          }
+        ]
+      : [])
+  ]
 
   return (
     <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
@@ -1128,45 +1141,12 @@ function PendingIntegrationAction({
           {isFirstPending ? <span className="opt-num">1</span> : null}
           Yes, allow this time
         </button>
-        <button className="approval-opt" onClick={() => setShowAllow((s) => !s)}>
+        <button className="approval-opt" onClick={toggleAllow}>
           {isFirstPending ? <span className="opt-num">2</span> : null}
           Yes, always allow
           <span className="opt-hint">save a rule instead of asking again</span>
         </button>
-        {showAllow ? (
-          <div className="allow-grid">
-            <button
-              className="allow-cell"
-              onClick={() => {
-                addPermissionRule({
-                  scope: 'global',
-                  action: 'integration',
-                  match: `${provider}.*`,
-                  effect: 'allow'
-                })
-                approveTool(callId, true)
-              }}
-            >
-              Any {providerLabel} tool, everywhere
-            </button>
-            {projectPath ? (
-              <button
-                className="allow-cell"
-                onClick={() => {
-                  addPermissionRule({
-                    scope: { projectPath },
-                    action: 'integration',
-                    match: `${provider}.*`,
-                    effect: 'allow'
-                  })
-                  approveTool(callId, true)
-                }}
-              >
-                Any {providerLabel} tool, this project only
-              </button>
-            ) : null}
-          </div>
-        ) : null}
+        {showAllow ? <AllowGrid cells={allowCells} /> : null}
         <button className="approval-opt" onClick={deny}>
           {isFirstPending ? <span className="opt-num">3</span> : null}
           No, deny it
@@ -1182,36 +1162,23 @@ function PendingEdit({
   path,
   requestedPath,
   verb,
-  convoId
+  isFirst
 }: {
   callId: string
   path: string
   requestedPath: string | null
   verb: string
-  convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
 
   const allow = (): void => approveTool(callId, true)
   const deny = (): void => approveTool(callId, false)
 
-  // Number keys answer the prompt, matching the option badges. Rule
-  // authoring for edits (the "always allow" panel) arrives with the Bb4
+  // Rule authoring for edits (the "always allow" panel) arrives with the Bb4
   // manager UI, so this card only ever has two options: allow once or deny.
-  useEffect(() => {
-    if (!isFirstPending) return undefined
-    const onKey = (e: KeyboardEvent): void => {
-      const target = e.target as HTMLElement | null
-      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === '1') allow()
-      else if (e.key === '2') deny()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callId, isFirstPending])
+  usePendingCardHotkeys({ active: isFirstPending, onApprove: allow, onDeny: deny })
 
   return (
     <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
@@ -1244,7 +1211,7 @@ function PendingEdit({
 }
 
 // The plan-review pending card (design 3.5): the third pending-card kind,
-// sharing useIsFirstPendingCard's single-active-card hotkey scheme with
+// sharing the single-active-card hotkey scheme (first-pending selector) with
 // PendingCommand/PendingEdit. Proceed resumes { proceed: true } over the
 // artifacts channel -- it never touches tools.approve and NEVER pre-approves
 // any command or edit (the Bb gates still run per call during implementation).
@@ -1252,16 +1219,16 @@ function PendingPlan({
   callId,
   title,
   artifactId,
-  convoId
+  isFirst
 }: {
   callId: string
   title: string
   artifactId: string | null
-  convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const resolvePlanReview = useAppStore((s) => s.resolvePlanReview)
   const openArtifactPane = useAppStore((s) => s.openArtifactPane)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
 
   const proceed = (): void => void resolvePlanReview(callId, true)
   const openPane = (): void => {

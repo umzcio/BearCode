@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import type { Event } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { useCmdHeld } from '../../lib/useCmdHeld'
@@ -7,7 +7,7 @@ import './events.css'
 
 type FileDiffEvent = Extract<Event, { type: 'file_diff' }>
 
-export function DiffCard({ event }: { event: FileDiffEvent }): React.JSX.Element {
+function DiffCardImpl({ event }: { event: FileDiffEvent }): React.JSX.Element {
   const [closed, setClosed] = useState(false)
   const openReview = useAppStore((s) => s.openReview)
   const openFile = useAppStore((s) => s.openFile)
@@ -64,3 +64,4 @@ export function DiffCard({ event }: { event: FileDiffEvent }): React.JSX.Element
     </div>
   )
 }
+export const DiffCard = memo(DiffCardImpl)

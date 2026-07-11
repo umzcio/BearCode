@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 
 // graph.ts imports ../db and ./checkpointer, which touch electron/sqlite at
 // call time; mock them (same pattern as graph.test.ts) so importing the module
@@ -30,7 +30,6 @@ import {
   isRehydratableInterrupt,
   type ApprovalItem
 } from './graph'
-import { mcpManager } from '../mcp/manager'
 
 describe('isRehydratableInterrupt — mcp kind', () => {
   it('re-surfaces a parked mcp approval on crash-resume', () => {
@@ -103,22 +102,15 @@ describe('deniedReplayPinsOf — mcp branch', () => {
   })
 })
 
-describe('toolResultOutput — mcp stash splice', () => {
-  beforeEach(() => {
-    mcpManager.stashResult('tcStash', 'x'.repeat(60000))
+describe('toolResultOutput — mcp hard cap (no stash bypass)', () => {
+  it('truncates a large mcp payload at 50000 chars (audit L-15)', () => {
+    const big = 'x'.repeat(60000)
+    const { output, truncated } = toolResultOutput('mcp__gh__get_issue', 'tcBig', big, true)
+    expect(output.length).toBe(50000 + '\n… output truncated'.length)
+    expect(truncated).toBe(true)
   })
-  it('returns the stashed mcp payload untruncated (take)', () => {
-    const { output, truncated } = toolResultOutput(
-      'mcp__gh__get_issue',
-      'tcStash',
-      'placeholder',
-      true
-    )
-    expect(output.length).toBe(60000)
-    expect(truncated).toBe(false)
-  })
-  it('falls back to model text when no stash present', () => {
-    expect(toolResultOutput('mcp__gh__get_issue', 'no-stash', 'ok', true)).toEqual({
+  it('passes small mcp payloads through untouched', () => {
+    expect(toolResultOutput('mcp__gh__get_issue', 'tcSmall', 'ok', true)).toEqual({
       output: 'ok',
       truncated: false
     })

@@ -14,10 +14,45 @@ export function ModelPicker(): React.JSX.Element {
   const modelMenuTick = useAppStore((s) => s.modelMenuTick)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [activeIndex, setActiveIndex] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const lastTick = useRef(modelMenuTick)
 
   const current = modelDisplay(providers, modelRef)
+
+  // Flatten the grouped/filtered menu into the navigable options, in the same
+  // order they render, so keyboard nav and the mouse click handlers commit
+  // the identical action.
+  const flatOptions: { id: string; commit: () => void }[] = []
+  providers.forEach((provider) => {
+    const dimmed = provider.requiresKey && !provider.keyConfigured
+    const models =
+      provider.id === 'openrouter' && search
+        ? provider.models.filter((m) => m.label.toLowerCase().includes(search.toLowerCase()))
+        : provider.models
+    if (!provider.reachable) return
+    if (dimmed) {
+      flatOptions.push({
+        id: `addkey-${provider.id}`,
+        commit: () => {
+          setOpen(false)
+          openSettings('providers')
+        }
+      })
+      return
+    }
+    models.forEach((model) => {
+      const ref = `${provider.id}/${model.id}`
+      flatOptions.push({
+        id: `model-${ref}`,
+        commit: () => {
+          selectModel(ref)
+          setOpen(false)
+        }
+      })
+    })
+  })
 
   // Cmd+/ toggles the menu. Compare against the last seen tick so this only
   // fires on a real tick change, not on mount or StrictMode's double-run.
@@ -43,6 +78,35 @@ export function ModelPicker(): React.JSX.Element {
     }
   }, [open])
 
+  useEffect(() => {
+    if (!open) return
+    const i = flatOptions.findIndex((o) => o.id === `model-${modelRef}`)
+    setActiveIndex(i >= 0 ? i : 0)
+    menuRef.current?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  const onMenuKey = (e: React.KeyboardEvent): void => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIndex((i) => Math.min(flatOptions.length - 1, i + 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIndex((i) => Math.max(0, i - 1))
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      setActiveIndex(0)
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      setActiveIndex(flatOptions.length - 1)
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      flatOptions[activeIndex]?.commit()
+    } else if (e.key === 'Escape') {
+      setOpen(false)
+    }
+  }
+
   return (
     <div className="model-picker" ref={rootRef}>
       <Hint label="Select Model" keys="⌘/" side="top" disabled={open}>
@@ -59,7 +123,14 @@ export function ModelPicker(): React.JSX.Element {
         </button>
       </Hint>
       {open ? (
-        <div className="menu model-menu">
+        <div
+          className="menu model-menu"
+          role="listbox"
+          ref={menuRef}
+          tabIndex={-1}
+          aria-activedescendant={`opt-${flatOptions[activeIndex]?.id}`}
+          onKeyDown={onMenuKey}
+        >
           {providers.map((provider) => {
             const dimmed = provider.requiresKey && !provider.keyConfigured
             const models =
@@ -92,26 +163,38 @@ export function ModelPicker(): React.JSX.Element {
                     <span>{provider.note ?? 'Not reachable'}</span>
                   </div>
                 ) : dimmed ? (
-                  <div
-                    className="menu-item add-key"
-                    onClick={() => {
-                      setOpen(false)
-                      openSettings('providers')
-                    }}
-                  >
-                    <span>Add API key</span>
-                  </div>
+                  (() => {
+                    const idx = flatOptions.findIndex((o) => o.id === `addkey-${provider.id}`)
+                    return (
+                      <div
+                        id={`opt-addkey-${provider.id}`}
+                        role="option"
+                        aria-selected={false}
+                        className={'menu-item add-key' + (idx === activeIndex ? ' active' : '')}
+                        onClick={() => flatOptions[idx]?.commit()}
+                        onMouseEnter={() => setActiveIndex(idx)}
+                      >
+                        <span>Add API key</span>
+                      </div>
+                    )
+                  })()
                 ) : (
                   models.map((model) => {
                     const ref = `${provider.id}/${model.id}`
+                    const idx = flatOptions.findIndex((o) => o.id === `model-${ref}`)
                     return (
                       <div
                         key={model.id}
-                        className={'menu-item' + (ref === modelRef ? ' selected' : '')}
-                        onClick={() => {
-                          selectModel(ref)
-                          setOpen(false)
-                        }}
+                        id={`opt-model-${ref}`}
+                        role="option"
+                        aria-selected={ref === modelRef}
+                        className={
+                          'menu-item' +
+                          (ref === modelRef ? ' selected' : '') +
+                          (idx === activeIndex ? ' active' : '')
+                        }
+                        onClick={() => flatOptions[idx]?.commit()}
+                        onMouseEnter={() => setActiveIndex(idx)}
                       >
                         <span>{model.label}</span>
                         {provider.id === 'ollama' ? (

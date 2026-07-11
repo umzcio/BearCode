@@ -1,8 +1,9 @@
+import { memo } from 'react'
 import { Markdown } from '../../lib/markdown'
 import { useAppStore } from '../../state/store'
 import './events.css'
 
-export function AssistantText({
+function AssistantTextImpl({
   text,
   streaming,
   convoId
@@ -24,3 +25,4 @@ export function AssistantText({
     </div>
   )
 }
+export const AssistantText = memo(AssistantTextImpl)

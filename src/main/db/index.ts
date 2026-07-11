@@ -17,7 +17,6 @@ import type {
   PermissionMode,
   PermissionRule,
   HistoryHit,
-  Project,
   ProjectSettings,
   FolderProject,
   WorktreeInfo,
@@ -460,23 +459,29 @@ export function createConversation(projectPath: string | null, id?: string): Con
 }
 
 export function listConversations(): ConversationMeta[] {
-  const rows = getDb()
-    .prepare(`SELECT * FROM conversations ORDER BY updated_at DESC`)
-    .all() as ConversationRow[]
   // The first user message serves two browse-list needs: a fallback title when
   // none was generated, and a preview snippet. Sourcing the preview here (from
   // the DB) means the History browse list can show it even for conversations
-  // never opened this session, whose in-memory events array is empty.
-  const firstMsg = getDb().prepare(
-    `SELECT payload FROM events WHERE conversation_id = ? AND type = 'user_message'
-     ORDER BY seq ASC LIMIT 1`
-  )
+  // never opened this session, whose in-memory events array is empty. Folded
+  // into one correlated subquery (audit L-16 / #45) instead of a per-row
+  // firstMsg.get() -- the idx_events_convo (conversation_id, seq) index makes
+  // this cheap.
+  const rows = getDb()
+    .prepare(
+      `SELECT c.*, (
+         SELECT e.payload FROM events e
+         WHERE e.conversation_id = c.id AND e.type = 'user_message'
+         ORDER BY e.seq ASC LIMIT 1
+       ) AS first_msg
+       FROM conversations c
+       ORDER BY c.updated_at DESC`
+    )
+    .all() as (ConversationRow & { first_msg: string | null })[]
   return rows.map((row) => {
-    const msg = firstMsg.get(row.id) as { payload: string } | undefined
     let firstText: string | null = null
-    if (msg) {
+    if (row.first_msg) {
       try {
-        firstText = (JSON.parse(msg.payload) as { text: string }).text
+        firstText = (JSON.parse(row.first_msg) as { text: string }).text
       } catch {
         // A single corrupt payload row must not break the entire conversation
         // list at boot -- degrade to no preview/fallback for this row instead
@@ -519,6 +524,26 @@ export function getEvents(conversationId: string): Event[] {
     }
     return event
   })
+}
+
+// The last auto-compaction cutoff marker for a conversation, read directly by
+// seq rather than folding the whole history in memory (audit H-8). Uses the
+// idx_events_convo (conversation_id, seq) index.
+export function getLastCompactionEvent(conversationId: string): { summarizedCount: number } | null {
+  const row = getDb()
+    .prepare(
+      `SELECT payload FROM events
+       WHERE conversation_id = ? AND type = 'compaction'
+       ORDER BY seq DESC LIMIT 1`
+    )
+    .get(conversationId) as { payload: string } | undefined
+  if (!row) return null
+  try {
+    const ev = JSON.parse(row.payload) as { summarizedCount: number }
+    return { summarizedCount: ev.summarizedCount }
+  } catch {
+    return null
+  }
 }
 
 export function appendEvent(conversationId: string, event: Event): void {
@@ -685,94 +710,6 @@ export function setActiveRules(conversationId: string, names: string[]): void {
   getDb()
     .prepare(`UPDATE conversations SET active_rules = ?, updated_at = ? WHERE id = ?`)
     .run(JSON.stringify(names), Date.now(), conversationId)
-}
-
-interface ProjectRow {
-  id: string
-  name: string
-  color: string | null
-  icon: string | null
-  default_model_ref: string | null
-  default_effort: string | null
-  default_permission_mode: string | null
-  created_at: number
-  updated_at: number
-}
-
-// Map a projects row → Project. F9 settings columns are coerced: an effort/mode
-// value outside its enum (a downgrade or hand-edit) reads as null (inherit
-// global) rather than poisoning the resolver.
-function rowToProject(r: ProjectRow): Project {
-  return {
-    id: r.id,
-    name: r.name,
-    color: r.color ?? null,
-    icon: r.icon ?? null,
-    defaultModelRef: r.default_model_ref ?? null,
-    defaultEffort: isEffortLevel(r.default_effort) ? r.default_effort : null,
-    // 'bypass' is never a valid default (design §5): coerce it (and garbage) to
-    // null so a hand-edited column can't start conversations in bypass.
-    defaultPermissionMode: isSelectableDefaultMode(r.default_permission_mode)
-      ? r.default_permission_mode
-      : null,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at
-  }
-}
-
-export function listProjects(): Project[] {
-  const rows = getDb()
-    .prepare(`SELECT * FROM projects ORDER BY updated_at DESC`)
-    .all() as ProjectRow[]
-  return rows.map(rowToProject)
-}
-
-export function getProject(id: string): Project | null {
-  const row = getDb().prepare(`SELECT * FROM projects WHERE id = ?`).get(id) as
-    ProjectRow | undefined
-  return row ? rowToProject(row) : null
-}
-
-// Update only the columns present in `patch` (undefined keys are left untouched;
-// a null clears an override). Enum values are coerced/dropped so an invalid
-// effort/mode can never persist. No-op when the patch has no settable keys.
-export function updateProjectSettings(id: string, patch: ProjectSettings): void {
-  const cols: string[] = []
-  const vals: (string | number | null)[] = []
-  const set = (col: string, v: string | number | null): void => {
-    cols.push(`${col} = ?`)
-    vals.push(v)
-  }
-  // A string column coerces a non-string, non-null value to null rather than
-  // binding a number/object (which SQLite would happily store and then read
-  // back typed as string).
-  const setStr = (col: string, v: unknown): void => set(col, typeof v === 'string' ? v : null)
-  if (patch.color !== undefined) setStr('color', patch.color)
-  if (patch.icon !== undefined) setStr('icon', patch.icon)
-  if (patch.defaultModelRef !== undefined) setStr('default_model_ref', patch.defaultModelRef)
-  if (patch.defaultEffort !== undefined) {
-    set('default_effort', isEffortLevel(patch.defaultEffort) ? patch.defaultEffort : null)
-  }
-  if (patch.defaultPermissionMode !== undefined) {
-    // Selectable-default guard, NOT isPermissionMode: 'bypass' can never be a
-    // per-project default, so it (and garbage) coerces to null on write.
-    set(
-      'default_permission_mode',
-      isSelectableDefaultMode(patch.defaultPermissionMode) ? patch.defaultPermissionMode : null
-    )
-  }
-  // Sandbox Mode parity (projects-table twin of upsertProjectSettings' handling;
-  // harmless additive — see the ALTER above).
-  if (patch.sandboxMode !== undefined) {
-    set('sandbox_mode', patch.sandboxMode === true ? 1 : 0)
-  }
-  if (patch.sandboxAllowNetwork !== undefined) {
-    set('sandbox_allow_network', patch.sandboxAllowNetwork === true ? 1 : 0)
-  }
-  if (cols.length === 0) return
-  getDb()
-    .prepare(`UPDATE projects SET ${cols.join(', ')}, updated_at = ? WHERE id = ?`)
-    .run(...vals, Date.now(), id)
 }
 
 // ---- F9 folder = project: per-folder settings keyed by workspace path ----
@@ -984,50 +921,6 @@ export function listOutsidePaths(path: string): OutsideAccessInfo {
 export function getOutsidePolicy(path: string): OutsidePolicy {
   const l = listOutsidePaths(path)
   return { policy: l.policy, allowed: l.allowed, denied: l.denied }
-}
-
-export function createProject(name: string, color: string | null = null): Project {
-  const now = Date.now()
-  const id = randomUUID()
-  getDb()
-    .prepare(
-      `INSERT INTO projects (id, name, color, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`
-    )
-    .run(id, name, color, now, now)
-  // F9: seed the new project from the "default for new projects" template, if
-  // one is set. An explicit `color` arg wins over the template's color.
-  const template = getSettings().newProjectDefaults
-  if (template) {
-    const seed = { ...template }
-    if (color !== null) delete seed.color
-    updateProjectSettings(id, seed)
-  }
-  return getProject(id) as Project
-}
-
-export function renameProject(id: string, name: string): void {
-  getDb()
-    .prepare(`UPDATE projects SET name = ?, updated_at = ? WHERE id = ?`)
-    .run(name, Date.now(), id)
-}
-
-// Unassign the project's conversations, then delete the project — one
-// transaction so a conversation can never point at a deleted project id.
-export function deleteProject(id: string): void {
-  const database = getDb()
-  database.transaction(() => {
-    database
-      .prepare(`UPDATE conversations SET project_id = NULL, updated_at = ? WHERE project_id = ?`)
-      .run(Date.now(), id)
-    database.prepare(`DELETE FROM projects WHERE id = ?`).run(id)
-  })()
-}
-
-export function setConversationProject(conversationId: string, projectId: string | null): void {
-  getDb()
-    .prepare(`UPDATE conversations SET project_id = ?, updated_at = ? WHERE id = ?`)
-    .run(projectId, Date.now(), conversationId)
 }
 
 export function setPinned(conversationId: string, pinned: boolean): void {

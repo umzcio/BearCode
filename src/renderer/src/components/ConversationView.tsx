@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AttachmentRef, Event } from '@shared/types'
+import type { AttachmentRef } from '@shared/types'
 import { useAppStore, workedSecondsByTurn } from '../state/store'
 import { Composer } from './Composer/Composer'
 import { RunStatusBar } from './RunStatusBar/RunStatusBar'
@@ -14,62 +14,8 @@ import { IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
 import { Hint } from './Hint'
 import { messageTimestamp } from '../lib/time'
 import { attachmentBadge } from '../lib/attachmentBadge'
+import { groupTurnsIncremental, type TranscriptState } from '../lib/transcript'
 import './ConversationView.css'
-
-interface Turn {
-  user: Extract<Event, { type: 'user_message' }>
-  steps: Event[]
-  texts: Extract<Event, { type: 'assistant_text' }>[]
-  diffs: Extract<Event, { type: 'file_diff' }>[]
-  artifacts: Extract<Event, { type: 'artifact' }>[]
-  errors: Extract<Event, { type: 'error' }>[]
-  done: boolean
-}
-
-// A transcript is a stream of turns interleaved with top-level markers. Today
-// the only marker is `compaction` (auto-compaction folded the oldest messages
-// into a summary); it sits between turns in stream order, like a divider.
-type TranscriptItem =
-  { kind: 'turn'; turn: Turn } | { kind: 'compaction'; id: string; summarizedCount: number }
-
-function groupTurns(events: Event[]): TranscriptItem[] {
-  const items: TranscriptItem[] = []
-  let current: Turn | null = null
-  for (const ev of events) {
-    if (ev.type === 'user_message') {
-      current = {
-        user: ev,
-        steps: [],
-        texts: [],
-        diffs: [],
-        artifacts: [],
-        errors: [],
-        done: false
-      }
-      // Push the live object by reference so later events mutating `current`
-      // (steps/texts/done) are reflected in the rendered item.
-      items.push({ kind: 'turn', turn: current })
-    } else if (ev.type === 'compaction') {
-      // Additive & optional: older streams never carry this, so nothing renders.
-      items.push({ kind: 'compaction', id: ev.id, summarizedCount: ev.summarizedCount })
-    } else if (current) {
-      if (ev.type === 'thinking' || ev.type === 'tool_call' || ev.type === 'tool_result') {
-        current.steps.push(ev)
-      } else if (ev.type === 'assistant_text') {
-        current.texts.push(ev)
-      } else if (ev.type === 'file_diff') {
-        current.diffs.push(ev)
-      } else if (ev.type === 'artifact') {
-        current.artifacts.push(ev)
-      } else if (ev.type === 'error') {
-        current.errors.push(ev)
-      } else if (ev.type === 'turn_meta') {
-        current.done = true
-      }
-    }
-  }
-  return items
-}
 
 // A transcript attachment pill (Task 7). A reloaded transcript only carries
 // the persisted AttachmentRef (id/name/mime) -- never bytes -- so the real
@@ -139,7 +85,22 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const consumedFocusRef = useRef<string | null>(null)
 
   const running = convo.runState === 'running' || convo.runState === 'awaiting-approval'
-  const items = groupTurns(convo.events)
+  const transcriptRef = useRef<TranscriptState | null>(null)
+  // Deliberate derive-from-previous-render pattern (audit H-9): reading and
+  // immediately overwriting the ref during render is idempotent for identical
+  // inputs (groupTurnsIncremental returns `prev` unchanged when convo.events
+  // is referentially the same), so this is safe under StrictMode's double-
+  // render and does not leak state across renders the way ordinary ref
+  // mutation would. eslint-plugin-react-hooks's newer react-hooks/refs rule
+  // flags any ref read/write during render on principle; disabled here with
+  // rationale rather than restructuring into an effect (which would drop a
+  // render and reintroduce the unmemoized full-conversation flash this task
+  // exists to fix).
+  // eslint-disable-next-line react-hooks/refs
+  const transcript = groupTurnsIncremental(transcriptRef.current, convo.events)
+  // eslint-disable-next-line react-hooks/refs
+  transcriptRef.current = transcript
+  const items = transcript.items
   // The last *turn* is the live one; compaction markers never count as "last".
   const lastTurnIdx = items.reduce((acc, it, idx) => (it.kind === 'turn' ? idx : acc), -1)
 

@@ -29,6 +29,7 @@ import { SettingPlaceholder } from './SettingPlaceholder'
 import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
 import type { SettingsPageId } from './SettingsNav'
 import { Select } from '../Select'
+import { useModalDialog } from '../../lib/useModalDialog'
 import './Settings.css'
 
 const SHORTCUTS: { label: string; keys: string[] }[] = [
@@ -110,6 +111,7 @@ function SettingsPanel({
 }): React.JSX.Element {
   const close = useAppStore((s) => s.closeSettings)
   const setAppearance = useAppStore((s) => s.setAppearance)
+  const { ref: dialogRef, dialogProps } = useModalDialog(close)
 
   const [page, setPage] = useState<SettingsPageId>(() => {
     const ids = [...SETTINGS_NAV.flatMap((g) => g.items), ...SETTINGS_FOOTER].map((i) => i.id)
@@ -144,7 +146,7 @@ function SettingsPanel({
 
   return (
     <div className="modal-overlay open" onClick={(e) => e.target === e.currentTarget && close()}>
-      <div className="settings-panel">
+      <div className="settings-panel" ref={dialogRef} {...dialogProps} aria-label="Settings">
         <div className="settings-rail">
           {SETTINGS_NAV.map((group) => (
             <div className="rail-group" key={group.label ?? 'ungrouped'}>

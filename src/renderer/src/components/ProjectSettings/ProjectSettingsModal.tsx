@@ -4,6 +4,7 @@ import type { EffortLevel, FolderProject, OutsideFolderAccess, PermissionMode } 
 import { EFFORT_LEVELS, EFFORT_LABELS } from '@shared/effort'
 import { useAppStore } from '../../state/store'
 import { Select } from '../Select'
+import { useModalDialog } from '../../lib/useModalDialog'
 import { SettingPlaceholder } from '../Settings/SettingPlaceholder'
 import {
   IconClose,
@@ -82,6 +83,8 @@ function ProjectSettingsPanel({ folder }: { folder: FolderProject }): JSX.Elemen
   const setAsNewProjectDefault = useAppStore((s) => s.setAsNewProjectDefault)
 
   const [page, setPage] = useState<PageId>('general')
+  const { ref: dialogRef, dialogProps } = useModalDialog(close)
+  const titleId = 'project-settings-title'
   const isMac = isMacPlatform()
   const folderName = basename(folder.path)
   const displayName = folder.name ?? folderName
@@ -121,10 +124,12 @@ function ProjectSettingsPanel({ folder }: { folder: FolderProject }): JSX.Elemen
 
   return (
     <div className="modal-overlay open" onClick={(e) => e.target === e.currentTarget && close()}>
-      <div className="settings-panel">
+      <div className="settings-panel" ref={dialogRef} {...dialogProps} aria-labelledby={titleId}>
         <div className="settings-rail">
           <div className="rail-group">
-            <div className="rail-group-label">{displayName}</div>
+            <div className="rail-group-label" id={titleId}>
+              {displayName}
+            </div>
             {PS_NAV.map((item) => {
               const Icon = item.icon
               return (

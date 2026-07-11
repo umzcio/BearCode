@@ -89,7 +89,7 @@ interface ServerEntry {
   tools: McpAdapterTool[]
 }
 
-class McpManager {
+export class McpManager {
   private servers = new Map<string, ServerEntry>()
   private projectProvider: () => string | null = () => null
 
@@ -108,6 +108,13 @@ class McpManager {
   // tab, breaking the first token exchange. We dedupe here: a second sign-in for
   // the same server returns the in-flight promise instead of starting a new flow.
   private inFlightAuth = new Map<string, Promise<McpServerStatus>>()
+
+  // In-flight connect per server. enable() is the ONLY MultiServerMCPClient
+  // construction path; three triggers (toggle IPC, connect-on-demand callTool,
+  // ensureEnabledConnected) can race it. Without this, the losing client (and any
+  // spawned stdio child) is overwritten in this.servers and leaked. Mirrors
+  // inFlightAuth. (audit M-2)
+  private inFlightEnable = new Map<string, Promise<McpServerStatus>>()
 
   private oauthProviderFor(name: string): McpOAuthProvider {
     let p = this.oauthProviders.get(name)
@@ -151,6 +158,22 @@ class McpManager {
   }
 
   async enable(
+    name: string,
+    projectPath: string | null,
+    opts?: { interactive?: boolean }
+  ): Promise<McpServerStatus> {
+    const inFlight = this.inFlightEnable.get(name)
+    if (inFlight) return inFlight
+    const flow = this.enableInner(name, projectPath, opts)
+    this.inFlightEnable.set(name, flow)
+    try {
+      return await flow
+    } finally {
+      this.inFlightEnable.delete(name)
+    }
+  }
+
+  private async enableInner(
     name: string,
     projectPath: string | null,
     opts?: { interactive?: boolean }
@@ -441,25 +464,6 @@ class McpManager {
     this.inFlightAuth.clear()
     this.servers.clear()
     this.lastStatus.clear()
-    this.stash.clear()
-  }
-
-  // Out-of-band large-payload channel (mirrors browserManager's screenshot
-  // stash, manager.ts:263-277): a tool that returns a large result stashes
-  // it here keyed by the provider tool-call id and returns a short
-  // placeholder to the model; graph.ts splices the stashed payload into the
-  // persisted tool_result for the step card.
-  private stash = new Map<string, string>()
-  stashResult(toolCallId: string, payload: string): void {
-    this.stash.set(toolCallId, payload)
-  }
-  peekStashedResult(toolCallId: string): string | undefined {
-    return this.stash.get(toolCallId)
-  }
-  takeStashedResult(toolCallId: string): string | undefined {
-    const payload = this.stash.get(toolCallId)
-    this.stash.delete(toolCallId)
-    return payload
   }
 }
 

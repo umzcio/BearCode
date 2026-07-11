@@ -62,6 +62,8 @@ export function Hint({
       onMouseEnter={show}
       onMouseLeave={hide}
       onMouseDown={hide}
+      onFocus={show}
+      onBlur={hide}
     >
       {children}
       {pos && !disabled

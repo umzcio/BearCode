@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import type { Event } from '@shared/types'
 import { Markdown } from '../../lib/markdown'
 import { useAppStore } from '../../state/store'
@@ -25,7 +25,7 @@ export const ARTIFACT_STATUS_LABELS = {
 // markdown pipeline as chat prose (lib/markdown.tsx: no raw HTML ever touches
 // the DOM). Proceed/Review actions and comments arrive with Ba2; this card
 // only displays.
-export function ArtifactCard({ event }: { event: ArtifactEvent }): React.JSX.Element {
+function ArtifactCardImpl({ event }: { event: ArtifactEvent }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const openArtifactPane = useAppStore((s) => s.openArtifactPane)
   return (
@@ -58,3 +58,4 @@ export function ArtifactCard({ event }: { event: ArtifactEvent }): React.JSX.Ele
     </div>
   )
 }
+export const ArtifactCard = memo(ArtifactCardImpl)

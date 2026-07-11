@@ -244,13 +244,6 @@ describe('mcpManager', () => {
     expect(MultiServerMCPClientMock).toHaveBeenCalled()
   })
 
-  it('stashResult/peekStashedResult/takeStashedResult mirror a take-once cache', () => {
-    mcpManager.stashResult('call-1', 'payload')
-    expect(mcpManager.peekStashedResult('call-1')).toBe('payload')
-    expect(mcpManager.takeStashedResult('call-1')).toBe('payload')
-    expect(mcpManager.takeStashedResult('call-1')).toBeUndefined()
-  })
-
   it('authorize() coalesces a concurrent double-click onto ONE OAuth flow', async () => {
     // The first auth() call blocks until we release it, so the flow stays
     // in-flight while a second authorize() arrives (the double-click the review

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import type { Event } from '@shared/types'
 import { subagentLabel } from '@shared/agentId'
 import { ThinkingPaw } from '../brand/ThinkingPaw'
@@ -35,7 +35,7 @@ function AgentAttributed({
   )
 }
 
-export function WorkedGroup({
+function WorkedGroupImpl({
   steps,
   live,
   startedAt,
@@ -110,3 +110,4 @@ export function WorkedGroup({
     </>
   )
 }
+export const WorkedGroup = memo(WorkedGroupImpl)
