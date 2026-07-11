@@ -63,7 +63,6 @@ export const ATTACHMENT_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', '
 // D5 per-lane allowlists. Binary lanes are byte-sniffed; the text lane is
 // routed by extension + a UTF-8-clean gate (never trusts the extension for a
 // path or a binary decode).
-export const IMAGE_MIME_TYPES = ATTACHMENT_MIME_TYPES
 export const PDF_MIME = 'application/pdf'
 export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
