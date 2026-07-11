@@ -27,6 +27,7 @@ import type {
   PermissionMode,
   PlanReviewResolveResult,
   ProviderId,
+  SkillSaveResult,
   ToolName
 } from '../../shared/types'
 import { PDF_MIME } from '../../shared/types'
@@ -92,7 +93,8 @@ import {
   clearDeniedReplayPins,
   clearPlanReviewPending,
   pinDeniedReplays,
-  type PlanReviewResolution
+  type PlanReviewResolution,
+  type SkillProposalResolution
 } from './tools'
 import { browserManager } from '../browser/manager'
 import { mcpManager } from '../mcp/manager'
@@ -516,6 +518,7 @@ export function interruptBelongsToToolCall(
         tool?: string
         path?: string
         title?: string
+        name?: string
         toolCallId?: unknown
       }
     | null
@@ -585,6 +588,15 @@ export function interruptBelongsToToolCall(
     }
     if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
     return false
+  }
+  if (value?.kind === 'propose_skill') {
+    // A propose_skill approval pairs ONLY to a propose_skill call (G-skills
+    // Task 8, mirror of plan_review): match by toolCallId when present (live,
+    // tools.ts always supplies one), else fall back to the proposed name --
+    // the payload's `name` is the zod-parsed name the tool received, verbatim.
+    if (tc.name !== 'propose_skill') return false
+    if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
+    return (tc.args as { name?: unknown } | null | undefined)?.name === value.name
   }
   return true
 }
@@ -699,6 +711,9 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
         resolvedPath?: string
         artifactId?: unknown
         title?: string
+        name?: string
+        description?: string
+        body?: string
         toolCallId?: unknown
       }
     | null
@@ -751,6 +766,21 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
         : 'github_list_repos'
     ) as ToolName
     return { tool, input: value.input ?? {}, toolCallId }
+  }
+  if (value?.kind === 'propose_skill') {
+    // The card is built from the payload alone (name/description/body) so the
+    // pending tool_call event carries the proposal for the renderer's inline
+    // editable card (design 4.5) -- the toolCallId (when present) is what
+    // interruptBelongsToToolCall paired on above.
+    return {
+      tool: 'propose_skill',
+      input: {
+        name: typeof value.name === 'string' ? value.name : '',
+        description: typeof value.description === 'string' ? value.description : '',
+        body: typeof value.body === 'string' ? value.body : ''
+      },
+      toolCallId
+    }
   }
   if (value?.kind === 'plan_review') {
     // The card is built from the payload alone: title for the copy, artifactId
@@ -842,6 +872,9 @@ export function pairedApprovalInput(interruptValue: unknown, args: unknown): unk
   if (value?.kind === 'mcp') return args
   // Integration cards likewise carry the streamed tool args verbatim.
   if (value?.kind === 'integration') return args
+  // propose_skill cards likewise carry the streamed { name, description, body }
+  // verbatim -- no jail-resolved path to reconcile, like mcp/integration.
+  if (value?.kind === 'propose_skill') return args
   // edit_file and read_file (F8) share the resolved-path enrichment so the
   // paired live card also shows the TRUE target instead of the raw agent string
   // (a symlink inside the workspace can make an outside read look in-project).
@@ -870,17 +903,25 @@ export interface ApprovalItem {
   // submit_plan interrupt -- the kind-branched resume shape. Command/edit
   // items keep using `decision`; the two are mutually exclusive.
   planReview?: { artifactId: string; resolution?: PlanReviewResolution }
+  // Present iff this card is a propose_skill pause (G-skills Task 8), mirror of
+  // planReview above. `resolution` is recorded by resolveSkillProposalInterrupt
+  // and is what buildResumeMap delivers to the suspended propose_skill
+  // interrupt. Mutually exclusive with `decision`/`planReview`.
+  skillProposal?: { resolution?: SkillProposalResolution }
 }
 
 // All-answered detection for collect-then-resume: the batch keyed resume is
 // dispatched only once every card has a decision. A plan card is decided by
-// its recorded PlanReviewResolution, never by the boolean `decision` field.
-// Exported for tests.
+// its recorded PlanReviewResolution, never by the boolean `decision` field. A
+// skill-proposal card mirrors this: decided only by its recorded
+// SkillProposalResolution. Exported for tests.
 export function allDecided(items: ReadonlyMap<string, ApprovalItem>): boolean {
   for (const item of items.values()) {
-    const decided = item.planReview
-      ? item.planReview.resolution !== undefined
-      : item.decision !== undefined
+    const decided = item.skillProposal
+      ? item.skillProposal.resolution !== undefined
+      : item.planReview
+        ? item.planReview.resolution !== undefined
+        : item.decision !== undefined
     if (!decided) return false
   }
   return true
@@ -898,14 +939,19 @@ export function allDecided(items: ReadonlyMap<string, ApprovalItem>): boolean {
 // tests). Fail-safes: undecided commands resume denied (unchanged); an
 // undecided plan item resumes with design 3.5's deny-all value
 // { proceed: false, feedback: 'The user stopped the run.' } -- unreachable
-// via allDecided, but the honest value if it ever dispatches.
-export type ResumeValue = { approved: boolean } | PlanReviewResolution
+// via allDecided, but the honest value if it ever dispatches. A skillProposal
+// item mirrors the plan branch: it gets its SkillProposalResolution, with an
+// undecided item failing safe to { save: false } (the discard variant) rather
+// than ever silently saving.
+export type ResumeValue = { approved: boolean } | PlanReviewResolution | SkillProposalResolution
 export function buildResumeMap(
   items: ReadonlyMap<string, ApprovalItem>
 ): Record<string, ResumeValue> {
   const resume: Record<string, ResumeValue> = {}
   for (const item of items.values()) {
-    if (item.planReview) {
+    if (item.skillProposal) {
+      resume[item.interruptId] = item.skillProposal.resolution ?? { save: false }
+    } else if (item.planReview) {
       resume[item.interruptId] = item.planReview.resolution ?? {
         proceed: false,
         feedback: 'The user stopped the run.'
@@ -937,7 +983,11 @@ export function resolvedToolCallEvents(
     tool: item.tool,
     input: item.input,
     approvalState: (
-      item.planReview ? item.planReview.resolution?.proceed === true : item.decision === true
+      item.skillProposal
+        ? item.skillProposal.resolution?.save === true
+        : item.planReview
+          ? item.planReview.resolution?.proceed === true
+          : item.decision === true
     )
       ? 'approved'
       : 'denied'
@@ -1884,6 +1934,33 @@ export function resolvePlanInterrupt(
   return 'resolved'
 }
 
+// Resolves ONE propose_skill card (G-skills Task 8), called from
+// resolveSkillProposalOrchestrator (IPC bearcode:skills:save). Mirror of
+// resolvePlanInterrupt above: the kind cross-guard (item.skillProposal) means
+// this channel can never resolve a command/edit/plan card, and the resolution
+// is recorded verbatim (unlike plan_review, there is no durable comments store
+// to compose here -- the renderer sends the final name/description/body/scope
+// already edited, or the discard variant). SECURITY: this touches only the
+// parked item and the events table; the actual disk write happens in the
+// tool body AFTER the resumed interrupt() returns, never here.
+export function resolveSkillProposalInterrupt(
+  conversationId: string,
+  callId: string,
+  resolution: SkillProposalResolution
+): SkillSaveResult {
+  const pending = pendingApprovals.get(conversationId)
+  if (!pending) return 'stale'
+  const item = pending.items.get(callId)
+  if (!item?.skillProposal || item.skillProposal.resolution !== undefined) return 'stale'
+  if (pending.signal.aborted) {
+    pendingApprovals.delete(conversationId)
+    return 'stale'
+  }
+  item.skillProposal.resolution = resolution
+  finalizeDecision(pending, callId, item, resolution.save === true ? 'approved' : 'denied')
+  return 'resolved'
+}
+
 // TEST-ONLY SEAM for graph.test.ts: pendingApprovals is module-private and
 // the real park paths (settleTurn/rehydratePausedRun) need a live graph, so
 // the resolution-channel cross-guard tests seed a synthetic parked set here.
@@ -2466,7 +2543,11 @@ export function isRehydratableInterrupt(value: unknown): boolean {
     kind === 'mcp' ||
     // Integration approvals (github_*) resume with the identical {approved}
     // shape as MCP/browser, so they are equally crash-resumable.
-    kind === 'integration'
+    kind === 'integration' ||
+    // propose_skill (G-skills Task 8) is rehydratable like plan_review -- its
+    // resume carries a SkillProposalResolution, not {approved} -- so a parked
+    // /learn proposal is not dropped to 'cancelled' by a crash/restart either.
+    kind === 'propose_skill'
   )
 }
 

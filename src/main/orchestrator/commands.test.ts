@@ -29,6 +29,13 @@ describe('listCommands', () => {
     expect(browser?.status).toBe('live')
   })
 
+  it('reports the learn built-in as live (G-skills Task 8)', () => {
+    const learn = BUILTIN_COMMANDS.find((c) => c.name === 'learn')
+    expect(learn?.status).toBe('live')
+    const result = listCommands(content([]))
+    expect(result.find((c) => c.name === 'learn')?.status).toBe('live')
+  })
+
   it('lists non-erroring workflows alphabetically after the built-ins', () => {
     const b = workflow({ name: 'beta', description: 'second' })
     const a = workflow({ name: 'alpha', description: 'first' })

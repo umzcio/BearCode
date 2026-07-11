@@ -24,6 +24,7 @@ import type {
   RunState,
   SettingsInfo,
   SkillInfo,
+  SkillProposalResolution,
   WorktreeInfo
 } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
@@ -390,6 +391,7 @@ interface AppState {
   loadArtifactComments(artifactId: string): Promise<void>
   addArtifactComment(artifactId: string, quote: string | null, body: string): Promise<void>
   resolvePlanReview(callId: string, proceed: boolean, message?: string): Promise<boolean>
+  resolveSkillProposal(callId: string, resolution: SkillProposalResolution): Promise<void>
   closeReview(): void
   showToast(message: string, action?: { label: string; run: () => void }): void
   dismissToast(): void
@@ -1307,6 +1309,19 @@ export const useAppStore = create<AppState>((set, get) => {
         }
       }
       return result === 'resolved'
+    },
+
+    // propose_skill resolves over its own channel too (bearcode:skills:save),
+    // mirroring resolvePlanReview: main-side kind cross-guards keep this
+    // mutually exclusive from tools.approve. 'stale' is the only failure
+    // discriminant (no needs-substance analog); the terminal tool_call event
+    // re-renders the card as resolved either way, so a successful save is a
+    // no-op here beyond dismissing the toast path.
+    resolveSkillProposal: async (callId, resolution) => {
+      const result = await window.bearcode.skills.save(callId, resolution)
+      if (result === 'stale') {
+        get().showToast('This skill proposal is no longer pending')
+      }
     },
 
     closeReview: () => set({ auxSelection: null, reviewFocusPath: null }),

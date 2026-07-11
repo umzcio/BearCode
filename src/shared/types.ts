@@ -162,6 +162,29 @@ export interface SkillInput {
   scope: 'project' | 'global'
 }
 
+// The propose_skill tool's interrupt payload (Task 8): the model's drafted
+// name/description/body, before the user has edited or scoped it.
+export interface ProposedSkill {
+  name: string
+  description: string
+  body: string
+}
+
+// The renderer's resolution of a pending propose_skill card (Task 8), mirror
+// of PlanReviewResolution's truthy-object contract: both variants are truthy
+// (LangGraph's mapCommand drops falsy resume values), so a discarded proposal
+// still resumes with { save: false } rather than an empty/undefined value.
+// The user may have EDITED name/description/body and picked a scope; these
+// final values ride the resolution, never the tool's original args.
+export type SkillProposalResolution =
+  | { save: true; name: string; description: string; body: string; scope: 'project' | 'global' }
+  | { save: false }
+
+// The discriminant bearcode:skills:save returns: 'resolved' once the card is
+// answered and the resolution recorded, 'stale' when no matching pending
+// propose_skill card exists (already answered / conversation gone).
+export type SkillSaveResult = 'resolved' | 'stale'
+
 // The slash menu's read model (design 6.1/6.2, D2 Task 2). Produced by
 // src/main/orchestrator/commands.ts's listCommands from the live
 // AgentsContent; 'coming-soon' covers both the not-yet-implemented built-ins
@@ -212,6 +235,7 @@ export type ToolName =
   | 'github_create_pr'
   | 'bitbucket_list_repos'
   | 'bitbucket_create_pr'
+  | 'propose_skill'
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
@@ -1091,6 +1115,7 @@ export interface BearcodeApi {
       projectPath: string | null,
       enabled: boolean
     ): Promise<void>
+    save(callId: string, resolution: SkillProposalResolution): Promise<SkillSaveResult>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

@@ -270,6 +270,16 @@ describe('assembleCommandAdditions', () => {
     expect(result.systemAdditions.join('\n')).toContain('Turn modifier: /browser.')
   })
 
+  it('produces the /learn skill-capture block steering to propose_skill', () => {
+    const command: CommandRef = { name: 'learn', kind: 'builtin' }
+    const result = assembleCommandAdditions(command, [])
+    expect(result.error).toBeUndefined()
+    const joined = result.systemAdditions.join('\n')
+    expect(joined).toContain('Turn modifier: /learn.')
+    expect(joined).toContain('propose_skill')
+    expect(joined).toContain(PRECEDENCE_SUBSTRING)
+  })
+
   it('produces a workflow frame with numbered resolved steps, the write_todos bootstrap, and the precedence line', () => {
     const wf = workflow({ name: 'release-check', steps: ['first step', 'second step'] })
     const command: CommandRef = { name: 'release-check', kind: 'workflow' }

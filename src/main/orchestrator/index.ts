@@ -10,7 +10,9 @@ import {
   type ConversationMeta,
   type Event,
   type MentionRef,
-  type PlanReviewResolveResult
+  type PlanReviewResolveResult,
+  type SkillProposalResolution,
+  type SkillSaveResult
 } from '../../shared/types'
 import type { RunSink } from '../sink'
 import {
@@ -28,6 +30,7 @@ import {
   rehydratePausedRun,
   resolveInterrupt,
   resolvePlanInterrupt,
+  resolveSkillProposalInterrupt,
   runGraph,
   setOnResumeSettled
 } from './graph'
@@ -177,10 +180,11 @@ export function assertValidPlanReviewResolution(proceed: unknown, message: unkno
 // action that never reaches run:start and the remaining coming-soon built-ins
 // are menu entries only. `compact` is sendable — it forces summarization on
 // the turn it is invoked. `browser` (F4) is sendable — it delegates the turn
-// to the browser subagent. Mirrors BUILTIN_COMMANDS' status field
-// (commands.ts) without importing it, so this boundary check never needs a
-// live AgentsContent to run.
-const SENDABLE_BUILTINS = new Set(['goal', 'grill-me', 'compact', 'browser'])
+// to the browser subagent. `learn` (G-skills Task 8) is sendable — it steers
+// the turn toward distilling and proposing a skill via propose_skill. Mirrors
+// BUILTIN_COMMANDS' status field (commands.ts) without importing it, so this
+// boundary check never needs a live AgentsContent to run.
+const SENDABLE_BUILTINS = new Set(['goal', 'grill-me', 'compact', 'browser', 'learn'])
 
 // Wire-boundary guard for bearcode:run:start's optional `command` argument
 // (src/main/ipc.ts). Same posture as assertValidPlanReviewResolution above:
@@ -325,6 +329,21 @@ export function resolvePlanReviewOrchestrator(
 ): PlanReviewResolveResult {
   for (const conversationId of aborts.keys()) {
     const result = resolvePlanInterrupt(conversationId, callId, { proceed, message })
+    if (result !== 'stale') return result
+  }
+  return 'stale'
+}
+
+// Resolves ONE propose_skill card (bearcode:skills:save, G-skills Task 8).
+// Same scan idiom as resolvePlanReviewOrchestrator above: the IPC payload
+// carries only a callId, so `aborts` holds every conversation with a live or
+// parked run.
+export function resolveSkillProposalOrchestrator(
+  callId: string,
+  resolution: SkillProposalResolution
+): SkillSaveResult {
+  for (const conversationId of aborts.keys()) {
+    const result = resolveSkillProposalInterrupt(conversationId, callId, resolution)
     if (result !== 'stale') return result
   }
   return 'stale'

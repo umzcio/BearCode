@@ -25,6 +25,8 @@ import type {
   SkillEntry,
   SkillInfo,
   SkillInput,
+  SkillProposalResolution,
+  SkillSaveResult,
   TranscribeMeta,
   WorktreeInfo
 } from '../shared/types'
@@ -108,6 +110,7 @@ import {
   pruneCheckpoints,
   resolveApprovalOrchestrator,
   resolvePlanReviewOrchestrator,
+  resolveSkillProposalOrchestrator,
   resumeInterruptedRuns,
   startRunOrchestrator
 } from './orchestrator'
@@ -1046,6 +1049,33 @@ export function registerIpc(): void {
     return { name: r.name, description: r.description, body: r.body, scope: r.scope }
   }
 
+  // Wire-boundary guard for bearcode:skills:save's resolution argument (G-skills
+  // Task 8), the propose_skill twin of assertValidPlanReviewResolution: reject
+  // anything looser than the truthy-object contract BEFORE it ever reaches
+  // resolveSkillProposalOrchestrator -> resolveSkillProposalInterrupt, which
+  // treats `resolution` as already-trusted.
+  function assertValidSkillResolution(raw: unknown): SkillProposalResolution {
+    if (raw == null || typeof raw !== 'object') throw new Error('Invalid skill resolution.')
+    const r = raw as Partial<{
+      save: unknown
+      name: unknown
+      description: unknown
+      body: unknown
+      scope: unknown
+    }>
+    if (r.save === false) return { save: false }
+    if (r.save !== true) throw new Error('resolveSkillProposal: save must be a boolean')
+    if (typeof r.name !== 'string' || !COMMAND_NAME_PATTERN.test(r.name)) {
+      throw new Error('Skill name must be kebab-case.')
+    }
+    if (typeof r.description !== 'string' || r.description.trim() === '') {
+      throw new Error('Skill description is required.')
+    }
+    if (typeof r.body !== 'string') throw new Error('Skill body must be a string.')
+    if (r.scope !== 'global' && r.scope !== 'project') throw new Error('Invalid skill scope.')
+    return { save: true, name: r.name, description: r.description, body: r.body, scope: r.scope }
+  }
+
   ipcMain.handle('bearcode:skills:list', (_e, projectPath: unknown): SkillEntry[] =>
     listSkillEntries(asProjectPath(projectPath))
   )
@@ -1076,6 +1106,13 @@ export function registerIpc(): void {
       if (source !== 'global' && source !== 'project') throw new Error('Invalid skill source.')
       if (typeof enabled !== 'boolean') throw new Error('Invalid enabled flag.')
       setSkillEnabled(name, source, asProjectPath(projectPath), enabled)
+    }
+  )
+  ipcMain.handle(
+    'bearcode:skills:save',
+    (_e, callId: unknown, resolution: unknown): SkillSaveResult => {
+      if (typeof callId !== 'string' || callId.length === 0) throw new Error('Invalid callId.')
+      return resolveSkillProposalOrchestrator(callId, assertValidSkillResolution(resolution))
     }
   )
 

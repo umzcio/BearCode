@@ -29,6 +29,8 @@ import type {
   SkillEntry,
   SkillInfo,
   SkillInput,
+  SkillProposalResolution,
+  SkillSaveResult,
   SmitheryHit,
   TranscribeMeta
 } from '../shared/types'
@@ -281,7 +283,9 @@ const bearcode: BearcodeApi = {
       projectPath: string | null,
       enabled: boolean
     ): Promise<void> =>
-      ipcRenderer.invoke('bearcode:skills:set-enabled', name, source, projectPath, enabled)
+      ipcRenderer.invoke('bearcode:skills:set-enabled', name, source, projectPath, enabled),
+    save: (callId: string, resolution: SkillProposalResolution): Promise<SkillSaveResult> =>
+      ipcRenderer.invoke('bearcode:skills:save', callId, resolution)
   },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>

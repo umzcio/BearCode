@@ -162,6 +162,24 @@ export function assembleCommandAdditions(
         ]
       }
     }
+    // /learn (G-skills Task 8): distil the session into ONE proposed skill and
+    // hand it to the user for review via propose_skill, rather than writing
+    // any file directly -- the tool pauses on an interrupt() the renderer's
+    // inline editable card resolves (design 4.5).
+    if (command.name === 'learn') {
+      return {
+        systemAdditions: [
+          '',
+          'Turn modifier: /learn. Reflect on this session: the corrections the user made, the',
+          'approach that worked, and any reusable procedure or domain knowledge worth keeping.',
+          'Distil ONE focused, reusable skill and call the propose_skill tool with a kebab-case',
+          'name, a specific third-person description (with trigger keywords, for discovery), and',
+          'a markdown body of the instructions. Do not write any files yourself; the user reviews',
+          'and saves your proposal.',
+          ...PRECEDENCE_LINES
+        ]
+      }
+    }
     return { systemAdditions: [], error: `Unknown command: /${command.name}` }
   }
 

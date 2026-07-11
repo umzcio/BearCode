@@ -42,13 +42,14 @@ import {
   planReviewArtifactIdOf,
   planProceedModeFlip,
   resolvePlanInterrupt,
+  resolveSkillProposalInterrupt,
   resolveInterrupt,
   forgetPendingApproval,
   persistRuleMentions,
   __parkForTest,
   type ApprovalItem
 } from './graph'
-import type { PlanReviewResolution } from './tools'
+import type { PlanReviewResolution, SkillProposalResolution } from './tools'
 import { browserManager } from '../browser/manager'
 import type { RunSink } from '../sink'
 import type { AttachmentRef } from '../../shared/types'
@@ -1263,6 +1264,109 @@ describe('plan_review resume shape (SECURITY: the kind branch)', () => {
 
   it("resolvePlanInterrupt returns 'stale' when nothing is parked (stale IPC)", () => {
     expect(resolvePlanInterrupt('nowhere', 'c1', { proceed: true })).toBe('stale')
+  })
+})
+
+describe('propose_skill resume shape (SECURITY: the kind branch, G-skills Task 8)', () => {
+  const skillItem = (resolution?: SkillProposalResolution): ApprovalItem => ({
+    interruptId: 'i-skill',
+    tool: 'propose_skill',
+    input: { name: 'n', description: 'd', body: 'b' },
+    toolCallId: 'tc3',
+    skillProposal: { ...(resolution ? { resolution } : {}) }
+  })
+  const cmdItem = (decision?: boolean): ApprovalItem => ({
+    interruptId: 'i-cmd',
+    tool: 'run_command',
+    input: { command: 'ls' },
+    toolCallId: 'tc2',
+    ...(decision === undefined ? {} : { decision })
+  })
+
+  it('allDecided: a skill-proposal item is decided only by a resolution, never by `decision`', () => {
+    expect(allDecided(new Map([['c1', skillItem()]]))).toBe(false)
+    expect(allDecided(new Map([['c1', skillItem({ save: false })]]))).toBe(true)
+  })
+
+  it('buildResumeMap branches by kind: skill items resume with their resolution object, commands with { approved }', () => {
+    const items = new Map([
+      ['c1', skillItem({ save: false })],
+      ['c2', cmdItem(true)]
+    ])
+    expect(buildResumeMap(items)).toEqual({
+      'i-skill': { save: false },
+      'i-cmd': { approved: true }
+    })
+  })
+
+  it('a skill item NEVER resumes as { approved } and every value is a truthy object', () => {
+    const resume = buildResumeMap(
+      new Map([
+        ['c1', skillItem({ save: true, name: 'n', description: 'd', body: 'b', scope: 'global' })]
+      ])
+    )
+    expect(resume['i-skill']).toEqual({
+      save: true,
+      name: 'n',
+      description: 'd',
+      body: 'b',
+      scope: 'global'
+    })
+    expect('approved' in (resume['i-skill'] as object)).toBe(false)
+    for (const v of Object.values(resume)) expect(Boolean(v)).toBe(true)
+  })
+
+  it('the undecided-skill-proposal fail-safe is the discard variant { save: false }', () => {
+    expect(buildResumeMap(new Map([['c1', skillItem()]]))['i-skill']).toEqual({ save: false })
+  })
+
+  it('resolvedToolCallEvents: save:true persists approved, save:false persists denied', () => {
+    const events = resolvedToolCallEvents(
+      new Map([
+        ['c1', skillItem({ save: true, name: 'n', description: 'd', body: 'b', scope: 'global' })],
+        ['c2', skillItem({ save: false })]
+      ])
+    )
+    expect(events[0].approvalState).toBe('approved')
+    expect(events[1].approvalState).toBe('denied')
+  })
+
+  it('isRehydratableInterrupt accepts propose_skill (the pause survives a crash)', () => {
+    expect(isRehydratableInterrupt({ kind: 'propose_skill', name: 'n' })).toBe(true)
+  })
+
+  it("resolveSkillProposalInterrupt returns 'stale' when nothing is parked (stale IPC)", () => {
+    expect(resolveSkillProposalInterrupt('nowhere', 'c1', { save: false })).toBe('stale')
+  })
+
+  it('resolveSkillProposalInterrupt records the resolution and resolves', () => {
+    const sink: RunSink = { emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() }
+    const items = new Map([['c1', skillItem()]])
+    __parkForTest('convo-skill', items, sink, new AbortController().signal)
+    expect(
+      resolveSkillProposalInterrupt('convo-skill', 'c1', {
+        save: true,
+        name: 'edited',
+        description: 'd',
+        body: 'b',
+        scope: 'global'
+      })
+    ).toBe('resolved')
+    expect(items.get('c1')?.skillProposal?.resolution).toEqual({
+      save: true,
+      name: 'edited',
+      description: 'd',
+      body: 'b',
+      scope: 'global'
+    })
+    forgetPendingApproval('convo-skill')
+  })
+
+  it('resolveSkillProposalInterrupt is a no-op cross-guard against a parked plan/command item', () => {
+    const sink: RunSink = { emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() }
+    __parkForTest('convo-skill-2', new Map([['c1', cmdItem()]]), sink, new AbortController().signal)
+    expect(resolveSkillProposalInterrupt('convo-skill-2', 'c1', { save: false })).toBe('stale')
+    forgetPendingApproval('convo-skill-2')
   })
 })
 
