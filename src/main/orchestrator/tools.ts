@@ -20,7 +20,7 @@ import { interrupt } from '@langchain/langgraph'
 import { tool } from 'langchain'
 import { z } from 'zod'
 import type { Artifact, Event, SkillProposalResolution, ToolName } from '../../shared/types'
-import { appendOrReplaceEvent, getConversationMeta } from '../db'
+import { appendOrReplaceEvent, getConversationMeta, getProjectSettings } from '../db'
 import {
   approvePlanArtifact,
   createPlanArtifact,
@@ -31,8 +31,12 @@ import {
   evaluateEditForConversation,
   evaluateMcpForConversation,
   evaluateIntegrationForConversation,
+  evaluateUnsandboxedForConversation,
   resolveConversationMode
 } from '../permissions'
+import { seatbeltRunner } from './sandbox/runner'
+import { buildSandboxPolicy } from './sandbox/policy'
+import type { SandboxPlan } from './sandbox/types'
 import { loadAgentsContent } from '../agentsDir'
 import { writeSkillFile } from '../skills'
 import { isSkillEnabled } from '../skills/state'
@@ -104,6 +108,7 @@ interface DeniedPinSet {
   byBrowserAction: Map<string, number>
   byMcpAction: Map<string, number>
   byIntegrationAction: Map<string, number>
+  byUnsandboxedCommand: Map<string, number>
 }
 const deniedReplayPins = new Map<string, DeniedPinSet>()
 
@@ -116,6 +121,7 @@ export function pinDeniedReplays(
     browserAction?: string
     mcpAction?: string
     integrationAction?: string
+    unsandboxedCommand?: string
   }>
 ): void {
   if (pins.length === 0) return
@@ -125,7 +131,8 @@ export function pinDeniedReplays(
     byEditPath: new Map(),
     byBrowserAction: new Map(),
     byMcpAction: new Map(),
-    byIntegrationAction: new Map()
+    byIntegrationAction: new Map(),
+    byUnsandboxedCommand: new Map()
   }
   for (const pin of pins) {
     if (pin.toolCallId !== undefined) {
@@ -145,6 +152,11 @@ export function pinDeniedReplays(
       set.byIntegrationAction.set(
         pin.integrationAction,
         (set.byIntegrationAction.get(pin.integrationAction) ?? 0) + 1
+      )
+    } else if (pin.unsandboxedCommand !== undefined) {
+      set.byUnsandboxedCommand.set(
+        pin.unsandboxedCommand,
+        (set.byUnsandboxedCommand.get(pin.unsandboxedCommand) ?? 0) + 1
       )
     }
   }
@@ -278,6 +290,41 @@ export function takeDeniedIntegrationReplayPin(
   return true
 }
 
+// An unsandboxed-run analog of takeDeniedReplayPin. IMPORTANT: unlike the
+// other takes, a pinned "denial" here does NOT mean "refuse" -- for
+// run_command_unsandboxed the interrupt asks "run this OUTSIDE the box?", so
+// approved:false means "keep it sandboxed", not "don't run it". A recorded
+// "keep it sandboxed" decision must win over a rule flip on replay (e.g. a
+// sibling card adds an unsandboxed allow rule while this one is parked, which
+// would otherwise make evaluateUnsandboxed return 'run' and skip the interrupt
+// entirely, running the command RAW against the user's actual choice). Same
+// discipline as the other takes: byToolCallId is exact and take-once; the
+// id-less fallback lives in its OWN namespace (byUnsandboxedCommand, never
+// byCommand) so a plain command-deny pin can never cross-claim an unsandboxed
+// pin (and vice versa) even when the command strings are identical.
+export function takeUnsandboxedDenyPin(
+  conversationId: string,
+  toolCallId: string | undefined,
+  command: string
+): boolean {
+  const set = deniedReplayPins.get(conversationId)
+  if (!set) return false
+  if (toolCallId !== undefined) {
+    // Distinguish from the command deny pin: unsandboxed pins live only in the
+    // dedicated map; a plain command-deny toolCallId must NOT be consumed here.
+    const n = set.byUnsandboxedCommand.get(toolCallId)
+    if (n === undefined) return false
+    if (n <= 1) set.byUnsandboxedCommand.delete(toolCallId)
+    else set.byUnsandboxedCommand.set(toolCallId, n - 1)
+    return true
+  }
+  const n = set.byUnsandboxedCommand.get(command)
+  if (n === undefined) return false
+  if (n <= 1) set.byUnsandboxedCommand.delete(command)
+  else set.byUnsandboxedCommand.set(command, n - 1)
+  return true
+}
+
 // The truthy resume-object contract for a plan_review interrupt (design 3.1).
 // BOTH variants are truthy objects -- LangGraph's mapCommand drops falsy
 // resume values (see the run_command interrupt comment below). `comments` on
@@ -334,13 +381,27 @@ export function clearBrowserConsent(): void {
 
 const BROWSER_DISABLED_MESSAGE = 'Browser tool is disabled in Settings — enable it and relaunch.'
 
+// A command's sandboxed-ness, keyed by provider tool-call id, so graph.ts can
+// tag the tool_result event for the "sandboxed" badge. take-once (peek at the
+// live preview emit, take at the authoritative persist) mirrors the screenshot
+// stash. Id-less providers simply never show the badge (acceptable UX gap).
+const sandboxedRuns = new Map<string, boolean>()
+export function sandboxedRunFlag(toolCallId: string, take: boolean): boolean {
+  const v = sandboxedRuns.get(toolCallId) ?? false
+  if (take) sandboxedRuns.delete(toolCallId)
+  return v
+}
+
 function runCommand(
   command: string,
   cwd: string,
-  timeoutMs: number
+  timeoutMs: number,
+  plan?: SandboxPlan
 ): Promise<{ output: string; exitCode: number }> {
   return new Promise((resolvePromise) => {
-    const child = spawn('/bin/zsh', ['-lc', command], { cwd, detached: true })
+    const child = plan
+      ? spawn(plan.file, plan.args, { cwd, detached: true, env: plan.env })
+      : spawn('/bin/zsh', ['-lc', command], { cwd, detached: true })
     let out = ''
     let timedOut = false
     const timer = setTimeout(() => {
@@ -433,11 +494,48 @@ export function buildTools(
       // edits/builds/tests stay isolated from the real project tree (loose /
       // child-repo-only projects fall back to the real project folder).
       const cwd = worktreeCommandCwd(projectPath, worktrees)
-      const result = await runCommand(command, cwd, timeoutMs ?? 60000)
+      const timeout = timeoutMs ?? 60000
+
+      // Sandbox Mode (per-project) + a working Seatbelt runner: decide box vs raw.
+      const sandboxOn = getProjectSettings(projectPath)?.sandboxMode === true
+      let plan: SandboxPlan | undefined
+      if (sandboxOn && seatbeltRunner.available()) {
+        const allowNetwork = getProjectSettings(projectPath)?.sandboxAllowNetwork === true
+        const policy = buildSandboxPolicy(cwd, allowNetwork)
+        // A recorded "keep it sandboxed" decision must win over a rule flip on
+        // replay (see takeUnsandboxedDenyPin): force wrapped without re-deciding.
+        if (takeUnsandboxedDenyPin(conversationId, toolCallId, command)) {
+          plan = seatbeltRunner.wrap(command, cwd, policy)
+        } else {
+          const u = evaluateUnsandboxedForConversation(command, conversationId, projectPath)
+          if (u === 'run') {
+            plan = undefined // approved to run outside the box
+          } else if (u === 'prompt') {
+            const approval = interrupt({
+              kind: 'run_command_unsandboxed',
+              command,
+              toolCallId
+            }) as { approved: boolean }
+            plan = approval.approved ? undefined : seatbeltRunner.wrap(command, cwd, policy)
+          } else {
+            plan = seatbeltRunner.wrap(command, cwd, policy) // 'block' => sandboxed
+          }
+        }
+      }
+      if (toolCallId !== undefined) sandboxedRuns.set(toolCallId, plan !== undefined)
+
+      const result = await runCommand(command, cwd, timeout, plan)
       const truncated = result.output.length > 50000
-      return (
+      let output =
         `exit code ${result.exitCode}\n${result.output}` + (truncated ? '\n… output truncated' : '')
-      )
+      // Best-effort sandbox-violation hint (design §5.6): Seatbelt denials surface
+      // as non-zero exits with no reliable marker, so this is a hint, not a proof.
+      if (plan !== undefined && result.exitCode !== 0) {
+        output +=
+          '\n\n(Note: Sandbox Mode is on for this project — this command may have been blocked by the sandbox. ' +
+          'You can re-run it outside the sandbox; the user will be asked to approve running it unsandboxed.)'
+      }
+      return output
     },
     {
       name: 'run_command',
