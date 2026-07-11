@@ -216,7 +216,11 @@ export function registerIpc(): void {
   // open: loadAgentsContent is the same mtime-cached loader the turn-time
   // rule/command assembly uses, so this stays cheap on repeated opens.
   ipcMain.handle('bearcode:commands:list', (_e, projectPath: string | null): CommandEntry[] =>
-    listCommands(loadAgentsContent(projectPath))
+    listCommands(
+      loadAgentsContent(projectPath, {
+        trusted: projectPath != null && db.isProjectTrusted(projectPath)
+      })
+    )
   )
 
   // D3 @ menu read models (design 7), mirroring commands:list. Files: a
@@ -226,10 +230,16 @@ export function registerIpc(): void {
     suggestFiles(projectPath, query)
   )
   ipcMain.handle('bearcode:mentions:rules', (_e, projectPath: string | null): ManualRuleInfo[] =>
-    manualRuleInfos(loadAgentsContent(projectPath))
+    manualRuleInfos(
+      loadAgentsContent(projectPath, {
+        trusted: projectPath != null && db.isProjectTrusted(projectPath)
+      })
+    )
   )
   ipcMain.handle('bearcode:mentions:skills', (_e, projectPath: string | null): SkillInfo[] => {
-    const content = loadAgentsContent(projectPath)
+    const content = loadAgentsContent(projectPath, {
+      trusted: projectPath != null && db.isProjectTrusted(projectPath)
+    })
     return skillInfos(content).filter((info) => {
       const src = content.skills.find((k) => k.name === info.name)?.source ?? 'global'
       return isSkillEnabled(info.name, src, projectPath)
