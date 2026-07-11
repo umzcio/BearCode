@@ -62,7 +62,12 @@ export function ProjectSettingsModal(): JSX.Element | null {
     defaultEffort: null,
     defaultPermissionMode: null,
     sandboxMode: false,
-    sandboxAllowNetwork: false
+    sandboxAllowNetwork: false,
+    trusted: false,
+    outsideFolderAccess: 'ask',
+    outsideFolderAllowedPaths: [],
+    outsideFolderDeniedPaths: [],
+    outsideFolderPendingPaths: []
   }
   return <ProjectSettingsPanel key={folder.path} folder={folder} />
 }

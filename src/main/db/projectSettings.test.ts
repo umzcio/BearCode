@@ -61,7 +61,12 @@ describe('project_settings (folder = project)', () => {
       defaultEffort: 'high',
       defaultPermissionMode: null,
       sandboxMode: false,
-      sandboxAllowNetwork: false
+      sandboxAllowNetwork: false,
+      trusted: false,
+      outsideFolderAccess: 'ask',
+      outsideFolderAllowedPaths: [],
+      outsideFolderDeniedPaths: [],
+      outsideFolderPendingPaths: []
     })
   })
   it('getProjectSettings returns null for an unknown path', () => {
@@ -122,7 +127,12 @@ describe('project_settings (folder = project)', () => {
         defaultEffort: null,
         defaultPermissionMode: null,
         sandboxMode: false,
-        sandboxAllowNetwork: false
+        sandboxAllowNetwork: false,
+        trusted: false,
+        outsideFolderAccess: 'ask',
+        outsideFolderAllowedPaths: [],
+        outsideFolderDeniedPaths: [],
+        outsideFolderPendingPaths: []
       }
     ])
   })

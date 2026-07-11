@@ -647,6 +647,9 @@ export interface ProjectSettings {
   // Sandbox Mode (macOS Seatbelt). Per-project; global default off.
   sandboxMode?: boolean | null
   sandboxAllowNetwork?: boolean | null
+  // Project Trust (audit C-1). Secure default: untrusted / ask.
+  trusted?: boolean | null
+  outsideFolderAccess?: OutsideFolderAccess | null
 }
 
 // F9 (folder = project): per-folder settings keyed by the workspace PATH. A
@@ -662,6 +665,21 @@ export interface FolderProject {
   defaultPermissionMode: PermissionMode | null
   sandboxMode: boolean
   sandboxAllowNetwork: boolean
+  trusted: boolean
+  outsideFolderAccess: OutsideFolderAccess
+  outsideFolderAllowedPaths: string[]
+  outsideFolderDeniedPaths: string[]
+  outsideFolderPendingPaths: string[]
+}
+
+// Project Trust + Outside-of-Folder Access (audit C-1). See
+// planning/2026-07-11-project-trust-design.md.
+export type OutsideFolderAccess = 'allow' | 'ask' | 'deny'
+export interface OutsideAccessInfo {
+  policy: OutsideFolderAccess
+  allowed: string[]
+  denied: string[]
+  pending: string[]
 }
 
 // F3: an isolated git worktree spawned for a conversation running in Worktree
