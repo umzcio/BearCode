@@ -2,7 +2,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { writeMemory, addMemory, updateMemory, deleteMemory, MAX_MEMORY_BYTES } from './index'
+import {
+  writeMemory,
+  addMemory,
+  updateMemory,
+  deleteMemory,
+  listMemory,
+  promoteMemory,
+  MAX_MEMORY_BYTES
+} from './index'
 import { loadMemory } from '../agentsDir/memory'
 
 let proj: string
@@ -49,5 +57,46 @@ describe('update/delete by index', () => {
     writeMemory('project', ['a', 'b', 'c'], proj)
     deleteMemory('project', 0, proj)
     expect(loadMemory(proj).project.map((e) => e.text)).toEqual(['b', 'c'])
+  })
+})
+
+describe('listMemory', () => {
+  it('returns both scopes with sizes', () => {
+    writeMemory('project', ['a', 'b'], proj)
+    const list = listMemory(proj)
+    expect(list.project.entries.map((e) => e.text)).toEqual(['a', 'b'])
+    expect(list.project.sizeBytes).toBeGreaterThan(0)
+    expect(list.global.entries).toEqual([])
+  })
+})
+
+describe('promoteMemory', () => {
+  it('promotes a bullet to a project rule and drops the bullet', () => {
+    writeMemory('project', ['always use tabs', 'keep'], proj)
+    promoteMemory({ scope: 'project', index: 0, target: 'rule', name: 'tabs-rule' }, proj)
+    expect(existsSync(join(proj, '.agents', 'rules', 'tabs-rule.md'))).toBe(true)
+    expect(loadMemory(proj).project.map((e) => e.text)).toEqual(['keep'])
+  })
+  it('promotes a bullet to a project skill (name + description) and drops the bullet', () => {
+    writeMemory('project', ['run the suite with pnpm test'], proj)
+    promoteMemory(
+      {
+        scope: 'project',
+        index: 0,
+        target: 'skill',
+        name: 'run-tests',
+        description: 'How to run tests.'
+      },
+      proj
+    )
+    expect(existsSync(join(proj, '.agents', 'skills', 'run-tests', 'SKILL.md'))).toBe(true)
+    expect(loadMemory(proj).project).toEqual([])
+  })
+  it('does NOT drop the bullet if the promotion write fails', () => {
+    writeMemory('project', ['x'], proj)
+    expect(() =>
+      promoteMemory({ scope: 'project', index: 0, target: 'skill', name: 'no-desc' }, proj)
+    ).toThrow()
+    expect(loadMemory(proj).project.map((e) => e.text)).toEqual(['x'])
   })
 })

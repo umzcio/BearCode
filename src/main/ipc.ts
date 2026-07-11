@@ -17,10 +17,14 @@ import type {
   McpServerConfig,
   McpServerStatus,
   McpServerView,
+  MemoryList,
+  MemoryPromoteInput,
+  MemoryScopeName,
   PingResult,
   PreviewPayload,
   ProjectSettings,
   ProviderId,
+  PromoteTarget,
   RunState,
   SkillEntry,
   SkillInfo,
@@ -93,6 +97,7 @@ import { listCommands } from './orchestrator/commands'
 import { suggestFiles, manualRuleInfos, skillInfos } from './orchestrator/mentionSuggest'
 import { createSkill, deleteSkillFolder, listSkillEntries, updateSkill } from './skills'
 import { isSkillEnabled, setSkillEnabled } from './skills/state'
+import { listMemory, addMemory, updateMemory, deleteMemory, promoteMemory } from './memory'
 import { COMMAND_NAME_PATTERN } from '../shared/types'
 import {
   assertValidConversationId,
@@ -1076,6 +1081,37 @@ export function registerIpc(): void {
     return { save: true, name: r.name, description: r.description, body: r.body, scope: r.scope }
   }
 
+  const asMemoryScope = (x: unknown): MemoryScopeName => {
+    if (x !== 'global' && x !== 'project') throw new Error('Invalid memory scope.')
+    return x
+  }
+  const asMemoryIndex = (x: unknown): number => {
+    if (typeof x !== 'number' || !Number.isInteger(x) || x < 0)
+      throw new Error('Invalid memory index.')
+    return x
+  }
+  function assertValidPromoteInput(raw: unknown): MemoryPromoteInput {
+    if (raw == null || typeof raw !== 'object') throw new Error('Invalid promote input.')
+    const r = raw as Partial<MemoryPromoteInput>
+    const scope = asMemoryScope(r.scope)
+    const index = asMemoryIndex(r.index)
+    const target = r.target
+    if (target !== 'rule' && target !== 'skill') throw new Error('Invalid promote target.')
+    if (typeof r.name !== 'string' || !COMMAND_NAME_PATTERN.test(r.name)) {
+      throw new Error('Promotion name must be kebab-case.')
+    }
+    if (target === 'skill' && (typeof r.description !== 'string' || r.description.trim() === '')) {
+      throw new Error('A description is required to promote to a skill.')
+    }
+    return {
+      scope,
+      index,
+      target: target as PromoteTarget,
+      name: r.name,
+      ...(typeof r.description === 'string' ? { description: r.description } : {})
+    }
+  }
+
   ipcMain.handle('bearcode:skills:list', (_e, projectPath: unknown): SkillEntry[] =>
     listSkillEntries(asProjectPath(projectPath))
   )
@@ -1115,6 +1151,33 @@ export function registerIpc(): void {
       return resolveSkillProposalOrchestrator(callId, assertValidSkillResolution(resolution))
     }
   )
+
+  ipcMain.handle('bearcode:memory:list', (_e, projectPath: unknown): MemoryList =>
+    listMemory(asProjectPath(projectPath))
+  )
+  ipcMain.handle(
+    'bearcode:memory:add',
+    (_e, scope: unknown, text: unknown, projectPath: unknown): 'ok' | 'full' => {
+      if (typeof text !== 'string') throw new Error('Memory text must be a string.')
+      return addMemory(asMemoryScope(scope), text, asProjectPath(projectPath))
+    }
+  )
+  ipcMain.handle(
+    'bearcode:memory:update',
+    (_e, scope: unknown, index: unknown, text: unknown, projectPath: unknown): void => {
+      if (typeof text !== 'string') throw new Error('Memory text must be a string.')
+      updateMemory(asMemoryScope(scope), asMemoryIndex(index), text, asProjectPath(projectPath))
+    }
+  )
+  ipcMain.handle(
+    'bearcode:memory:delete',
+    (_e, scope: unknown, index: unknown, projectPath: unknown): void => {
+      deleteMemory(asMemoryScope(scope), asMemoryIndex(index), asProjectPath(projectPath))
+    }
+  )
+  ipcMain.handle('bearcode:memory:promote', (_e, input: unknown, projectPath: unknown): void => {
+    promoteMemory(assertValidPromoteInput(input), asProjectPath(projectPath))
+  })
 
   // navigator.clipboard in the sandboxed renderer is blocked by our tight
   // permission handlers (media-only), so copy went through main's clipboard.

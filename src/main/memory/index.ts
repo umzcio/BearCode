@@ -4,8 +4,10 @@
 // disk. Bodies are a "- " bullet list, one bullet per entry.
 import { mkdirSync, writeFileSync } from 'fs'
 import { join, resolve, sep } from 'path'
-import type { MemoryScopeName } from '../../shared/types'
+import type { MemoryList, MemoryPromoteInput, MemoryScopeName } from '../../shared/types'
 import { memoryDir, loadMemory, serializeMemoryBullets } from '../agentsDir/memory'
+import { writeRuleFile } from '../rules'
+import { writeSkillFile } from '../skills'
 
 export const MAX_MEMORY_BYTES = 16 * 1024
 
@@ -82,4 +84,40 @@ export function deleteMemory(
   if (index < 0 || index >= texts.length) throw new Error('Memory entry index out of range.')
   texts.splice(index, 1)
   writeMemory(scope, texts, projectPath)
+}
+
+// The settings-page read model (design 4.6): both scopes, each with its entries
+// and on-disk byte size (the page shows per-scope size, design 4.4).
+export function listMemory(projectPath: string | null): MemoryList {
+  const mem = loadMemory(projectPath)
+  const size = (entries: { text: string }[]): number =>
+    Buffer.byteLength(serializeMemoryBullets(entries.map((e) => e.text)), 'utf8')
+  return {
+    global: { entries: mem.global, sizeBytes: size(mem.global) },
+    project: { entries: mem.project, sizeBytes: size(mem.project) }
+  }
+}
+
+// Promote a bullet to a Rule or Skill, THEN drop the source bullet — never
+// before, so a write failure can't lose the memory (design 4.5, the updateSkill
+// rename ordering precedent). Skill requires a description; rule is authored
+// 'always'.
+export function promoteMemory(input: MemoryPromoteInput, projectPath: string | null): void {
+  const texts = currentTexts(input.scope, projectPath)
+  if (input.index < 0 || input.index >= texts.length) {
+    throw new Error('Memory entry index out of range.')
+  }
+  const body = texts[input.index]
+  if (input.target === 'rule') {
+    writeRuleFile(input.name, body, 'always', input.scope, projectPath)
+  } else {
+    if (!input.description || input.description.trim() === '') {
+      throw new Error('A description is required to promote memory to a skill.')
+    }
+    writeSkillFile(
+      { name: input.name, description: input.description, body, scope: input.scope },
+      projectPath
+    )
+  }
+  deleteMemory(input.scope, input.index, projectPath)
 }

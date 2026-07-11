@@ -188,6 +188,18 @@ export interface MemoryList {
   project: MemoryScope
 }
 
+// Promote-a-bullet payload (Task 6): turns a memory entry into a Rule or a
+// Skill, then drops the source bullet.
+export type PromoteTarget = 'rule' | 'skill'
+
+export interface MemoryPromoteInput {
+  scope: MemoryScopeName
+  index: number
+  target: PromoteTarget
+  name: string // kebab-case; rule/skill filename or folder
+  description?: string // required for skill (SKILL.md), unused for rule
+}
+
 // The propose_skill tool's interrupt payload (Task 8): the model's drafted
 // name/description/body, before the user has edited or scoped it.
 export interface ProposedSkill {
@@ -1149,6 +1161,20 @@ export interface BearcodeApi {
       enabled: boolean
     ): Promise<void>
     save(callId: string, resolution: SkillProposalResolution): Promise<SkillSaveResult>
+  }
+  // Memory CRUD + promote (Task 6): Settings > Memory page's list plus
+  // add/update/delete of individual bullets and promote-to-rule/skill.
+  memory: {
+    list(projectPath: string | null): Promise<MemoryList>
+    add(scope: MemoryScopeName, text: string, projectPath: string | null): Promise<'ok' | 'full'>
+    update(
+      scope: MemoryScopeName,
+      index: number,
+      text: string,
+      projectPath: string | null
+    ): Promise<void>
+    delete(scope: MemoryScopeName, index: number, projectPath: string | null): Promise<void>
+    promote(input: MemoryPromoteInput, projectPath: string | null): Promise<void>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void
