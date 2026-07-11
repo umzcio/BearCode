@@ -216,16 +216,17 @@ function browserActionLabel(call: ToolCallEvent): string {
 // mix of run_command and write_file/edit_file); the number-key hotkeys and
 // the jump-to-approval anchor id belong only to the FIRST pending tool_call
 // in the conversation's event order, so one keypress never answers more than
-// one card. Shared by PendingCommand and PendingEdit so both tool kinds
-// participate in the same single-active-card scheme (ded9abc).
-function useIsFirstPendingCard(convoId: string, callId: string): boolean {
+// one card. Computed ONCE per ToolStep render (instead of once per Pending*
+// card, M-17) and passed down as an `isFirst` prop to whichever card is
+// rendered.
+function useFirstPendingCallId(convoId: string): string | null {
   return useAppStore((s) => {
     const events = s.conversations[convoId]?.events
-    if (!events) return false
+    if (!events) return null
     for (const e of events) {
-      if (e.type === 'tool_call' && e.approvalState === 'pending') return e.id === callId
+      if (e.type === 'tool_call' && e.approvalState === 'pending') return e.id
     }
-    return false
+    return null
   })
 }
 
@@ -233,6 +234,8 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
   const [open, setOpen] = useState(false)
   const openReviewForFile = useAppStore((s) => s.openReviewForFile)
   const openFile = useAppStore((s) => s.openFile)
+  const firstPendingCallId = useFirstPendingCallId(convoId)
+  const isFirst = call.id === firstPendingCallId
 
   if (
     (call.tool === 'write_file' || call.tool === 'edit_file') &&
@@ -246,7 +249,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
         path={path}
         requestedPath={requestedPath !== path ? requestedPath : null}
         verb={call.tool === 'write_file' ? 'write to' : 'edit'}
-        convoId={convoId}
+        isFirst={isFirst}
       />
     )
   }
@@ -285,7 +288,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
         callId={call.id}
         path={path}
         requestedPath={requestedPath !== path ? requestedPath : null}
-        convoId={convoId}
+        isFirst={isFirst}
       />
     )
   }
@@ -332,7 +335,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
         callId={call.id}
         title={inputStr(call, 'title') ?? 'Implementation plan'}
         artifactId={inputStr(call, 'artifactId')}
-        convoId={convoId}
+        isFirst={isFirst}
       />
     )
   }
@@ -400,7 +403,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
   if (call.tool.startsWith('browser_')) {
     const action = browserActionLabel(call)
     if (call.approvalState === 'pending') {
-      return <PendingBrowserAction callId={call.id} action={action} convoId={convoId} />
+      return <PendingBrowserAction callId={call.id} action={action} isFirst={isFirst} />
     }
     if (call.approvalState === 'denied') {
       return (
@@ -453,6 +456,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
           toolName={toolName}
           input={call.input}
           convoId={convoId}
+          isFirst={isFirst}
         />
       )
     }
@@ -500,6 +504,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
           toolName={toolName}
           input={call.input}
           convoId={convoId}
+          isFirst={isFirst}
         />
       )
     }
@@ -541,9 +546,14 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
       (call.input as { unsandboxed?: unknown }).unsandboxed === true
     if (call.approvalState === 'pending') {
       return isUnsandboxed ? (
-        <PendingUnsandboxed callId={call.id} command={command} convoId={convoId} />
+        <PendingUnsandboxed
+          callId={call.id}
+          command={command}
+          convoId={convoId}
+          isFirst={isFirst}
+        />
       ) : (
-        <PendingCommand callId={call.id} command={command} convoId={convoId} />
+        <PendingCommand callId={call.id} command={command} convoId={convoId} isFirst={isFirst} />
       )
     }
     const verb = call.approvalState === 'denied' ? 'Denied' : 'Ran'
@@ -600,11 +610,13 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
 function PendingCommand({
   callId,
   command,
-  convoId
+  convoId,
+  isFirst
 }: {
   callId: string
   command: string
   convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
   const addPermissionRule = useAppStore((s) => s.addPermissionRule)
@@ -616,7 +628,7 @@ function PendingCommand({
   // though the new rule would now allow its command -- the main process pins
   // denied decisions so the batch resume's rules re-evaluation cannot
   // override them (tools.ts deniedReplayPins).
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
   const [showAllow, setShowAllow] = useState(false)
   const prefix = command.trim().split(/\s+/)[0] + ' *'
 
@@ -743,16 +755,18 @@ function PendingCommand({
 function PendingUnsandboxed({
   callId,
   command,
-  convoId
+  convoId,
+  isFirst
 }: {
   callId: string
   command: string
   convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
   const addPermissionRule = useAppStore((s) => s.addPermissionRule)
   const projectPath = useAppStore((s) => s.conversations[convoId]?.projectPath ?? null)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
   const [showAllow, setShowAllow] = useState(false)
   const prefix = command.trim().split(/\s+/)[0] + ' *'
 
@@ -836,15 +850,15 @@ function PendingRead({
   callId,
   path,
   requestedPath,
-  convoId
+  isFirst
 }: {
   callId: string
   path: string
   requestedPath: string | null
-  convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
 
   const allow = (): void => approveTool(callId, true)
   const deny = (): void => approveTool(callId, false)
@@ -900,14 +914,14 @@ function PendingRead({
 function PendingBrowserAction({
   callId,
   action,
-  convoId
+  isFirst
 }: {
   callId: string
   action: string
-  convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
 
   const allow = (): void => approveTool(callId, true)
   const deny = (): void => approveTool(callId, false)
@@ -961,18 +975,20 @@ function PendingMcpAction({
   server,
   toolName,
   input,
-  convoId
+  convoId,
+  isFirst
 }: {
   callId: string
   server: string
   toolName: string
   input: unknown
   convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
   const addPermissionRule = useAppStore((s) => s.addPermissionRule)
   const projectPath = useAppStore((s) => s.conversations[convoId]?.projectPath ?? null)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
   const [showAllow, setShowAllow] = useState(false)
   const label = `${server} · ${toolName}`
   // Render the call ARGUMENTS, not just the tool name: an "Ask" consent granted
@@ -1074,18 +1090,20 @@ function PendingIntegrationAction({
   provider,
   toolName,
   input,
-  convoId
+  convoId,
+  isFirst
 }: {
   callId: string
   provider: 'github' | 'bitbucket'
   toolName: string
   input: unknown
   convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
   const addPermissionRule = useAppStore((s) => s.addPermissionRule)
   const projectPath = useAppStore((s) => s.conversations[convoId]?.projectPath ?? null)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
   const [showAllow, setShowAllow] = useState(false)
   const providerLabel = provider === 'github' ? 'GitHub' : 'Bitbucket'
   const label = `${providerLabel} · ${toolName}`
@@ -1182,16 +1200,16 @@ function PendingEdit({
   path,
   requestedPath,
   verb,
-  convoId
+  isFirst
 }: {
   callId: string
   path: string
   requestedPath: string | null
   verb: string
-  convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const approveTool = useAppStore((s) => s.approveTool)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
 
   const allow = (): void => approveTool(callId, true)
   const deny = (): void => approveTool(callId, false)
@@ -1244,7 +1262,7 @@ function PendingEdit({
 }
 
 // The plan-review pending card (design 3.5): the third pending-card kind,
-// sharing useIsFirstPendingCard's single-active-card hotkey scheme with
+// sharing the single-active-card hotkey scheme (first-pending selector) with
 // PendingCommand/PendingEdit. Proceed resumes { proceed: true } over the
 // artifacts channel -- it never touches tools.approve and NEVER pre-approves
 // any command or edit (the Bb gates still run per call during implementation).
@@ -1252,16 +1270,16 @@ function PendingPlan({
   callId,
   title,
   artifactId,
-  convoId
+  isFirst
 }: {
   callId: string
   title: string
   artifactId: string | null
-  convoId: string
+  isFirst: boolean
 }): React.JSX.Element {
   const resolvePlanReview = useAppStore((s) => s.resolvePlanReview)
   const openArtifactPane = useAppStore((s) => s.openArtifactPane)
-  const isFirstPending = useIsFirstPendingCard(convoId, callId)
+  const isFirstPending = isFirst
 
   const proceed = (): void => void resolvePlanReview(callId, true)
   const openPane = (): void => {
