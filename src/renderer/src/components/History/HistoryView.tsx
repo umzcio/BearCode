@@ -101,7 +101,19 @@ export function HistoryView(): React.JSX.Element {
                       ? loadedPreview.text
                       : convo.preview
                   return (
-                    <div className="history-row" key={convo.id} onClick={() => openConvo(convo.id)}>
+                    <div
+                      className="history-row"
+                      key={convo.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openConvo(convo.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          openConvo(convo.id)
+                        }
+                      }}
+                    >
                       <div className="history-row-main">
                         <span className="history-row-title">{convo.title}</span>
                         {preview ? <span className="history-row-preview">{preview}</span> : null}
@@ -126,6 +138,8 @@ export function HistoryView(): React.JSX.Element {
             <div
               className="history-hit"
               key={hit.eventId}
+              role="button"
+              tabIndex={0}
               onClick={() =>
                 openConvo(hit.conversationId, {
                   focusEventId: hit.eventId,
@@ -139,6 +153,17 @@ export function HistoryView(): React.JSX.Element {
                     .map((h) => h.eventId)
                 })
               }
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  openConvo(hit.conversationId, {
+                    focusEventId: hit.eventId,
+                    focusMatches: hits
+                      .filter((h) => h.conversationId === hit.conversationId)
+                      .map((h) => h.eventId)
+                  })
+                }
+              }}
             >
               <div className="history-hit-head">
                 <span className="history-hit-title">{hit.title ?? 'Untitled conversation'}</span>
