@@ -28,7 +28,6 @@ export const IconPanel = icon(
     <line x1="9.5" y1="4" x2="9.5" y2="20" />
   </>
 )
-export const IconChevronLeft = icon(<path d="M15 6l-6 6 6 6" />)
 export const IconChevronRight = icon(<path d="M9 6l6 6-6 6" />)
 export const IconChevronDown = icon(<polyline points="6 9 12 15 18 9" />, 2)
 export const IconChevronRightSmall = icon(<polyline points="9 6 15 12 9 18" />, 2)
@@ -42,12 +41,6 @@ export const IconHistory = icon(
   <>
     <circle cx="12" cy="12" r="9" />
     <polyline points="12 7 12 12 15.5 13.5" />
-  </>
-)
-export const IconClock = icon(
-  <>
-    <circle cx="12" cy="12" r="9" />
-    <polyline points="12 8 12 12 15 14" />
   </>
 )
 export const IconFolder = icon(
@@ -197,21 +190,6 @@ export const IconOverview = icon(
     <line x1="8" y1="17" x2="12" y2="17" />
   </>
 )
-export const IconDownload = icon(
-  <>
-    <path d="M12 4v11" />
-    <polyline points="7 10 12 15 17 10" />
-    <path d="M5 19h14" />
-  </>
-)
-export const IconExpand = icon(
-  <>
-    <polyline points="9 4 4 4 4 9" />
-    <polyline points="15 4 20 4 20 9" />
-    <polyline points="15 20 20 20 20 15" />
-    <polyline points="9 20 4 20 4 15" />
-  </>
-)
 export const IconRevert = icon(
   <>
     <path d="M4 9h10a5 5 0 0 1 0 10H9" />
@@ -233,13 +211,6 @@ export function IconPaw({ size }: IconProps): React.JSX.Element {
     </svg>
   )
 }
-export const IconComment = icon(
-  <>
-    <path d="M4 5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-4 4z" />
-    <line x1="12" y1="8" x2="12" y2="12" />
-    <line x1="10" y1="10" x2="14" y2="10" />
-  </>
-)
 export const IconGear = icon(
   <>
     <circle cx="12" cy="12" r="3" />
