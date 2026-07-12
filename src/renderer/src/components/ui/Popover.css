@@ -1,0 +1,27 @@
+/* Structural + motion only -- visual chrome (background, border, radius,
+   padding) belongs to whatever renders inside (Menu's `.menu`, a hint
+   bubble, ...), not to this generic positioning primitive. */
+.popover {
+  z-index: 1000;
+  transition:
+    opacity var(--dur-menu) var(--ease-out),
+    transform var(--dur-menu) var(--ease-out);
+  opacity: 1;
+  transform: scale(1);
+}
+@starting-style {
+  .popover {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .popover {
+    transition: opacity var(--dur-fast) var(--ease-out);
+  }
+  @starting-style {
+    .popover {
+      transform: none;
+    }
+  }
+}

@@ -9,6 +9,7 @@
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
   --serif: 'New York', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
   --radius: 12px;
+  --radius-menu: 12px; /* canonical dropdown/menu surface radius (Menu/Popover) */
   /* Chat text font + conversation column width, overridden by data-* below. */
   --chat-font: var(--sans);
   --conversation-max: 820px;
@@ -31,6 +32,12 @@
   --red: #f06a6a;
   --danger: #f06a6a;
   --amber: #e0b568;
+  /* Keyboard focus ring: accent ring with an inner gap in the window bg so it
+     reads on any surface (raised chrome, sidebar rows, inputs). */
+  --focus: var(--accent);
+  --focus-ring:
+    0 0 0 2px var(--bg-window),
+    0 0 0 4px var(--focus);
   /* A translucent wash for subtle raised chrome, tuned per theme so it reads
      the same over light and dark surfaces. */
   --wash: rgba(255, 255, 255, 0.04);

@@ -237,6 +237,11 @@
   min-width: 170px;
   flex-shrink: 0;
 }
+.set-row select:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 2px var(--focus);
+}
 
 .coming-block {
   display: flex;
@@ -296,6 +301,11 @@
 .key-row input:focus {
   border-color: var(--border);
 }
+.key-row input:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 2px var(--focus);
+}
 .key-row input::placeholder {
   color: var(--text-dim);
   font-family: inherit;
@@ -313,6 +323,11 @@
   padding: 7px 10px;
   outline: none;
 }
+.set-input:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 2px var(--focus);
+}
 .set-textarea {
   width: 100%;
   resize: vertical;
@@ -325,6 +340,11 @@
   line-height: 1.5;
   padding: 9px 11px;
   outline: none;
+}
+.set-textarea:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 2px var(--focus);
 }
 .set-input::placeholder,
 .set-textarea::placeholder {
@@ -505,6 +525,11 @@
   outline: none;
   flex-shrink: 0;
 }
+.rule-form select:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 2px var(--focus);
+}
 .rule-form input {
   flex: 1;
   min-width: 0;
@@ -519,6 +544,11 @@
 }
 .rule-form input:focus {
   border-color: var(--border);
+}
+.rule-form input:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 2px var(--focus);
 }
 .rule-form input::placeholder {
   color: var(--text-dim);
@@ -669,6 +699,10 @@
 }
 .toggle.on {
   background: var(--accent);
+}
+.toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 .toggle:disabled {
   opacity: 0.45;

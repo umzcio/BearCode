@@ -69,8 +69,7 @@ function applyCustom(root: HTMLElement, c: CustomColors): void {
   root.style.setProperty('--wash-strong', mix('transparent', c.fg, 10))
 }
 
-const systemPrefersDark = (): boolean =>
-  window.matchMedia('(prefers-color-scheme: dark)').matches
+const systemPrefersDark = (): boolean => window.matchMedia('(prefers-color-scheme: dark)').matches
 
 // Resolve the effective base ('dark'|'light') for data-theme. Custom picks its
 // base from the bg's luminance so non-overridden tokens stay sensible.

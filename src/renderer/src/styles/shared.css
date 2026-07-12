@@ -1,5 +1,17 @@
 /* Shared chrome copied from the prototype: buttons, menus, code chips, scrollbars. */
 
+/* Keyboard-focus ring, app-wide: mouse focus stays clean, Tab focus shows a
+   consistent accent ring (--focus-ring, tokens.css) on every interactive
+   control. Not motion -- no reduced-motion fallback needed. */
+.icon-btn:focus-visible,
+.chrome-btn:focus-visible,
+.pill-btn:focus-visible,
+.menu-item:focus-visible,
+.app-select-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 .chrome-btn {
   background: none;
   border: none;
@@ -103,11 +115,19 @@
 }
 
 /* ---------- Dropdown menus ---------- */
+/* `position: absolute` is the canonical positioning contract for `.menu`:
+   the still-unmigrated pickers (ModePicker, ModelPicker, EffortPicker, the
+   sidebar display-options menu, the Home project switcher, the Composer env
+   menu -- Phase B migrates these) render `.menu` directly inside a
+   `position: relative` trigger wrapper and only supply their own
+   `top/bottom/left/right` offsets, with no `position` of their own. Do not
+   remove this. The Popover-mounted `Menu` component overrides back to
+   `position: static` via `.menu--in-popover` below -- see that rule for why. */
 .menu {
   position: absolute;
   background: var(--bg-raised);
   border: 1px solid var(--border-soft, var(--border));
-  border-radius: 14px;
+  border-radius: var(--radius-menu);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.22),
     0 14px 40px rgba(0, 0, 0, 0.46);
@@ -117,23 +137,46 @@
   overflow-y: auto;
   z-index: 60;
 }
+/* Popover-mounted `Menu` primitive only (applied by `Menu.tsx`); legacy
+   per-picker `.menu` consumers above keep `position: absolute` and must NOT
+   get this.
+   - `position: static` takes `.menu` back into normal flow. An
+     absolutely-positioned `.menu` contributes nothing to its
+     `position: fixed` Popover wrapper's intrinsic size, so the wrapper
+     measures ~0x0 on first layout -- computePopoverPosition then thinks
+     everything fits and never flips off-screen content, and Popover can
+     never measure real content dimensions at all. Back in flow, the
+     wrapper's offsetWidth/offsetHeight reflect the actual menu size.
+   - `min-width: var(--popover-min-width, 0)` + `width: max-content` +
+     `max-width: 280px` restores shrink-to-content sizing (a compact
+     trigger shouldn't force a 300px-wide menu) while `--popover-min-width`
+     (set by Popover.tsx from `matchAnchorWidth`) still provides the
+     trigger-width floor -- min-width always wins over a smaller
+     max-content width, so the menu is never narrower than its anchor. */
+.menu--in-popover {
+  position: static;
+  min-width: var(--popover-min-width, 0);
+  width: max-content;
+  max-width: 280px;
+  box-sizing: border-box;
+}
+/* Canonical group-label: mixed-case (not uppercase), medium weight, muted --
+   matches the density of the items it labels rather than shouting over them. */
 .menu-group-label {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 10px 4px;
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: 500;
   color: var(--text-dim);
 }
 .menu-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 11px;
-  border-radius: 9px;
+  padding: 7px 11px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 13.5px;
   color: var(--text-mid);
@@ -143,6 +186,12 @@
     transform var(--dur-press) var(--ease-out);
 }
 .menu-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+/* Roving-tabindex keyboard highlight -- mirrors .menu-item:hover so the
+   active option is visible whether reached by mouse or keyboard. */
+.menu-item.active {
   background: var(--bg-hover);
   color: var(--text);
 }
@@ -193,6 +242,9 @@
   background: none;
   color: var(--text-mid);
 }
+.menu-item.danger {
+  color: var(--danger, var(--red));
+}
 .menu-item .badge {
   font-size: 10.5px;
   padding: 2px 6px;
@@ -219,6 +271,19 @@ code.tok {
   color: var(--amber);
   padding: 1.5px 6px;
   border-radius: 5px;
+}
+
+/* ---------- Field hint ---------- */
+/* Inline validation note under a form field. Generalized from the
+   Settings-only `.hook-field-hint` so `<FieldHint>` can be reused anywhere
+   a field needs an inline "here's the expected format" note. */
+.field-hint {
+  font-size: 12px;
+  color: var(--warning, #d98a3d);
+}
+.field-hint code {
+  font-size: 11px;
+  opacity: 0.9;
 }
 
 .cursor {
@@ -294,6 +359,69 @@ code.tok {
   height: 1px;
   background: var(--border-soft);
   margin: 5px 4px;
+}
+
+/* ---------- Empty / Loading / Error primitives ---------- */
+/* Shared placeholder rows (EmptyState / Loading / ErrorCard) -- generalize
+   the per-page `domain-empty` forks so every "nothing here", "still
+   loading", and "that failed" moment reads the same: one 13px font-size,
+   consistent padding, left-aligned to match the dominant list style. */
+.empty-state {
+  padding: 10px 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: left;
+}
+.empty-state-title {
+  color: var(--text-dim);
+}
+.empty-state-hint {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+
+.loading-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: left;
+}
+.loading-spinner {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--text-dim);
+  animation: loading-spin 700ms linear infinite;
+}
+@keyframes loading-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner {
+    animation: none;
+  }
+}
+
+.ui-error-card {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
 }
 
 @media (prefers-reduced-motion: reduce) {

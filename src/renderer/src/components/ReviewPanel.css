@@ -399,6 +399,10 @@
   height: 42px;
   outline: none;
 }
+.comment-zone textarea:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus);
+}
 .comment-zone textarea::placeholder {
   color: var(--text-dim);
 }
@@ -1079,6 +1083,11 @@
   font-size: 13.5px;
   line-height: 1.45;
   padding: 3px 0;
+}
+.comment-bar-input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus);
+  border-radius: 4px;
 }
 .comment-bar-input::placeholder {
   color: var(--text-dim);
