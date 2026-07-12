@@ -112,7 +112,7 @@ export function Menu({
     >
       <div
         ref={listRef}
-        className="menu"
+        className="menu menu--in-popover"
         role="listbox"
         tabIndex={-1}
         aria-label={ariaLabel}

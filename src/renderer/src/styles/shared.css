@@ -115,13 +115,19 @@
 }
 
 /* ---------- Dropdown menus ---------- */
-/* No `position` here -- Popover already owns fixed positioning of the
-   portaled wrapper. `.menu` just needs to fill that wrapper (`width: 100%`
-   + border-box) so it actually stretches to the min-width Popover computes
-   from `matchAnchorWidth`, instead of shrink-to-fitting its content. */
+/* `position: absolute` is the canonical positioning contract for `.menu`:
+   the still-unmigrated pickers (ModePicker, ModelPicker, EffortPicker, the
+   sidebar display-options menu, the Home project switcher, the Composer env
+   menu -- Phase B migrates these) render `.menu` directly inside a
+   `position: relative` trigger wrapper and only supply their own
+   `top/bottom/left/right` offsets, with no `position` of their own. Do not
+   remove this. The Popover-mounted `Menu` component (this phase's new
+   primitive) portals `.menu` inside its own `position: fixed` wrapper, so
+   `position: absolute` here resolves to the static (0,0-ish) position within
+   that wrapper -- visually identical, since `.menu` is that wrapper's only
+   child. */
 .menu {
-  width: 100%;
-  box-sizing: border-box;
+  position: absolute;
   background: var(--bg-raised);
   border: 1px solid var(--border-soft, var(--border));
   border-radius: var(--radius-menu);
@@ -133,6 +139,15 @@
   max-height: 420px;
   overflow-y: auto;
   z-index: 60;
+}
+/* Opt-in stretch for the Popover-mounted `Menu` primitive only: fills the
+   Popover wrapper's `min-width` (computed from `matchAnchorWidth`) instead
+   of shrink-to-fitting its content. Applied by `Menu.tsx`; the legacy
+   per-picker `.menu` consumers above must NOT get this (it would override
+   their own `min-width`/sizing). */
+.menu--in-popover {
+  width: 100%;
+  box-sizing: border-box;
 }
 /* Canonical group-label: mixed-case (not uppercase), medium weight, muted --
    matches the density of the items it labels rather than shouting over them. */
@@ -391,8 +406,8 @@ code.tok {
 .ui-error-card {
   padding: 10px 12px;
   border-radius: var(--radius);
-  background: rgba(240, 106, 106, 0.08);
-  border: 1px solid rgba(240, 106, 106, 0.35);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
   font-size: 13px;
   color: var(--text);
   text-align: left;
