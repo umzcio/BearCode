@@ -3,6 +3,7 @@ import { applyChoice } from '@shared/conflict'
 import { useAppStore } from '../../state/store'
 import { IconClose, IconGitBranch } from '../icons'
 import { Hint } from '../Hint'
+import { Loading } from '../ui/Loading'
 import './ConflictResolver.css'
 
 const MonacoEditable = lazy(() => import('../MonacoEditable'))
@@ -190,13 +191,13 @@ export function ConflictResolver(): React.JSX.Element | null {
             <div className="conflict-file">{file}</div>
             <div className="conflict-editor">
               {loading ? (
-                <div className="conflict-loading">Loading…</div>
+                <Loading />
               ) : currentErrored ? (
                 <div className="conflict-error">
                   Could not load {file}: {loadError?.message}
                 </div>
               ) : (
-                <Suspense fallback={<div className="conflict-loading">Loading…</div>}>
+                <Suspense fallback={<Loading />}>
                   <MonacoEditable value={text} onChange={setText} />
                 </Suspense>
               )}

@@ -541,7 +541,7 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
             ) : body === 'preview' ? (
               <FilePreview fileId={activeFile.fileId} />
             ) : body === 'code' ? (
-              <Suspense fallback={<div className="diff-loading">Loading…</div>}>
+              <Suspense fallback={<Loading />}>
                 <MonacoCode
                   key={activeFile.fileId + ':code'}
                   value={activeFile.afterText}
@@ -551,7 +551,7 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
                 />
               </Suspense>
             ) : (
-              <Suspense fallback={<div className="diff-loading">Loading…</div>}>
+              <Suspense fallback={<Loading />}>
                 {activeFile.status === 'created' ? (
                   <MonacoCode
                     key={activeFile.fileId + ':diff'}

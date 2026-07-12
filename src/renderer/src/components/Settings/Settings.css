@@ -601,6 +601,9 @@
   color: var(--text-dim);
   margin-bottom: 12px;
 }
+.pricing-error {
+  margin-top: 10px;
+}
 .pricing-table {
   width: 100%;
   border-collapse: collapse;

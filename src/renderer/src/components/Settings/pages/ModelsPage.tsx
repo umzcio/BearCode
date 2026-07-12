@@ -295,7 +295,7 @@ export function ModelsPage(): JSX.Element | null {
           ) : null}
         </div>
         {pricingSync.status === 'error' ? (
-          <div style={{ marginTop: 10 }}>
+          <div className="pricing-error">
             <ErrorCard>{pricingSync.msg}</ErrorCard>
           </div>
         ) : null}
