@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { EffortLevel } from '@shared/types'
 import { EFFORT_LEVELS, EFFORT_LABELS, effortCapabilities } from '@shared/effort'
 import { useAppStore } from '../../state/store'
 import { Hint } from '../Hint'
 import { IconChevronDown } from '../icons'
+import { Popover } from '../ui/Popover'
 import './EffortPicker.css'
 
 export function EffortPicker(): React.JSX.Element {
@@ -14,25 +15,9 @@ export function EffortPicker(): React.JSX.Element {
   const modelRef = useAppStore((s) => s.modelRef)
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
-  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const { effortEnabled, thinkingEnabled } = effortCapabilities(modelRef)
-
-  useEffect(() => {
-    if (!open) return undefined
-    const close = (e: MouseEvent): void => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('click', close)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('click', close)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   const pickEffort = (level: EffortLevel): void => {
     if (!effortEnabled) return
@@ -56,7 +41,15 @@ export function EffortPicker(): React.JSX.Element {
     flatOptions.push({ id: 'thinking', commit: toggleThinking })
   }
 
-  useEffect(() => {
+  // Popover owns click-outside/Esc/scroll dismissal + positioning. This
+  // effect only seeds the roving highlight on the current effort tier and
+  // focuses the listbox so it receives arrow keys -- stays a
+  // useLayoutEffect (not useEffect) because Popover measures + positions
+  // itself in its own useLayoutEffect on the same open transition, and
+  // layout effects fire bottom-up (Popover, nested inside this component,
+  // before this one), so the listbox is never `visibility: hidden` when
+  // `.focus()` is called here. See Popover.tsx / ModelPicker.tsx.
+  useLayoutEffect(() => {
     if (!open) return
     const i = flatOptions.findIndex((o) => o.id === `effort-${effort}`)
     setActiveIndex(i >= 0 ? i : 0)
@@ -86,13 +79,14 @@ export function EffortPicker(): React.JSX.Element {
   }
 
   return (
-    <div className="effort-picker" ref={rootRef}>
+    <div className="effort-picker">
       <Hint
         label={effortEnabled ? 'Reasoning effort' : 'Effort is not adjustable for this model'}
         side="top"
         disabled={open}
       >
         <button
+          ref={triggerRef}
           className={'pill-btn' + (effortEnabled ? '' : ' effort-inert')}
           onClick={() => setOpen((o) => !o)}
         >
@@ -102,9 +96,14 @@ export function EffortPicker(): React.JSX.Element {
           </span>
         </button>
       </Hint>
-      {open ? (
+      <Popover
+        anchorRef={triggerRef}
+        open={open}
+        onClose={() => setOpen(false)}
+        placement="top-end"
+      >
         <div
-          className="menu effort-menu"
+          className="menu menu--in-popover effort-menu"
           role="listbox"
           ref={menuRef}
           tabIndex={-1}
@@ -176,7 +175,7 @@ export function EffortPicker(): React.JSX.Element {
             <span className={'effort-switch' + (thinking && thinkingEnabled ? ' on' : '')} />
           </div>
         </div>
-      ) : null}
+      </Popover>
     </div>
   )
 }

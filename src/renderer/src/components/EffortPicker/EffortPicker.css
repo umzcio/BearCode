@@ -6,11 +6,11 @@
 .pill-btn.effort-inert {
   opacity: 0.55;
 }
+/* The dropdown itself is portaled + positioned + animated by Popover (see
+   Popover.tsx / shared.css `.menu`/`.menu--in-popover`); no dropdown
+   positioning lives here anymore. */
 .effort-menu {
-  bottom: 40px;
-  right: 0;
   min-width: 264px;
-  padding: 5px;
 }
 .effort-menu .menu-group-label {
   text-transform: none;
