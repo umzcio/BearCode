@@ -22,6 +22,48 @@ export function assertSafeGitUrl(url: string): void {
     throw new Error(`Refused unsafe git URL: ${String(url)}`)
 }
 
+// Turn a URL a human would paste into a cloneable git URL + optional
+// branch/subpath. People paste GitHub/GitLab/Bitbucket *web* URLs -- including
+// folder links like `.../tree/main/plugins/foo` -- which are NOT git-cloneable
+// as-is (git would 404). We rewrite those to `<host>/<owner>/<repo>.git` and
+// carry the branch + in-repo subpath separately so the install flow can clone
+// the repo and stage just that folder. ssh/git@ URLs and explicit hosts we
+// don't recognize pass through unchanged (minus a trailing slash).
+export function normalizeGitSource(input: string): {
+  cloneUrl: string
+  ref?: string
+  subpath?: string
+} {
+  const s = String(input ?? '').trim()
+  if (/^(git@|ssh:\/\/)/.test(s)) return { cloneUrl: s }
+  const m = s.match(
+    /^https:\/\/(github\.com|gitlab\.com|bitbucket\.org)\/([^/\s]+)\/([^/\s]+?)(?:\.git)?(?:\/(?:tree|src|blob)\/([^/\s]+)(?:\/(.*))?)?\/?$/i
+  )
+  if (!m) {
+    if (/^https:\/\//.test(s)) return { cloneUrl: s.replace(/\/+$/, '') }
+    throw new Error(`That is not a git or GitHub URL: ${input}`)
+  }
+  const [, host, owner, repo, ref, subpath] = m
+  return {
+    cloneUrl: `https://${host}/${owner}/${repo}.git`,
+    ref: ref || undefined,
+    subpath: subpath ? subpath.replace(/\/+$/, '') : undefined
+  }
+}
+
+// Wrap git's raw failure text (which includes the whole clone command line)
+// into a short, human message. Callers surface this straight to the UI.
+function friendlyGitError(e: unknown, ref?: string): Error {
+  const msg = e instanceof Error ? e.message : String(e)
+  if (/Remote branch .* not found|Could not find remote branch/i.test(msg))
+    return new Error(`That branch was not found in the repository${ref ? `: ${ref}` : ''}.`)
+  if (/not found|does not exist|Could not read from remote|Repository not found/i.test(msg))
+    return new Error('Could not find that repository — check the URL is correct and public (or that you have access).')
+  if (/Authentication failed|Permission denied|403|401/i.test(msg))
+    return new Error('Access denied to that repository — you may need to sign in or use a URL you have access to.')
+  return new Error('Could not clone that repository.')
+}
+
 const SAFE_ENV = { GIT_ALLOW_PROTOCOL: 'https:ssh:git', GIT_TERMINAL_PROMPT: '0' }
 const SAFE_CLONE = [
   '-c',
@@ -32,11 +74,48 @@ const SAFE_CLONE = [
   '--no-recurse-submodules'
 ]
 
-export async function safeClone(url: string, dest: string): Promise<void> {
+export async function safeClone(url: string, dest: string, ref?: string): Promise<void> {
   assertSafeGitUrl(url)
   if (existsSync(dest)) rmSync(dest, { recursive: true, force: true })
   mkdirSync(dest, { recursive: true })
-  await git([...SAFE_CLONE, url, dest], homedir(), SAFE_ENV)
+  const branchArgs = ref ? ['--branch', ref] : []
+  try {
+    await git([...SAFE_CLONE, ...branchArgs, url, dest], homedir(), SAFE_ENV)
+  } catch (e) {
+    rmSync(dest, { recursive: true, force: true })
+    throw friendlyGitError(e, ref)
+  }
+}
+
+// Clone `rawUrl` (normalizing GitHub/GitLab folder URLs) and stage a candidate
+// plugin dir under stageRoot(): the whole repo when there's no subpath, or just
+// the jailed subpath when the URL points at a folder inside a repo. Returns the
+// staged directory path; writes NOTHING into the live plugins tree.
+async function cloneAndStage(rawUrl: string): Promise<string> {
+  const norm = normalizeGitSource(rawUrl)
+  const key = createHash('sha256').update(rawUrl).digest('hex').slice(0, 16)
+  const stagePath = join(stageRoot(), key)
+  if (existsSync(stagePath)) rmSync(stagePath, { recursive: true, force: true })
+  mkdirSync(stageRoot(), { recursive: true })
+  if (!norm.subpath) {
+    await safeClone(norm.cloneUrl, stagePath, norm.ref)
+    return stagePath
+  }
+  const repoDir = join(stageRoot(), `${key}-repo`)
+  await safeClone(norm.cloneUrl, repoDir, norm.ref)
+  try {
+    const root = resolve(repoDir)
+    const resolved = resolve(root, norm.subpath)
+    if (!(resolved === root || resolved.startsWith(root + sep)))
+      throw new Error('That folder path escapes the repository.')
+    if (!existsSync(resolved))
+      throw new Error(`That folder was not found in the repository: ${norm.subpath}`)
+    if (existsSync(stagePath)) rmSync(stagePath, { recursive: true, force: true })
+    cpSync(resolved, stagePath, { recursive: true })
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+  return stagePath
 }
 
 function marketplacesRoot(): string {
@@ -51,10 +130,13 @@ export function listMarketplaces(): string[] {
 }
 
 export async function addMarketplace(url: string): Promise<void> {
-  assertSafeGitUrl(url)
-  await safeClone(url, cacheDir(url))
+  // A marketplace is a whole repo (marketplace.json at its root), so ignore any
+  // /tree/<branch>/<subpath> a user may have pasted and clone the repo root.
+  const { cloneUrl, ref } = normalizeGitSource(url)
+  assertSafeGitUrl(cloneUrl)
+  await safeClone(cloneUrl, cacheDir(cloneUrl), ref)
   const cur = new Set(listMarketplaces())
-  cur.add(url)
+  cur.add(cloneUrl)
   setSettings({ marketplaces: [...cur] })
 }
 
@@ -132,8 +214,7 @@ export async function prepareInstall(
 ): Promise<{ manifest: PluginManifest; stagePath: string }> {
   let stagePath: string
   if (/^(https:\/\/|ssh:\/\/|git@)/.test(source)) {
-    stagePath = join(stageRoot(), createHash('sha256').update(source).digest('hex').slice(0, 16))
-    await safeClone(source, stagePath)
+    stagePath = await cloneAndStage(source)
   } else if (marketplaceUrl) {
     const root = resolve(cacheDir(marketplaceUrl))
     const resolved = resolve(root, source)
@@ -161,7 +242,15 @@ export async function prepareInstall(
     throw new Error('prepareInstall needs a git URL or a marketplaceUrl + subpath.')
   }
   const manifest = parsePluginDir(stagePath, 'global')
-  if (!manifest) throw new Error('That source is not a plugin (no plugin.json).')
+  if (!manifest) {
+    if (existsSync(join(stagePath, 'marketplace.json')))
+      throw new Error(
+        'This looks like a marketplace (many plugins), not a single plugin. Add it with “Add marketplace URL” above, then install a plugin from the catalog.'
+      )
+    throw new Error(
+      'No plugin.json found here — this is not a plugin. Point to a repo (or a folder inside one) that contains a plugin.json.'
+    )
+  }
   return { manifest, stagePath }
 }
 

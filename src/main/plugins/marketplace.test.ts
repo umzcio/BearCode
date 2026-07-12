@@ -2,7 +2,50 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { assertSafeGitUrl } from './marketplace'
+import { assertSafeGitUrl, normalizeGitSource } from './marketplace'
+
+describe('normalizeGitSource', () => {
+  it('passes bare repo URLs through as a .git clone URL, no subpath', () => {
+    expect(normalizeGitSource('https://github.com/o/r')).toEqual({
+      cloneUrl: 'https://github.com/o/r.git'
+    })
+    expect(normalizeGitSource('https://github.com/o/r.git')).toEqual({
+      cloneUrl: 'https://github.com/o/r.git'
+    })
+  })
+  it('parses a GitHub folder URL into cloneUrl + ref + subpath', () => {
+    expect(normalizeGitSource('https://github.com/o/r/tree/main/plugins/foo')).toEqual({
+      cloneUrl: 'https://github.com/o/r.git',
+      ref: 'main',
+      subpath: 'plugins/foo'
+    })
+  })
+  it('parses a GitHub folder URL with a dotfile subpath and a branch', () => {
+    expect(normalizeGitSource('https://github.com/o/r/tree/dev/.claude-plugin')).toEqual({
+      cloneUrl: 'https://github.com/o/r.git',
+      ref: 'dev',
+      subpath: '.claude-plugin'
+    })
+  })
+  it('handles gitlab tree and bitbucket src URLs', () => {
+    expect(normalizeGitSource('https://gitlab.com/o/r/tree/main/p')).toEqual({
+      cloneUrl: 'https://gitlab.com/o/r.git',
+      ref: 'main',
+      subpath: 'p'
+    })
+    expect(normalizeGitSource('https://bitbucket.org/o/r/src/main/p')).toEqual({
+      cloneUrl: 'https://bitbucket.org/o/r.git',
+      ref: 'main',
+      subpath: 'p'
+    })
+  })
+  it('leaves ssh/git@ URLs untouched', () => {
+    expect(normalizeGitSource('git@github.com:o/r.git')).toEqual({ cloneUrl: 'git@github.com:o/r.git' })
+  })
+  it('rejects a non-URL string', () => {
+    expect(() => normalizeGitSource('just some text')).toThrow()
+  })
+})
 
 describe('assertSafeGitUrl', () => {
   it('accepts https and ssh/git@ URLs', () => {

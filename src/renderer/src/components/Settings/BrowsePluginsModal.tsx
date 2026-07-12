@@ -22,6 +22,17 @@ interface Review {
   stagePath: string
 }
 
+// Electron wraps a main-process rejection as
+// `Error invoking remote method 'bearcode:...': Error: <real message>`.
+// Peel that (and a leading `Error:`) so the user sees only our message.
+function cleanError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e)
+  return raw
+    .replace(/^Error invoking remote method '[^']*':\s*/, '')
+    .replace(/^Error:\s*/, '')
+    .trim()
+}
+
 export function BrowsePluginsModal({ onClose, onInstalled }: Props): JSX.Element {
   const [catalog, setCatalog] = useState<MarketplacePlugin[] | null>(null)
   const [mkUrl, setMkUrl] = useState('')
@@ -58,7 +69,7 @@ export function BrowsePluginsModal({ onClose, onInstalled }: Props): JSX.Element
     void window.bearcode.plugins
       .prepareInstall(p.source, p.marketplaceUrl)
       .then(setReview)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e: unknown) => setError(cleanError(e)))
       .finally(() => setBusy(null))
   }
 
@@ -72,7 +83,7 @@ export function BrowsePluginsModal({ onClose, onInstalled }: Props): JSX.Element
         setInstallUrl('')
         setReview(r)
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e: unknown) => setError(cleanError(e)))
       .finally(() => setBusy(null))
   }
 
@@ -85,7 +96,7 @@ export function BrowsePluginsModal({ onClose, onInstalled }: Props): JSX.Element
         setMkUrl('')
         load()
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e: unknown) => setError(cleanError(e)))
   }
 
   const confirm = (): void => {
@@ -97,7 +108,7 @@ export function BrowsePluginsModal({ onClose, onInstalled }: Props): JSX.Element
         setReview(null)
         onInstalled()
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e: unknown) => setError(cleanError(e)))
   }
 
   return createPortal(
