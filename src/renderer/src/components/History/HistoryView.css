@@ -25,6 +25,11 @@
   color: var(--text);
   font-size: 14px;
 }
+.history-search-input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus);
+  border-radius: 4px;
+}
 .history-search-input::placeholder {
   color: var(--text-dim);
 }

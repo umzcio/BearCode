@@ -1,5 +1,17 @@
 /* Shared chrome copied from the prototype: buttons, menus, code chips, scrollbars. */
 
+/* Keyboard-focus ring, app-wide: mouse focus stays clean, Tab focus shows a
+   consistent accent ring (--focus-ring, tokens.css) on every interactive
+   control. Not motion -- no reduced-motion fallback needed. */
+.icon-btn:focus-visible,
+.chrome-btn:focus-visible,
+.pill-btn:focus-visible,
+.menu-item:focus-visible,
+.app-select-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 .chrome-btn {
   background: none;
   border: none;

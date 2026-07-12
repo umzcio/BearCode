@@ -41,6 +41,11 @@
   font-size: 13px;
   width: 100%;
 }
+.menu-search input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus);
+  border-radius: 4px;
+}
 .menu-search input::placeholder {
   color: var(--text-dim);
 }

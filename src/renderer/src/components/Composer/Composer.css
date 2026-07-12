@@ -26,6 +26,10 @@
   height: 52px;
   line-height: 1.5;
 }
+.composer textarea:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus);
+}
 .composer textarea::placeholder {
   color: var(--text-dim);
 }
