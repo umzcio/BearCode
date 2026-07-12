@@ -73,7 +73,7 @@ describe('IntegrationsPage (Task 11)', () => {
 
   it('Connect GitHub opens the device flow modal and starts the device flow', async () => {
     mount()
-    fireEvent.click(screen.getByRole('button', { name: /connect github/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /connect github/i }))
     await waitFor(() => expect(deviceStartSpy).toHaveBeenCalled())
     expect(await screen.findByText('ABCD-1234')).toBeTruthy()
     // The device flow starts polling automatically once the code arrives.
@@ -82,7 +82,7 @@ describe('IntegrationsPage (Task 11)', () => {
 
   it('Open GitHub button opens the verification URL via window.open', async () => {
     mount()
-    fireEvent.click(screen.getByRole('button', { name: /connect github/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /connect github/i }))
     await screen.findByText('ABCD-1234')
     fireEvent.click(screen.getByRole('button', { name: /open github/i }))
     expect(windowOpenSpy).toHaveBeenCalledWith('https://github.com/login/device', '_blank')
@@ -90,7 +90,7 @@ describe('IntegrationsPage (Task 11)', () => {
 
   it('"Paste a token instead" switches to PAT mode and connects', async () => {
     mount()
-    fireEvent.click(screen.getByRole('button', { name: /connect github/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /connect github/i }))
     await screen.findByText('ABCD-1234')
     fireEvent.click(screen.getByRole('button', { name: /paste a token instead/i }))
     const input = screen.getByPlaceholderText('ghp_…')
@@ -103,7 +103,7 @@ describe('IntegrationsPage (Task 11)', () => {
 
   it('Connect Bitbucket shows an inline username + app-password form', async () => {
     mount()
-    fireEvent.click(screen.getByRole('button', { name: /connect bitbucket/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /connect bitbucket/i }))
     const user = screen.getByPlaceholderText('Bitbucket username')
     const pw = screen.getByPlaceholderText('App password')
     fireEvent.change(user, { target: { value: 'zach' } })

@@ -4,6 +4,7 @@ import type { EffortLevel, FolderProject, OutsideFolderAccess, PermissionMode } 
 import { EFFORT_LEVELS, EFFORT_LABELS } from '@shared/effort'
 import { useAppStore } from '../../state/store'
 import { Select } from '../Select'
+import { Hint } from '../Hint'
 import { useModalDialog } from '../../lib/useModalDialog'
 import { SettingPlaceholder } from '../Settings/SettingPlaceholder'
 import {
@@ -147,9 +148,11 @@ function ProjectSettingsPanel({ folder }: { folder: FolderProject }): JSX.Elemen
         </div>
 
         <div className="settings-content">
-          <button className="content-close" title="Close" onClick={close}>
-            <IconClose />
-          </button>
+          <Hint label="Close" side="bottom">
+            <button className="content-close" aria-label="Close" onClick={close}>
+              <IconClose />
+            </button>
+          </Hint>
 
           {page === 'general' ? (
             <>

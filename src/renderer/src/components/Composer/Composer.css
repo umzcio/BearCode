@@ -151,9 +151,9 @@
 .env-picker {
   position: relative;
 }
+/* Popover-mounted now (position comes from `.menu--in-popover`); this only
+   sets the menu's own width floor, matching EffortPicker's `.effort-menu`. */
 .env-menu {
-  top: 34px;
-  left: 0;
   min-width: 240px;
 }
 /* Icon + label left, check pinned right (matches the app's other menus). */

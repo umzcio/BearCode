@@ -60,19 +60,19 @@ afterEach(cleanup)
 describe('Sidebar pin/archive + folder actions', () => {
   it('clicking Pin calls setPinned(id, true)', () => {
     render(<Sidebar />)
-    fireEvent.click(screen.getByTitle('Pin'))
+    fireEvent.click(screen.getByLabelText('Pin'))
     expect(setPinned).toHaveBeenCalledWith('c1', true)
   })
 
   it('clicking Archive calls setArchived(id, true)', () => {
     render(<Sidebar />)
-    fireEvent.click(screen.getByTitle('Archive'))
+    fireEvent.click(screen.getByLabelText('Archive'))
     expect(setArchived).toHaveBeenCalledWith('c1', true)
   })
 
   it('folder + calls newConversationInProject with the path', () => {
     render(<Sidebar />)
-    fireEvent.click(screen.getByTitle('New conversation in this folder'))
+    fireEvent.click(screen.getByLabelText('New conversation in this folder'))
     expect(newConversationInProject).toHaveBeenCalledWith(FOLDER)
   })
 
@@ -81,7 +81,7 @@ describe('Sidebar pin/archive + folder actions', () => {
       conversations: { c1: { ...convo, projectPath: null, projectLabel: 'No folder' } }
     } as never)
     render(<Sidebar />)
-    expect(screen.queryByTitle('Project settings')).toBeNull()
+    expect(screen.queryByLabelText('Project settings')).toBeNull()
   })
 })
 
@@ -106,7 +106,7 @@ describe('Sidebar folder color + icon + settings (folder = project)', () => {
     const dot = container.querySelector('.proj-dot') as HTMLElement
     expect(dot).toBeTruthy()
     expect(dot.style.background).toContain('rgb(76, 141, 255)')
-    fireEvent.click(screen.getByTitle('Project settings'))
+    fireEvent.click(screen.getByLabelText('Project settings'))
     expect(openProjectSettings).toHaveBeenCalledWith(FOLDER)
   })
 

@@ -3,6 +3,10 @@ import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { MarketplacePlugin, PluginManifest } from '@shared/types'
 import { IconClose } from '../icons'
+import { EmptyState } from '../ui/EmptyState'
+import { Loading } from '../ui/Loading'
+import { ErrorCard } from '../ui/ErrorCard'
+import { Hint } from '../Hint'
 
 // Task 11 of the plugins arc: the real catalog/add-marketplace/
 // install-from-URL/review-card flow (replaces the Task 10 open/close-only
@@ -141,16 +145,14 @@ export function BrowsePluginsModal({ mode = 'plugins', onClose, onInstalled }: P
                   : 'Install bundles of skills, rules, and connectors.'}
             </div>
           </div>
-          <button className="icon-btn" aria-label="Close" onClick={onClose}>
-            <IconClose size={16} />
-          </button>
+          <Hint label="Close" side="bottom">
+            <button className="icon-btn" aria-label="Close" onClick={onClose}>
+              <IconClose size={16} />
+            </button>
+          </Hint>
         </div>
 
-        {error ? (
-          <div className="domain-empty" role="alert">
-            {error}
-          </div>
-        ) : null}
+        {error ? <ErrorCard>{error}</ErrorCard> : null}
 
         {review ? (
           <div className="plugin-review">
@@ -215,13 +217,16 @@ export function BrowsePluginsModal({ mode = 'plugins', onClose, onInstalled }: P
             </div>
 
             {catalog === null ? (
-              <div className="smithery-empty">Loading catalog…</div>
+              <Loading label="Loading catalog…" />
             ) : filteredCatalog.length === 0 ? (
-              <div className="smithery-empty">
-                {mode === 'skills'
-                  ? 'No skills in the catalog yet. Add a marketplace above.'
-                  : 'No plugins in the catalog yet. Add a marketplace above.'}
-              </div>
+              <EmptyState
+                title={
+                  mode === 'skills'
+                    ? 'No skills in the catalog yet'
+                    : 'No plugins in the catalog yet'
+                }
+                hint="Add a marketplace above."
+              />
             ) : (
               <div className="smithery-results">
                 {filteredCatalog.map((p) => (

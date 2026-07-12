@@ -35,6 +35,7 @@ import { SettingPlaceholder } from './SettingPlaceholder'
 import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
 import type { SettingsPageId } from './SettingsNav'
 import { Select } from '../Select'
+import { Hint } from '../Hint'
 import { useModalDialog } from '../../lib/useModalDialog'
 import './Settings.css'
 
@@ -168,9 +169,11 @@ function SettingsPanel({
         </div>
 
         <div className="settings-content">
-          <button className="content-close" title="Close" onClick={close}>
-            <IconClose />
-          </button>
+          <Hint label="Close" side="bottom">
+            <button className="content-close" aria-label="Close" onClick={close}>
+              <IconClose />
+            </button>
+          </Hint>
 
           {page === 'general' ? <GeneralPage /> : null}
 

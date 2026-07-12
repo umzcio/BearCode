@@ -3,6 +3,8 @@ import type { JSX } from 'react'
 import { useAppStore } from '../../../state/store'
 import { Toggle } from '../../Toggle'
 import { IconClose } from '../../icons'
+import { EmptyState } from '../../ui/EmptyState'
+import { Loading } from '../../ui/Loading'
 
 // A settings row: title + description on the left, the control on the right.
 function Row({
@@ -86,7 +88,7 @@ function DomainListEditor({
           ))}
         </div>
       ) : (
-        <div className="domain-empty">None yet.</div>
+        <EmptyState title="None yet" />
       )}
     </div>
   )
@@ -213,18 +215,16 @@ export function BrowserPage(): JSX.Element | null {
           title="Status"
           desc="The browser engine (Chromium) downloads on first use (~150 MB). Connection reflects whether a browser session is currently live."
         >
-          <span className="browser-status">
-            {status === null ? (
-              'Checking…'
-            ) : (
-              <>
-                <span className={'status-dot' + (status.installed ? ' ok' : '')} />
-                {status.installed ? 'Engine installed' : 'Engine not installed'}
-                {' · '}
-                {status.connected ? 'Connected' : 'Idle'}
-              </>
-            )}
-          </span>
+          {status === null ? (
+            <Loading label="Checking…" />
+          ) : (
+            <span className="browser-status">
+              <span className={'status-dot' + (status.installed ? ' ok' : '')} />
+              {status.installed ? 'Engine installed' : 'Engine not installed'}
+              {' · '}
+              {status.connected ? 'Connected' : 'Idle'}
+            </span>
+          )}
         </Row>
       </div>
     </>

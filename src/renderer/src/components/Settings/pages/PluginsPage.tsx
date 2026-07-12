@@ -4,6 +4,8 @@ import type { PluginEntry } from '@shared/types'
 import { useAppStore } from '../../../state/store'
 import { Toggle } from '../../Toggle'
 import { BrowsePluginsModal } from '../BrowsePluginsModal'
+import { EmptyState } from '../../ui/EmptyState'
+import { Loading } from '../../ui/Loading'
 
 export function PluginsPage(): JSX.Element {
   const workspacePath = useAppStore((s) => s.workspacePath)
@@ -31,8 +33,10 @@ export function PluginsPage(): JSX.Element {
       <button className="pill-btn primary" onClick={() => setBrowsing(true)}>
         Browse Catalog
       </button>
-      {plugins && plugins.length === 0 ? (
-        <div className="plugin-empty">No plugins installed. Browse the catalog to add one.</div>
+      {plugins === null ? (
+        <Loading />
+      ) : plugins.length === 0 ? (
+        <EmptyState title="No plugins installed" hint="Browse the catalog to add one." />
       ) : null}
       {(plugins ?? []).map((p) => (
         // Keyed on the canonical on-disk identity (scope + dirName), never the

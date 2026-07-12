@@ -124,7 +124,7 @@ export function Composer({
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [attachments, setAttachments] = useState<PickedAttachmentWire[]>([])
   const taRef = useRef<HTMLTextAreaElement>(null)
-  const envRef = useRef<HTMLDivElement>(null)
+  const envTriggerRef = useRef<HTMLButtonElement>(null)
   const addMenuBtnRef = useRef<HTMLButtonElement>(null)
   // Anchors the slash/mention/resume Popovers -- they should span the full
   // composer width (matchAnchorWidth), not just the trigger that opened them.
@@ -205,15 +205,6 @@ export function Composer({
     ta.style.height = '52px'
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`
   }, [value])
-
-  useEffect(() => {
-    if (!envOpen) return undefined
-    const close = (e: MouseEvent): void => {
-      if (envRef.current && !envRef.current.contains(e.target as Node)) setEnvOpen(false)
-    }
-    document.addEventListener('click', close)
-    return () => document.removeEventListener('click', close)
-  }, [envOpen])
 
   // F3: New Worktree is offerable only for a git-repo folder (git present +
   // repo discovered). When the current workspace can't host a worktree, gray the
@@ -409,14 +400,16 @@ export function Composer({
         <div className="command-pill-row">
           <span className="command-pill">
             /{command.name}
-            <button
-              type="button"
-              className="pill-x"
-              title="Remove command"
-              onClick={() => setCommand(null)}
-            >
-              <IconClose size={11} />
-            </button>
+            <Hint label="Remove command" side="top">
+              <button
+                type="button"
+                className="pill-x"
+                aria-label="Remove command"
+                onClick={() => setCommand(null)}
+              >
+                <IconClose size={11} />
+              </button>
+            </Hint>
           </span>
         </div>
       ) : null}
@@ -425,14 +418,16 @@ export function Composer({
           {mentions.map((m, i) => (
             <span className="command-pill" key={`${m.kind}:${m.name}:${i}`}>
               @{m.name}
-              <button
-                type="button"
-                className="pill-x"
-                title="Remove mention"
-                onClick={() => setMentions((cur) => cur.filter((_, idx) => idx !== i))}
-              >
-                <IconClose size={11} />
-              </button>
+              <Hint label="Remove mention" side="top">
+                <button
+                  type="button"
+                  className="pill-x"
+                  aria-label="Remove mention"
+                  onClick={() => setMentions((cur) => cur.filter((_, idx) => idx !== i))}
+                >
+                  <IconClose size={11} />
+                </button>
+              </Hint>
             </span>
           ))}
         </div>
@@ -462,14 +457,16 @@ export function Composer({
                   {truncationNotice ? (
                     <span className="attachment-note">{truncationNotice}</span>
                   ) : null}
-                  <button
-                    type="button"
-                    className="pill-x"
-                    title="Remove attachment"
-                    onClick={() => setAttachments((cur) => cur.filter((_, idx) => idx !== i))}
-                  >
-                    <IconClose size={11} />
-                  </button>
+                  <Hint label="Remove attachment" side="top">
+                    <button
+                      type="button"
+                      className="pill-x"
+                      aria-label="Remove attachment"
+                      onClick={() => setAttachments((cur) => cur.filter((_, idx) => idx !== i))}
+                    >
+                      <IconClose size={11} />
+                    </button>
+                  </Hint>
                 </span>
               </Hint>
             )
@@ -478,8 +475,13 @@ export function Composer({
       ) : null}
       {showEnvRow ? (
         <div className="env-row">
-          <div className="env-picker" ref={envRef}>
-            <button className="pill-btn" onClick={() => setEnvOpen((o) => !o)} disabled={envLocked}>
+          <div className="env-picker">
+            <button
+              ref={envTriggerRef}
+              className="pill-btn"
+              onClick={() => setEnvOpen((o) => !o)}
+              disabled={envLocked}
+            >
               {displayEnv === 'worktree' ? <IconGitBranch /> : <IconMonitor />}
               <span>{displayEnv === 'worktree' ? 'New Worktree' : 'Local'}</span>
               {!envLocked ? (
@@ -488,8 +490,13 @@ export function Composer({
                 </span>
               ) : null}
             </button>
-            {envOpen && !envLocked ? (
-              <div className="menu env-menu">
+            <Popover
+              anchorRef={envTriggerRef}
+              open={envOpen && !envLocked}
+              onClose={() => setEnvOpen(false)}
+              placement="top-start"
+            >
+              <div className="menu menu--in-popover env-menu">
                 <div
                   className={'menu-item' + (composerEnvironment === 'local' ? ' selected' : '')}
                   onClick={() => {
@@ -519,7 +526,7 @@ export function Composer({
                 </div>
                 <div className="env-hint">Worktrees are available for Git repositories</div>
               </div>
-            ) : null}
+            </Popover>
           </div>
         </div>
       ) : null}
@@ -629,14 +636,16 @@ export function Composer({
       <div className="composer-controls">
         <div className="controls-left">
           <div className="add-context">
-            <button
-              ref={addMenuBtnRef}
-              className="icon-btn"
-              title="Add context"
-              onClick={() => setAddMenuOpen((o) => !o)}
-            >
-              <IconPlus />
-            </button>
+            <Hint label="Add context" side="top" disabled={addMenuOpen}>
+              <button
+                ref={addMenuBtnRef}
+                className="icon-btn"
+                aria-label="Add context"
+                onClick={() => setAddMenuOpen((o) => !o)}
+              >
+                <IconPlus />
+              </button>
+            </Hint>
             <Menu
               anchorRef={addMenuBtnRef}
               open={addMenuOpen}
@@ -648,29 +657,39 @@ export function Composer({
             />
           </div>
           <ModePicker />
-          <button
-            className={`icon-btn mic-btn${voice.status === 'recording' ? ' recording' : ''}${
-              voice.status === 'transcribing' ? ' transcribing' : ''
-            }`}
-            disabled={voice.status === 'transcribing'}
-            title={voice.status === 'recording' ? 'Stop recording (⌃M)' : 'Voice input (⌃M)'}
-            onClick={toggleRecord}
+          <Hint
+            label={voice.status === 'recording' ? 'Stop recording' : 'Voice input'}
+            keys="⌃M"
+            side="top"
           >
-            <IconMic />
-          </button>
+            <button
+              className={`icon-btn mic-btn${voice.status === 'recording' ? ' recording' : ''}${
+                voice.status === 'transcribing' ? ' transcribing' : ''
+              }`}
+              disabled={voice.status === 'transcribing'}
+              aria-label={voice.status === 'recording' ? 'Stop recording (⌃M)' : 'Voice input (⌃M)'}
+              onClick={toggleRecord}
+            >
+              <IconMic />
+            </button>
+          </Hint>
         </div>
         <div className="controls-right">
           <ContextMeter />
           <ModelPicker />
           <EffortPicker />
           {running ? (
-            <button className="icon-btn send-btn stop" title="Stop" onClick={onStop}>
-              <IconStop />
-            </button>
+            <Hint label="Stop" side="top">
+              <button className="icon-btn send-btn stop" aria-label="Stop" onClick={onStop}>
+                <IconStop />
+              </button>
+            </Hint>
           ) : hasContent && modelReady ? (
-            <button className="icon-btn send-btn" title="Send" onClick={submit}>
-              <IconArrowUp />
-            </button>
+            <Hint label="Send" side="top">
+              <button className="icon-btn send-btn" aria-label="Send" onClick={submit}>
+                <IconArrowUp />
+              </button>
+            </Hint>
           ) : null}
         </div>
       </div>

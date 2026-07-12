@@ -3,6 +3,8 @@ import type { JSX } from 'react'
 import type { RuleEntry } from '@shared/types'
 import { useAppStore } from '../../../state/store'
 import { PluginBadge } from '../../PluginBadge'
+import { EmptyState } from '../../ui/EmptyState'
+import { Loading } from '../../ui/Loading'
 
 // Read-only by design (Phase G plugins arc, Task 12 fix): rules stay
 // file-managed (.agents/rules/*.md, project + global), the same as
@@ -41,14 +43,19 @@ export function RulesPage(): JSX.Element | null {
       <div className="set-card">
         {rules === null ? (
           <div className="set-row">
-            <div className="set-row-desc">Loading…</div>
+            <Loading />
           </div>
         ) : rules.length === 0 ? (
           <div className="set-row">
-            <div className="set-row-desc">
-              No rules yet — add a <code>.md</code> file under <code>.agents/rules/</code> (project)
-              or <code>~/.bearcode/agents/rules/</code> (global).
-            </div>
+            <EmptyState
+              title="No rules yet"
+              hint={
+                <>
+                  Add a <code>.md</code> file under <code>.agents/rules/</code> (project) or{' '}
+                  <code>~/.bearcode/agents/rules/</code> (global).
+                </>
+              }
+            />
           </div>
         ) : (
           rules.map((entry) => (

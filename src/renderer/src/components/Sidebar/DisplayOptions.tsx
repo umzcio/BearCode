@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AppSettings } from '@shared/types'
 import { useAppStore } from '../../state/store'
+import { Hint } from '../Hint'
 import { IconFilter } from '../icons'
 import { Popover } from '../ui/Popover'
 import './DisplayOptions.css'
@@ -86,14 +87,16 @@ export function DisplayOptions(): React.JSX.Element {
 
   return (
     <div className="display-options">
-      <button
-        ref={triggerRef}
-        className="chrome-btn"
-        title="Display options"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <IconFilter />
-      </button>
+      <Hint label="Display options" side="bottom" disabled={open}>
+        <button
+          ref={triggerRef}
+          className="chrome-btn"
+          aria-label="Display options"
+          onClick={() => setOpen((o) => !o)}
+        >
+          <IconFilter />
+        </button>
+      </Hint>
       <Popover
         anchorRef={triggerRef}
         open={open}

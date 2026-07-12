@@ -215,11 +215,11 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
     expect(screen.getByRole('switch', { name: /enable connectors/i })).toBeTruthy()
   })
 
-  it('the Integrations tab renders the real Integrations page (not a placeholder)', () => {
+  it('the Integrations tab renders the real Integrations page (not a placeholder)', async () => {
     render(<SettingsModal />)
     fireEvent.click(within(rail()).getByText('Integrations'))
     expect(document.querySelector('.coming-block')).toBeNull()
-    expect(screen.getByRole('button', { name: /connect github/i })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: /connect github/i })).toBeTruthy()
   })
 
   it('never renders the text "coming soon"', () => {

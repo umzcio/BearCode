@@ -4,6 +4,9 @@ import type { JSX } from 'react'
 import type { GithubDeviceStart, IntegrationProvider, IntegrationStatus } from '@shared/types'
 import { IconClose } from '../../icons'
 import { useAppStore } from '../../../state/store'
+import { Loading } from '../../ui/Loading'
+import { ErrorCard } from '../../ui/ErrorCard'
+import { Hint } from '../../Hint'
 
 // A settings row: title + description on the left, the control on the right.
 function Row({
@@ -148,17 +151,17 @@ function GithubConnectModal({
               {mode === 'device' ? 'Device Flow sign-in' : 'Paste a personal access token'}
             </div>
           </div>
-          <button className="icon-btn" aria-label="Close" onClick={onClose}>
-            <IconClose size={16} />
-          </button>
+          <Hint label="Close" side="bottom">
+            <button className="icon-btn" aria-label="Close" onClick={onClose}>
+              <IconClose size={16} />
+            </button>
+          </Hint>
         </div>
 
         {mode === 'device' ? (
           <div className="smithery-secrets">
             {error ? (
-              <div className="domain-empty" role="alert">
-                {error}
-              </div>
+              <ErrorCard>{error}</ErrorCard>
             ) : device ? (
               <>
                 <div className="set-row-desc">
@@ -205,11 +208,7 @@ function GithubConnectModal({
                 onChange={(e) => setPat(e.target.value)}
               />
             </div>
-            {error ? (
-              <div className="domain-empty" role="alert">
-                {error}
-              </div>
-            ) : null}
+            {error ? <ErrorCard>{error}</ErrorCard> : null}
             <div className="smithery-search-row">
               <button className="pill-btn primary" disabled={connecting} onClick={connectPat}>
                 {connecting ? 'Connecting…' : 'Connect'}
@@ -286,11 +285,7 @@ function BitbucketConnectForm({
         value={appPassword}
         onChange={(e) => setAppPassword(e.target.value)}
       />
-      {error ? (
-        <div className="domain-empty" role="alert">
-          {error}
-        </div>
-      ) : null}
+      {error ? <ErrorCard>{error}</ErrorCard> : null}
       <button className="pill-btn primary" disabled={connecting} onClick={submit}>
         {connecting ? 'Connecting…' : 'Connect'}
       </button>
@@ -330,76 +325,82 @@ export function IntegrationsPage(): JSX.Element {
         Connect GitHub or Bitbucket for private git access and PR/issue tools. Off until connected.
       </div>
 
-      <div className="set-group-title">GitHub</div>
-      <div className="set-card">
-        <Row title="GitHub" desc={describe(github, 'GitHub')}>
-          {github.connected ? (
-            <button
-              className="pill-btn"
-              aria-label="Disconnect GitHub"
-              onClick={() => disconnect('github')}
-            >
-              Disconnect
-            </button>
-          ) : (
-            <button
-              className="pill-btn primary"
-              aria-label="Connect GitHub"
-              onClick={() => setGithubModalOpen(true)}
-            >
-              Connect
-            </button>
-          )}
-        </Row>
-        <div className="set-row set-row-editor">
-          <div className="set-row-text">
-            <div className="set-row-title">OAuth App client ID</div>
-            <div className="set-row-desc">
-              Optional — for Device Flow sign-in. Leave blank to use a personal access token
-              (the recommended zero-setup path).
+      {statuses === null ? (
+        <Loading />
+      ) : (
+        <>
+          <div className="set-group-title">GitHub</div>
+          <div className="set-card">
+            <Row title="GitHub" desc={describe(github, 'GitHub')}>
+              {github.connected ? (
+                <button
+                  className="pill-btn"
+                  aria-label="Disconnect GitHub"
+                  onClick={() => disconnect('github')}
+                >
+                  Disconnect
+                </button>
+              ) : (
+                <button
+                  className="pill-btn primary"
+                  aria-label="Connect GitHub"
+                  onClick={() => setGithubModalOpen(true)}
+                >
+                  Connect
+                </button>
+              )}
+            </Row>
+            <div className="set-row set-row-editor">
+              <div className="set-row-text">
+                <div className="set-row-title">OAuth App client ID</div>
+                <div className="set-row-desc">
+                  Optional — for Device Flow sign-in. Leave blank to use a personal access token
+                  (the recommended zero-setup path).
+                </div>
+              </div>
+              <input
+                type="text"
+                className="set-input"
+                placeholder="Iv1.…"
+                value={settings?.githubClientId ?? ''}
+                onChange={(e) => void saveSettings({ githubClientId: e.target.value })}
+              />
             </div>
           </div>
-          <input
-            type="text"
-            className="set-input"
-            placeholder="Iv1.…"
-            value={settings?.githubClientId ?? ''}
-            onChange={(e) => void saveSettings({ githubClientId: e.target.value })}
-          />
-        </div>
-      </div>
 
-      <div className="set-group-title">Bitbucket</div>
-      <div className="set-card">
-        <Row title="Bitbucket" desc={describe(bitbucket, 'Bitbucket')}>
-          {bitbucket.connected ? (
-            <button
-              className="pill-btn"
-              aria-label="Disconnect Bitbucket"
-              onClick={() => disconnect('bitbucket')}
-            >
-              Disconnect
-            </button>
-          ) : (
-            <button
-              className="pill-btn primary"
-              aria-label="Connect Bitbucket"
-              onClick={() => setBitbucketFormOpen((o) => !o)}
-            >
-              Connect
-            </button>
-          )}
-        </Row>
-        {!bitbucket.connected && bitbucketFormOpen ? (
-          <BitbucketConnectForm
-            onConnected={() => {
-              setBitbucketFormOpen(false)
-              refresh()
-            }}
-            onCancel={() => setBitbucketFormOpen(false)}
-          />
-        ) : null}
-      </div>
+          <div className="set-group-title">Bitbucket</div>
+          <div className="set-card">
+            <Row title="Bitbucket" desc={describe(bitbucket, 'Bitbucket')}>
+              {bitbucket.connected ? (
+                <button
+                  className="pill-btn"
+                  aria-label="Disconnect Bitbucket"
+                  onClick={() => disconnect('bitbucket')}
+                >
+                  Disconnect
+                </button>
+              ) : (
+                <button
+                  className="pill-btn primary"
+                  aria-label="Connect Bitbucket"
+                  onClick={() => setBitbucketFormOpen((o) => !o)}
+                >
+                  Connect
+                </button>
+              )}
+            </Row>
+            {!bitbucket.connected && bitbucketFormOpen ? (
+              <BitbucketConnectForm
+                onConnected={() => {
+                  setBitbucketFormOpen(false)
+                  refresh()
+                }}
+                onCancel={() => setBitbucketFormOpen(false)}
+              />
+            ) : null}
+          </div>
+        </>
+      )}
 
       {githubModalOpen ? (
         <GithubConnectModal

@@ -21,19 +21,19 @@ afterEach(cleanup)
 describe('DisplayOptions', () => {
   it('opens the menu and shows the sections', () => {
     render(<DisplayOptions />)
-    fireEvent.click(screen.getByTitle('Display options'))
+    fireEvent.click(screen.getByLabelText('Display options'))
     expect(screen.getByText('Group By')).toBeTruthy()
     expect(screen.getByText('Sort Conversations')).toBeTruthy()
   })
   it('picking a Sort persists via settings.set', () => {
     render(<DisplayOptions />)
-    fireEvent.click(screen.getByTitle('Display options'))
+    fireEvent.click(screen.getByLabelText('Display options'))
     fireEvent.click(screen.getByText('Alphabetical (A–Z)'))
     expect(settingsSet).toHaveBeenCalledWith({ sidebarSort: 'alpha' })
   })
   it('Environment + Status group-by are enabled (no "coming soon") and persist', () => {
     render(<DisplayOptions />)
-    fireEvent.click(screen.getByTitle('Display options'))
+    fireEvent.click(screen.getByLabelText('Display options'))
     expect(screen.queryByText('coming soon')).toBeNull()
     fireEvent.click(screen.getByText('Environment'))
     expect(settingsSet).toHaveBeenCalledWith({ sidebarGroupBy: 'environment' })
@@ -43,7 +43,7 @@ describe('DisplayOptions', () => {
   })
   it('Worktree subtitle option toggles sidebarSubtitle', () => {
     render(<DisplayOptions />)
-    fireEvent.click(screen.getByTitle('Display options'))
+    fireEvent.click(screen.getByLabelText('Display options'))
     fireEvent.click(screen.getByText('Worktree'))
     expect(settingsSet).toHaveBeenCalledWith({ sidebarSubtitle: 'worktree' })
   })
@@ -56,7 +56,7 @@ describe('DisplayOptions', () => {
       } as never
     })
     render(<DisplayOptions />)
-    fireEvent.click(screen.getByTitle('Display options'))
+    fireEvent.click(screen.getByLabelText('Display options'))
     expect(screen.getByText('Show archived')).toBeTruthy()
     fireEvent.click(screen.getByText('Show archived'))
     expect(settingsSet).toHaveBeenCalledWith({ sidebarShowArchived: true })

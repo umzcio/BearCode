@@ -10,8 +10,10 @@ import type {
 import { useAppStore } from '../../../state/store'
 import { Select } from '../../Select'
 import type { SelectOption } from '../../Select'
-
-const KEBAB_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
+import { EmptyState } from '../../ui/EmptyState'
+import { Loading } from '../../ui/Loading'
+import { FieldHint } from '../../ui/FieldHint'
+import { isKebabName, KEBAB_HINT } from '../../../lib/validators'
 
 const PROMOTE_OPTIONS: SelectOption<PromoteTarget>[] = [
   { value: 'rule', label: 'Rule' },
@@ -106,7 +108,7 @@ export function MemoryPage(): JSX.Element | null {
   const submitPromote = (): void => {
     if (!promoteDraft) return
     const name = promoteDraft.name.trim()
-    if (!KEBAB_PATTERN.test(name)) return
+    if (!isKebabName(name)) return
     if (promoteDraft.target === 'skill' && !promoteDraft.description.trim()) return
     void window.bearcode.memory
       .promote(
@@ -127,7 +129,7 @@ export function MemoryPage(): JSX.Element | null {
 
   const promoteValid =
     !!promoteDraft &&
-    KEBAB_PATTERN.test(promoteDraft.name.trim()) &&
+    isKebabName(promoteDraft.name.trim()) &&
     (promoteDraft.target !== 'skill' || promoteDraft.description.trim().length > 0)
 
   const renderScope = (scopeName: MemoryScopeName, data: MemoryScopeData): JSX.Element => (
@@ -138,7 +140,7 @@ export function MemoryPage(): JSX.Element | null {
       <div className="set-card">
         {data.entries.length === 0 ? (
           <div className="set-row">
-            <div className="set-row-desc">No memory yet.</div>
+            <EmptyState title="No memory yet" hint="Add one below." />
           </div>
         ) : (
           data.entries.map((entry) => (
@@ -186,6 +188,14 @@ export function MemoryPage(): JSX.Element | null {
                         value={promoteDraft.name}
                         onChange={(e) => setPromoteDraft({ ...promoteDraft, name: e.target.value })}
                       />
+                      <FieldHint
+                        show={
+                          promoteDraft.name.trim().length > 0 &&
+                          !isKebabName(promoteDraft.name.trim())
+                        }
+                      >
+                        {KEBAB_HINT}
+                      </FieldHint>
                     </div>
                     {promoteDraft.target === 'skill' ? (
                       <div className="skill-field">
@@ -274,8 +284,14 @@ export function MemoryPage(): JSX.Element | null {
         Durable facts the agent remembers across sessions — pulled into every turn.
       </div>
 
-      {list ? renderScope('global', list.global) : null}
-      {list && workspacePath ? renderScope('project', list.project) : null}
+      {list === null ? (
+        <Loading />
+      ) : (
+        <>
+          {renderScope('global', list.global)}
+          {workspacePath ? renderScope('project', list.project) : null}
+        </>
+      )}
     </>
   )
 }

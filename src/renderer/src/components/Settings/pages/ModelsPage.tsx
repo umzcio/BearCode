@@ -6,6 +6,8 @@ import { useAppStore } from '../../../state/store'
 import { relativeAge } from '../../../lib/time'
 import { Select } from '../../Select'
 import { Toggle } from '../../Toggle'
+import { EmptyState } from '../../ui/EmptyState'
+import { ErrorCard } from '../../ui/ErrorCard'
 
 // The four first-party providers a custom model can be added under (Ollama is
 // dynamic/local and manages its own catalog).
@@ -157,7 +159,7 @@ export function ModelsPage(): JSX.Element | null {
           </div>
           <div className="set-card pad">
             {p.models.length === 0 ? (
-              <div className="set-row-desc">No models.</div>
+              <EmptyState title="No models" />
             ) : (
               p.models.map((m) => (
                 <div className="model-manage-row" key={m.id}>
@@ -291,10 +293,12 @@ export function ModelsPage(): JSX.Element | null {
           {pricingSync.status === 'done' ? (
             <span className="pricing-result">{pricingSync.msg}</span>
           ) : null}
-          {pricingSync.status === 'error' ? (
-            <span className="pricing-result err">{pricingSync.msg}</span>
-          ) : null}
         </div>
+        {pricingSync.status === 'error' ? (
+          <div className="pricing-error">
+            <ErrorCard>{pricingSync.msg}</ErrorCard>
+          </div>
+        ) : null}
         <div className="pricing-synced">
           {settings.modelPricingSyncedAt
             ? `Last synced ${relativeAge(settings.modelPricingSyncedAt)}`

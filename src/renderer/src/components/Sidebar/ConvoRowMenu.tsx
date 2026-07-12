@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useAppStore } from '../../state/store'
 import { IconDots } from '../icons'
 import { Menu, type MenuGroup } from '../ui/Menu'
+import { Hint } from '../Hint'
 import './ConvoRowMenu.css'
 
 export function ConvoRowMenu({
@@ -36,17 +37,19 @@ export function ConvoRowMenu({
 
   return (
     <div className="convo-menu" onClick={(e) => e.stopPropagation()}>
-      <button
-        ref={btnRef}
-        className={open ? 'row-act menu-open' : 'row-act'}
-        title="More"
-        onClick={(e) => {
-          e.stopPropagation()
-          setOpen((o) => !o)
-        }}
-      >
-        <IconDots size={14} />
-      </button>
+      <Hint label="More" side="bottom" disabled={open}>
+        <button
+          ref={btnRef}
+          className={open ? 'row-act menu-open' : 'row-act'}
+          aria-label="More"
+          onClick={(e) => {
+            e.stopPropagation()
+            setOpen((o) => !o)
+          }}
+        >
+          <IconDots size={14} />
+        </button>
+      </Hint>
       <Menu
         anchorRef={btnRef}
         open={open}

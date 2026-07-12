@@ -41,7 +41,7 @@ vi.mock('../../state/store', () => ({
 describe('Composer + menu Browser (F4 Task 10)', () => {
   it('clicking Browser inserts the /browser command chip and closes the menu', () => {
     render(<Composer conversationId="c1" onSend={vi.fn()} />)
-    fireEvent.click(screen.getByTitle('Add context'))
+    fireEvent.click(screen.getByLabelText('Add context'))
     fireEvent.click(screen.getByText('Browser'))
     // The chip renders /browser…
     expect(screen.getByText('/browser')).toBeTruthy()
@@ -51,7 +51,7 @@ describe('Composer + menu Browser (F4 Task 10)', () => {
 
   it('the Browser entry is no longer marked coming soon', () => {
     render(<Composer conversationId="c1" onSend={vi.fn()} />)
-    fireEvent.click(screen.getByTitle('Add context'))
+    fireEvent.click(screen.getByLabelText('Add context'))
     expect(screen.queryByText('coming soon')).toBeNull()
   })
 })

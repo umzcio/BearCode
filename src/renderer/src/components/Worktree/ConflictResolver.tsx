@@ -2,6 +2,8 @@ import { Suspense, lazy, useEffect, useState } from 'react'
 import { applyChoice } from '@shared/conflict'
 import { useAppStore } from '../../state/store'
 import { IconClose, IconGitBranch } from '../icons'
+import { Hint } from '../Hint'
+import { Loading } from '../ui/Loading'
 import './ConflictResolver.css'
 
 const MonacoEditable = lazy(() => import('../MonacoEditable'))
@@ -152,13 +154,15 @@ export function ConflictResolver(): React.JSX.Element | null {
             <IconGitBranch />
             <span>Resolve conflicts — {basename(repoPath)}</span>
           </div>
-          <button
-            className="content-close"
-            title="Close (keeps the merge in progress)"
-            onClick={() => dismiss()}
-          >
-            <IconClose />
-          </button>
+          <Hint label="Close (keeps the merge in progress)" side="bottom">
+            <button
+              className="content-close"
+              aria-label="Close (keeps the merge in progress)"
+              onClick={() => dismiss()}
+            >
+              <IconClose />
+            </button>
+          </Hint>
         </div>
 
         <div className="conflict-progress">
@@ -187,13 +191,13 @@ export function ConflictResolver(): React.JSX.Element | null {
             <div className="conflict-file">{file}</div>
             <div className="conflict-editor">
               {loading ? (
-                <div className="conflict-loading">Loading…</div>
+                <Loading />
               ) : currentErrored ? (
                 <div className="conflict-error">
                   Could not load {file}: {loadError?.message}
                 </div>
               ) : (
-                <Suspense fallback={<div className="conflict-loading">Loading…</div>}>
+                <Suspense fallback={<Loading />}>
                   <MonacoEditable value={text} onChange={setText} />
                 </Suspense>
               )}

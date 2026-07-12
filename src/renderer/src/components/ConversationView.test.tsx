@@ -332,7 +332,7 @@ describe('ConversationView jump-to-match (F1)', () => {
     )
     expect(screen.getByText(/1 of 2/i)).toBeTruthy()
 
-    fireEvent.click(screen.getByTitle(/next match/i))
+    fireEvent.click(screen.getByLabelText(/next match/i))
 
     await waitFor(() =>
       expect(
