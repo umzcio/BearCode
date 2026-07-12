@@ -41,6 +41,7 @@ import {
   getEvents,
   getLastCompactionEvent,
   getOutsidePolicy,
+  getProjectSettings,
   isProjectTrusted,
   listArtifactComments,
   markArtifactCommentsSent,
@@ -119,6 +120,8 @@ import {
 } from './tools'
 import { browserManager } from '../browser/manager'
 import { browserActionLabel } from '../browser/guard'
+import { wrapToolsWithHooks } from '../hooks/wrap'
+import type { HookCtx } from '../hooks/runner'
 
 // The tuple shape yielded by `.stream(..., { streamMode: "messages", subgraphs: true })`
 // with a single (non-array) streamMode: [namespace, [chunk, metadata]]. (The
@@ -2445,6 +2448,45 @@ function buildAgentAndContext(
   // connected, so this append is unconditional like mcpTools; every call still
   // passes the per-tool 'integration' permission gate inside the tool body.
   const integrationTools = buildIntegrationTools(conversationId)
+  // Hooks (Phase G hooks arc, Task 8): ONE generic wrapper applied to the
+  // fully composed tool list, right before createDeepAgent -- matchers
+  // inside each hook record decide which tools actually fire, so nothing
+  // else here needs to change per-tool. `trusted` is re-derived (cheap,
+  // pure db reads, same as resolveTrustForTurn's use above) rather than
+  // threaded out of the rules try/catch above, so a failure there can never
+  // leave this secure-default computation unset. `sandbox` mirrors the exact
+  // source run_command reads for its own Sandbox Mode decision.
+  const { trusted: hooksTrusted } = resolveTrustForTurn(projectPath)
+  const hookCtx: HookCtx = {
+    conversationId,
+    projectPath,
+    trusted: hooksTrusted,
+    sandbox: projectPath != null && getProjectSettings(projectPath)?.sandboxMode === true
+  }
+  const allTools = [
+    ...(backendFactory
+      ? buildTools(projectPath as string, conversationId, sink, diffGroupId, worktreeMappings)
+      : []),
+    ...browserTools,
+    // buildMcpTools' per-tool tool() carries a distinct zod-inferred generic,
+    // so its shared array is widened to unknown[] at the source; the elements
+    // are StructuredTools like browserTools, so re-narrow to that shape here.
+    ...(mcpTools as typeof browserTools),
+    // Integration tools share the same unknown[]→StructuredTool widening as
+    // MCP (distinct zod-inferred generics collapsed at the source).
+    ...(integrationTools as typeof browserTools),
+    // activate_skill is folder-independent (global skills load with no
+    // project open), so it is appended unconditionally like browserTools.
+    // buildSkillTools' single-tool literal array infers a concrete
+    // DynamicStructuredTool type that doesn't structurally overlap with
+    // browserTools' union, so widen through unknown first (same pattern
+    // buildMcpTools/buildIntegrationTools hit at their source).
+    ...(buildSkillTools(conversationId, projectPath) as unknown as typeof browserTools),
+    // remember is folder-independent (global memory writes with no project),
+    // so it is appended unconditionally like buildSkillTools/browserTools.
+    ...(buildMemoryTools(conversationId, projectPath) as unknown as typeof browserTools)
+  ]
+  const wrappedTools = wrapToolsWithHooks(allTools, hookCtx) as typeof browserTools
   const agent = createDeepAgent({
     model,
     middleware: summarizationMiddleware,
@@ -2470,30 +2512,10 @@ function buildAgentAndContext(
     // F4 decoupling: browser_* tools (buildBrowserTools) are ALWAYS present —
     // browsing has no project-folder dependency (session data keys off
     // conversationId, not projectPath). Project-scoped tools (buildTools) stay
-    // folder-gated behind backendFactory, exactly as before.
-    tools: [
-      ...(backendFactory
-        ? buildTools(projectPath as string, conversationId, sink, diffGroupId, worktreeMappings)
-        : []),
-      ...browserTools,
-      // buildMcpTools' per-tool tool() carries a distinct zod-inferred generic,
-      // so its shared array is widened to unknown[] at the source; the elements
-      // are StructuredTools like browserTools, so re-narrow to that shape here.
-      ...(mcpTools as typeof browserTools),
-      // Integration tools share the same unknown[]→StructuredTool widening as
-      // MCP (distinct zod-inferred generics collapsed at the source).
-      ...(integrationTools as typeof browserTools),
-      // activate_skill is folder-independent (global skills load with no
-      // project open), so it is appended unconditionally like browserTools.
-      // buildSkillTools' single-tool literal array infers a concrete
-      // DynamicStructuredTool type that doesn't structurally overlap with
-      // browserTools' union, so widen through unknown first (same pattern
-      // buildMcpTools/buildIntegrationTools hit at their source).
-      ...(buildSkillTools(conversationId, projectPath) as unknown as typeof browserTools),
-      // remember is folder-independent (global memory writes with no project),
-      // so it is appended unconditionally like buildSkillTools/browserTools.
-      ...(buildMemoryTools(conversationId, projectPath) as unknown as typeof browserTools)
-    ]
+    // folder-gated behind backendFactory, exactly as before. wrappedTools
+    // (Task 8) is allTools run through wrapToolsWithHooks -- same tools, same
+    // order, each one now hook-gated ahead of its own permission evaluation.
+    tools: wrappedTools
   })
   const ctx: DriveContext = {
     conversationId,
