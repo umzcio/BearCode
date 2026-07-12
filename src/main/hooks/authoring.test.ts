@@ -97,6 +97,82 @@ describe('writeGlobalHook / deleteGlobalHook (path-jailed)', () => {
     })
   })
 
+  it('updateGlobalHook: renaming a dual-event hook keeps its other event', async () => {
+    const { writeGlobalHook, updateGlobalHook } = await import('./authoring')
+    const { loadHooks } = await import('./loader')
+
+    writeGlobalHook({
+      name: 'multi',
+      event: 'PreToolUse',
+      matcher: 'run_command',
+      command: 'pre.js'
+    })
+    writeGlobalHook({
+      name: 'multi',
+      event: 'PostToolUse',
+      matcher: 'edit_file',
+      command: 'post.js',
+      timeout: 5
+    })
+    expect(loadHooks(null)).toHaveLength(2)
+
+    // Rename 'multi' -> 'renamed', editing only the PreToolUse entry.
+    updateGlobalHook(
+      { name: 'multi', event: 'PreToolUse', matcher: 'run_command', command: 'pre.js' },
+      { name: 'renamed', event: 'PreToolUse', matcher: 'run_command', command: 'pre2.js' }
+    )
+
+    const recs = loadHooks(null)
+    expect(recs).toHaveLength(2)
+    // The renamed entry moved and picked up the edit.
+    expect(recs.find((r) => r.event === 'PreToolUse')).toMatchObject({
+      name: 'renamed',
+      command: 'pre2.js'
+    })
+    // The other event survived the rename under the SAME new name (it
+    // belonged to the same logical hook), not orphaned under the old name.
+    expect(recs.find((r) => r.event === 'PostToolUse')).toMatchObject({
+      name: 'renamed',
+      command: 'post.js',
+      timeout: 5
+    })
+  })
+
+  it('updateGlobalHook: editing one entry preserves a sibling entry under the same event', async () => {
+    const { writeGlobalHook, updateGlobalHook } = await import('./authoring')
+    const { loadHooks } = await import('./loader')
+
+    writeGlobalHook({
+      name: 'guard',
+      event: 'PreToolUse',
+      matcher: 'run_command',
+      command: 'guard-a.js'
+    })
+    // Hand-author a second entry under the same event/name by writing the
+    // full map directly (writeGlobalHook itself always replaces the array,
+    // which is exactly the collapsing behavior this test guards against).
+    const { readFileSync, writeFileSync } = await import('fs')
+    const { join: pathJoin } = await import('path')
+    const file = pathJoin(fakeHome, '.bearcode', 'agents', 'hooks.json')
+    const map = JSON.parse(readFileSync(file, 'utf8'))
+    map.guard.PreToolUse.push({
+      matcher: 'edit_file',
+      handler: { type: 'command', command: 'guard-b.js' }
+    })
+    writeFileSync(file, JSON.stringify(map))
+    expect(loadHooks(null)).toHaveLength(2)
+
+    updateGlobalHook(
+      { name: 'guard', event: 'PreToolUse', matcher: 'run_command', command: 'guard-a.js' },
+      { name: 'guard', event: 'PreToolUse', matcher: 'run_command', command: 'guard-a2.js' }
+    )
+
+    const recs = loadHooks(null)
+    expect(recs).toHaveLength(2)
+    expect(recs.find((r) => r.matcher === 'run_command')).toMatchObject({ command: 'guard-a2.js' })
+    expect(recs.find((r) => r.matcher === 'edit_file')).toMatchObject({ command: 'guard-b.js' })
+  })
+
   it('rejects a non-kebab name on write and delete', async () => {
     const { writeGlobalHook, deleteGlobalHook } = await import('./authoring')
     expect(() =>

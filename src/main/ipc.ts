@@ -117,7 +117,7 @@ import {
 } from './plugins/validate'
 import { loadHooks } from './hooks/loader'
 import { setHookActive } from './hooks/state'
-import { writeGlobalHook, deleteGlobalHook } from './hooks/authoring'
+import { writeGlobalHook, updateGlobalHook, deleteGlobalHook } from './hooks/authoring'
 import { validateHookEvent, validateHookName } from './hooks/validate'
 import { COMMAND_NAME_PATTERN } from '../shared/types'
 import {
@@ -1426,12 +1426,24 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:hooks:create', (_e, input: unknown): void => {
     writeGlobalHook(asHookAuthoringInput(input))
   })
-  ipcMain.handle('bearcode:hooks:update', (_e, name: unknown, input: unknown): void => {
-    const oldName = validateHookName(name)
-    const next = asHookAuthoringInput(input)
-    if (oldName !== next.name) deleteGlobalHook(oldName)
-    writeGlobalHook(next)
-  })
+  ipcMain.handle(
+    'bearcode:hooks:update',
+    (_e, name: unknown, original: unknown, input: unknown): void => {
+      const oldName = validateHookName(name)
+      const next = asHookAuthoringInput(input)
+      if (!original || typeof original !== 'object') {
+        throw new Error('Invalid hook original.')
+      }
+      const o = original as { event?: unknown; matcher?: unknown; command?: unknown }
+      const oldEvent = validateHookEvent(o.event)
+      if (typeof o.matcher !== 'string') throw new Error('Hook matcher must be a string.')
+      if (typeof o.command !== 'string') throw new Error('Hook command must be a string.')
+      updateGlobalHook(
+        { name: oldName, event: oldEvent, matcher: o.matcher, command: o.command },
+        next
+      )
+    }
+  )
   ipcMain.handle('bearcode:hooks:delete', (_e, name: unknown): void => {
     deleteGlobalHook(validateHookName(name))
   })

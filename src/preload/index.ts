@@ -11,6 +11,7 @@ import type {
   Event,
   GithubDeviceStart,
   HookAuthoringInput,
+  HookEvent,
   HookRecord,
   IntegrationProvider,
   IntegrationStatus,
@@ -399,8 +400,11 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:hooks:setActive', scope, source, name, on, projectPath),
     create: (input: HookAuthoringInput): Promise<void> =>
       ipcRenderer.invoke('bearcode:hooks:create', input),
-    update: (name: string, input: HookAuthoringInput): Promise<void> =>
-      ipcRenderer.invoke('bearcode:hooks:update', name, input),
+    update: (
+      name: string,
+      original: { event: HookEvent; matcher: string; command: string },
+      input: HookAuthoringInput
+    ): Promise<void> => ipcRenderer.invoke('bearcode:hooks:update', name, original, input),
     delete: (name: string): Promise<void> => ipcRenderer.invoke('bearcode:hooks:delete', name)
   },
   onEvent: (cb) => {

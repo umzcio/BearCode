@@ -1400,7 +1400,11 @@ export interface BearcodeApi {
       projectPath: string | null
     ): Promise<void>
     create(input: HookAuthoringInput): Promise<void>
-    update(name: string, input: HookAuthoringInput): Promise<void>
+    update(
+      name: string,
+      original: { event: HookEvent; matcher: string; command: string },
+      input: HookAuthoringInput
+    ): Promise<void>
     delete(name: string): Promise<void>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void

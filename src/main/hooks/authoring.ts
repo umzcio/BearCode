@@ -79,6 +79,101 @@ export function writeGlobalHook(input: WriteGlobalHookInput): void {
   writeGlobalHooksMap(file, map)
 }
 
+export interface UpdateGlobalHookOriginal {
+  name: string
+  event: HookEvent
+  matcher: string
+  command: string
+}
+
+// Precise rename/edit: unlike writeGlobalHook (which always replaces an
+// entire event's entry array -- fine for a brand-new hook, destructive for
+// an edit), this removes exactly the one (event, matcher, command) entry
+// the caller loaded and is now editing, leaving every other event and every
+// other hand-authored entry under that same event untouched. When the name
+// is unchanged, the edited entry is written back under the same name. When
+// renamed (original.name !== next.name), the WHOLE remaining config --
+// every other event, every sibling entry -- moves with it to the new name
+// (merged into whatever the new name already owns); the old name is fully
+// vacated rather than left holding orphaned leftovers.
+export function updateGlobalHook(
+  original: UpdateGlobalHookOriginal,
+  next: WriteGlobalHookInput
+): void {
+  if (!COMMAND_NAME_PATTERN.test(original.name) || !COMMAND_NAME_PATTERN.test(next.name)) {
+    throw new Error('Hook name must be kebab-case (lowercase letters, digits, dashes).')
+  }
+  const file = jailedGlobalHooksFile()
+  const map = readGlobalHooksMap(file)
+
+  const rawOld = map[original.name]
+  const oldConfig: Record<string, unknown> =
+    rawOld && typeof rawOld === 'object' && !Array.isArray(rawOld)
+      ? { ...(rawOld as Record<string, unknown>) }
+      : {}
+
+  const oldEventEntries = Array.isArray(oldConfig[original.event])
+    ? (oldConfig[original.event] as Array<Record<string, unknown>>)
+    : []
+  const isTargetEntry = (entry: Record<string, unknown>): boolean => {
+    const handler =
+      entry && typeof entry.handler === 'object' && entry.handler !== null
+        ? (entry.handler as Record<string, unknown>)
+        : undefined
+    return entry?.matcher === original.matcher && handler?.command === original.command
+  }
+  const remaining = oldEventEntries.filter((entry) => !isTargetEntry(entry))
+  if (remaining.length > 0) {
+    oldConfig[original.event] = remaining
+  } else {
+    delete oldConfig[original.event]
+  }
+
+  const newEntry = {
+    matcher: next.matcher,
+    handler: {
+      type: 'command',
+      command: next.command,
+      ...(next.timeout ? { timeout: next.timeout } : {})
+    }
+  }
+
+  if (original.name === next.name) {
+    const targetEventEntries = Array.isArray(oldConfig[next.event])
+      ? (oldConfig[next.event] as unknown[])
+      : []
+    oldConfig[next.event] = [...targetEventEntries, newEntry]
+    if (Object.keys(oldConfig).length === 0) {
+      delete map[next.name]
+    } else {
+      map[next.name] = oldConfig
+    }
+  } else {
+    // Renaming moves the WHOLE logical hook -- every other-event array and
+    // every sibling entry left in oldConfig belongs to the same hook the
+    // user is renaming, so it all moves to the new name too. The old name
+    // is fully vacated (never left holding orphaned leftovers).
+    delete map[original.name]
+    const rawNext = map[next.name]
+    const nextConfig: Record<string, unknown> =
+      rawNext && typeof rawNext === 'object' && !Array.isArray(rawNext)
+        ? { ...(rawNext as Record<string, unknown>) }
+        : {}
+    for (const [event, entries] of Object.entries(oldConfig)) {
+      if (!Array.isArray(entries)) continue
+      const existing = Array.isArray(nextConfig[event]) ? (nextConfig[event] as unknown[]) : []
+      nextConfig[event] = [...existing, ...entries]
+    }
+    const nextEventEntries = Array.isArray(nextConfig[next.event])
+      ? (nextConfig[next.event] as unknown[])
+      : []
+    nextConfig[next.event] = [...nextEventEntries, newEntry]
+    map[next.name] = nextConfig
+  }
+
+  writeGlobalHooksMap(file, map)
+}
+
 export function deleteGlobalHook(name: string): void {
   if (!COMMAND_NAME_PATTERN.test(name)) {
     throw new Error('Hook name must be kebab-case (lowercase letters, digits, dashes).')
