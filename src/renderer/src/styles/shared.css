@@ -185,6 +185,22 @@
     color 90ms ease,
     transform var(--dur-press) var(--ease-out);
 }
+/* Leading `MenuItem.icon` (unsized inline icons render at native SVG
+   dimensions otherwise) + single-line label truncation -- canonical for
+   every Menu consumer (Home's folder rows, ...) so width-capped menus never
+   wrap or overflow. */
+.menu-item > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.menu-item > span:not(.check) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .menu-item:hover {
   background: var(--bg-hover);
   color: var(--text);

@@ -10,6 +10,8 @@ export interface MenuItem {
   danger?: boolean
   // Leading icon (e.g. the composer's add-context menu, Home's folder rows).
   icon?: React.ReactNode
+  // Native hover tooltip on the item row (e.g. "Attach images").
+  title?: string
 }
 
 export interface MenuGroup {
@@ -160,6 +162,7 @@ export function Menu({
                   key={item.value}
                   id={`menu-opt-${item.value}`}
                   role="option"
+                  title={item.title}
                   aria-selected={item.value === value}
                   aria-disabled={item.disabled || undefined}
                   className={

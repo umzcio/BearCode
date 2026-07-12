@@ -11,6 +11,7 @@ import { ModePicker } from '../ModePicker/ModePicker'
 import { EffortPicker } from '../EffortPicker/EffortPicker'
 import { ContextMeter } from '../ContextMeter/ContextMeter'
 import { Hint } from '../Hint'
+import { Menu, type MenuGroup } from '../ui/Menu'
 import { useShallow } from 'zustand/react/shallow'
 import { refConfigured, useAppStore } from '../../state/store'
 import { attachmentBadge } from '../../lib/attachmentBadge'
@@ -123,7 +124,7 @@ export function Composer({
   const [attachments, setAttachments] = useState<PickedAttachmentWire[]>([])
   const taRef = useRef<HTMLTextAreaElement>(null)
   const envRef = useRef<HTMLDivElement>(null)
-  const addMenuRef = useRef<HTMLDivElement>(null)
+  const addMenuBtnRef = useRef<HTMLButtonElement>(null)
   const voice = useVoiceRecorder()
 
   const modelReady = refConfigured(providers, modelRef)
@@ -229,16 +230,6 @@ export function Composer({
     }
   }, [showEnvRow, workspacePath, setComposerEnvironment])
 
-  useEffect(() => {
-    if (!addMenuOpen) return undefined
-    const close = (e: MouseEvent): void => {
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node))
-        setAddMenuOpen(false)
-    }
-    document.addEventListener('click', close)
-    return () => document.removeEventListener('click', close)
-  }, [addMenuOpen])
-
   // Re-fetched on menu open only (menu-open paced, matching the loader's own
   // cache design), not on every keystroke while it stays open.
   useEffect(() => {
@@ -340,6 +331,23 @@ export function Composer({
     setAddMenuOpen(false)
     if (command !== null) return
     setCommand({ name: 'browser', kind: 'builtin' })
+  }
+
+  const addContextGroups: MenuGroup[] = [
+    {
+      items: [
+        { value: 'media', label: 'Media', icon: <IconImage size={16} />, title: 'Attach images' },
+        { value: 'mentions', label: 'Mentions', icon: <IconAt size={16} /> },
+        { value: 'actions', label: 'Actions', icon: <IconSlash size={16} /> },
+        { value: 'browser', label: 'Browser', icon: <IconGlobe size={16} /> }
+      ]
+    }
+  ]
+  const onAddContextSelect = (v: string): void => {
+    if (v === 'media') void onMedia()
+    else if (v === 'mentions') onMentions()
+    else if (v === 'actions') onActions()
+    else if (v === 'browser') onBrowser()
   }
 
   // Splice a voice transcript into the composer at the caret, reusing the
@@ -622,34 +630,24 @@ export function Composer({
       />
       <div className="composer-controls">
         <div className="controls-left">
-          <div className="add-context" ref={addMenuRef}>
+          <div className="add-context">
             <button
+              ref={addMenuBtnRef}
               className="icon-btn"
               title="Add context"
               onClick={() => setAddMenuOpen((o) => !o)}
             >
               <IconPlus />
             </button>
-            {addMenuOpen ? (
-              <div className="menu add-context-menu">
-                <div className="menu-item" title="Attach images" onClick={() => void onMedia()}>
-                  <IconImage size={16} />
-                  <span>Media</span>
-                </div>
-                <div className="menu-item" onClick={onMentions}>
-                  <IconAt size={16} />
-                  <span>Mentions</span>
-                </div>
-                <div className="menu-item" onClick={onActions}>
-                  <IconSlash size={16} />
-                  <span>Actions</span>
-                </div>
-                <div className="menu-item" onClick={onBrowser}>
-                  <IconGlobe size={16} />
-                  <span>Browser</span>
-                </div>
-              </div>
-            ) : null}
+            <Menu
+              anchorRef={addMenuBtnRef}
+              open={addMenuOpen}
+              onClose={() => setAddMenuOpen(false)}
+              groups={addContextGroups}
+              onSelect={onAddContextSelect}
+              placement="top-start"
+              ariaLabel="Add context"
+            />
           </div>
           <ModePicker />
           <button
