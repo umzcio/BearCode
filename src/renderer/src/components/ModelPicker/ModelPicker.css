@@ -12,9 +12,13 @@
   vertical-align: middle;
 }
 
+/* The dropdown itself is portaled + positioned + animated by Popover (see
+   Popover.tsx / shared.css `.menu`/`.menu--in-popover`); no dropdown
+   positioning lives here anymore. Content-only override: ModelPicker needs
+   more room than the shared 280px cap for model names + badges. */
 .model-menu {
-  bottom: 40px;
-  right: 0;
+  min-width: 300px;
+  max-width: 420px;
 }
 
 .menu-search {

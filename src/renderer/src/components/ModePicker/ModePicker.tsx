@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PermissionMode } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { Hint } from '../Hint'
 import { IconChevronDown } from '../icons'
+import { Popover } from '../ui/Popover'
 import './ModePicker.css'
 
 type ModeOption = {
@@ -31,7 +32,7 @@ export function ModePicker(): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [confirmingBypass, setConfirmingBypass] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
-  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const lastTick = useRef(permMenuTick)
   // Fall back to Accept edits (MODES[1]) — the product default — for an
@@ -54,20 +55,12 @@ export function ModePicker(): React.JSX.Element {
     if (!open) setConfirmingBypass(false)
   }, [open])
 
+  // Popover owns click-outside/Esc/scroll dismissal + positioning now. This
+  // effect only handles the numeric 1-4 shortcuts, which must keep working
+  // while the menu is open regardless of what has focus.
   useEffect(() => {
     if (!open) return undefined
-    const close = (e: MouseEvent): void => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false)
-        setConfirmingBypass(false)
-      }
-    }
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        setOpen(false)
-        setConfirmingBypass(false)
-        return
-      }
       if (NUMERIC_KEYS.includes(e.key)) {
         const target = e.target as HTMLElement | null
         if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
@@ -79,17 +72,18 @@ export function ModePicker(): React.JSX.Element {
         }
       }
     }
-    document.addEventListener('click', close)
     window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('click', close)
-      window.removeEventListener('keydown', onKey)
-    }
+    return () => window.removeEventListener('keydown', onKey)
   }, [open, setMode])
 
   // When the mode list opens (not the bypass-confirm dialog), start the
   // active option on the current mode and focus the listbox for arrow keys.
-  useEffect(() => {
+  // Stays a useLayoutEffect (not useEffect): Popover measures + positions
+  // itself in its own useLayoutEffect on the same open transition, and
+  // layout effects fire bottom-up (Popover, nested inside this component,
+  // before this one), so the listbox is never `visibility: hidden` when
+  // `.focus()` is called here. See Popover.tsx / ModelPicker.tsx.
+  useLayoutEffect(() => {
     if (!open || confirmingBypass) return
     const i = MODES.findIndex((m) => m.id === mode)
     setActiveIndex(i >= 0 ? i : 0)
@@ -114,7 +108,7 @@ export function ModePicker(): React.JSX.Element {
       const m = MODES[activeIndex]
       if (m) pick(m)
     }
-    // Escape is handled by the existing window-level keydown listener.
+    // Escape is handled by Popover (click-outside/Esc/scroll dismissal).
   }
 
   const pick = (m: ModeOption): void => {
@@ -128,9 +122,10 @@ export function ModePicker(): React.JSX.Element {
   }
 
   return (
-    <div className="mode-picker" ref={rootRef}>
+    <div className="mode-picker">
       <Hint label="Permission mode" keys="⌘." side="top" disabled={open}>
         <button
+          ref={triggerRef}
           className={
             'pill-btn' +
             (isBypass ? ' bypass-active' : '') +
@@ -144,9 +139,14 @@ export function ModePicker(): React.JSX.Element {
           </span>
         </button>
       </Hint>
-      {open ? (
+      <Popover
+        anchorRef={triggerRef}
+        open={open}
+        onClose={() => setOpen(false)}
+        placement="top-end"
+      >
         <div
-          className="menu mode-menu"
+          className="menu menu--in-popover mode-menu"
           role={confirmingBypass ? undefined : 'listbox'}
           ref={menuRef}
           tabIndex={-1}
@@ -213,7 +213,7 @@ export function ModePicker(): React.JSX.Element {
             </>
           )}
         </div>
-      ) : null}
+      </Popover>
     </div>
   )
 }

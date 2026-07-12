@@ -4,6 +4,7 @@ import { PixelBear } from './brand/PixelBear'
 import { useAppStore } from '../state/store'
 import { Hint } from './Hint'
 import { IconChevronDown, IconFolder, IconFolderPlus } from './icons'
+import { Menu, type MenuGroup } from './ui/Menu'
 import './Home.css'
 
 function shorten(path: string): string {
@@ -20,7 +21,7 @@ export function Home(): React.JSX.Element {
   const convoOrder = useAppStore((s) => s.convoOrder)
   const projectMenuTick = useAppStore((s) => s.projectMenuTick)
   const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const lastTick = useRef(projectMenuTick)
 
   // Recent projects: most recently active first, deduped.
@@ -37,34 +38,47 @@ export function Home(): React.JSX.Element {
     setOpen((o) => !o)
   }, [projectMenuTick])
 
-  useEffect(() => {
-    if (!open) return undefined
-    const close = (e: MouseEvent): void => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('click', close)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('click', close)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
   const choose = (path: string | null): void => {
     setWorkspace(path)
     setOpen(false)
   }
 
+  const projectGroups: MenuGroup[] = []
+  if (recents.length > 0) {
+    projectGroups.push({
+      items: recents.map((path) => ({
+        value: path,
+        label: shorten(path),
+        icon: <IconFolder />
+      }))
+    })
+  }
+  projectGroups.push({
+    items: [{ value: '__open__', label: 'Open a folder…', icon: <IconFolderPlus /> }]
+  })
+  projectGroups.push({
+    items: [{ value: '__none__', label: 'No folder', icon: <IconFolder /> }]
+  })
+
+  const handleProjectSelect = (v: string): void => {
+    if (v === '__open__') {
+      setOpen(false)
+      void pickWorkspace()
+    } else if (v === '__none__') {
+      choose(null)
+    } else {
+      choose(v)
+    }
+  }
+
   return (
     <div className="home">
       <div className="composer-wrap">
-        <div className="project-picker" ref={rootRef}>
+        <div className="project-picker">
           <Hint label="Select Folder" keys="⌘;" side="top" disabled={open}>
             <button
               type="button"
+              ref={triggerRef}
               className="workspace-row"
               onClick={() => setOpen((o) => !o)}
             >
@@ -75,37 +89,17 @@ export function Home(): React.JSX.Element {
               </span>
             </button>
           </Hint>
-          {open ? (
-            <div className="menu project-menu">
-              {recents.map((path) => (
-                <div
-                  key={path}
-                  className={'menu-item' + (path === workspacePath ? ' selected' : '')}
-                  onClick={() => choose(path)}
-                >
-                  <IconFolder />
-                  <span>{shorten(path)}</span>
-                  <span className="check">✓</span>
-                </div>
-              ))}
-              {recents.length > 0 ? <div className="menu-divider" /> : null}
-              <div
-                className="menu-item"
-                onClick={() => {
-                  setOpen(false)
-                  void pickWorkspace()
-                }}
-              >
-                <IconFolderPlus />
-                <span>Open a folder…</span>
-              </div>
-              <div className="menu-divider" />
-              <div className="menu-item" onClick={() => choose(null)}>
-                <IconFolder />
-                <span>No folder</span>
-              </div>
-            </div>
-          ) : null}
+          <Menu
+            anchorRef={triggerRef}
+            open={open}
+            onClose={() => setOpen(false)}
+            groups={projectGroups}
+            value={workspacePath ?? undefined}
+            onSelect={handleProjectSelect}
+            placement="bottom-start"
+            ariaLabel="Choose a folder"
+            className="project-menu"
+          />
         </div>
         <div className="composer-stage">
           <span className="composer-perch" aria-hidden="true">

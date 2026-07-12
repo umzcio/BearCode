@@ -45,12 +45,10 @@
   transition: stroke-dashoffset 0.25s ease;
 }
 
-/* Popover: a rounded card anchored above the ring, right-aligned. */
+/* The dropdown itself is portaled + positioned + animated by Popover (see
+   Popover.tsx / shared.css `.menu`/`.menu--in-popover`); this is content
+   styling only -- a fixed-width card. */
 .context-popover {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  right: 0;
-  z-index: 50;
   width: 280px;
   padding: 14px 16px;
   display: flex;

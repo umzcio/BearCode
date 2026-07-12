@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AppSettings } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { IconFilter } from '../icons'
+import { Popover } from '../ui/Popover'
 import './DisplayOptions.css'
 
 type GroupBy = AppSettings['sidebarGroupBy']
@@ -28,27 +29,11 @@ export function DisplayOptions(): React.JSX.Element {
   const setSidebarView = useAppStore((s) => s.setSidebarView)
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
-  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const groupBy: GroupBy = settings?.sidebarGroupBy ?? 'project'
   const sort: Sort = settings?.sidebarSort ?? 'updated'
   const subtitle: AppSettings['sidebarSubtitle'] = settings?.sidebarSubtitle ?? 'none'
-
-  useEffect(() => {
-    if (!open) return undefined
-    const close = (e: MouseEvent): void => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('click', close)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('click', close)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   // Flatten every row across the four groups (group-by, sort, subtitle, the
   // archived-filter toggle) into one navigable list, in render order.
@@ -95,19 +80,28 @@ export function DisplayOptions(): React.JSX.Element {
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
       flatOptions[activeIndex]?.commit()
-    } else if (e.key === 'Escape') {
-      setOpen(false)
     }
+    // Escape is handled by Popover (click-outside/Esc/scroll dismissal).
   }
 
   return (
-    <div className="display-options" ref={rootRef}>
-      <button className="chrome-btn" title="Display options" onClick={() => setOpen((o) => !o)}>
+    <div className="display-options">
+      <button
+        ref={triggerRef}
+        className="chrome-btn"
+        title="Display options"
+        onClick={() => setOpen((o) => !o)}
+      >
         <IconFilter />
       </button>
-      {open ? (
+      <Popover
+        anchorRef={triggerRef}
+        open={open}
+        onClose={() => setOpen(false)}
+        placement="bottom-end"
+      >
         <div
-          className="menu display-menu"
+          className="menu menu--in-popover display-menu"
           role="listbox"
           ref={menuRef}
           tabIndex={-1}
@@ -203,7 +197,7 @@ export function DisplayOptions(): React.JSX.Element {
             {settings?.sidebarShowArchived ? <span className="check">✓</span> : null}
           </div>
         </div>
-      ) : null}
+      </Popover>
     </div>
   )
 }

@@ -252,6 +252,9 @@
   display: flex;
   color: var(--accent);
 }
+.row-act.menu-open {
+  display: flex;
+}
 
 .proj-actions {
   display: flex;

@@ -215,18 +215,6 @@
   position: relative;
   display: inline-flex;
 }
-.add-context-menu {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  min-width: 200px;
-  z-index: 20;
-}
-.add-context-menu .menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 
 .attachment-pill-row {
   display: flex;

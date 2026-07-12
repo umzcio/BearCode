@@ -11,6 +11,8 @@ import { ModePicker } from '../ModePicker/ModePicker'
 import { EffortPicker } from '../EffortPicker/EffortPicker'
 import { ContextMeter } from '../ContextMeter/ContextMeter'
 import { Hint } from '../Hint'
+import { Menu, type MenuGroup } from '../ui/Menu'
+import { Popover } from '../ui/Popover'
 import { useShallow } from 'zustand/react/shallow'
 import { refConfigured, useAppStore } from '../../state/store'
 import { attachmentBadge } from '../../lib/attachmentBadge'
@@ -123,7 +125,10 @@ export function Composer({
   const [attachments, setAttachments] = useState<PickedAttachmentWire[]>([])
   const taRef = useRef<HTMLTextAreaElement>(null)
   const envRef = useRef<HTMLDivElement>(null)
-  const addMenuRef = useRef<HTMLDivElement>(null)
+  const addMenuBtnRef = useRef<HTMLButtonElement>(null)
+  // Anchors the slash/mention/resume Popovers -- they should span the full
+  // composer width (matchAnchorWidth), not just the trigger that opened them.
+  const composerRef = useRef<HTMLDivElement>(null)
   const voice = useVoiceRecorder()
 
   const modelReady = refConfigured(providers, modelRef)
@@ -229,16 +234,6 @@ export function Composer({
     }
   }, [showEnvRow, workspacePath, setComposerEnvironment])
 
-  useEffect(() => {
-    if (!addMenuOpen) return undefined
-    const close = (e: MouseEvent): void => {
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node))
-        setAddMenuOpen(false)
-    }
-    document.addEventListener('click', close)
-    return () => document.removeEventListener('click', close)
-  }, [addMenuOpen])
-
   // Re-fetched on menu open only (menu-open paced, matching the loader's own
   // cache design), not on every keystroke while it stays open.
   useEffect(() => {
@@ -342,6 +337,23 @@ export function Composer({
     setCommand({ name: 'browser', kind: 'builtin' })
   }
 
+  const addContextGroups: MenuGroup[] = [
+    {
+      items: [
+        { value: 'media', label: 'Media', icon: <IconImage size={16} />, title: 'Attach images' },
+        { value: 'mentions', label: 'Mentions', icon: <IconAt size={16} /> },
+        { value: 'actions', label: 'Actions', icon: <IconSlash size={16} /> },
+        { value: 'browser', label: 'Browser', icon: <IconGlobe size={16} /> }
+      ]
+    }
+  ]
+  const onAddContextSelect = (v: string): void => {
+    if (v === 'media') void onMedia()
+    else if (v === 'mentions') onMentions()
+    else if (v === 'actions') onActions()
+    else if (v === 'browser') onBrowser()
+  }
+
   // Splice a voice transcript into the composer at the caret, reusing the
   // pendingCaret mechanism to park the caret just past the inserted text once
   // the controlled value re-renders. Read from taRef.current.value so a stale
@@ -384,7 +396,7 @@ export function Composer({
   }
 
   return (
-    <div className="composer">
+    <div className="composer" ref={composerRef}>
       {showNotice ? (
         <div className="composer-notice">
           No API key for the selected model.{' '}
@@ -549,11 +561,8 @@ export function Composer({
               if (row) selectMentionRow(row)
               return
             }
-            if (e.key === 'Escape') {
-              e.preventDefault()
-              setMentionQuery(null)
-              return
-            }
+            // Escape is handled by the Popover wrapping this menu
+            // (click-outside/Esc/scroll dismissal).
           }
           if (menuOpen) {
             if (e.key === 'ArrowDown') {
@@ -572,11 +581,8 @@ export function Composer({
               if (entry) selectEntry(entry)
               return
             }
-            if (e.key === 'Escape') {
-              e.preventDefault()
-              setMenuDismissed(true)
-              return
-            }
+            // Escape is handled by the Popover wrapping this menu
+            // (click-outside/Esc/scroll dismissal).
           }
           if (
             e.key === 'Backspace' &&
@@ -622,34 +628,24 @@ export function Composer({
       />
       <div className="composer-controls">
         <div className="controls-left">
-          <div className="add-context" ref={addMenuRef}>
+          <div className="add-context">
             <button
+              ref={addMenuBtnRef}
               className="icon-btn"
               title="Add context"
               onClick={() => setAddMenuOpen((o) => !o)}
             >
               <IconPlus />
             </button>
-            {addMenuOpen ? (
-              <div className="menu add-context-menu">
-                <div className="menu-item" title="Attach images" onClick={() => void onMedia()}>
-                  <IconImage size={16} />
-                  <span>Media</span>
-                </div>
-                <div className="menu-item" onClick={onMentions}>
-                  <IconAt size={16} />
-                  <span>Mentions</span>
-                </div>
-                <div className="menu-item" onClick={onActions}>
-                  <IconSlash size={16} />
-                  <span>Actions</span>
-                </div>
-                <div className="menu-item" onClick={onBrowser}>
-                  <IconGlobe size={16} />
-                  <span>Browser</span>
-                </div>
-              </div>
-            ) : null}
+            <Menu
+              anchorRef={addMenuBtnRef}
+              open={addMenuOpen}
+              onClose={() => setAddMenuOpen(false)}
+              groups={addContextGroups}
+              onSelect={onAddContextSelect}
+              placement="top-start"
+              ariaLabel="Add context"
+            />
           </div>
           <ModePicker />
           <button
@@ -679,32 +675,50 @@ export function Composer({
         </div>
       </div>
       {voice.error ? <div className="composer-voice-error">{voice.error}</div> : null}
-      {menuOpen ? (
-        <div className="slash-menu-wrap">
-          <SlashMenu
-            entries={filtered}
-            highlightedIndex={safeIndex}
-            onHighlight={setHighlightedIndex}
-            onSelect={selectEntry}
-          />
-        </div>
-      ) : null}
-      {mentionOpen ? (
-        <div className="slash-menu-wrap">
-          <MentionMenu
-            rows={mentionRows}
-            header={mentionHeader}
-            highlightedIndex={safeMentionIndex}
-            onHighlight={setMentionIndex}
-            onSelect={selectMentionRow}
-          />
-        </div>
-      ) : null}
-      {resumePickerOpen ? (
-        <div className="slash-menu-wrap">
-          <ResumePicker />
-        </div>
-      ) : null}
+      {/* These three are caret-driven autocompletes, not click-trigger
+          dropdowns -- their keyboard nav stays owned by the textarea's
+          onKeyDown above. Popover here only supplies shared positioning
+          (anchored + width-matched to the whole composer), animation, and
+          dismissal (Esc/outside-click/scroll), replacing the old
+          `.slash-menu-wrap` absolute-position + hand-rolled dismiss code. */}
+      <Popover
+        anchorRef={composerRef}
+        open={menuOpen}
+        onClose={() => setMenuDismissed(true)}
+        placement="top-start"
+        matchAnchorWidth
+      >
+        <SlashMenu
+          entries={filtered}
+          highlightedIndex={safeIndex}
+          onHighlight={setHighlightedIndex}
+          onSelect={selectEntry}
+        />
+      </Popover>
+      <Popover
+        anchorRef={composerRef}
+        open={mentionOpen}
+        onClose={() => setMentionQuery(null)}
+        placement="top-start"
+        matchAnchorWidth
+      >
+        <MentionMenu
+          rows={mentionRows}
+          header={mentionHeader}
+          highlightedIndex={safeMentionIndex}
+          onHighlight={setMentionIndex}
+          onSelect={selectMentionRow}
+        />
+      </Popover>
+      <Popover
+        anchorRef={composerRef}
+        open={resumePickerOpen}
+        onClose={() => setResumePickerOpen(false)}
+        placement="top-start"
+        matchAnchorWidth
+      >
+        <ResumePicker />
+      </Popover>
     </div>
   )
 }

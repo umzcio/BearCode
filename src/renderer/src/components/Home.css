@@ -36,26 +36,7 @@
 }
 
 .project-picker {
-  position: relative;
   width: fit-content;
-}
-.project-menu {
-  top: calc(100% - 4px);
-  left: 0;
-  min-width: 340px;
-  width: max-content;
-  max-width: 560px;
-}
-.project-menu .menu-item svg {
-  width: 15px;
-  height: 15px;
-  color: var(--text-dim);
-  flex-shrink: 0;
-}
-.project-menu .menu-item span:not(.check) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* The walking pixel bear perched on the top-right edge of the composer,
@@ -71,4 +52,10 @@
   display: flex;
   line-height: 0;
   pointer-events: none;
+}
+
+/* Content-only override: long workspace paths need more room than the
+   shared .menu--in-popover 280px cap. Positioning stays owned by Popover. */
+.project-menu {
+  max-width: 480px;
 }

@@ -6,19 +6,11 @@
 .pill-btn.effort-inert {
   opacity: 0.55;
 }
+/* The dropdown itself is portaled + positioned + animated by Popover (see
+   Popover.tsx / shared.css `.menu`/`.menu--in-popover`); no dropdown
+   positioning lives here anymore. */
 .effort-menu {
-  bottom: 40px;
-  right: 0;
   min-width: 264px;
-  padding: 5px;
-}
-.effort-menu .menu-group-label {
-  text-transform: none;
-  font-weight: 500;
-  font-size: 12px;
-  letter-spacing: 0;
-  padding: 6px 10px 3px;
-  color: var(--text-dim);
 }
 .effort-help {
   padding: 0 10px 6px;
@@ -33,7 +25,6 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
   font-size: 13px;
 }
 .effort-label {
@@ -62,7 +53,6 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
   gap: 12px;
 }
 .effort-thinking-text {
@@ -101,8 +91,4 @@
 }
 .effort-switch.on::after {
   transform: translateX(13px);
-}
-.menu-item.disabled {
-  opacity: 0.4;
-  cursor: default;
 }

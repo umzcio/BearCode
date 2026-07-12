@@ -6,7 +6,11 @@ import { DisplayOptions } from './DisplayOptions'
 
 const settingsSet = vi.fn(() => Promise.resolve({ sidebarGroupBy: 'none', sidebarSort: 'alpha' }))
 beforeEach(() => {
-  vi.stubGlobal('window', { bearcode: { settings: { set: settingsSet } } })
+  // Stub only `window.bearcode` (the IPC bridge) rather than replacing all of
+  // `window` -- DisplayOptions now renders its menu through the shared
+  // `Popover` primitive, which attaches real `window.addEventListener`
+  // resize/scroll listeners for dismissal.
+  vi.stubGlobal('bearcode', { settings: { set: settingsSet } })
   useAppStore.setState({
     settings: { sidebarGroupBy: 'project', sidebarSort: 'updated' } as never
   })

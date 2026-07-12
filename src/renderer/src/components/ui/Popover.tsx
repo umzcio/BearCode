@@ -59,11 +59,25 @@ export function Popover({
     const anchorEl = anchorRef.current
     const popEl = popRef.current
     if (!anchorEl || !popEl) return undefined
-    const anchor = zoomedRect(anchorEl)
-    const content = { w: popEl.offsetWidth, h: popEl.offsetHeight }
-    const next = computePopoverPosition(anchor, content, placement)
-    setPos({ ...next, minWidth: matchAnchorWidth ? anchor.width : undefined })
-    return undefined
+    const recompute = (): void => {
+      const anchor = zoomedRect(anchorEl)
+      const content = { w: popEl.offsetWidth, h: popEl.offsetHeight }
+      const next = computePopoverPosition(anchor, content, placement)
+      setPos({ ...next, minWidth: matchAnchorWidth ? anchor.width : undefined })
+    }
+    recompute()
+    // Some popovers swap their rendered content while staying open (e.g.
+    // ModePicker's mode-list <-> bypass-confirm sub-panel, ModelPicker's
+    // search-filtered list) -- `placement=top-end`/`bottom-end` compute
+    // `top`/`left` from the content's height/width, so a height change
+    // without a re-run leaves the popover pinned at the stale offset
+    // (a gap or overlap vs the trigger). Re-run the same positioning logic
+    // whenever the observed content box actually changes. Guarded for
+    // jsdom (no ResizeObserver) -- initial `recompute()` above still runs.
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const ro = new ResizeObserver(recompute)
+    ro.observe(popEl)
+    return () => ro.disconnect()
   }, [open, placement, matchAnchorWidth, anchorRef])
 
   useLayoutEffect(() => {
@@ -93,6 +107,10 @@ export function Popover({
     const onScroll = (e: Event): void => {
       const t = e.target as Node
       if (popRef.current?.contains(t)) return
+      // Also ignore scrolls originating from within the anchor itself (e.g.
+      // the composer textarea auto-scrolling while typing) -- the anchor
+      // doesn't move, so there's nothing to detach from.
+      if (anchorRef.current?.contains(t)) return
       onClose()
     }
 
