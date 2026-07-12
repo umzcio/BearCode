@@ -132,9 +132,11 @@ function App(): React.JSX.Element {
         </div>
         <TrustBanner />
         <OutsideAccessCard />
-        {view.kind === 'home' ? <Home /> : null}
-        {view.kind === 'history' ? <HistoryView /> : null}
-        {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}
+        <div className="main-view" key={view.kind}>
+          {view.kind === 'home' ? <Home /> : null}
+          {view.kind === 'history' ? <HistoryView /> : null}
+          {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}
+        </div>
         <SettingsModal />
         <ProjectSettingsModal />
         <ConflictResolver />
