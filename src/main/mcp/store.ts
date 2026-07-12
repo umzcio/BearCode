@@ -132,19 +132,31 @@ export function loadServers(
     : {}
   const servers = mergeServerMaps(global, project)
 
-  // Fold in enabled plugins' mcp.json servers, tagged with `plugin`. Keyed by
-  // `<pluginDirName>:<name>` (not the bare name) so a plugin server can never
-  // silently overwrite -- or be shadowed by dedup against -- a direct
-  // global/project server of the same name; it always shows up as its own,
-  // separately-trusted entry (see isTrusted below).
+  // Fold in enabled plugins' mcp.json servers, tagged with `plugin`. A plugin
+  // server that shares a bare NAME with a direct global/project server (or
+  // with an already-enumerated plugin server) is skipped entirely, never
+  // enumerated -- isEnabled/setEnabled/hasSpawnConsent/grantSpawnConsent
+  // (store.ts) and McpManager's connection identity (this.servers/
+  // findConfig, manager.ts) are ALL keyed on the bare `name` only (isTrusted
+  // is the sole exception, keyed by `${plugin}:${name}` when `plugin` is
+  // set). If two live configs shared one bare name, toggling one would
+  // silently flip the enabled/spawn-consent bit read for the other, and
+  // `.find(c => c.name === name)` would always resolve the earlier (direct)
+  // entry -- so a colliding plugin server could never actually be launched
+  // even after the user explicitly trusted it via trustPluginServer.
+  // Rejecting the collision at enumeration time closes this at the root: a
+  // bare name maps to at most one live config, so every bare-name-keyed
+  // lookup downstream is unambiguous by construction. (Previously this
+  // checked `seen.has(`${pluginName}:${name}`)` against a `seen` set seeded
+  // with BARE names -- a key-space mismatch that meant the check almost
+  // never fired, so colliding plugin servers slipped through anyway.)
   const seen = new Set(servers.map((s) => s.name))
   const ing = enumeratePluginIngredients(projectPath, { trusted: opts?.trusted ?? false })
   for (const { pluginName, path } of ing.mcpConfigs) {
     const raw = readServerMap(path)
     for (const [name, entry] of Object.entries(raw)) {
-      const qualified = `${pluginName}:${name}`
-      if (seen.has(qualified)) continue
-      seen.add(qualified)
+      if (seen.has(name)) continue
+      seen.add(name)
       servers.push({
         name,
         source: 'global',
