@@ -3,7 +3,7 @@
 // NEVER executes plugin code: shallow, no submodules, git hooks disabled, and a
 // protocol allowlist blocks git's RCE-capable transports (ext::/file::/fd::).
 import { createHash } from 'crypto'
-import { cpSync, existsSync, mkdirSync, rmSync } from 'fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, rmSync } from 'fs'
 import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import { git } from '../worktree/git'
@@ -12,7 +12,7 @@ import { getSettings, setSettings } from '../settings'
 import { parsePluginDir } from './manifest'
 import { pluginsDir } from './index'
 import { COMMAND_NAME_PATTERN } from '../../shared/types'
-import type { MarketplacePlugin, PluginManifest } from '../../shared/types'
+import type { MarketplacePlugin, PluginManifest, PluginUpdateResult } from '../../shared/types'
 
 const CAP = 256 * 1024
 const SAFE_URL = /^(https:\/\/|ssh:\/\/|git@)[^\s]+$/
@@ -135,12 +135,17 @@ export async function prepareInstall(
     stagePath = join(stageRoot(), createHash('sha256').update(source).digest('hex').slice(0, 16))
     await safeClone(source, stagePath)
   } else if (marketplaceUrl) {
-    const root = cacheDir(marketplaceUrl)
-    const resolved = join(root, source)
+    const root = resolve(cacheDir(marketplaceUrl))
+    const resolved = resolve(root, source)
     // Jail the marketplace-declared subpath inside the marketplace's own
     // clone -- a malicious marketplace.json could otherwise point `source`
-    // at `../../..` and walk the install off the repo entirely.
-    if (resolved !== join(root, source) || !(resolved === root || resolved.startsWith(root + sep)))
+    // at `../../..` and walk the install off the repo entirely. (The prior
+    // check compared `resolved` — itself `join(root, source)` — against
+    // `join(root, source)` again: a dead self-comparison that could never be
+    // true, so the containment check below was the only guard actually
+    // running. resolve()ing both sides collapses `..` segments so the
+    // startsWith containment check is real.)
+    if (!(resolved === root || resolved.startsWith(root + sep)))
       throw new Error('Marketplace plugin path escapes the repo.')
     stagePath = join(
       stageRoot(),
@@ -160,6 +165,25 @@ export async function prepareInstall(
   return { manifest, stagePath }
 }
 
+// Recursively walks a staged plugin tree with lstatSync (which does NOT
+// follow symlinks, unlike statSync) and throws on the first symlink found.
+// cpSync's default `dereference: false` copies a symlink verbatim rather
+// than the file it points to, so a malicious plugin could ship e.g.
+// `rules/creds.md -> ~/.aws/credentials`; once enabled, readFileCapped
+// follows the link at load time -- a read-side escape of the plugin
+// directory's path-jail. Rejecting any symlink at install time closes this
+// at the root, before anything is ever copied into the live plugins tree.
+function assertNoSymlinks(dir: string): void {
+  for (const entry of readdirSync(dir)) {
+    const p = join(dir, entry)
+    const st = lstatSync(p)
+    if (st.isSymbolicLink()) {
+      throw new Error(`Refused to install: staged plugin contains a symlink (${entry}).`)
+    }
+    if (st.isDirectory()) assertNoSymlinks(p)
+  }
+}
+
 export function confirmInstall(stagePath: string): void {
   // Path-jail the SOURCE side too: stagePath must resolve inside stageRoot()
   // (the scratch dir prepareInstall writes into). Without this, a caller
@@ -170,13 +194,20 @@ export function confirmInstall(stagePath: string): void {
   const sr = resolve(stageRoot())
   if (rs !== sr && !rs.startsWith(sr + sep))
     throw new Error('stagePath must be a previously prepared install stage.')
+  assertNoSymlinks(stagePath)
   const manifest = parsePluginDir(stagePath, 'global')
   if (!manifest) throw new Error('Staged directory is not a plugin.')
   if (!COMMAND_NAME_PATTERN.test(manifest.name))
     throw new Error('Plugin name must be kebab-case (traversal rejected).')
-  const root = pluginsDir('global', null)
-  const dest = join(root, manifest.name)
-  if (dest !== join(root, manifest.name) || !(dest === root || dest.startsWith(root + sep)))
+  const root = resolve(pluginsDir('global', null))
+  const dest = resolve(root, manifest.name)
+  // (Same dead-self-comparison fix as prepareInstall above: `dest` was built
+  // from `join(root, manifest.name)` and then compared against
+  // `join(root, manifest.name)` again, which can never be false. The
+  // COMMAND_NAME_PATTERN check just above already rejects traversal
+  // characters in manifest.name, but resolve() + containment is kept as the
+  // real, structural guard.)
+  if (!(dest === root || dest.startsWith(root + sep)))
     throw new Error('Install path escapes the plugins directory.')
   if (existsSync(dest)) rmSync(dest, { recursive: true, force: true })
   mkdirSync(root, { recursive: true })
@@ -189,9 +220,15 @@ export async function installFromUrl(
   return prepareInstall(url)
 }
 
-export async function updatePlugin(name: string): Promise<void> {
+// A marketplace-subpath install (prepareInstall's cpSync of a repo
+// SUBDIRECTORY) carries no `.git`, so `git pull` has nothing to do -- return
+// 'not-updatable' rather than silently no-op'ing so the caller (PluginsPage)
+// can hide/disable Update instead of offering an action that never does
+// anything.
+export async function updatePlugin(name: string): Promise<PluginUpdateResult> {
   if (!COMMAND_NAME_PATTERN.test(name)) throw new Error('Invalid plugin name.')
   const dir = join(pluginsDir('global', null), name)
-  if (existsSync(join(dir, '.git')))
-    await git(['-c', 'core.hooksPath=/dev/null', 'pull', '--ff-only'], dir, SAFE_ENV)
+  if (!existsSync(join(dir, '.git'))) return 'not-updatable'
+  await git(['-c', 'core.hooksPath=/dev/null', 'pull', '--ff-only'], dir, SAFE_ENV)
+  return 'updated'
 }

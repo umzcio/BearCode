@@ -35,7 +35,10 @@ export function PluginsPage(): JSX.Element {
         <div className="plugin-empty">No plugins installed. Browse the catalog to add one.</div>
       ) : null}
       {(plugins ?? []).map((p) => (
-        <div className="plugin-row set-card pad" key={`${p.scope}:${p.name}`}>
+        // Keyed on the canonical on-disk identity (scope + dirName), never the
+        // spoofable manifest display `name` -- two plugins that declare the
+        // same `name` would otherwise collide on the same React key.
+        <div className="plugin-row set-card pad" key={`${p.scope}:${p.dirName}`}>
           <div className="set-row">
             <div className="set-row-text">
               <div className="set-row-title">
@@ -63,7 +66,11 @@ export function PluginsPage(): JSX.Element {
             {p.hookCount ? <div>{p.hookCount} hooks (not yet supported)</div> : null}
           </div>
           <div className="plugin-actions">
-            {p.scope === 'global' ? (
+            {/* A marketplace-subpath install has no .git to `git pull` --
+                updatePlugin would silently no-op for it, so Update is only
+                offered when the plugin's on-disk install is actually
+                updatable (main/plugins/index.ts scanScope). */}
+            {p.scope === 'global' && p.updatable ? (
               <button
                 className="pill-btn"
                 onClick={() => void window.bearcode.plugins.update(p.dirName).then(refresh)}

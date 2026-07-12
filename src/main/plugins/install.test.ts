@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, writeFileSync, existsSync, rmSync, mkdirSync } from 'fs'
+import { mkdtempSync, writeFileSync, existsSync, rmSync, mkdirSync, symlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -57,5 +57,20 @@ describe('install flow', () => {
     const outside = mkdtempSync(join(tmpdir(), 'bc-outside-'))
     writeFileSync(join(outside, 'plugin.json'), JSON.stringify({ name: 'sneaky' }))
     expect(() => confirmInstall(outside)).toThrow(/previously prepared install stage/i)
+  })
+  // Minor whole-branch finding: cpSync (default dereference:false) copies
+  // symlinks verbatim, so a malicious plugin could ship
+  // rules/creds.md -> ~/.aws/credentials and have readFileCapped follow it
+  // once enabled -- a read-side escape of the plugin dir's path-jail.
+  it('confirmInstall rejects a staged plugin containing a symlink', async () => {
+    const { confirmInstall, stageRoot } = await import('./marketplace')
+    mkdirSync(stageRoot(), { recursive: true })
+    const stage = mkdtempSync(join(stageRoot(), 'bc-stage-'))
+    writeFileSync(join(stage, 'plugin.json'), JSON.stringify({ name: 'evil-link' }))
+    mkdirSync(join(stage, 'rules'))
+    const target = join(fakeHome, 'secret.txt')
+    writeFileSync(target, 'super-secret')
+    symlinkSync(target, join(stage, 'rules', 'creds.md'))
+    expect(() => confirmInstall(stage)).toThrow(/symlink/i)
   })
 })

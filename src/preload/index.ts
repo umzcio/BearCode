@@ -29,6 +29,7 @@ import type {
   PlanReviewResolveResult,
   PluginEntry,
   PluginManifest,
+  PluginUpdateResult,
   PreviewPayload,
   FolderProject,
   ProjectSettings,
@@ -375,7 +376,8 @@ const bearcode: BearcodeApi = {
       projectPath: string | null
     ): Promise<void> =>
       ipcRenderer.invoke('bearcode:plugins:set-enabled', scope, name, on, projectPath),
-    update: (name: string): Promise<void> => ipcRenderer.invoke('bearcode:plugins:update', name),
+    update: (name: string): Promise<PluginUpdateResult> =>
+      ipcRenderer.invoke('bearcode:plugins:update', name),
     uninstall: (
       scope: 'global' | 'project',
       name: string,

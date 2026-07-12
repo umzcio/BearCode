@@ -46,13 +46,30 @@ function scanScope(scope: 'global' | 'project', projectPath: string | null): Plu
     return []
   }
   for (const n of names) {
+    // A hand-created folder whose dirName isn't kebab-case (e.g. `My_Plugin`)
+    // would otherwise be listed here and rendered with an enable toggle /
+    // uninstall button, but set-enabled/uninstall's validateName rejects any
+    // non-kebab-case name -- so a click on either control throws an
+    // unhandled rejection. Skip it at discovery time so the UI never offers
+    // an action the IPC layer will reject.
+    if (!COMMAND_NAME_PATTERN.test(n)) continue
     const m = parsePluginDir(join(dir, n), scope)
     if (!m) continue
     // Identity is the real on-disk directory name `n`, not the (possibly
     // attacker/author-controlled) manifest-declared m.name -- two folders
     // must never collide on one enabled-state key or uninstall target just
     // because their plugin.json both claim the same display name.
-    out.push({ ...m, dirName: n, enabled: isPluginEnabled(scope, n), source: `${scope}:${n}` })
+    out.push({
+      ...m,
+      dirName: n,
+      enabled: isPluginEnabled(scope, n),
+      source: `${scope}:${n}`,
+      // Only a direct git clone (prepareInstall's git URL branch) carries a
+      // .git dir; a marketplace-subpath install (cpSync of a repo
+      // SUBDIRECTORY) never does, so updatePlugin's `git pull` would be a
+      // silent no-op for it.
+      updatable: existsSync(join(dir, n, '.git'))
+    })
   }
   return out
 }
