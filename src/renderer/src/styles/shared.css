@@ -121,11 +121,8 @@
    menu -- Phase B migrates these) render `.menu` directly inside a
    `position: relative` trigger wrapper and only supply their own
    `top/bottom/left/right` offsets, with no `position` of their own. Do not
-   remove this. The Popover-mounted `Menu` component (this phase's new
-   primitive) portals `.menu` inside its own `position: fixed` wrapper, so
-   `position: absolute` here resolves to the static (0,0-ish) position within
-   that wrapper -- visually identical, since `.menu` is that wrapper's only
-   child. */
+   remove this. The Popover-mounted `Menu` component overrides back to
+   `position: static` via `.menu--in-popover` below -- see that rule for why. */
 .menu {
   position: absolute;
   background: var(--bg-raised);
@@ -140,13 +137,27 @@
   overflow-y: auto;
   z-index: 60;
 }
-/* Opt-in stretch for the Popover-mounted `Menu` primitive only: fills the
-   Popover wrapper's `min-width` (computed from `matchAnchorWidth`) instead
-   of shrink-to-fitting its content. Applied by `Menu.tsx`; the legacy
-   per-picker `.menu` consumers above must NOT get this (it would override
-   their own `min-width`/sizing). */
+/* Popover-mounted `Menu` primitive only (applied by `Menu.tsx`); legacy
+   per-picker `.menu` consumers above keep `position: absolute` and must NOT
+   get this.
+   - `position: static` takes `.menu` back into normal flow. An
+     absolutely-positioned `.menu` contributes nothing to its
+     `position: fixed` Popover wrapper's intrinsic size, so the wrapper
+     measures ~0x0 on first layout -- computePopoverPosition then thinks
+     everything fits and never flips off-screen content, and Popover can
+     never measure real content dimensions at all. Back in flow, the
+     wrapper's offsetWidth/offsetHeight reflect the actual menu size.
+   - `min-width: var(--popover-min-width, 0)` + `width: max-content` +
+     `max-width: 280px` restores shrink-to-content sizing (a compact
+     trigger shouldn't force a 300px-wide menu) while `--popover-min-width`
+     (set by Popover.tsx from `matchAnchorWidth`) still provides the
+     trigger-width floor -- min-width always wins over a smaller
+     max-content width, so the menu is never narrower than its anchor. */
 .menu--in-popover {
-  width: 100%;
+  position: static;
+  min-width: var(--popover-min-width, 0);
+  width: max-content;
+  max-width: 280px;
   box-sizing: border-box;
 }
 /* Canonical group-label: mixed-case (not uppercase), medium weight, muted --

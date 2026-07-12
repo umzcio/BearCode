@@ -17,7 +17,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .popover {
-    transition: opacity var(--dur-fast) ease;
+    transition: opacity var(--dur-fast) var(--ease-out);
   }
   @starting-style {
     .popover {
