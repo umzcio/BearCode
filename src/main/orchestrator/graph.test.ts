@@ -641,6 +641,12 @@ describe('isRehydratableInterrupt (crash-resume kind filter)', () => {
   it('accepts run_command_unsandboxed', () => {
     expect(isRehydratableInterrupt({ kind: 'run_command_unsandboxed' })).toBe(true)
   })
+
+  it('accepts hook_ask (a hook-ask card pending at crash/restart survives, like run_command)', () => {
+    expect(isRehydratableInterrupt({ kind: 'hook_ask', tool: 'activate_skill', input: {} })).toBe(
+      true
+    )
+  })
 })
 
 describe('findDanglingRunCommandCalls (crash-resume checkpoint scan)', () => {

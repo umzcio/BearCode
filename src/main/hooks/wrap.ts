@@ -22,6 +22,7 @@
 // GraphInterrupt ... PROPAGATE, never swallowed" test).
 import { interrupt } from '@langchain/langgraph'
 import { tool } from 'langchain'
+import { takeDeniedHookReplayPin } from '../orchestrator/tools'
 import { runPostToolUse, runPreToolUse, type HookCtx } from './runner'
 
 interface WrappableTool {
@@ -47,6 +48,17 @@ export function wrapToolsWithHooks(tools: unknown[], ctx: HookCtx): unknown[] {
     return tool(
       async (input: unknown, config?: unknown): Promise<unknown> => {
         const toolCallId = (config as { toolCallId?: string } | null | undefined)?.toolCallId
+        // BEFORE consulting the hooks layer at all: on a keyed-resume replay
+        // LangGraph re-runs this ENTIRE wrapped function from the top, so a
+        // hook-ask card the user explicitly denied must win even if
+        // runPreToolUse would now return a different decision (a
+        // non-deterministic hook script, or the hook being edited/disabled
+        // via Settings > Hooks while the card was pending) -- mirrors
+        // run_command/edit_file/browser/mcp/integration's own take*ReplayPin
+        // guards (tools.ts), each consulted before their own gate logic.
+        if (takeDeniedHookReplayPin(ctx.conversationId, toolCallId)) {
+          return 'User denied this action.'
+        }
         // Outer safety net: runner.ts already fails open for a single hook's
         // own spawn/timeout/parse failure, but if consulting the hooks layer
         // itself throws for any other reason, that must ALSO fail open

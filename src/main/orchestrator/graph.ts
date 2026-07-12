@@ -2507,7 +2507,19 @@ function buildAgentAndContext(
     // subagent with only ls/read/write/edit/glob/grep and it (correctly) said it
     // had no browser access. Handing it browserTools scopes it to exactly the
     // browsing surface (the guard chain still gates every call).
-    subagents: [RESEARCHER_SUBAGENT, { ...BROWSER_SUBAGENT, tools: browserTools }],
+    // The browser subagent must ALSO go through wrapToolsWithHooks -- a
+    // separate wrapped copy of browserTools, since the main tool list above
+    // already carries its own wrapped copy inside wrappedTools. Without this,
+    // any browser_*-matching PreToolUse/PostToolUse hook (a deny/ask policy
+    // on navigation, say) is silently bypassed whenever the model delegates
+    // via task(subagent_type="browser") instead of calling browser_* directly.
+    subagents: [
+      RESEARCHER_SUBAGENT,
+      {
+        ...BROWSER_SUBAGENT,
+        tools: wrapToolsWithHooks(browserTools, hookCtx) as typeof browserTools
+      }
+    ],
     ...(backendFactory ? { backend: backendFactory } : {}),
     // F4 decoupling: browser_* tools (buildBrowserTools) are ALWAYS present —
     // browsing has no project-folder dependency (session data keys off
@@ -2684,7 +2696,14 @@ export function isRehydratableInterrupt(value: unknown): boolean {
     // propose_skill (G-skills Task 8) is rehydratable like plan_review -- its
     // resume carries a SkillProposalResolution, not {approved} -- so a parked
     // /learn proposal is not dropped to 'cancelled' by a crash/restart either.
-    kind === 'propose_skill'
+    kind === 'propose_skill' ||
+    // hook_ask (hooks arc Task 8) resumes with the identical {approved}
+    // shape as run_command, so it is equally crash-resumable. Without this a
+    // hook-ask card still pending at crash/restart degrades the ENTIRE
+    // pending batch -- including unrelated sibling cards -- to 'cancelled'
+    // instead of being re-surfaced (rehydratePausedRun's "one bad apple"
+    // comment above).
+    kind === 'hook_ask'
   )
 }
 
