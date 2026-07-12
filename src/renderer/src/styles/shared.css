@@ -115,8 +115,13 @@
 }
 
 /* ---------- Dropdown menus ---------- */
+/* No `position` here -- Popover already owns fixed positioning of the
+   portaled wrapper. `.menu` just needs to fill that wrapper (`width: 100%`
+   + border-box) so it actually stretches to the min-width Popover computes
+   from `matchAnchorWidth`, instead of shrink-to-fitting its content. */
 .menu {
-  position: absolute;
+  width: 100%;
+  box-sizing: border-box;
   background: var(--bg-raised);
   border: 1px solid var(--border-soft, var(--border));
   border-radius: var(--radius-menu);
@@ -155,6 +160,12 @@
     transform var(--dur-press) var(--ease-out);
 }
 .menu-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+/* Roving-tabindex keyboard highlight -- mirrors .menu-item:hover so the
+   active option is visible whether reached by mouse or keyboard. */
+.menu-item.active {
   background: var(--bg-hover);
   color: var(--text);
 }
