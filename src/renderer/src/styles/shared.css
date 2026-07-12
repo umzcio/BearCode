@@ -247,6 +247,19 @@ code.tok {
   border-radius: 5px;
 }
 
+/* ---------- Field hint ---------- */
+/* Inline validation note under a form field. Generalized from the
+   Settings-only `.hook-field-hint` so `<FieldHint>` can be reused anywhere
+   a field needs an inline "here's the expected format" note. */
+.field-hint {
+  font-size: 12px;
+  color: var(--warning, #d98a3d);
+}
+.field-hint code {
+  font-size: 11px;
+  opacity: 0.9;
+}
+
 .cursor {
   display: inline-block;
   width: 7px;
