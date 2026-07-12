@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'fs'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -9,8 +9,28 @@ vi.mock('../settings', () => ({
   setSettings: (p: Record<string, unknown>) => Object.assign(store, p)
 }))
 
+// pluginsDir('global', null) resolves off os.homedir() (src/main/plugins/
+// index.ts), so without this mock the it() blocks below would write real
+// fixture directories straight into the developer's/CI runner's actual home
+// (~/.bearcode/agents/plugins/gp, gp2, gp3, gp4) with no teardown. Point
+// homedir() at a fresh mkdtempSync temp dir per test (mirrors
+// plugins/enumerate.test.ts and mcp/plugins.test.ts) and remove it in
+// afterEach.
+let fakeHome = ''
+vi.mock('os', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('os')>()),
+  homedir: () => fakeHome
+}))
+
 describe('loadAgentsContent + plugins', () => {
-  beforeEach(() => { for (const k of Object.keys(store)) delete store[k]; vi.resetModules() })
+  beforeEach(() => {
+    for (const k of Object.keys(store)) delete store[k]
+    vi.resetModules()
+    fakeHome = mkdtempSync(join(tmpdir(), 'bc-agentsdir-plugin-'))
+  })
+  afterEach(() => {
+    rmSync(fakeHome, { recursive: true, force: true })
+  })
   it('surfaces an enabled global plugin skill with plugin provenance', async () => {
     const { pluginsDir } = await import('../plugins')
     const p = join(pluginsDir('global', null), 'gp')

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'fs'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -7,6 +7,18 @@ const store: Record<string, unknown> = {}
 vi.mock('../settings', () => ({
   getSettings: () => ({ pluginsEnabled: (store.pluginsEnabled as string[]) ?? [] }),
   setSettings: (p: Record<string, unknown>) => Object.assign(store, p)
+}))
+
+// pluginsDir('global', null) resolves off os.homedir() (src/main/plugins/
+// index.ts), so the first test case's global-scope fullPlugin() calls below
+// would otherwise write real 'onpack'/'offpack' fixture directories straight
+// into the developer's/CI runner's actual home (~/.bearcode/agents/plugins/)
+// with no teardown. Point homedir() at a fresh mkdtempSync temp dir per test
+// (mirrors mcp/plugins.test.ts) and remove it in afterEach.
+let fakeHome = ''
+vi.mock('os', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('os')>()),
+  homedir: () => fakeHome
 }))
 
 function fullPlugin(root: string, name: string): void {
@@ -23,6 +35,10 @@ describe('enumeratePluginIngredients', () => {
   beforeEach(() => {
     for (const k of Object.keys(store)) delete store[k]
     vi.resetModules()
+    fakeHome = mkdtempSync(join(tmpdir(), 'bc-enumerate-plugin-'))
+  })
+  afterEach(() => {
+    rmSync(fakeHome, { recursive: true, force: true })
   })
   it('includes only ENABLED plugins, tagged by plugin name', async () => {
     const { enumeratePluginIngredients } = await import('./index')
