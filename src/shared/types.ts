@@ -426,6 +426,11 @@ export interface PluginServerSummary {
 export interface PluginSkillSummary {
   name: string
   description: string
+  // Actual on-disk folder name under `<plugin>/skills/`, which the loader
+  // bridge (enumeratePluginIngredients) needs to build a real path from --
+  // `name` above may differ from it (frontmatter `name:` override, design
+  // 4.1) and must never be used to address the filesystem.
+  folder: string
 }
 export interface PluginRuleSummary {
   name: string

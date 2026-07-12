@@ -103,8 +103,14 @@ export function enumeratePluginIngredients(
     if (!p.enabled) continue
     const root = pluginsDir(p.scope, projectPath)
     const dir = join(root, p.dirName)
+    // Path MUST be built from the real on-disk folder name (`s.folder`),
+    // never `s.name` -- a SKILL.md's frontmatter `name:` can legitimately
+    // override the display name (design 4.1) and differ from the folder it
+    // lives in, so using `s.name` here would silently drop every plugin
+    // skill that uses that documented override feature (the folder it
+    // resolves to simply doesn't exist).
     for (const s of p.skills)
-      out.skillFolders.push({ pluginName: p.dirName, path: join(dir, 'skills', s.name) })
+      out.skillFolders.push({ pluginName: p.dirName, path: join(dir, 'skills', s.folder) })
     for (const r of p.rules)
       out.ruleFiles.push({ pluginName: p.dirName, path: join(dir, 'rules', `${r.name}.md`) })
     for (const f of ['mcp.json', 'mcp_config.json']) {

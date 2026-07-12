@@ -32,7 +32,7 @@ describe('parsePluginDir', () => {
     expect(m.name).toBe('demo')
     expect(m.description).toBe('A demo')
     expect(m.version).toBe('1.0.0')
-    expect(m.skills).toEqual([{ name: 'hello', description: 'Say hi' }])
+    expect(m.skills).toEqual([{ name: 'hello', description: 'Say hi', folder: 'hello' }])
     expect(m.rules).toEqual([{ name: 'style', activation: 'always' }])
     expect(m.servers).toEqual([{ name: 'db', transport: 'stdio', command: 'npx' }])
     expect(m.hookCount).toBe(2)

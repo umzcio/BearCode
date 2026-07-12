@@ -64,4 +64,27 @@ describe('loadAgentsContent + plugins', () => {
     expect(skills[0].description).toBe('direct')
     expect(skills[0].plugin).toBeUndefined()
   })
+  it('loads a plugin skill under its frontmatter name-override with NO collision, from a differently-named folder', async () => {
+    const { pluginsDir } = await import('../plugins')
+    // Folder is "actual-folder-name" but the SKILL.md declares a different
+    // `name:` -- the documented name-override feature (design 4.1). Nothing
+    // else on the system uses "declared-name", so this must load cleanly;
+    // if enumeratePluginIngredients builds the path from the frontmatter
+    // name instead of the real folder, this skill silently vanishes.
+    const p = join(pluginsDir('global', null), 'gp4')
+    mkdirSync(join(p, 'skills', 'actual-folder-name'), { recursive: true })
+    writeFileSync(join(p, 'plugin.json'), '{}')
+    writeFileSync(
+      join(p, 'skills', 'actual-folder-name', 'SKILL.md'),
+      '---\nname: declared-name\ndescription: overridden\n---\nb'
+    )
+    store.pluginsEnabled = ['global:gp4']
+    const { loadAgentsContent } = await import('./index')
+    const skill = loadAgentsContent(null, { trusted: false }).skills.find(
+      (s) => s.name === 'declared-name'
+    )
+    expect(skill).toBeDefined()
+    expect(skill?.description).toBe('overridden')
+    expect(skill?.plugin).toBe('gp4')
+  })
 })

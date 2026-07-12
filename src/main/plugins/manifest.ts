@@ -48,7 +48,11 @@ export function parsePluginDir(dir: string, scope: 'global' | 'project'): Plugin
     const raw = readFileCapped(path, CAP)
     if (!raw) continue
     const s = parseSkillFolder(sName, raw.text, scope)
-    if (!s.error) skills.push({ name: s.name, description: s.description })
+    // `folder` is the real on-disk directory name (`sName`), kept separate
+    // from `s.name` (the effective/frontmatter-overridable display name) so
+    // downstream path-building never uses an attacker/author-controlled
+    // value to address the filesystem.
+    if (!s.error) skills.push({ name: s.name, description: s.description, folder: sName })
   }
 
   const rules: PluginRuleSummary[] = []
