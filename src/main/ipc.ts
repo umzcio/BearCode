@@ -17,10 +17,13 @@ import type {
   McpServerConfig,
   McpServerStatus,
   McpServerView,
+  MarketplacePlugin,
   MemoryList,
   MemoryPromoteInput,
   MemoryScopeName,
   PingResult,
+  PluginEntry,
+  PluginManifest,
   PreviewPayload,
   ProjectSettings,
   ProviderId,
@@ -100,6 +103,13 @@ import { suggestFiles, manualRuleInfos, skillInfos } from './orchestrator/mentio
 import { createSkill, deleteSkillFolder, listSkillEntries, updateSkill } from './skills'
 import { isSkillEnabled, setSkillEnabled } from './skills/state'
 import { listMemory, addMemory, updateMemory, deleteMemory, promoteMemory } from './memory'
+import { listPlugins, uninstallPlugin } from './plugins'
+import { setPluginEnabled } from './plugins/state'
+import * as pluginMarket from './plugins/marketplace'
+import {
+  validateScope as validatePluginScope,
+  validateName as validatePluginName
+} from './plugins/validate'
 import { COMMAND_NAME_PATTERN } from '../shared/types'
 import {
   assertValidConversationId,
@@ -1262,6 +1272,88 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:memory:promote', (_e, input: unknown, projectPath: unknown): void => {
     promoteMemory(assertValidPromoteInput(input), asProjectPath(projectPath))
   })
+
+  // Plugins (Phase G plugins arc, Task 9): discovery/enable-state/uninstall
+  // (./plugins, ./plugins/state) plus the marketplace browse/install surface
+  // (./plugins/marketplace). Mirrors the mcp:* idiom above: validate the wire
+  // input, then call straight through -- every write below is already
+  // path-jailed and kebab-name validated inside the modules it calls into.
+  // Project-scope listing/enable/uninstall is trust-gated the SAME way
+  // commands:list/mentions:rules/mentions:skills already gate project content:
+  // `db.isProjectTrusted(projectPath)`.
+  ipcMain.handle('bearcode:plugins:list', (_e, projectPath: unknown): PluginEntry[] => {
+    const proj = asProjectPath(projectPath)
+    return listPlugins(proj, { trusted: proj != null && db.isProjectTrusted(proj) })
+  })
+  ipcMain.handle('bearcode:plugins:catalog', (): Promise<MarketplacePlugin[]> =>
+    pluginMarket.listCatalog()
+  )
+  ipcMain.handle('bearcode:plugins:list-marketplaces', (): string[] =>
+    pluginMarket.listMarketplaces()
+  )
+  ipcMain.handle('bearcode:plugins:add-marketplace', (_e, url: unknown): Promise<void> => {
+    if (typeof url !== 'string' || url.trim().length === 0) {
+      throw new Error(`Invalid marketplace url: ${String(url)}`)
+    }
+    return pluginMarket.addMarketplace(url)
+  })
+  ipcMain.handle('bearcode:plugins:remove-marketplace', (_e, url: unknown): Promise<void> => {
+    if (typeof url !== 'string' || url.trim().length === 0) {
+      throw new Error(`Invalid marketplace url: ${String(url)}`)
+    }
+    return pluginMarket.removeMarketplace(url)
+  })
+  ipcMain.handle(
+    'bearcode:plugins:prepare-install',
+    (
+      _e,
+      source: unknown,
+      marketplaceUrl: unknown
+    ): Promise<{ manifest: PluginManifest; stagePath: string }> => {
+      if (typeof source !== 'string' || source.trim().length === 0) {
+        throw new Error(`Invalid plugin install source: ${String(source)}`)
+      }
+      return pluginMarket.prepareInstall(
+        source,
+        typeof marketplaceUrl === 'string' ? marketplaceUrl : undefined
+      )
+    }
+  )
+  ipcMain.handle('bearcode:plugins:confirm-install', (_e, stagePath: unknown): void => {
+    if (typeof stagePath !== 'string' || stagePath.trim().length === 0) {
+      throw new Error(`Invalid stage path: ${String(stagePath)}`)
+    }
+    pluginMarket.confirmInstall(stagePath)
+  })
+  ipcMain.handle(
+    'bearcode:plugins:install-from-url',
+    (_e, url: unknown): Promise<{ manifest: PluginManifest; stagePath: string }> => {
+      if (typeof url !== 'string' || url.trim().length === 0) {
+        throw new Error(`Invalid plugin install url: ${String(url)}`)
+      }
+      return pluginMarket.installFromUrl(url)
+    }
+  )
+  ipcMain.handle(
+    'bearcode:plugins:set-enabled',
+    (_e, scope: unknown, name: unknown, on: unknown, _projectPath: unknown): void => {
+      if (typeof on !== 'boolean') throw new Error(`Invalid plugin enabled flag: ${String(on)}`)
+      setPluginEnabled(validatePluginScope(scope), validatePluginName(name), on)
+    }
+  )
+  ipcMain.handle('bearcode:plugins:update', (_e, name: unknown): Promise<void> => {
+    return pluginMarket.updatePlugin(validatePluginName(name))
+  })
+  ipcMain.handle(
+    'bearcode:plugins:uninstall',
+    (_e, scope: unknown, name: unknown, projectPath: unknown): void => {
+      uninstallPlugin(
+        validatePluginScope(scope),
+        validatePluginName(name),
+        asProjectPath(projectPath)
+      )
+    }
+  )
 
   // navigator.clipboard in the sandboxed renderer is blocked by our tight
   // permission handlers (media-only), so copy went through main's clipboard.

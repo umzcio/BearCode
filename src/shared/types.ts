@@ -1254,6 +1254,33 @@ export interface BearcodeApi {
     delete(scope: MemoryScopeName, index: number, projectPath: string | null): Promise<void>
     promote(input: MemoryPromoteInput, projectPath: string | null): Promise<void>
   }
+  // Plugins (Phase G plugins arc, Task 9): the Settings > Plugins page's
+  // installed-list + enable-toggle/uninstall/update, and the browse-catalog /
+  // add-marketplace / install-from-URL flow (Task 8's prepareInstall stages a
+  // candidate without writing anything real; confirmInstall is the only call
+  // that lands it in the live plugins tree). Every write is path-jailed and
+  // kebab-name validated main-side (plugins/index.ts, plugins/marketplace.ts).
+  plugins: {
+    list(projectPath: string | null): Promise<PluginEntry[]>
+    catalog(): Promise<MarketplacePlugin[]>
+    listMarketplaces(): Promise<string[]>
+    addMarketplace(url: string): Promise<void>
+    removeMarketplace(url: string): Promise<void>
+    prepareInstall(
+      source: string,
+      marketplaceUrl?: string
+    ): Promise<{ manifest: PluginManifest; stagePath: string }>
+    confirmInstall(stagePath: string): Promise<void>
+    installFromUrl(url: string): Promise<{ manifest: PluginManifest; stagePath: string }>
+    setEnabled(
+      scope: 'global' | 'project',
+      name: string,
+      on: boolean,
+      projectPath: string | null
+    ): Promise<void>
+    update(name: string): Promise<void>
+    uninstall(scope: 'global' | 'project', name: string, projectPath: string | null): Promise<void>
+  }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void
   onConversationMeta(cb: (meta: ConversationMeta) => void): () => void
