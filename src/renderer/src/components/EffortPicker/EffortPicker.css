@@ -94,7 +94,7 @@
   height: 13px;
   border-radius: 50%;
   background: var(--text);
-  transition: transform 0.15s;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 .effort-switch.on {
   background: var(--accent);

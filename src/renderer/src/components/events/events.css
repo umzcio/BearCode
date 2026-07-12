@@ -24,7 +24,7 @@
 .worked-head .chev {
   display: flex;
   color: var(--text-dim);
-  transition: transform 0.18s;
+  transition: transform 0.18s var(--ease-out);
 }
 .worked-head .chev svg {
   width: 13px;
@@ -80,7 +80,7 @@
   display: flex;
   color: var(--text-dim);
   flex-shrink: 0;
-  transition: transform 0.18s;
+  transition: transform 0.18s var(--ease-out);
 }
 .step-row .chev svg {
   width: 12px;
@@ -221,7 +221,7 @@
 .diff-head .chev {
   display: flex;
   color: var(--text-dim);
-  transition: transform 0.18s;
+  transition: transform 0.18s var(--ease-out);
 }
 .diff-head .chev svg {
   width: 12px;
