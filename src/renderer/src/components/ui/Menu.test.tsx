@@ -43,6 +43,21 @@ function Harness({
 }
 
 describe('Menu keyboard nav', () => {
+  // Regression guard for the first-open dead-keyboard-nav bug: Menu focuses
+  // its listbox in a useLayoutEffect on open, and Popover must not be
+  // `visibility: hidden` at that point (Chromium refuses `.focus()` on a
+  // hidden element, so ArrowDown/Enter would silently do nothing). jsdom
+  // doesn't enforce the visibility-blocks-focus rule the way Chromium does,
+  // so this test can't reproduce the bug itself -- but it does pin down the
+  // expected outcome (activeElement is the listbox right after open) so a
+  // future change to the focus effect's timing/deps doesn't regress it
+  // unnoticed. See Popover.tsx + Menu.tsx comments for the real fix.
+  it('focuses the listbox on open (first open, no prior mount)', () => {
+    render(<Harness onSelect={vi.fn()} onClose={vi.fn()} />)
+    const listbox = screen.getByRole('listbox')
+    expect(document.activeElement).toBe(listbox)
+  })
+
   it('ArrowDown moves the active item, skipping disabled ones', () => {
     const onSelect = vi.fn()
     const onClose = vi.fn()

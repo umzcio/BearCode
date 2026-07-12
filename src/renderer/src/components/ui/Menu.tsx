@@ -47,6 +47,17 @@ export function Menu({
   // When the menu opens, start the active item on the current value (falling
   // back to the first enabled item) and focus the listbox so it receives
   // arrow keys.
+  //
+  // This must stay a useLayoutEffect (not useEffect/rAF): Popover
+  // (`Menu`'s child in the component tree) also measures + positions
+  // itself in a useLayoutEffect, and React fires layout effects bottom-up
+  // (children before parents) within one pre-paint commit, so Popover's
+  // position is already committed before this one runs. Critically, the
+  // listbox must NOT be `visibility: hidden` (or `display: none`) at this
+  // point -- Chromium silently refuses `.focus()` on a hidden element, and
+  // there is no error to signal that keyboard nav is now dead. See
+  // Popover.tsx's `pos` comment for why it's safe to never hide the
+  // wrapper.
   useLayoutEffect(() => {
     if (!open) return
     const selected = flat.findIndex((it) => it.value === value && !it.disabled)

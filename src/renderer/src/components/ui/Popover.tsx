@@ -37,9 +37,17 @@ export function Popover({
   children
 }: PopoverProps): React.JSX.Element | null {
   const popRef = useRef<HTMLDivElement>(null)
-  // `pos` doubles as the "have we measured yet" flag: null keeps the popover
-  // hidden (but still mounted so it can be measured) to avoid a flash at the
-  // wrong spot before the first layout pass lands.
+  // `pos` doubles as the "have we measured yet" flag: while null, the
+  // wrapper renders at (0, 0) with no minWidth. It is NOT hidden via
+  // `visibility`/`display` while unmeasured -- Chromium refuses
+  // `.focus()` on a `visibility: hidden` element, and content mounted
+  // inside this Popover (e.g. Menu's listbox) focuses itself in its own
+  // useLayoutEffect on open. Layout effects fire bottom-up (children
+  // before parents) in a single pre-paint commit, and a setState call
+  // made from a layout effect (like the one below) is flushed
+  // synchronously before the browser paints -- so the (0, 0) frame is
+  // never actually shown to the user even though it exists momentarily
+  // in the DOM. Hiding it would only break focus, not prevent a flash.
   const [pos, setPos] = useState<(PopoverPos & { minWidth?: number }) | null>(null)
 
   useLayoutEffect(() => {
@@ -106,16 +114,22 @@ export function Popover({
     <div
       ref={popRef}
       className={'popover' + (className ? ` ${className}` : '')}
-      style={{
-        position: 'fixed',
-        top: pos?.top ?? 0,
-        left: pos?.left ?? 0,
-        minWidth: pos?.minWidth,
-        // Hidden (but mounted + measurable) until the first layout pass has
-        // computed a real position, so it never flashes at (0, 0).
-        visibility: pos ? 'visible' : 'hidden',
-        transformOrigin: pos?.transformOrigin ?? 'top left'
-      }}
+      style={
+        {
+          position: 'fixed',
+          top: pos?.top ?? 0,
+          left: pos?.left ?? 0,
+          minWidth: pos?.minWidth,
+          transformOrigin: pos?.transformOrigin ?? 'top left',
+          // Exposed as a custom property (rather than only the `minWidth`
+          // above) so an in-flow child -- e.g. Menu's `.menu--in-popover`,
+          // which must stay in normal flow for this wrapper to measure it
+          // (see Menu.tsx) -- can use it as its own min-width floor. A
+          // plain `min-width` on this wrapper doesn't stretch an in-flow
+          // child that has its own explicit `width`.
+          '--popover-min-width': pos?.minWidth != null ? `${pos.minWidth}px` : undefined
+        } as React.CSSProperties
+      }
     >
       {children}
     </div>,
