@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef, useLayoutEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore, type Convo } from '../../state/store'
 import { relativeAge } from '../../lib/time'
@@ -77,8 +77,48 @@ export function Sidebar(): React.JSX.Element {
     [convoOrder, conversations, groupBy, sort, showArchived]
   )
 
+  // FLIP collapse animation (apple-design §11): margin-left has already snapped
+  // to its final value by the time this runs (one reflow, not per-frame), so we
+  // invert the sidebar back to where it *was* with an instant transform, then
+  // play a GPU-composited transform to 0. The heavy conversation list is
+  // rasterized once and slid as a texture -- no per-frame re-raster => smooth.
+  const sidebarRef = useRef<HTMLDivElement>(null)
+  const prevCollapsed = useRef(collapsed)
+  useLayoutEffect(() => {
+    if (prevCollapsed.current === collapsed) return
+    prevCollapsed.current = collapsed
+    const el = sidebarRef.current
+    if (!el) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const dist = sidebarWidth + 1
+    // Collapsing: box shifted left by `dist`, so invert with +dist. Expanding: inverse.
+    // Promote to a GPU layer NOW (will-change) so the layer already exists on the
+    // first animated frame -- avoids a create-layer hitch at the start. translate3d
+    // (not translateX) forces compositing.
+    el.style.willChange = 'transform'
+    el.style.transition = 'none'
+    el.style.transform = `translate3d(${collapsed ? dist : -dist}px, 0, 0)`
+    void el.offsetWidth // commit the inverted start before animating
+    const raf = requestAnimationFrame(() => {
+      el.style.transition = 'transform 0.34s cubic-bezier(0.32, 0.72, 0, 1)'
+      el.style.transform = 'translate3d(0, 0, 0)'
+    })
+    const done = (e: TransitionEvent): void => {
+      if (e.propertyName !== 'transform') return
+      el.style.willChange = ''
+      el.style.transition = ''
+      el.removeEventListener('transitionend', done)
+    }
+    el.addEventListener('transitionend', done)
+    return () => {
+      cancelAnimationFrame(raf)
+      el.removeEventListener('transitionend', done)
+    }
+  }, [collapsed, sidebarWidth])
+
   return (
     <div
+      ref={sidebarRef}
       className={'sidebar' + (collapsed ? ' collapsed' : '')}
       style={{
         width: sidebarWidth,

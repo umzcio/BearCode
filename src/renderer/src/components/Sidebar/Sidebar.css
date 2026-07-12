@@ -6,7 +6,11 @@
   display: flex;
   flex-direction: column;
   padding: 14px 12px;
-  transition: margin-left 0.25s ease;
+  /* No transition on margin-left: animating a layout property re-rasterizes the
+     whole (long) conversation list every frame -> choppy. Instead the collapse
+     is a FLIP in Sidebar.tsx: the margin snaps to its final value (one reflow)
+     and a GPU-composited `transform` plays the actual slide (apple-design §11).
+     Reduced-motion is handled in the effect (it skips the transform entirely). */
 }
 .sidebar.collapsed {
   margin-left: -301px;
