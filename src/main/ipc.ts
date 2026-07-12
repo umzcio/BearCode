@@ -11,6 +11,8 @@ import type {
   Event,
   GithubDeviceStart,
   HistoryHit,
+  HookAuthoringInput,
+  HookRecord,
   IntegrationProvider,
   IntegrationStatus,
   ManualRuleInfo,
@@ -113,6 +115,10 @@ import {
   validateScope as validatePluginScope,
   validateName as validatePluginName
 } from './plugins/validate'
+import { loadHooks } from './hooks/loader'
+import { setHookActive } from './hooks/state'
+import { writeGlobalHook, deleteGlobalHook } from './hooks/authoring'
+import { validateHookEvent, validateHookName } from './hooks/validate'
 import { COMMAND_NAME_PATTERN } from '../shared/types'
 import {
   assertValidConversationId,
@@ -1369,6 +1375,66 @@ export function registerIpc(): void {
       )
     }
   )
+
+  // Hooks (Phase G hooks arc, Task 9): the Settings > Hooks page's discovered
+  // list (./hooks/loader, trust-gated the SAME way plugins:list is above) and
+  // the enable/consent toggle (./hooks/state); global-hook authoring
+  // (./hooks/authoring) is create/update/delete only -- project/plugin
+  // hooks.json files stay file-managed and read-only in-app (design §2
+  // decision #3). Every input is validated at this wire boundary before it
+  // reaches a module that otherwise trusts it as already-checked.
+  const asHookScope = (x: unknown): 'global' | 'project' | 'plugin' => {
+    if (x !== 'global' && x !== 'project' && x !== 'plugin') {
+      throw new Error(`Invalid hook scope: ${String(x)}`)
+    }
+    return x
+  }
+  const asHookAuthoringInput = (x: unknown): HookAuthoringInput => {
+    if (!x || typeof x !== 'object') throw new Error('Invalid hook input.')
+    const r = x as Partial<HookAuthoringInput>
+    const name = validateHookName(r.name)
+    const event = validateHookEvent(r.event)
+    if (typeof r.matcher !== 'string') throw new Error('Hook matcher must be a string.')
+    if (typeof r.command !== 'string' || r.command.trim().length === 0) {
+      throw new Error('Hook command must be a non-empty string.')
+    }
+    if (r.timeout !== undefined && (typeof r.timeout !== 'number' || r.timeout <= 0)) {
+      throw new Error('Hook timeout must be a positive number.')
+    }
+    return { name, event, matcher: r.matcher, command: r.command, timeout: r.timeout }
+  }
+
+  ipcMain.handle('bearcode:hooks:list', (_e, projectPath: unknown): HookRecord[] => {
+    const proj = asProjectPath(projectPath)
+    return loadHooks(proj, { trusted: proj != null && db.isProjectTrusted(proj) })
+  })
+  ipcMain.handle(
+    'bearcode:hooks:setActive',
+    (
+      _e,
+      scope: unknown,
+      source: unknown,
+      name: unknown,
+      on: unknown,
+      _projectPath: unknown
+    ): void => {
+      if (typeof source !== 'string') throw new Error(`Invalid hook source: ${String(source)}`)
+      if (typeof on !== 'boolean') throw new Error(`Invalid hook active flag: ${String(on)}`)
+      setHookActive(asHookScope(scope), source, validateHookName(name), on)
+    }
+  )
+  ipcMain.handle('bearcode:hooks:create', (_e, input: unknown): void => {
+    writeGlobalHook(asHookAuthoringInput(input))
+  })
+  ipcMain.handle('bearcode:hooks:update', (_e, name: unknown, input: unknown): void => {
+    const oldName = validateHookName(name)
+    const next = asHookAuthoringInput(input)
+    if (oldName !== next.name) deleteGlobalHook(oldName)
+    writeGlobalHook(next)
+  })
+  ipcMain.handle('bearcode:hooks:delete', (_e, name: unknown): void => {
+    deleteGlobalHook(validateHookName(name))
+  })
 
   // navigator.clipboard in the sandboxed renderer is blocked by our tight
   // permission handlers (media-only), so copy went through main's clipboard.

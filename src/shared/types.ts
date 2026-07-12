@@ -538,6 +538,17 @@ export interface HookDecision {
   decision: HookDecisionKind
   reason?: string
 }
+// Wire shape for authoring/editing a GLOBAL hook (Settings > Hooks form and
+// bearcode:hooks:create/update). Project/plugin hooks.json files stay
+// file-managed and are never authored through this input (design §2 decision
+// #3). Structurally matches main/hooks/authoring.ts's WriteGlobalHookInput.
+export interface HookAuthoringInput {
+  name: string
+  event: HookEvent
+  matcher: string
+  command: string
+  timeout?: number
+}
 
 // ---- Artifacts (Ba) ----
 
@@ -1367,6 +1378,25 @@ export interface BearcodeApi {
     ): Promise<void>
     update(name: string): Promise<PluginUpdateResult>
     uninstall(scope: 'global' | 'project', name: string, projectPath: string | null): Promise<void>
+  }
+  // Hooks (Phase G hooks arc, Task 9): the Settings > Hooks page's discovered
+  // hook list (global always, project/plugin trust-gated) + the per-hook
+  // enable/consent toggle, and global-hook authoring (create/update/delete --
+  // project/plugin hooks.json files are read-only in-app, design §2
+  // decision #3). Every write is path-jailed and kebab-name validated
+  // main-side (hooks/authoring.ts, hooks/validate.ts).
+  hooks: {
+    list(projectPath: string | null): Promise<HookRecord[]>
+    setActive(
+      scope: 'global' | 'project' | 'plugin',
+      source: string,
+      name: string,
+      on: boolean,
+      projectPath: string | null
+    ): Promise<void>
+    create(input: HookAuthoringInput): Promise<void>
+    update(name: string, input: HookAuthoringInput): Promise<void>
+    delete(name: string): Promise<void>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

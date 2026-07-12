@@ -10,6 +10,8 @@ import type {
   EffortLevel,
   Event,
   GithubDeviceStart,
+  HookAuthoringInput,
+  HookRecord,
   IntegrationProvider,
   IntegrationStatus,
   MentionRef,
@@ -383,6 +385,23 @@ const bearcode: BearcodeApi = {
       name: string,
       projectPath: string | null
     ): Promise<void> => ipcRenderer.invoke('bearcode:plugins:uninstall', scope, name, projectPath)
+  },
+  hooks: {
+    list: (projectPath: string | null): Promise<HookRecord[]> =>
+      ipcRenderer.invoke('bearcode:hooks:list', projectPath),
+    setActive: (
+      scope: 'global' | 'project' | 'plugin',
+      source: string,
+      name: string,
+      on: boolean,
+      projectPath: string | null
+    ): Promise<void> =>
+      ipcRenderer.invoke('bearcode:hooks:setActive', scope, source, name, on, projectPath),
+    create: (input: HookAuthoringInput): Promise<void> =>
+      ipcRenderer.invoke('bearcode:hooks:create', input),
+    update: (name: string, input: HookAuthoringInput): Promise<void> =>
+      ipcRenderer.invoke('bearcode:hooks:update', name, input),
+    delete: (name: string): Promise<void> => ipcRenderer.invoke('bearcode:hooks:delete', name)
   },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>
