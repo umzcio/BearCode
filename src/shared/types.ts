@@ -155,6 +155,11 @@ export interface SkillEntry {
   // affordance can pre-fill the editor without wiping the user's content
   // (design 4.6 / Task 9 fix).
   body: string
+  // Set when this skill was folded in from an enabled plugin (Phase G plugins
+  // arc, Task 5) rather than a direct .agents/ skill. Carries the plugin's
+  // on-disk dirName; the Settings page renders a provenance badge and
+  // disables edit/delete (managed via the plugin, not this page).
+  plugin?: string
 }
 
 // Create/update payload for a skill (Settings page editor + /learn's proposal

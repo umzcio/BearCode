@@ -12,6 +12,7 @@ import { Toggle } from '../../Toggle'
 import { Select } from '../../Select'
 import type { SelectOption } from '../../Select'
 import { BrowseSmitheryModal } from '../BrowseSmitheryModal'
+import { PluginBadge } from '../../PluginBadge'
 
 // A settings row: title + description on the left, the control on the right.
 function Row({
@@ -387,6 +388,7 @@ export function ConnectorsPage(): JSX.Element | null {
                       <span className={'connector-badge' + (isRemote ? '' : ' local')}>
                         {isRemote ? 'remote' : 'local ⚠'}
                       </span>
+                      {view.config.plugin ? <PluginBadge name={view.config.plugin} /> : null}
                     </div>
                     <div className="set-row-desc">
                       <span className={'status-dot' + (isConnected ? ' ok' : '')} />
@@ -432,7 +434,14 @@ export function ConnectorsPage(): JSX.Element | null {
                       Reconnect
                     </button>
                   )}
-                  <button className="pill-btn" onClick={() => removeServer(view)}>
+                  <button
+                    className="pill-btn"
+                    disabled={!!view.config.plugin}
+                    title={
+                      view.config.plugin ? `Managed by the ${view.config.plugin} plugin` : undefined
+                    }
+                    onClick={() => removeServer(view)}
+                  >
                     Remove
                   </button>
                   <Toggle

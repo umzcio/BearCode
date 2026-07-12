@@ -171,4 +171,26 @@ describe('ConnectorsPage (Task 9)', () => {
     await waitFor(() => expect(trustGlobalSpy).toHaveBeenCalledWith('exa-labs/exa-mcp'))
     expect(trustSpy).not.toHaveBeenCalled()
   })
+
+  it('a plugin-sourced server shows a provenance badge and has a disabled Remove control', async () => {
+    listSpy.mockResolvedValue([
+      {
+        config: {
+          name: 'plugin-server',
+          transport: 'http',
+          url: 'https://mcp.example/plugin',
+          source: 'global',
+          plugin: 'my-plugin'
+        },
+        enabled: true,
+        status: { state: 'connected', tools: [] },
+        spawnConsented: false
+      }
+    ] as never)
+    mount({ mcpEnabled: true })
+    await waitFor(() => expect(screen.getByText('plugin-server')).toBeTruthy())
+    expect(screen.getByText('Plugin: my-plugin')).toBeTruthy()
+    const removeBtn = screen.getByRole('button', { name: /^remove$/i })
+    expect(removeBtn.hasAttribute('disabled')).toBe(true)
+  })
 })

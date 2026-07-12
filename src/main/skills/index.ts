@@ -101,6 +101,7 @@ export function listSkillEntries(projectPath: string | null): SkillEntry[] {
     enabled: isSkillEnabled(s.name, s.source, projectPath),
     sizeBytes: Buffer.byteLength(s.body, 'utf8'),
     error: s.error,
-    body: s.body
+    body: s.body,
+    plugin: s.plugin
   }))
 }
