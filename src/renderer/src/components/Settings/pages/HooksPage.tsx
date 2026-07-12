@@ -211,6 +211,11 @@ export function HooksPage(): JSX.Element | null {
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
               />
+              {draft.name.trim().length > 0 && !KEBAB_PATTERN.test(draft.name.trim()) ? (
+                <div className="hook-field-hint">
+                  Lowercase letters, numbers, and dashes only — e.g. <code>format-on-write</code>.
+                </div>
+              ) : null}
             </div>
             <div className="hook-field">
               <div className="set-row-title">Event</div>
