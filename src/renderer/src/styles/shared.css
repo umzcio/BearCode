@@ -136,11 +136,15 @@
   color: var(--text-mid);
   transition:
     background 90ms ease,
-    color 90ms ease;
+    color 90ms ease,
+    transform var(--dur-press) var(--ease-out);
 }
 .menu-item:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+.menu-item:active {
+  transform: scale(0.97);
 }
 /* Two-line rows (title + description), e.g. Antigravity-style rich dropdowns. */
 .menu-item.has-desc {
@@ -292,7 +296,8 @@ code.tok {
 @media (prefers-reduced-motion: reduce) {
   .pill-btn:active,
   .chrome-btn:active,
-  .icon-btn:active {
+  .icon-btn:active,
+  .menu-item:active {
     transform: none;
   }
 }
