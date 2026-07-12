@@ -124,7 +124,7 @@ export function Composer({
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [attachments, setAttachments] = useState<PickedAttachmentWire[]>([])
   const taRef = useRef<HTMLTextAreaElement>(null)
-  const envRef = useRef<HTMLDivElement>(null)
+  const envTriggerRef = useRef<HTMLButtonElement>(null)
   const addMenuBtnRef = useRef<HTMLButtonElement>(null)
   // Anchors the slash/mention/resume Popovers -- they should span the full
   // composer width (matchAnchorWidth), not just the trigger that opened them.
@@ -205,15 +205,6 @@ export function Composer({
     ta.style.height = '52px'
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`
   }, [value])
-
-  useEffect(() => {
-    if (!envOpen) return undefined
-    const close = (e: MouseEvent): void => {
-      if (envRef.current && !envRef.current.contains(e.target as Node)) setEnvOpen(false)
-    }
-    document.addEventListener('click', close)
-    return () => document.removeEventListener('click', close)
-  }, [envOpen])
 
   // F3: New Worktree is offerable only for a git-repo folder (git present +
   // repo discovered). When the current workspace can't host a worktree, gray the
@@ -478,8 +469,13 @@ export function Composer({
       ) : null}
       {showEnvRow ? (
         <div className="env-row">
-          <div className="env-picker" ref={envRef}>
-            <button className="pill-btn" onClick={() => setEnvOpen((o) => !o)} disabled={envLocked}>
+          <div className="env-picker">
+            <button
+              ref={envTriggerRef}
+              className="pill-btn"
+              onClick={() => setEnvOpen((o) => !o)}
+              disabled={envLocked}
+            >
               {displayEnv === 'worktree' ? <IconGitBranch /> : <IconMonitor />}
               <span>{displayEnv === 'worktree' ? 'New Worktree' : 'Local'}</span>
               {!envLocked ? (
@@ -488,8 +484,13 @@ export function Composer({
                 </span>
               ) : null}
             </button>
-            {envOpen && !envLocked ? (
-              <div className="menu env-menu">
+            <Popover
+              anchorRef={envTriggerRef}
+              open={envOpen && !envLocked}
+              onClose={() => setEnvOpen(false)}
+              placement="top-start"
+            >
+              <div className="menu menu--in-popover env-menu">
                 <div
                   className={'menu-item' + (composerEnvironment === 'local' ? ' selected' : '')}
                   onClick={() => {
@@ -519,7 +520,7 @@ export function Composer({
                 </div>
                 <div className="env-hint">Worktrees are available for Git repositories</div>
               </div>
-            ) : null}
+            </Popover>
           </div>
         </div>
       ) : null}
