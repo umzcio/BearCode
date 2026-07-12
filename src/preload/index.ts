@@ -33,6 +33,7 @@ import type {
   FolderProject,
   ProjectSettings,
   ProviderId,
+  RuleEntry,
   RunState,
   SkillEntry,
   SkillInfo,
@@ -322,6 +323,10 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:skills:set-enabled', name, source, projectPath, enabled),
     save: (callId: string, resolution: SkillProposalResolution): Promise<SkillSaveResult> =>
       ipcRenderer.invoke('bearcode:skills:save', callId, resolution)
+  },
+  rules: {
+    list: (projectPath: string | null): Promise<RuleEntry[]> =>
+      ipcRenderer.invoke('bearcode:rules:list', projectPath)
   },
   memory: {
     list: (projectPath: string | null): Promise<MemoryList> =>

@@ -5,6 +5,7 @@ export type SettingsPageId =
   | 'providers'
   | 'models'
   | 'skills'
+  | 'rules'
   | 'connectors'
   | 'plugins'
   | 'memory'
@@ -39,6 +40,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     label: 'Customize',
     items: [
       { id: 'skills', label: 'Skills', icon: 'IconScroll' },
+      { id: 'rules', label: 'Rules', icon: 'IconLines' },
       { id: 'connectors', label: 'Connectors', icon: 'IconBlocks' },
       { id: 'plugins', label: 'Plugins', icon: 'IconPackage' },
       { id: 'memory', label: 'Memory', icon: 'IconBrain' },

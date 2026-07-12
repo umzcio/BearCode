@@ -162,6 +162,21 @@ export interface SkillEntry {
   plugin?: string
 }
 
+// The Settings > Rules page's list read model (Phase G plugins arc, Task 12
+// fix). Rules (.agents/rules/*.md, project + global) are file-managed only --
+// there is no create/edit/delete surface here, mirroring workflows -- so this
+// is read-only, but it's the one place a user can see every live rule (name,
+// activation mode, scope) and, for a plugin-sourced one, which plugin owns it
+// (parallel to SkillEntry.plugin / McpServerConfig.plugin).
+export interface RuleEntry {
+  name: string
+  description: string
+  activation: 'always' | 'manual' | 'model' | 'glob'
+  source: 'project' | 'global'
+  error?: string
+  plugin?: string
+}
+
 // Create/update payload for a skill (Settings page editor + /learn's proposal
 // card, Task 8).
 export interface SkillInput {
@@ -1244,6 +1259,14 @@ export interface BearcodeApi {
       enabled: boolean
     ): Promise<void>
     save(callId: string, resolution: SkillProposalResolution): Promise<SkillSaveResult>
+  }
+  // Settings > Rules page's read-only list (Phase G plugins arc, Task 12 fix):
+  // every live rule (project + global), each with its activation mode and, for
+  // a plugin-sourced one, the owning plugin's name -- see RuleEntry. No
+  // create/update/delete: rules stay file-managed (.agents/rules/*.md), same
+  // as workflows.
+  rules: {
+    list(projectPath: string | null): Promise<RuleEntry[]>
   }
   // Memory CRUD + promote (Task 6): Settings > Memory page's list plus
   // add/update/delete of individual bullets and promote-to-rule/skill.

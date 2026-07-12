@@ -28,6 +28,7 @@ import type {
   ProjectSettings,
   ProviderId,
   PromoteTarget,
+  RuleEntry,
   RunState,
   SkillEntry,
   SkillInfo,
@@ -103,6 +104,7 @@ import { suggestFiles, manualRuleInfos, skillInfos } from './orchestrator/mentio
 import { createSkill, deleteSkillFolder, listSkillEntries, updateSkill } from './skills'
 import { isSkillEnabled, setSkillEnabled } from './skills/state'
 import { listMemory, addMemory, updateMemory, deleteMemory, promoteMemory } from './memory'
+import { listRuleEntries } from './rules'
 import { listPlugins, uninstallPlugin } from './plugins'
 import { setPluginEnabled } from './plugins/state'
 import * as pluginMarket from './plugins/marketplace'
@@ -1208,6 +1210,12 @@ export function registerIpc(): void {
 
   ipcMain.handle('bearcode:skills:list', (_e, projectPath: unknown): SkillEntry[] =>
     listSkillEntries(asProjectPath(projectPath))
+  )
+  // Settings > Rules page (Phase G plugins arc, Task 12 fix): read-only list,
+  // mirroring skills:list's shape but with no create/update/delete -- rules
+  // stay file-managed (.agents/rules/*.md), same as workflows.
+  ipcMain.handle('bearcode:rules:list', (_e, projectPath: unknown): RuleEntry[] =>
+    listRuleEntries(asProjectPath(projectPath))
   )
   ipcMain.handle('bearcode:skills:create', (_e, input: unknown, projectPath: unknown): SkillEntry =>
     createSkill(assertValidSkillInput(input), asProjectPath(projectPath))

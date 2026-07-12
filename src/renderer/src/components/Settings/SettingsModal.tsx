@@ -9,6 +9,7 @@ import {
   IconPlug,
   IconGrid,
   IconScroll,
+  IconLines,
   IconBlocks,
   IconBrain,
   IconLink,
@@ -25,6 +26,7 @@ import { BrowserPage } from './pages/BrowserPage'
 import { ConnectorsPage } from './pages/ConnectorsPage'
 import { IntegrationsPage } from './pages/IntegrationsPage'
 import { SkillsPage } from './pages/SkillsPage'
+import { RulesPage } from './pages/RulesPage'
 import { PluginsPage } from './pages/PluginsPage'
 import { MemoryPage } from './pages/MemoryPage'
 import { SettingPlaceholder } from './SettingPlaceholder'
@@ -55,6 +57,7 @@ const NAV_ICONS: Record<string, (props: { size?: number }) => React.JSX.Element>
   IconPlug,
   IconGrid,
   IconScroll,
+  IconLines,
   IconBlocks,
   IconBrain,
   IconLink,
@@ -301,6 +304,8 @@ function SettingsPanel({
           {page === 'integrations' ? <IntegrationsPage /> : null}
 
           {page === 'skills' ? <SkillsPage /> : null}
+
+          {page === 'rules' ? <RulesPage /> : null}
 
           {page === 'memory' ? <MemoryPage /> : null}
 
