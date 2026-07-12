@@ -7,6 +7,48 @@
   align-items: center;
   justify-content: center;
   padding: 40px;
+  transition: opacity var(--dur-modal) var(--ease-out);
+  opacity: 1;
+}
+@starting-style {
+  .modal-overlay {
+    opacity: 0;
+  }
+}
+
+/* Panel fade+scale-in on mount. transform-origin: center is correct here --
+   modals appear centered on screen, unlike menus/dropdowns which scale from
+   their trigger. Shared by every panel class rendered inside .modal-overlay
+   (settings-panel, smithery-panel, conflict-panel -- see ConflictResolver.css). */
+.settings-panel,
+.smithery-panel {
+  transition:
+    opacity var(--dur-modal) var(--ease-out),
+    transform var(--dur-modal) var(--ease-out);
+  opacity: 1;
+  transform: scale(1);
+}
+@starting-style {
+  .settings-panel,
+  .smithery-panel {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay {
+    transition: opacity var(--dur-fast) ease;
+  }
+  .settings-panel,
+  .smithery-panel {
+    transition: opacity var(--dur-fast) ease;
+  }
+  @starting-style {
+    .settings-panel,
+    .smithery-panel {
+      transform: none;
+    }
+  }
 }
 
 .settings-panel {
