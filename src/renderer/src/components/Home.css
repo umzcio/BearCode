@@ -53,3 +53,9 @@
   line-height: 0;
   pointer-events: none;
 }
+
+/* Content-only override: long workspace paths need more room than the
+   shared .menu--in-popover 280px cap. Positioning stays owned by Popover. */
+.project-menu {
+  max-width: 480px;
+}

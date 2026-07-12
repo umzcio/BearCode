@@ -28,6 +28,10 @@ export interface MenuProps {
   onSelect: (value: string) => void
   placement?: Placement
   ariaLabel?: string
+  // Content-only styling hook for a specific menu instance (e.g. a wider
+  // max-width for long paths). Never use this to reintroduce positioning
+  // CSS -- that stays owned by Popover.
+  className?: string
 }
 
 // The app's shared dropdown list: a `Popover` (positioning/dismissal) holding
@@ -42,7 +46,8 @@ export function Menu({
   value,
   onSelect,
   placement = 'bottom-start',
-  ariaLabel
+  ariaLabel,
+  className
 }: MenuProps): React.JSX.Element | null {
   const listRef = useRef<HTMLDivElement>(null)
   const flat = groups.flatMap((g) => g.items)
@@ -141,7 +146,7 @@ export function Menu({
     >
       <div
         ref={listRef}
-        className="menu menu--in-popover"
+        className={'menu menu--in-popover' + (className ? ` ${className}` : '')}
         role="listbox"
         tabIndex={-1}
         aria-label={ariaLabel}

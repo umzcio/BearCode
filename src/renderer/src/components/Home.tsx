@@ -98,6 +98,7 @@ export function Home(): React.JSX.Element {
             onSelect={handleProjectSelect}
             placement="bottom-start"
             ariaLabel="Choose a folder"
+            className="project-menu"
           />
         </div>
         <div className="composer-stage">
