@@ -1181,6 +1181,11 @@ export interface BearcodeApi {
     // Trust a global server that was installed pending trust (a Smithery global
     // install). Project-scoped trust uses trust() with the project path.
     trustGlobal(name: string): Promise<McpServerStatus>
+    // Trust / revoke trust for a plugin-sourced server (untrusted by default
+    // regardless of scope -- see store.ts isTrusted's `plugin` branch), keyed
+    // on the plugin-qualified name.
+    trustPlugin(plugin: string, name: string): Promise<McpServerStatus>
+    untrustPlugin(plugin: string, name: string): Promise<McpServerStatus>
     spawnConsent(name: string): Promise<void>
     reconnect(name: string, projectPath: string | null): Promise<McpServerStatus>
     // (Re)trigger the OAuth sign-in for a remote server that needs it: opens

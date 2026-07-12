@@ -47,6 +47,8 @@ import {
   trustProjectServer as trustMcpProjectServer,
   markGlobalServerUntrusted as markGlobalMcpServerUntrusted,
   trustGlobalServer as trustGlobalMcpServer,
+  trustPluginServer as trustMcpPluginServer,
+  untrustPluginServer as untrustMcpPluginServer,
   hasSpawnConsent as hasMcpSpawnConsent,
   grantSpawnConsent as grantMcpSpawnConsent,
   discoverLocalServers,
@@ -761,7 +763,7 @@ export function registerIpc(): void {
   // registry client.
   const mcpServerView = (cfg: McpServerConfig, projectPath: string | null): McpServerView => {
     const enabled = isMcpServerEnabled(cfg.name)
-    const trusted = isMcpServerTrusted(cfg.name, cfg.source, projectPath)
+    const trusted = isMcpServerTrusted(cfg.name, cfg.source, projectPath, cfg.plugin)
     const status: McpServerStatus = !trusted
       ? { state: 'untrusted' }
       : !enabled
@@ -943,6 +945,31 @@ export function registerIpc(): void {
       throw new Error(`Invalid MCP server name: ${String(name)}`)
     }
     trustGlobalMcpServer(name)
+    return mcpManager.statusOf(name)
+  })
+  // The user's explicit trust opt-in / revocation for a plugin-sourced server
+  // (untrusted by default regardless of scope -- see store.ts isTrusted's
+  // `plugin` branch). Keyed on the plugin-qualified name, mirroring
+  // trustPluginServer/untrustPluginServer in store.ts.
+  ipcMain.handle('bearcode:mcp:trust-plugin', (_e, plugin: unknown, name: unknown) => {
+    if (typeof plugin !== 'string' || plugin.length === 0) {
+      throw new Error(`Invalid plugin name: ${String(plugin)}`)
+    }
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    trustMcpPluginServer(plugin, name)
+    return mcpManager.statusOf(name)
+  })
+  ipcMain.handle('bearcode:mcp:untrust-plugin', async (_e, plugin: unknown, name: unknown) => {
+    if (typeof plugin !== 'string' || plugin.length === 0) {
+      throw new Error(`Invalid plugin name: ${String(plugin)}`)
+    }
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    untrustMcpPluginServer(plugin, name)
+    await mcpManager.teardown(name)
     return mcpManager.statusOf(name)
   })
 

@@ -254,6 +254,10 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:mcp:trust', name, projectPath),
     trustGlobal: (name: string): Promise<McpServerStatus> =>
       ipcRenderer.invoke('bearcode:mcp:trust-global', name),
+    trustPlugin: (plugin: string, name: string): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:trust-plugin', plugin, name),
+    untrustPlugin: (plugin: string, name: string): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:untrust-plugin', plugin, name),
     spawnConsent: (name: string): Promise<void> =>
       ipcRenderer.invoke('bearcode:mcp:spawn-consent', name),
     reconnect: (name: string, projectPath: string | null): Promise<McpServerStatus> =>

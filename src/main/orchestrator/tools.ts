@@ -1321,7 +1321,7 @@ export function buildMcpTools(conversationId: string) {
   if (getSettings().mcpEnabled !== true) return []
   const projectPath = projectOf(conversationId)
   const enabledTrustedServers = loadServers(projectPath).filter(
-    (cfg) => isMcpEnabled(cfg.name) && isMcpTrusted(cfg.name, cfg.source, projectPath)
+    (cfg) => isMcpEnabled(cfg.name) && isMcpTrusted(cfg.name, cfg.source, projectPath, cfg.plugin)
   )
   if (enabledTrustedServers.length === 0) return []
 
@@ -1332,6 +1332,7 @@ export function buildMcpTools(conversationId: string) {
   for (const cfg of enabledTrustedServers) {
     const server = cfg.name
     const serverSource = cfg.source
+    const serverPlugin = cfg.plugin
     for (const info of mcpManager.listTools(server)) {
       const { name: toolName, description, readOnlyHint } = info
       // Present the server's REAL input schema to the model (typed args), but
@@ -1372,7 +1373,7 @@ export function buildMcpTools(conversationId: string) {
             if (
               getSettings().mcpEnabled !== true ||
               !isMcpEnabled(server) ||
-              !isMcpTrusted(server, serverSource, projectPath)
+              !isMcpTrusted(server, serverSource, projectPath, serverPlugin)
             ) {
               return `Blocked: ${mcpAction} — connectors are no longer enabled for this conversation.`
             }
