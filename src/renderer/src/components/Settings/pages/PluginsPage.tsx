@@ -49,7 +49,7 @@ export function PluginsPage(): JSX.Element {
               checked={p.enabled}
               onChange={(on) =>
                 void window.bearcode.plugins
-                  .setEnabled(p.scope, p.name, on, workspacePath)
+                  .setEnabled(p.scope, p.dirName, on, workspacePath)
                   .then(refresh)
               }
             />
@@ -66,7 +66,7 @@ export function PluginsPage(): JSX.Element {
             {p.scope === 'global' ? (
               <button
                 className="pill-btn"
-                onClick={() => void window.bearcode.plugins.update(p.name).then(refresh)}
+                onClick={() => void window.bearcode.plugins.update(p.dirName).then(refresh)}
               >
                 Update
               </button>
@@ -74,7 +74,9 @@ export function PluginsPage(): JSX.Element {
             <button
               className="pill-btn"
               onClick={() =>
-                void window.bearcode.plugins.uninstall(p.scope, p.name, workspacePath).then(refresh)
+                void window.bearcode.plugins
+                  .uninstall(p.scope, p.dirName, workspacePath)
+                  .then(refresh)
               }
             >
               Uninstall
