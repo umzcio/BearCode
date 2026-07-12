@@ -195,7 +195,7 @@
   color: var(--text-dim);
   flex-shrink: 0;
 }
-.menu-item > span:not(.check) {
+.menu-item > span:not(.check):not(.mi-text) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -229,6 +229,9 @@
 .menu-item .mi-title {
   color: var(--text);
   font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .menu-item .mi-desc {
   color: var(--text-dim);
