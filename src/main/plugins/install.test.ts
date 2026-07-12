@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'fs'
+import { mkdtempSync, writeFileSync, existsSync, rmSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -34,17 +34,28 @@ describe('install flow', () => {
     rmSync(fakeHome, { recursive: true, force: true })
   })
   it('confirmInstall copies a staged plugin into the global plugins dir (jailed)', async () => {
-    const { confirmInstall } = await import('./marketplace')
+    const { confirmInstall, stageRoot } = await import('./marketplace')
     const { pluginsDir } = await import('./index')
-    const stage = mkdtempSync(join(tmpdir(), 'bc-stage-'))
+    mkdirSync(stageRoot(), { recursive: true })
+    const stage = mkdtempSync(join(stageRoot(), 'bc-stage-'))
     writeFileSync(join(stage, 'plugin.json'), JSON.stringify({ name: 'copied' }))
     confirmInstall(stage)
     expect(existsSync(join(pluginsDir('global', null), 'copied', 'plugin.json'))).toBe(true)
   })
   it('confirmInstall rejects a staged plugin whose name is not kebab/traversal-safe', async () => {
-    const { confirmInstall } = await import('./marketplace')
-    const stage = mkdtempSync(join(tmpdir(), 'bc-stage-'))
+    const { confirmInstall, stageRoot } = await import('./marketplace')
+    mkdirSync(stageRoot(), { recursive: true })
+    const stage = mkdtempSync(join(stageRoot(), 'bc-stage-'))
     writeFileSync(join(stage, 'plugin.json'), JSON.stringify({ name: '../evil' }))
     expect(() => confirmInstall(stage)).toThrow(/kebab|traversal/i)
+  })
+  it('confirmInstall rejects a stagePath outside stageRoot() even with a valid manifest', async () => {
+    const { confirmInstall } = await import('./marketplace')
+    // Simulates a caller (e.g. an IPC handler that only checks `typeof
+    // stage === 'string'`) pointing confirmInstall at an arbitrary directory
+    // that was never produced by prepareInstall.
+    const outside = mkdtempSync(join(tmpdir(), 'bc-outside-'))
+    writeFileSync(join(outside, 'plugin.json'), JSON.stringify({ name: 'sneaky' }))
+    expect(() => confirmInstall(outside)).toThrow(/previously prepared install stage/i)
   })
 })

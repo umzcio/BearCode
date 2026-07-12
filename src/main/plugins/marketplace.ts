@@ -5,7 +5,7 @@
 import { createHash } from 'crypto'
 import { cpSync, existsSync, mkdirSync, rmSync } from 'fs'
 import { homedir } from 'os'
-import { join, sep } from 'path'
+import { join, resolve, sep } from 'path'
 import { git } from '../worktree/git'
 import { readFileCapped } from '../fsCapped'
 import { getSettings, setSettings } from '../settings'
@@ -122,7 +122,7 @@ export const FEATURED: string[] = ['https://github.com/umzcio/bearcode-plugins']
 // it re-validates the staged manifest's name against COMMAND_NAME_PATTERN
 // before using it as the destination folder name (traversal-safe by
 // construction, mirrors jailedPluginFolder in index.ts).
-function stageRoot(): string {
+export function stageRoot(): string {
   return join(homedir(), '.bearcode', 'plugin-stage')
 }
 
@@ -161,6 +161,15 @@ export async function prepareInstall(
 }
 
 export function confirmInstall(stagePath: string): void {
+  // Path-jail the SOURCE side too: stagePath must resolve inside stageRoot()
+  // (the scratch dir prepareInstall writes into). Without this, a caller
+  // could point confirmInstall at an arbitrary directory containing any
+  // plugin.json with a valid kebab-case name and have its entire contents
+  // copied wholesale into the live plugins tree.
+  const rs = resolve(stagePath)
+  const sr = resolve(stageRoot())
+  if (rs !== sr && !rs.startsWith(sr + sep))
+    throw new Error('stagePath must be a previously prepared install stage.')
   const manifest = parsePluginDir(stagePath, 'global')
   if (!manifest) throw new Error('Staged directory is not a plugin.')
   if (!COMMAND_NAME_PATTERN.test(manifest.name))
@@ -183,5 +192,6 @@ export async function installFromUrl(
 export async function updatePlugin(name: string): Promise<void> {
   if (!COMMAND_NAME_PATTERN.test(name)) throw new Error('Invalid plugin name.')
   const dir = join(pluginsDir('global', null), name)
-  if (existsSync(join(dir, '.git'))) await git(['pull', '--ff-only'], dir, SAFE_ENV)
+  if (existsSync(join(dir, '.git')))
+    await git(['-c', 'core.hooksPath=/dev/null', 'pull', '--ff-only'], dir, SAFE_ENV)
 }
