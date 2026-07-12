@@ -3,13 +3,16 @@
 // NEVER executes plugin code: shallow, no submodules, git hooks disabled, and a
 // protocol allowlist blocks git's RCE-capable transports (ext::/file::/fd::).
 import { createHash } from 'crypto'
-import { existsSync, mkdirSync, rmSync } from 'fs'
+import { cpSync, existsSync, mkdirSync, rmSync } from 'fs'
 import { homedir } from 'os'
-import { join } from 'path'
+import { join, sep } from 'path'
 import { git } from '../worktree/git'
 import { readFileCapped } from '../fsCapped'
 import { getSettings, setSettings } from '../settings'
-import type { MarketplacePlugin } from '../../shared/types'
+import { parsePluginDir } from './manifest'
+import { pluginsDir } from './index'
+import { COMMAND_NAME_PATTERN } from '../../shared/types'
+import type { MarketplacePlugin, PluginManifest } from '../../shared/types'
 
 const CAP = 256 * 1024
 const SAFE_URL = /^(https:\/\/|ssh:\/\/|git@)[^\s]+$/
@@ -20,7 +23,14 @@ export function assertSafeGitUrl(url: string): void {
 }
 
 const SAFE_ENV = { GIT_ALLOW_PROTOCOL: 'https:ssh:git', GIT_TERMINAL_PROMPT: '0' }
-const SAFE_CLONE = ['-c', 'core.hooksPath=/dev/null', 'clone', '--depth', '1', '--no-recurse-submodules']
+const SAFE_CLONE = [
+  '-c',
+  'core.hooksPath=/dev/null',
+  'clone',
+  '--depth',
+  '1',
+  '--no-recurse-submodules'
+]
 
 export async function safeClone(url: string, dest: string): Promise<void> {
   assertSafeGitUrl(url)
@@ -103,3 +113,75 @@ export async function listCatalog(): Promise<MarketplacePlugin[]> {
 // Baked-in featured marketplace. If it 404s/empties, listCatalog degrades to []
 // for it (the try/catch above). Zach to create this repo; safe if it does not exist yet.
 export const FEATURED: string[] = ['https://github.com/umzcio/bearcode-plugins']
+
+// ---- Install flow (Task 8) ----
+// prepareInstall stages a candidate plugin (clone or marketplace-subpath copy)
+// into a scratch dir and parses its manifest -- it writes NOTHING into the
+// real plugins dir and never executes anything found there. confirmInstall is
+// the only function that copies a staged dir into the live plugins tree, and
+// it re-validates the staged manifest's name against COMMAND_NAME_PATTERN
+// before using it as the destination folder name (traversal-safe by
+// construction, mirrors jailedPluginFolder in index.ts).
+function stageRoot(): string {
+  return join(homedir(), '.bearcode', 'plugin-stage')
+}
+
+export async function prepareInstall(
+  source: string,
+  marketplaceUrl?: string
+): Promise<{ manifest: PluginManifest; stagePath: string }> {
+  let stagePath: string
+  if (/^(https:\/\/|ssh:\/\/|git@)/.test(source)) {
+    stagePath = join(stageRoot(), createHash('sha256').update(source).digest('hex').slice(0, 16))
+    await safeClone(source, stagePath)
+  } else if (marketplaceUrl) {
+    const root = cacheDir(marketplaceUrl)
+    const resolved = join(root, source)
+    // Jail the marketplace-declared subpath inside the marketplace's own
+    // clone -- a malicious marketplace.json could otherwise point `source`
+    // at `../../..` and walk the install off the repo entirely.
+    if (resolved !== join(root, source) || !(resolved === root || resolved.startsWith(root + sep)))
+      throw new Error('Marketplace plugin path escapes the repo.')
+    stagePath = join(
+      stageRoot(),
+      createHash('sha256')
+        .update(root + source)
+        .digest('hex')
+        .slice(0, 16)
+    )
+    if (existsSync(stagePath)) rmSync(stagePath, { recursive: true, force: true })
+    mkdirSync(stageRoot(), { recursive: true })
+    cpSync(resolved, stagePath, { recursive: true })
+  } else {
+    throw new Error('prepareInstall needs a git URL or a marketplaceUrl + subpath.')
+  }
+  const manifest = parsePluginDir(stagePath, 'global')
+  if (!manifest) throw new Error('That source is not a plugin (no plugin.json).')
+  return { manifest, stagePath }
+}
+
+export function confirmInstall(stagePath: string): void {
+  const manifest = parsePluginDir(stagePath, 'global')
+  if (!manifest) throw new Error('Staged directory is not a plugin.')
+  if (!COMMAND_NAME_PATTERN.test(manifest.name))
+    throw new Error('Plugin name must be kebab-case (traversal rejected).')
+  const root = pluginsDir('global', null)
+  const dest = join(root, manifest.name)
+  if (dest !== join(root, manifest.name) || !(dest === root || dest.startsWith(root + sep)))
+    throw new Error('Install path escapes the plugins directory.')
+  if (existsSync(dest)) rmSync(dest, { recursive: true, force: true })
+  mkdirSync(root, { recursive: true })
+  cpSync(stagePath, dest, { recursive: true })
+}
+
+export async function installFromUrl(
+  url: string
+): Promise<{ manifest: PluginManifest; stagePath: string }> {
+  return prepareInstall(url)
+}
+
+export async function updatePlugin(name: string): Promise<void> {
+  if (!COMMAND_NAME_PATTERN.test(name)) throw new Error('Invalid plugin name.')
+  const dir = join(pluginsDir('global', null), name)
+  if (existsSync(join(dir, '.git'))) await git(['pull', '--ff-only'], dir, SAFE_ENV)
+}
