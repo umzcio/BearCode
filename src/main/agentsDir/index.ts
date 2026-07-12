@@ -372,12 +372,17 @@ export function loadAgentsContent(
   // skill of the same name -- direct always wins. Plugin-vs-plugin collisions
   // are resolved deterministically by sortIngredients.
   for (const { pluginName, path } of sortIngredients(ing.skillFolders, projectPath)) {
-    const name = path.split(sep).pop()!
-    if (skillsByName.has(name)) continue
+    const folderName = path.split(sep).pop()!
     const raw = readFileCapped(join(path, 'SKILL.md'), MAX_REF_BYTES)
     if (!raw) continue
-    const s = parseSkillFolder(name, raw.text, 'global')
-    if (!s.error) skillsByName.set(name, { ...s, plugin: pluginName })
+    const s = parseSkillFolder(folderName, raw.text, 'global')
+    if (s.error) continue
+    // Collision check keys on the skill's EFFECTIVE name (frontmatter `name:`
+    // if present, else folder name -- see parseSkillFolder) so a plugin can't
+    // spoof its way past the has() check by declaring a folder name that
+    // differs from a `name:` it forges to collide with a direct skill.
+    if (skillsByName.has(s.name)) continue
+    skillsByName.set(s.name, { ...s, plugin: pluginName })
   }
 
   return {
