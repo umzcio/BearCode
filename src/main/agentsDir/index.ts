@@ -11,6 +11,7 @@ import { existsSync, readdirSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { isAbsolute, join, resolve, sep } from 'path'
 import { readFileCapped } from '../fsCapped'
+import { enumeratePluginIngredients } from '../plugins'
 import { capMap } from './lruCap'
 import { parseRuleFile } from './parseRule'
 import { parseSkillFolder } from './parseSkill'
@@ -297,6 +298,7 @@ export function loadAgentsContent(
   const trusted = opts?.trusted ?? false
   const outside = opts?.outside
   const pendingOutside = new Set<string>()
+  const ing = enumeratePluginIngredients(projectPath, { trusted })
   const projectRulesDir = trusted && projectPath ? join(projectPath, '.agents', 'rules') : null
   const projectRuleFiles = projectRulesDir ? listMdFiles(projectRulesDir) : []
   const globalRuleFiles = listMdFiles(globalRulesDir())
@@ -316,6 +318,18 @@ export function loadAgentsContent(
     const name = mdNameFromPath(path)
     const rule = loadOneRule(path, name, 'project', projectPath, outside, pendingOutside)
     if (rule) rulesByName.set(name, rule)
+  }
+  // Plugin rules fold in LAST, without overwriting a direct (project/global)
+  // rule of the same name -- direct always wins. Plugin-vs-plugin collisions
+  // are resolved deterministically by sortIngredients (project scope before
+  // global, then alphabetical by plugin dir name) before this loop runs.
+  for (const { pluginName, path } of sortIngredients(ing.ruleFiles, projectPath)) {
+    const name = mdNameFromPath(path)
+    if (rulesByName.has(name)) continue
+    const raw = readFileCapped(path, MAX_REF_BYTES)
+    if (!raw) continue
+    const rule = parseRuleFile(name, raw.text, 'global')
+    if (!rule.error) rulesByName.set(name, { ...rule, plugin: pluginName })
   }
 
   const projectWorkflowsDir =
@@ -353,6 +367,17 @@ export function loadAgentsContent(
   for (const f of projectSkillFolders) {
     const s = loadOneSkill(f.path, f.name, 'project', projectPath)
     if (s) skillsByName.set(s.name, s)
+  }
+  // Plugin skills fold in LAST, without overwriting a direct (project/global)
+  // skill of the same name -- direct always wins. Plugin-vs-plugin collisions
+  // are resolved deterministically by sortIngredients.
+  for (const { pluginName, path } of sortIngredients(ing.skillFolders, projectPath)) {
+    const name = path.split(sep).pop()!
+    if (skillsByName.has(name)) continue
+    const raw = readFileCapped(join(path, 'SKILL.md'), MAX_REF_BYTES)
+    if (!raw) continue
+    const s = parseSkillFolder(name, raw.text, 'global')
+    if (!s.error) skillsByName.set(name, { ...s, plugin: pluginName })
   }
 
   return {
@@ -557,6 +582,24 @@ function resolveRefPath(
 // as inside the workspace.
 function isInsideWorkspace(root: string, candidate: string): boolean {
   return candidate === root || candidate.startsWith(root + sep)
+}
+
+// Deterministic ordering for plugin-sourced ingredients (skills/rules) before
+// folding them into the merged map: project-scope plugins before global-scope
+// plugins, then alphabetical by plugin directory name -- so when two DIFFERENT
+// plugins both ship a same-named item, which one "wins" (the first one seen,
+// since folding skips a name already present) never depends on filesystem
+// readdir order.
+function sortIngredients<T extends { pluginName: string; path: string }>(
+  items: T[],
+  projectPath: string | null
+): T[] {
+  const isProject = (p: string): boolean => projectPath != null && p.startsWith(projectPath + sep)
+  return [...items].sort(
+    (a, b) =>
+      Number(isProject(b.path)) - Number(isProject(a.path)) ||
+      a.pluginName.localeCompare(b.pluginName)
+  )
 }
 
 // Cheap existence check used by the renderer to decide whether to show the
