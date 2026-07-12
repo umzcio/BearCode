@@ -6,6 +6,7 @@ import { IconClose } from '../../icons'
 import { useAppStore } from '../../../state/store'
 import { Loading } from '../../ui/Loading'
 import { ErrorCard } from '../../ui/ErrorCard'
+import { Hint } from '../../Hint'
 
 // A settings row: title + description on the left, the control on the right.
 function Row({
@@ -150,9 +151,11 @@ function GithubConnectModal({
               {mode === 'device' ? 'Device Flow sign-in' : 'Paste a personal access token'}
             </div>
           </div>
-          <button className="icon-btn" aria-label="Close" onClick={onClose}>
-            <IconClose size={16} />
-          </button>
+          <Hint label="Close" side="bottom">
+            <button className="icon-btn" aria-label="Close" onClick={onClose}>
+              <IconClose size={16} />
+            </button>
+          </Hint>
         </div>
 
         {mode === 'device' ? (

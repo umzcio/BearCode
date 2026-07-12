@@ -42,7 +42,7 @@ vi.mock('../../state/store', () => ({
 describe('Add Context menu', () => {
   it('opens on + and shows the four entries', () => {
     render(<Composer conversationId="c1" onSend={vi.fn()} />)
-    fireEvent.click(screen.getByTitle('Add context'))
+    fireEvent.click(screen.getByLabelText('Add context'))
     expect(screen.getByText('Media')).toBeTruthy()
     expect(screen.getByText('Mentions')).toBeTruthy()
     expect(screen.getByText('Actions')).toBeTruthy()
@@ -51,14 +51,14 @@ describe('Add Context menu', () => {
 
   it('Media calls pickAttachments with the active conversation', () => {
     render(<Composer conversationId="c1" onSend={vi.fn()} />)
-    fireEvent.click(screen.getByTitle('Add context'))
+    fireEvent.click(screen.getByLabelText('Add context'))
     fireEvent.click(screen.getByText('Media'))
     expect(pickAttachments).toHaveBeenCalledWith(0)
   })
 
   it('Media is enabled with no conversationId (Home, before the first send)', () => {
     render(<Composer onSend={vi.fn()} />)
-    fireEvent.click(screen.getByTitle('Add context'))
+    fireEvent.click(screen.getByLabelText('Add context'))
     fireEvent.click(screen.getByText('Media'))
     expect(pickAttachments).toHaveBeenCalledWith(0)
   })

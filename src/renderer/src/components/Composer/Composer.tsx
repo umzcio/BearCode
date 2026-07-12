@@ -400,14 +400,16 @@ export function Composer({
         <div className="command-pill-row">
           <span className="command-pill">
             /{command.name}
-            <button
-              type="button"
-              className="pill-x"
-              title="Remove command"
-              onClick={() => setCommand(null)}
-            >
-              <IconClose size={11} />
-            </button>
+            <Hint label="Remove command" side="top">
+              <button
+                type="button"
+                className="pill-x"
+                aria-label="Remove command"
+                onClick={() => setCommand(null)}
+              >
+                <IconClose size={11} />
+              </button>
+            </Hint>
           </span>
         </div>
       ) : null}
@@ -416,14 +418,16 @@ export function Composer({
           {mentions.map((m, i) => (
             <span className="command-pill" key={`${m.kind}:${m.name}:${i}`}>
               @{m.name}
-              <button
-                type="button"
-                className="pill-x"
-                title="Remove mention"
-                onClick={() => setMentions((cur) => cur.filter((_, idx) => idx !== i))}
-              >
-                <IconClose size={11} />
-              </button>
+              <Hint label="Remove mention" side="top">
+                <button
+                  type="button"
+                  className="pill-x"
+                  aria-label="Remove mention"
+                  onClick={() => setMentions((cur) => cur.filter((_, idx) => idx !== i))}
+                >
+                  <IconClose size={11} />
+                </button>
+              </Hint>
             </span>
           ))}
         </div>
@@ -453,14 +457,16 @@ export function Composer({
                   {truncationNotice ? (
                     <span className="attachment-note">{truncationNotice}</span>
                   ) : null}
-                  <button
-                    type="button"
-                    className="pill-x"
-                    title="Remove attachment"
-                    onClick={() => setAttachments((cur) => cur.filter((_, idx) => idx !== i))}
-                  >
-                    <IconClose size={11} />
-                  </button>
+                  <Hint label="Remove attachment" side="top">
+                    <button
+                      type="button"
+                      className="pill-x"
+                      aria-label="Remove attachment"
+                      onClick={() => setAttachments((cur) => cur.filter((_, idx) => idx !== i))}
+                    >
+                      <IconClose size={11} />
+                    </button>
+                  </Hint>
                 </span>
               </Hint>
             )
@@ -630,14 +636,16 @@ export function Composer({
       <div className="composer-controls">
         <div className="controls-left">
           <div className="add-context">
-            <button
-              ref={addMenuBtnRef}
-              className="icon-btn"
-              title="Add context"
-              onClick={() => setAddMenuOpen((o) => !o)}
-            >
-              <IconPlus />
-            </button>
+            <Hint label="Add context" side="top" disabled={addMenuOpen}>
+              <button
+                ref={addMenuBtnRef}
+                className="icon-btn"
+                aria-label="Add context"
+                onClick={() => setAddMenuOpen((o) => !o)}
+              >
+                <IconPlus />
+              </button>
+            </Hint>
             <Menu
               anchorRef={addMenuBtnRef}
               open={addMenuOpen}
@@ -649,29 +657,39 @@ export function Composer({
             />
           </div>
           <ModePicker />
-          <button
-            className={`icon-btn mic-btn${voice.status === 'recording' ? ' recording' : ''}${
-              voice.status === 'transcribing' ? ' transcribing' : ''
-            }`}
-            disabled={voice.status === 'transcribing'}
-            title={voice.status === 'recording' ? 'Stop recording (⌃M)' : 'Voice input (⌃M)'}
-            onClick={toggleRecord}
+          <Hint
+            label={voice.status === 'recording' ? 'Stop recording' : 'Voice input'}
+            keys="⌃M"
+            side="top"
           >
-            <IconMic />
-          </button>
+            <button
+              className={`icon-btn mic-btn${voice.status === 'recording' ? ' recording' : ''}${
+                voice.status === 'transcribing' ? ' transcribing' : ''
+              }`}
+              disabled={voice.status === 'transcribing'}
+              aria-label={voice.status === 'recording' ? 'Stop recording (⌃M)' : 'Voice input (⌃M)'}
+              onClick={toggleRecord}
+            >
+              <IconMic />
+            </button>
+          </Hint>
         </div>
         <div className="controls-right">
           <ContextMeter />
           <ModelPicker />
           <EffortPicker />
           {running ? (
-            <button className="icon-btn send-btn stop" title="Stop" onClick={onStop}>
-              <IconStop />
-            </button>
+            <Hint label="Stop" side="top">
+              <button className="icon-btn send-btn stop" aria-label="Stop" onClick={onStop}>
+                <IconStop />
+              </button>
+            </Hint>
           ) : hasContent && modelReady ? (
-            <button className="icon-btn send-btn" title="Send" onClick={submit}>
-              <IconArrowUp />
-            </button>
+            <Hint label="Send" side="top">
+              <button className="icon-btn send-btn" aria-label="Send" onClick={submit}>
+                <IconArrowUp />
+              </button>
+            </Hint>
           ) : null}
         </div>
       </div>

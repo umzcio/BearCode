@@ -11,6 +11,7 @@ import { ARTIFACT_STATUS_LABELS, ARTIFACT_TYPE_LABELS } from './events/ArtifactC
 import { IconClose, IconCopy, IconFile, IconPaw, IconRevert } from './icons'
 import { EmptyState } from './ui/EmptyState'
 import { Loading } from './ui/Loading'
+import { Hint } from './Hint'
 import './ReviewPanel.css'
 
 const MonacoDiff = lazy(() => import('./MonacoDiff'))
@@ -132,9 +133,11 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
           <ApBrand />
           <div className="ap-spacer" />
           <div className="ap-actions">
-            <button aria-label="Close panel" title="Close panel" onClick={closeReview}>
-              <IconClose />
-            </button>
+            <Hint label="Close panel" side="bottom">
+              <button aria-label="Close panel" onClick={closeReview}>
+                <IconClose />
+              </button>
+            </Hint>
           </div>
         </div>
         <div className="ap-browser-body">
@@ -222,9 +225,11 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
           <ApBrand />
           <div className="ap-spacer" />
           <div className="ap-actions">
-            <button aria-label="Close panel" title="Close panel" onClick={closeReview}>
-              <IconClose />
-            </button>
+            <Hint label="Close panel" side="bottom">
+              <button aria-label="Close panel" onClick={closeReview}>
+                <IconClose />
+              </button>
+            </Hint>
           </div>
         </div>
         {rail}
@@ -245,9 +250,11 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
         <ApBrand />
         <div className="ap-spacer" />
         <div className="ap-actions">
-          <button aria-label="Close panel" title="Close panel" onClick={closeReview}>
-            <IconClose />
-          </button>
+          <Hint label="Close panel" side="bottom">
+            <button aria-label="Close panel" onClick={closeReview}>
+              <IconClose />
+            </button>
+          </Hint>
         </div>
       </div>
     </div>
@@ -380,30 +387,33 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
         <div className="ap-actions">
           {mode === 'diff' && activeFile ? (
             <>
-              <button aria-label="Copy file" title="Copy file contents" onClick={copyActive}>
-                <IconCopy />
-              </button>
-              <button
-                aria-label="Open in editor"
-                title="Open in editor"
-                onClick={() => void window.bearcode.diffs.open(activeFile.fileId)}
-              >
-                <IconFile />
-              </button>
-              {activeFile.state !== 'reverted' ? (
-                <button
-                  aria-label="Revert change"
-                  title="Revert change"
-                  onClick={() => void revert(activeFile)}
-                >
-                  <IconRevert />
+              <Hint label="Copy file contents" side="bottom">
+                <button aria-label="Copy file" onClick={copyActive}>
+                  <IconCopy />
                 </button>
+              </Hint>
+              <Hint label="Open in editor" side="bottom">
+                <button
+                  aria-label="Open in editor"
+                  onClick={() => void window.bearcode.diffs.open(activeFile.fileId)}
+                >
+                  <IconFile />
+                </button>
+              </Hint>
+              {activeFile.state !== 'reverted' ? (
+                <Hint label="Revert change" side="bottom">
+                  <button aria-label="Revert change" onClick={() => void revert(activeFile)}>
+                    <IconRevert />
+                  </button>
+                </Hint>
               ) : null}
             </>
           ) : null}
-          <button aria-label="Close panel" title="Close panel" onClick={closeReview}>
-            <IconClose />
-          </button>
+          <Hint label="Close panel" side="bottom">
+            <button aria-label="Close panel" onClick={closeReview}>
+              <IconClose />
+            </button>
+          </Hint>
         </div>
       </div>
 
@@ -576,13 +586,15 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
                   {baseName(c.path)}:{c.line}
                 </span>
                 <span className="comment-text">{c.text}</span>
-                <button
-                  className="comment-del"
-                  title="Remove comment"
-                  onClick={() => setComments((list) => list.filter((x) => x.id !== c.id))}
-                >
-                  <IconClose size={12} />
-                </button>
+                <Hint label="Remove comment" side="top">
+                  <button
+                    className="comment-del"
+                    aria-label="Remove comment"
+                    onClick={() => setComments((list) => list.filter((x) => x.id !== c.id))}
+                  >
+                    <IconClose size={12} />
+                  </button>
+                </Hint>
               </div>
             ))}
           </div>

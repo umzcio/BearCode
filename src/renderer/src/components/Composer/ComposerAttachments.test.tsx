@@ -61,7 +61,7 @@ describe('Composer attachments', () => {
   it('adds a thumbnail pill after Media pick and sends the ref (no preview)', async () => {
     const onSend = vi.fn()
     render(<Composer conversationId="c1" onSend={onSend} />)
-    fireEvent.click(screen.getByTitle('Add context'))
+    fireEvent.click(screen.getByLabelText('Add context'))
     fireEvent.click(screen.getByText('Media'))
     await waitFor(() => expect(screen.getByText('shot.png')).toBeTruthy())
 
@@ -77,10 +77,10 @@ describe('Composer attachments', () => {
 
   it('removes a pill via its remove button', async () => {
     render(<Composer conversationId="c1" onSend={vi.fn()} />)
-    fireEvent.click(screen.getByTitle('Add context'))
+    fireEvent.click(screen.getByLabelText('Add context'))
     fireEvent.click(screen.getByText('Media'))
     await waitFor(() => expect(screen.getByText('shot.png')).toBeTruthy())
-    fireEvent.click(screen.getByTitle('Remove attachment'))
+    fireEvent.click(screen.getByLabelText('Remove attachment'))
     expect(screen.queryByText('shot.png')).toBeNull()
   })
 
@@ -96,7 +96,7 @@ describe('Composer attachments', () => {
       errors: []
     })
     render(<Composer conversationId="c1" onSend={vi.fn()} />)
-    fireEvent.click(screen.getByTitle('Add context'))
+    fireEvent.click(screen.getByLabelText('Add context'))
     fireEvent.click(screen.getByText('Media'))
     await waitFor(() => expect(screen.getByText('report.pdf')).toBeTruthy())
     const pill = screen.getByText('report.pdf').closest('.attachment-pill') as HTMLElement
@@ -120,7 +120,7 @@ describe('Composer attachments', () => {
       errors: []
     })
     render(<Composer conversationId="c1" onSend={vi.fn()} />)
-    fireEvent.click(screen.getByTitle('Add context'))
+    fireEvent.click(screen.getByLabelText('Add context'))
     fireEvent.click(screen.getByText('Media'))
     await waitFor(() => expect(screen.getByText('notes.txt')).toBeTruthy())
     const pill = screen.getByText('notes.txt').closest('.attachment-pill') as HTMLElement

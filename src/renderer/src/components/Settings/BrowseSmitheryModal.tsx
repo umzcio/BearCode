@@ -6,6 +6,7 @@ import { IconClose } from '../icons'
 import { EmptyState } from '../ui/EmptyState'
 import { Loading } from '../ui/Loading'
 import { ErrorCard } from '../ui/ErrorCard'
+import { Hint } from '../Hint'
 
 // ============================================================================
 // OAuth verification note (Task 12, 2026-07-09)
@@ -208,9 +209,11 @@ export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props
               {pendingSecrets ? 'Finish setup' : 'Add an MCP server from the Smithery registry.'}
             </div>
           </div>
-          <button className="icon-btn" aria-label="Close" onClick={onClose}>
-            <IconClose size={16} />
-          </button>
+          <Hint label="Close" side="bottom">
+            <button className="icon-btn" aria-label="Close" onClick={onClose}>
+              <IconClose size={16} />
+            </button>
+          </Hint>
         </div>
 
         {pendingSecrets ? (

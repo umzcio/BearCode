@@ -191,25 +191,29 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
     <div className="convo-view">
       {focusMatches.length > 1 ? (
         <div className="focus-nav" role="status" aria-label="Search match navigator">
-          <button
-            className="icon-btn"
-            title="Previous match"
-            onClick={() => stepFocus(-1)}
-            disabled={focusIdx <= 0}
-          >
-            ‹
-          </button>
+          <Hint label="Previous match" side="bottom" disabled={focusIdx <= 0}>
+            <button
+              className="icon-btn"
+              aria-label="Previous match"
+              onClick={() => stepFocus(-1)}
+              disabled={focusIdx <= 0}
+            >
+              ‹
+            </button>
+          </Hint>
           <span className="focus-nav-count">
             {Math.max(0, focusIdx) + 1} of {focusMatches.length}
           </span>
-          <button
-            className="icon-btn"
-            title="Next match"
-            onClick={() => stepFocus(1)}
-            disabled={focusIdx >= focusMatches.length - 1}
-          >
-            ›
-          </button>
+          <Hint label="Next match" side="bottom" disabled={focusIdx >= focusMatches.length - 1}>
+            <button
+              className="icon-btn"
+              aria-label="Next match"
+              onClick={() => stepFocus(1)}
+              disabled={focusIdx >= focusMatches.length - 1}
+            >
+              ›
+            </button>
+          </Hint>
         </div>
       ) : null}
       <div className="convo-scroll" ref={scrollRef}>
@@ -246,17 +250,19 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                     {turn.user.createdAt ? (
                       <span className="msg-time">{messageTimestamp(turn.user.createdAt)}</span>
                     ) : null}
-                    <button
-                      className="icon-btn"
-                      title="Copy"
-                      onClick={() => {
-                        void window.bearcode.clipboard
-                          .write(turn.user.text)
-                          .then(() => showToast('Copied'))
-                      }}
-                    >
-                      <IconCopy />
-                    </button>
+                    <Hint label="Copy" side="top">
+                      <button
+                        className="icon-btn"
+                        aria-label="Copy"
+                        onClick={() => {
+                          void window.bearcode.clipboard
+                            .write(turn.user.text)
+                            .then(() => showToast('Copied'))
+                        }}
+                      >
+                        <IconCopy />
+                      </button>
+                    </Hint>
                   </div>
                 </div>
                 <div className="agent-turn">
@@ -292,30 +298,38 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                   ))}
                   {turn.done || turn.errors.length > 0 ? (
                     <div className="msg-actions">
-                      <button
-                        className="icon-btn"
-                        title="Copy"
-                        onClick={() => {
-                          const text = turn.texts.map((t) => t.text).join('\n\n')
-                          void window.bearcode.clipboard.write(text).then(() => showToast('Copied'))
-                        }}
-                      >
-                        <IconCopy />
-                      </button>
-                      <button
-                        className="icon-btn"
-                        title="Good response"
-                        onClick={() => showToast('Noted')}
-                      >
-                        <IconThumbsUp />
-                      </button>
-                      <button
-                        className="icon-btn"
-                        title="Bad response"
-                        onClick={() => showToast('Noted')}
-                      >
-                        <IconThumbsDown />
-                      </button>
+                      <Hint label="Copy" side="top">
+                        <button
+                          className="icon-btn"
+                          aria-label="Copy"
+                          onClick={() => {
+                            const text = turn.texts.map((t) => t.text).join('\n\n')
+                            void window.bearcode.clipboard
+                              .write(text)
+                              .then(() => showToast('Copied'))
+                          }}
+                        >
+                          <IconCopy />
+                        </button>
+                      </Hint>
+                      <Hint label="Good response" side="top">
+                        <button
+                          className="icon-btn"
+                          aria-label="Good response"
+                          onClick={() => showToast('Noted')}
+                        >
+                          <IconThumbsUp />
+                        </button>
+                      </Hint>
+                      <Hint label="Bad response" side="top">
+                        <button
+                          className="icon-btn"
+                          aria-label="Bad response"
+                          onClick={() => showToast('Noted')}
+                        >
+                          <IconThumbsDown />
+                        </button>
+                      </Hint>
                     </div>
                   ) : null}
                 </div>

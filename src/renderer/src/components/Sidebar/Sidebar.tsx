@@ -195,26 +195,30 @@ export function Sidebar(): React.JSX.Element {
                   {path ? (
                     <span className="proj-actions">
                       {/* Order matches Antigravity: gear (settings) then + (new). */}
-                      <button
-                        className="row-act"
-                        title="Project settings"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openProjectSettings(path)
-                        }}
-                      >
-                        <IconSettings size={13} />
-                      </button>
-                      <button
-                        className="row-act"
-                        title="New conversation in this folder"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void newConversationInProject(path)
-                        }}
-                      >
-                        <IconPlus size={13} />
-                      </button>
+                      <Hint label="Project settings" side="bottom">
+                        <button
+                          className="row-act"
+                          aria-label="Project settings"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openProjectSettings(path)
+                          }}
+                        >
+                          <IconSettings size={13} />
+                        </button>
+                      </Hint>
+                      <Hint label="New conversation in this folder" side="bottom">
+                        <button
+                          className="row-act"
+                          aria-label="New conversation in this folder"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void newConversationInProject(path)
+                          }}
+                        >
+                          <IconPlus size={13} />
+                        </button>
+                      </Hint>
                     </span>
                   ) : null}
                 </div>
@@ -268,26 +272,30 @@ export function Sidebar(): React.JSX.Element {
                       <>
                         <span className="age">{relativeAge(convo.updatedAt)}</span>
                         <ConvoRowMenu convoId={id} title={convo.title} />
-                        <button
-                          className={'row-act' + (convo.pinned ? ' active' : '')}
-                          title={convo.pinned ? 'Unpin' : 'Pin'}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setPinned(id, !convo.pinned)
-                          }}
-                        >
-                          <IconPin size={13} />
-                        </button>
-                        <button
-                          className={'row-act' + (convo.archived ? ' active' : '')}
-                          title={convo.archived ? 'Unarchive' : 'Archive'}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setArchived(id, !convo.archived)
-                          }}
-                        >
-                          <IconArchive size={13} />
-                        </button>
+                        <Hint label={convo.pinned ? 'Unpin' : 'Pin'} side="bottom">
+                          <button
+                            className={'row-act' + (convo.pinned ? ' active' : '')}
+                            aria-label={convo.pinned ? 'Unpin' : 'Pin'}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setPinned(id, !convo.pinned)
+                            }}
+                          >
+                            <IconPin size={13} />
+                          </button>
+                        </Hint>
+                        <Hint label={convo.archived ? 'Unarchive' : 'Archive'} side="bottom">
+                          <button
+                            className={'row-act' + (convo.archived ? ' active' : '')}
+                            aria-label={convo.archived ? 'Unarchive' : 'Archive'}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setArchived(id, !convo.archived)
+                            }}
+                          >
+                            <IconArchive size={13} />
+                          </button>
+                        </Hint>
                       </>
                     )}
                   </div>

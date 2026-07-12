@@ -6,6 +6,7 @@ import { IconClose } from '../icons'
 import { EmptyState } from '../ui/EmptyState'
 import { Loading } from '../ui/Loading'
 import { ErrorCard } from '../ui/ErrorCard'
+import { Hint } from '../Hint'
 
 // Task 11 of the plugins arc: the real catalog/add-marketplace/
 // install-from-URL/review-card flow (replaces the Task 10 open/close-only
@@ -144,9 +145,11 @@ export function BrowsePluginsModal({ mode = 'plugins', onClose, onInstalled }: P
                   : 'Install bundles of skills, rules, and connectors.'}
             </div>
           </div>
-          <button className="icon-btn" aria-label="Close" onClick={onClose}>
-            <IconClose size={16} />
-          </button>
+          <Hint label="Close" side="bottom">
+            <button className="icon-btn" aria-label="Close" onClick={onClose}>
+              <IconClose size={16} />
+            </button>
+          </Hint>
         </div>
 
         {error ? <ErrorCard>{error}</ErrorCard> : null}
