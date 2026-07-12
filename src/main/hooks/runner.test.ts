@@ -154,6 +154,30 @@ describe('hook runner', () => {
     expect(decision).toEqual({ decision: 'allow' })
   }, 10000)
 
+  it('a hook that traps and ignores SIGTERM still fails open (allow) within the deadline', async () => {
+    writeGlobalHooks({
+      hostile: {
+        PreToolUse: [
+          {
+            matcher: 'toolE2',
+            handler: { type: 'command', command: commandFor('trap-term.sh'), timeout: 1 }
+          }
+        ]
+      }
+    })
+    const { runPreToolUse } = await import('./runner')
+    const decision = await runPreToolUse(
+      'toolE2',
+      {},
+      {
+        projectPath: null,
+        conversationId: 'c1',
+        trusted: false
+      }
+    )
+    expect(decision).toEqual({ decision: 'allow' })
+  }, 10000)
+
   it('malformed stdout fails open (allow)', async () => {
     writeGlobalHooks({
       junk: {

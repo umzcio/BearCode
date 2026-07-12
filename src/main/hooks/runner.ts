@@ -69,17 +69,41 @@ function runOne(rec: HookRecord, payload: HookPayload, ctx: HookCtx): Promise<st
 
   return new Promise((resolve) => {
     let settled = false
-    const child = execFile(file, args, { cwd, env, timeout: rec.timeout * 1000 }, (err, stdout) => {
-      if (settled) return
-      settled = true
-      resolve(err ? null : stdout.toString())
-    })
+    const child = execFile(
+      file,
+      args,
+      { cwd, env, timeout: rec.timeout * 1000, killSignal: 'SIGKILL' },
+      (err, stdout) => {
+        if (settled) return
+        settled = true
+        clearTimeout(deadline)
+        resolve(err ? null : stdout.toString())
+      }
+    )
     try {
       child.stdin?.write(JSON.stringify(payload))
       child.stdin?.end()
     } catch {
       // A dead/closed stdin still lets the exit/error callback resolve us.
     }
+    // Belt-and-suspenders: execFile's `timeout` sends killSignal (SIGKILL,
+    // above) which cannot be trapped/ignored -- but if a hook somehow still
+    // fails to exit (e.g. an unkillable zombie), this backstop guarantees we
+    // still fail open instead of wedging the caller's tool call forever.
+    const deadline = setTimeout(
+      () => {
+        if (settled) return
+        settled = true
+        try {
+          child.kill('SIGKILL')
+        } catch {
+          // Already dead -- nothing to do.
+        }
+        resolve(null)
+      },
+      (rec.timeout + 5) * 1000
+    )
+    deadline.unref?.()
   })
 }
 
