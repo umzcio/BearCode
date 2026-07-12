@@ -7,6 +7,8 @@ import { mkdirSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import { COMMAND_NAME_PATTERN } from '../../shared/types'
+import type { RuleEntry } from '../../shared/types'
+import { loadAgentsContent } from '../agentsDir'
 import type { RuleActivation } from '../agentsDir/types'
 
 const MAX_RULE_BYTES = 64 * 1024
@@ -57,4 +59,23 @@ export function writeRuleFile(
   const file = jailedRuleFile(name, scope, projectPath)
   mkdirSync(resolve(file, '..'), { recursive: true })
   writeFileSync(file, md)
+}
+
+// The Settings > Rules page's list read model (Phase G plugins arc, Task 12
+// fix). Rules stay file-managed only -- there is no update/delete here, same
+// as workflows -- this just projects the live AgentsContent.rules into the
+// wire-shaped RuleEntry, parallel to skills/index.ts's listSkillEntries.
+export function listRuleEntries(projectPath: string | null): RuleEntry[] {
+  // Settings-page management view: show project rules regardless of trust so
+  // the user can see every rule, including a not-yet-trusted project's
+  // (mirrors listSkillEntries -- this is NOT the agent-facing path, which
+  // gates on trust in loadAgentsContent's caller at turn-build time).
+  return loadAgentsContent(projectPath, { trusted: true }).rules.map((r) => ({
+    name: r.name,
+    description: r.description,
+    activation: r.activation,
+    source: r.source,
+    error: r.error,
+    plugin: r.plugin
+  }))
 }

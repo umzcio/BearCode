@@ -285,3 +285,10 @@ export const IconChat = icon(
     <path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4z" />
   </>
 )
+export const IconPackage = icon(
+  <>
+    <path d="M21 8l-9-5-9 5 9 5 9-5z" />
+    <path d="M3 8v8l9 5 9-5V8" />
+    <line x1="12" y1="13" x2="12" y2="21" />
+  </>
+)

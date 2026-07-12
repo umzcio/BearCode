@@ -13,6 +13,7 @@ import type { DiscoveredMcpServer, McpServerConfig, McpTransport } from '../../s
 import { getSettings, setSettings } from '../settings'
 import { resolveVaultRefs } from '../keys'
 import { readFileCapped } from '../fsCapped'
+import { enumeratePluginIngredients } from '../plugins'
 
 const MAX_MCP_JSON_BYTES = 64 * 1024
 
@@ -115,12 +116,61 @@ export function mergeServerMaps(
   return Array.from(byName.values())
 }
 
-export function loadServers(projectPath: string | null): McpServerConfig[] {
+// `opts.trusted` gates PROJECT-scope plugin mcp.json ingredients exactly like
+// loadAgentsContent's `trusted` flag gates project skills/rules (a project's
+// .agents/plugins/ may arrive via a cloned repo). Global-scope plugin
+// ingredients are enumerated unconditionally (enumeratePluginIngredients
+// already applies that split). Defaults to untrusted so a caller that forgets
+// to pass `opts` never picks up project plugin servers silently.
+export function loadServers(
+  projectPath: string | null,
+  opts?: { trusted?: boolean }
+): McpServerConfig[] {
   const global = toConfigMap(readServerMap(globalMcpPath()), 'global')
   const project = projectPath
     ? toConfigMap(readServerMap(projectMcpPath(projectPath)), 'project')
     : {}
-  return mergeServerMaps(global, project)
+  const servers = mergeServerMaps(global, project)
+
+  // Fold in enabled plugins' mcp.json servers, tagged with `plugin`. A plugin
+  // server that shares a bare NAME with a direct global/project server (or
+  // with an already-enumerated plugin server) is skipped entirely, never
+  // enumerated -- isEnabled/setEnabled/hasSpawnConsent/grantSpawnConsent
+  // (store.ts) and McpManager's connection identity (this.servers/
+  // findConfig, manager.ts) are ALL keyed on the bare `name` only (isTrusted
+  // is the sole exception, keyed by `${plugin}:${name}` when `plugin` is
+  // set). If two live configs shared one bare name, toggling one would
+  // silently flip the enabled/spawn-consent bit read for the other, and
+  // `.find(c => c.name === name)` would always resolve the earlier (direct)
+  // entry -- so a colliding plugin server could never actually be launched
+  // even after the user explicitly trusted it via trustPluginServer.
+  // Rejecting the collision at enumeration time closes this at the root: a
+  // bare name maps to at most one live config, so every bare-name-keyed
+  // lookup downstream is unambiguous by construction. (Previously this
+  // checked `seen.has(`${pluginName}:${name}`)` against a `seen` set seeded
+  // with BARE names -- a key-space mismatch that meant the check almost
+  // never fired, so colliding plugin servers slipped through anyway.)
+  const seen = new Set(servers.map((s) => s.name))
+  const ing = enumeratePluginIngredients(projectPath, { trusted: opts?.trusted ?? false })
+  for (const { pluginName, path } of ing.mcpConfigs) {
+    const raw = readServerMap(path)
+    for (const [name, entry] of Object.entries(raw)) {
+      if (seen.has(name)) continue
+      seen.add(name)
+      servers.push({
+        name,
+        source: 'global',
+        transport: classifyTransport(entry),
+        url: entry.url,
+        headers: entry.headers,
+        command: entry.command,
+        args: entry.args,
+        env: entry.env,
+        plugin: pluginName
+      })
+    }
+  }
+  return servers
 }
 
 // ---- read-only discovery of servers configured elsewhere (Task 13) ----
@@ -256,8 +306,19 @@ export function setEnabled(name: string, on: boolean): void {
 export function isTrusted(
   name: string,
   source: 'global' | 'project',
-  projectPath: string | null
+  projectPath: string | null,
+  plugin?: string
 ): boolean {
+  // A plugin-sourced server (Phase G plugins arc) is untrusted by default
+  // regardless of `source` -- its url/command was authored by the plugin,
+  // not typed by the user, so the usual "global == trusted by default" and
+  // per-project trust-map branches below must NOT apply to it. Trust is only
+  // ever granted explicitly, keyed on the plugin-qualified name so trusting
+  // one plugin's server never trusts a differently-sourced server that
+  // happens to share the same bare name.
+  if (plugin) {
+    return (getSettings().mcpTrustedPluginServers ?? []).includes(`${plugin}:${name}`)
+  }
   // Global servers were added by the user at the app level -> trusted by
   // default, regardless of whether a project is open. (The prior signature
   // ignored `source` and treated EVERY server as untrusted whenever a project
@@ -313,6 +374,19 @@ export function markGlobalServerUntrusted(name: string): void {
 export function trustGlobalServer(name: string): void {
   const current = getSettings().mcpUntrustedGlobalServers ?? []
   setSettings({ mcpUntrustedGlobalServers: current.filter((n) => n !== name) })
+}
+
+// The user's explicit opt-in for a plugin-sourced server (see isTrusted's
+// `plugin` branch above). Keyed on the plugin-qualified name so trusting one
+// plugin's `db` server never trusts another plugin's (or a direct) `db`.
+export function trustPluginServer(plugin: string, name: string): void {
+  const current = getSettings().mcpTrustedPluginServers ?? []
+  setSettings({ mcpTrustedPluginServers: Array.from(new Set([...current, `${plugin}:${name}`])) })
+}
+
+export function untrustPluginServer(plugin: string, name: string): void {
+  const current = getSettings().mcpTrustedPluginServers ?? []
+  setSettings({ mcpTrustedPluginServers: current.filter((n) => n !== `${plugin}:${name}`) })
 }
 
 export function hasSpawnConsent(name: string): boolean {

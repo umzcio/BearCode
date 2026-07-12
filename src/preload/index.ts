@@ -18,6 +18,7 @@ import type {
   McpServerConfig,
   McpServerStatus,
   McpServerView,
+  MarketplacePlugin,
   MemoryList,
   MemoryPromoteInput,
   MemoryScopeName,
@@ -26,10 +27,14 @@ import type {
   PermissionMode,
   PermissionRulesInfo,
   PlanReviewResolveResult,
+  PluginEntry,
+  PluginManifest,
+  PluginUpdateResult,
   PreviewPayload,
   FolderProject,
   ProjectSettings,
   ProviderId,
+  RuleEntry,
   RunState,
   SkillEntry,
   SkillInfo,
@@ -254,6 +259,10 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:mcp:trust', name, projectPath),
     trustGlobal: (name: string): Promise<McpServerStatus> =>
       ipcRenderer.invoke('bearcode:mcp:trust-global', name),
+    trustPlugin: (plugin: string, name: string): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:trust-plugin', plugin, name),
+    untrustPlugin: (plugin: string, name: string): Promise<McpServerStatus> =>
+      ipcRenderer.invoke('bearcode:mcp:untrust-plugin', plugin, name),
     spawnConsent: (name: string): Promise<void> =>
       ipcRenderer.invoke('bearcode:mcp:spawn-consent', name),
     reconnect: (name: string, projectPath: string | null): Promise<McpServerStatus> =>
@@ -316,6 +325,10 @@ const bearcode: BearcodeApi = {
     save: (callId: string, resolution: SkillProposalResolution): Promise<SkillSaveResult> =>
       ipcRenderer.invoke('bearcode:skills:save', callId, resolution)
   },
+  rules: {
+    list: (projectPath: string | null): Promise<RuleEntry[]> =>
+      ipcRenderer.invoke('bearcode:rules:list', projectPath)
+  },
   memory: {
     list: (projectPath: string | null): Promise<MemoryList> =>
       ipcRenderer.invoke('bearcode:memory:list', projectPath),
@@ -336,6 +349,40 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:memory:delete', scope, index, projectPath),
     promote: (input: MemoryPromoteInput, projectPath: string | null): Promise<void> =>
       ipcRenderer.invoke('bearcode:memory:promote', input, projectPath)
+  },
+  plugins: {
+    list: (projectPath: string | null): Promise<PluginEntry[]> =>
+      ipcRenderer.invoke('bearcode:plugins:list', projectPath),
+    catalog: (): Promise<MarketplacePlugin[]> => ipcRenderer.invoke('bearcode:plugins:catalog'),
+    listMarketplaces: (): Promise<string[]> =>
+      ipcRenderer.invoke('bearcode:plugins:list-marketplaces'),
+    addMarketplace: (url: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:plugins:add-marketplace', url),
+    removeMarketplace: (url: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:plugins:remove-marketplace', url),
+    prepareInstall: (
+      source: string,
+      marketplaceUrl?: string
+    ): Promise<{ manifest: PluginManifest; stagePath: string }> =>
+      ipcRenderer.invoke('bearcode:plugins:prepare-install', source, marketplaceUrl),
+    confirmInstall: (stagePath: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:plugins:confirm-install', stagePath),
+    installFromUrl: (url: string): Promise<{ manifest: PluginManifest; stagePath: string }> =>
+      ipcRenderer.invoke('bearcode:plugins:install-from-url', url),
+    setEnabled: (
+      scope: 'global' | 'project',
+      name: string,
+      on: boolean,
+      projectPath: string | null
+    ): Promise<void> =>
+      ipcRenderer.invoke('bearcode:plugins:set-enabled', scope, name, on, projectPath),
+    update: (name: string): Promise<PluginUpdateResult> =>
+      ipcRenderer.invoke('bearcode:plugins:update', name),
+    uninstall: (
+      scope: 'global' | 'project',
+      name: string,
+      projectPath: string | null
+    ): Promise<void> => ipcRenderer.invoke('bearcode:plugins:uninstall', scope, name, projectPath)
   },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>

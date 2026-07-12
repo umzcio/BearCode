@@ -23,6 +23,12 @@ vi.mock('./store', () => ({
   isTrusted: (...a: unknown[]) => isTrustedMock(...(a as [])),
   hasSpawnConsent: (...a: unknown[]) => hasSpawnConsentMock(...(a as []))
 }))
+// manager.ts threads workspace trust into every loadServers call via
+// isProjectTrusted (../db) -- mock it so this test never touches the real
+// sqlite-backed db module.
+vi.mock('../db', () => ({
+  isProjectTrusted: vi.fn(() => true)
+}))
 
 // Mock surface: only what the manager actually calls on a client instance.
 const getToolsMock = vi.fn()

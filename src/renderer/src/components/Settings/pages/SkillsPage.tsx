@@ -5,6 +5,7 @@ import { useAppStore } from '../../../state/store'
 import { Toggle } from '../../Toggle'
 import { Select } from '../../Select'
 import type { SelectOption } from '../../Select'
+import { PluginBadge } from '../../PluginBadge'
 
 const KEBAB_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
 
@@ -140,6 +141,7 @@ export function SkillsPage(): JSX.Element | null {
                   <span className={'connector-badge' + (entry.source === 'global' ? '' : ' local')}>
                     {entry.source === 'global' ? 'Global' : 'Project'}
                   </span>
+                  {entry.plugin ? <PluginBadge name={entry.plugin} /> : null}
                   <span className="set-row-desc"> · {fmtSize(entry.sizeBytes)}</span>
                 </div>
                 <div className="set-row-desc">
@@ -178,10 +180,20 @@ export function SkillsPage(): JSX.Element | null {
                   onChange={(on) => toggleEnabled(entry, on)}
                 />
               ) : null}
-              <button className="pill-btn" onClick={() => startEdit(entry)}>
+              <button
+                className="pill-btn"
+                disabled={!!entry.plugin}
+                title={entry.plugin ? `Managed by the ${entry.plugin} plugin` : undefined}
+                onClick={() => startEdit(entry)}
+              >
                 Edit
               </button>
-              <button className="pill-btn" onClick={() => startDelete(entry)}>
+              <button
+                className="pill-btn"
+                disabled={!!entry.plugin}
+                title={entry.plugin ? `Managed by the ${entry.plugin} plugin` : undefined}
+                onClick={() => startDelete(entry)}
+              >
                 Delete
               </button>
             </div>

@@ -13,7 +13,9 @@ describe('SETTINGS_NAV', () => {
     ])
     expect(SETTINGS_NAV[1].items.map((i) => i.id)).toEqual([
       'skills',
+      'rules',
       'connectors',
+      'plugins',
       'memory',
       'integrations',
       'browser'

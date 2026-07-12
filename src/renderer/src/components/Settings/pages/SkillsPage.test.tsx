@@ -128,4 +128,24 @@ describe('SkillsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /delete skill/i }))
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith('pdf', 'global', '/proj'))
   })
+  it('a plugin-sourced skill shows a provenance badge and has read-only edit/delete', async () => {
+    listSpy.mockResolvedValueOnce([
+      {
+        name: 'from-plugin',
+        description: 'Bundled by a plugin.',
+        source: 'global',
+        enabled: true,
+        sizeBytes: 50,
+        body: 'body',
+        plugin: 'my-plugin'
+      }
+    ] as never)
+    mount()
+    await screen.findByText('from-plugin')
+    expect(screen.getByText('Plugin: my-plugin')).toBeTruthy()
+    const editBtn = screen.getByRole('button', { name: /^edit$/i })
+    const deleteBtn = screen.getByRole('button', { name: /^delete$/i })
+    expect(editBtn.hasAttribute('disabled')).toBe(true)
+    expect(deleteBtn.hasAttribute('disabled')).toBe(true)
+  })
 })

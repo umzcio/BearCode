@@ -899,6 +899,84 @@
   padding: 0 16px 14px;
 }
 
+/* Plugins */
+.plugin-empty {
+  padding: 16px 16px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.plugin-row {
+  margin-top: 12px;
+}
+.plugin-row .set-row {
+  padding: 12px 2px;
+}
+.plugin-contents {
+  padding: 0 2px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.plugin-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 2px 6px;
+}
+/* Same affordance fix as the Connectors/Skills buttons -- the base .pill-btn
+   is transparent + borderless, which reads as plain text in a settings row. */
+.plugin-actions .pill-btn {
+  border: 1px solid var(--border);
+}
+.plugin-actions .pill-btn:hover {
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+}
+.plugin-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+  vertical-align: middle;
+}
+
+/* Browse Plugins modal (catalog + add-marketplace + install-from-URL). */
+.plugin-add-row {
+  display: flex;
+  gap: 8px;
+}
+.plugin-add-row .set-input {
+  flex: 1;
+}
+.plugin-review {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  overflow-y: auto;
+}
+.plugin-review-server {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.plugin-review-server code {
+  font-size: 11.5px;
+}
+.plugin-review-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+
 /* --- Skills settings page --- */
 .skill-add-card {
   margin-top: 12px;

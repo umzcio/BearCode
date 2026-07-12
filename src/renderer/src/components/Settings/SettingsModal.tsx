@@ -9,12 +9,14 @@ import {
   IconPlug,
   IconGrid,
   IconScroll,
+  IconLines,
   IconBlocks,
   IconBrain,
   IconLink,
   IconGlobe,
   IconKeyboard,
-  IconChat
+  IconChat,
+  IconPackage
 } from '../icons'
 import { GeneralPage } from './pages/GeneralPage'
 import { ProvidersPage } from './pages/ProvidersPage'
@@ -24,6 +26,8 @@ import { BrowserPage } from './pages/BrowserPage'
 import { ConnectorsPage } from './pages/ConnectorsPage'
 import { IntegrationsPage } from './pages/IntegrationsPage'
 import { SkillsPage } from './pages/SkillsPage'
+import { RulesPage } from './pages/RulesPage'
+import { PluginsPage } from './pages/PluginsPage'
 import { MemoryPage } from './pages/MemoryPage'
 import { SettingPlaceholder } from './SettingPlaceholder'
 import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
@@ -53,12 +57,14 @@ const NAV_ICONS: Record<string, (props: { size?: number }) => React.JSX.Element>
   IconPlug,
   IconGrid,
   IconScroll,
+  IconLines,
   IconBlocks,
   IconBrain,
   IconLink,
   IconGlobe,
   IconKeyboard,
-  IconChat
+  IconChat,
+  IconPackage
 }
 
 // Intentional WIP panels for the Customize group (not "coming soon" badges).
@@ -293,9 +299,13 @@ function SettingsPanel({
 
           {page === 'connectors' ? <ConnectorsPage /> : null}
 
+          {page === 'plugins' ? <PluginsPage /> : null}
+
           {page === 'integrations' ? <IntegrationsPage /> : null}
 
           {page === 'skills' ? <SkillsPage /> : null}
+
+          {page === 'rules' ? <RulesPage /> : null}
 
           {page === 'memory' ? <MemoryPage /> : null}
 

@@ -17,14 +17,19 @@ import type {
   McpServerConfig,
   McpServerStatus,
   McpServerView,
+  MarketplacePlugin,
   MemoryList,
   MemoryPromoteInput,
   MemoryScopeName,
   PingResult,
+  PluginEntry,
+  PluginManifest,
+  PluginUpdateResult,
   PreviewPayload,
   ProjectSettings,
   ProviderId,
   PromoteTarget,
+  RuleEntry,
   RunState,
   SkillEntry,
   SkillInfo,
@@ -47,6 +52,8 @@ import {
   trustProjectServer as trustMcpProjectServer,
   markGlobalServerUntrusted as markGlobalMcpServerUntrusted,
   trustGlobalServer as trustGlobalMcpServer,
+  trustPluginServer as trustMcpPluginServer,
+  untrustPluginServer as untrustMcpPluginServer,
   hasSpawnConsent as hasMcpSpawnConsent,
   grantSpawnConsent as grantMcpSpawnConsent,
   discoverLocalServers,
@@ -98,6 +105,14 @@ import { suggestFiles, manualRuleInfos, skillInfos } from './orchestrator/mentio
 import { createSkill, deleteSkillFolder, listSkillEntries, updateSkill } from './skills'
 import { isSkillEnabled, setSkillEnabled } from './skills/state'
 import { listMemory, addMemory, updateMemory, deleteMemory, promoteMemory } from './memory'
+import { listRuleEntries } from './rules'
+import { listPlugins, uninstallPlugin } from './plugins'
+import { setPluginEnabled } from './plugins/state'
+import * as pluginMarket from './plugins/marketplace'
+import {
+  validateScope as validatePluginScope,
+  validateName as validatePluginName
+} from './plugins/validate'
 import { COMMAND_NAME_PATTERN } from '../shared/types'
 import {
   assertValidConversationId,
@@ -761,7 +776,7 @@ export function registerIpc(): void {
   // registry client.
   const mcpServerView = (cfg: McpServerConfig, projectPath: string | null): McpServerView => {
     const enabled = isMcpServerEnabled(cfg.name)
-    const trusted = isMcpServerTrusted(cfg.name, cfg.source, projectPath)
+    const trusted = isMcpServerTrusted(cfg.name, cfg.source, projectPath, cfg.plugin)
     const status: McpServerStatus = !trusted
       ? { state: 'untrusted' }
       : !enabled
@@ -797,7 +812,11 @@ export function registerIpc(): void {
 
   ipcMain.handle('bearcode:mcp:list', (_e, projectPath: unknown) => {
     const proj = asProjectPath(projectPath)
-    return loadMcpServers(proj).map((cfg) => mcpServerView(cfg, proj))
+    // Thread workspace trust so an enabled project plugin's mcp.json server is
+    // enumerated once the workspace is trusted, mirroring plugins:list below.
+    return loadMcpServers(proj, { trusted: proj != null && db.isProjectTrusted(proj) }).map((cfg) =>
+      mcpServerView(cfg, proj)
+    )
   })
   // Like list, but first (non-interactively) connects any enabled+trusted
   // server that's idle, so opening the Connectors page / @-menu surfaces
@@ -805,7 +824,9 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:mcp:ensure-connected', async (_e, projectPath: unknown) => {
     const proj = asProjectPath(projectPath)
     await mcpManager.ensureEnabledConnected(proj)
-    return loadMcpServers(proj).map((cfg) => mcpServerView(cfg, proj))
+    return loadMcpServers(proj, { trusted: proj != null && db.isProjectTrusted(proj) }).map((cfg) =>
+      mcpServerView(cfg, proj)
+    )
   })
   ipcMain.handle('bearcode:mcp:add', (_e, cfg: unknown, projectPath: unknown) => {
     if (cfg == null || typeof cfg !== 'object') {
@@ -943,6 +964,31 @@ export function registerIpc(): void {
       throw new Error(`Invalid MCP server name: ${String(name)}`)
     }
     trustGlobalMcpServer(name)
+    return mcpManager.statusOf(name)
+  })
+  // The user's explicit trust opt-in / revocation for a plugin-sourced server
+  // (untrusted by default regardless of scope -- see store.ts isTrusted's
+  // `plugin` branch). Keyed on the plugin-qualified name, mirroring
+  // trustPluginServer/untrustPluginServer in store.ts.
+  ipcMain.handle('bearcode:mcp:trust-plugin', (_e, plugin: unknown, name: unknown) => {
+    if (typeof plugin !== 'string' || plugin.length === 0) {
+      throw new Error(`Invalid plugin name: ${String(plugin)}`)
+    }
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    trustMcpPluginServer(plugin, name)
+    return mcpManager.statusOf(name)
+  })
+  ipcMain.handle('bearcode:mcp:untrust-plugin', async (_e, plugin: unknown, name: unknown) => {
+    if (typeof plugin !== 'string' || plugin.length === 0) {
+      throw new Error(`Invalid plugin name: ${String(plugin)}`)
+    }
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    untrustMcpPluginServer(plugin, name)
+    await mcpManager.teardown(name)
     return mcpManager.statusOf(name)
   })
 
@@ -1172,6 +1218,12 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:skills:list', (_e, projectPath: unknown): SkillEntry[] =>
     listSkillEntries(asProjectPath(projectPath))
   )
+  // Settings > Rules page (Phase G plugins arc, Task 12 fix): read-only list,
+  // mirroring skills:list's shape but with no create/update/delete -- rules
+  // stay file-managed (.agents/rules/*.md), same as workflows.
+  ipcMain.handle('bearcode:rules:list', (_e, projectPath: unknown): RuleEntry[] =>
+    listRuleEntries(asProjectPath(projectPath))
+  )
   ipcMain.handle('bearcode:skills:create', (_e, input: unknown, projectPath: unknown): SkillEntry =>
     createSkill(assertValidSkillInput(input), asProjectPath(projectPath))
   )
@@ -1235,6 +1287,88 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:memory:promote', (_e, input: unknown, projectPath: unknown): void => {
     promoteMemory(assertValidPromoteInput(input), asProjectPath(projectPath))
   })
+
+  // Plugins (Phase G plugins arc, Task 9): discovery/enable-state/uninstall
+  // (./plugins, ./plugins/state) plus the marketplace browse/install surface
+  // (./plugins/marketplace). Mirrors the mcp:* idiom above: validate the wire
+  // input, then call straight through -- every write below is already
+  // path-jailed and kebab-name validated inside the modules it calls into.
+  // Project-scope listing/enable/uninstall is trust-gated the SAME way
+  // commands:list/mentions:rules/mentions:skills already gate project content:
+  // `db.isProjectTrusted(projectPath)`.
+  ipcMain.handle('bearcode:plugins:list', (_e, projectPath: unknown): PluginEntry[] => {
+    const proj = asProjectPath(projectPath)
+    return listPlugins(proj, { trusted: proj != null && db.isProjectTrusted(proj) })
+  })
+  ipcMain.handle('bearcode:plugins:catalog', (): Promise<MarketplacePlugin[]> =>
+    pluginMarket.listCatalog()
+  )
+  ipcMain.handle('bearcode:plugins:list-marketplaces', (): string[] =>
+    pluginMarket.listMarketplaces()
+  )
+  ipcMain.handle('bearcode:plugins:add-marketplace', (_e, url: unknown): Promise<void> => {
+    if (typeof url !== 'string' || url.trim().length === 0) {
+      throw new Error(`Invalid marketplace url: ${String(url)}`)
+    }
+    return pluginMarket.addMarketplace(url)
+  })
+  ipcMain.handle('bearcode:plugins:remove-marketplace', (_e, url: unknown): Promise<void> => {
+    if (typeof url !== 'string' || url.trim().length === 0) {
+      throw new Error(`Invalid marketplace url: ${String(url)}`)
+    }
+    return pluginMarket.removeMarketplace(url)
+  })
+  ipcMain.handle(
+    'bearcode:plugins:prepare-install',
+    (
+      _e,
+      source: unknown,
+      marketplaceUrl: unknown
+    ): Promise<{ manifest: PluginManifest; stagePath: string }> => {
+      if (typeof source !== 'string' || source.trim().length === 0) {
+        throw new Error(`Invalid plugin install source: ${String(source)}`)
+      }
+      return pluginMarket.prepareInstall(
+        source,
+        typeof marketplaceUrl === 'string' ? marketplaceUrl : undefined
+      )
+    }
+  )
+  ipcMain.handle('bearcode:plugins:confirm-install', (_e, stagePath: unknown): void => {
+    if (typeof stagePath !== 'string' || stagePath.trim().length === 0) {
+      throw new Error(`Invalid stage path: ${String(stagePath)}`)
+    }
+    pluginMarket.confirmInstall(stagePath)
+  })
+  ipcMain.handle(
+    'bearcode:plugins:install-from-url',
+    (_e, url: unknown): Promise<{ manifest: PluginManifest; stagePath: string }> => {
+      if (typeof url !== 'string' || url.trim().length === 0) {
+        throw new Error(`Invalid plugin install url: ${String(url)}`)
+      }
+      return pluginMarket.installFromUrl(url)
+    }
+  )
+  ipcMain.handle(
+    'bearcode:plugins:set-enabled',
+    (_e, scope: unknown, name: unknown, on: unknown, _projectPath: unknown): void => {
+      if (typeof on !== 'boolean') throw new Error(`Invalid plugin enabled flag: ${String(on)}`)
+      setPluginEnabled(validatePluginScope(scope), validatePluginName(name), on)
+    }
+  )
+  ipcMain.handle('bearcode:plugins:update', (_e, name: unknown): Promise<PluginUpdateResult> => {
+    return pluginMarket.updatePlugin(validatePluginName(name))
+  })
+  ipcMain.handle(
+    'bearcode:plugins:uninstall',
+    (_e, scope: unknown, name: unknown, projectPath: unknown): void => {
+      uninstallPlugin(
+        validatePluginScope(scope),
+        validatePluginName(name),
+        asProjectPath(projectPath)
+      )
+    }
+  )
 
   // navigator.clipboard in the sandboxed renderer is blocked by our tight
   // permission handlers (media-only), so copy went through main's clipboard.

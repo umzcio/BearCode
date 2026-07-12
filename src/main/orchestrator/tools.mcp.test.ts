@@ -11,7 +11,8 @@ vi.mock('../permissions', () => ({
 }))
 vi.mock('../db', () => ({
   appendOrReplaceEvent: vi.fn(),
-  getConversationMeta: vi.fn(() => ({ projectPath: '/proj' }))
+  getConversationMeta: vi.fn(() => ({ projectPath: '/proj' })),
+  isProjectTrusted: vi.fn(() => true)
 }))
 vi.mock('../artifacts/store', () => ({
   createPlanArtifact: vi.fn(),

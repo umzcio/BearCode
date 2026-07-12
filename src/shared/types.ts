@@ -155,6 +155,26 @@ export interface SkillEntry {
   // affordance can pre-fill the editor without wiping the user's content
   // (design 4.6 / Task 9 fix).
   body: string
+  // Set when this skill was folded in from an enabled plugin (Phase G plugins
+  // arc, Task 5) rather than a direct .agents/ skill. Carries the plugin's
+  // on-disk dirName; the Settings page renders a provenance badge and
+  // disables edit/delete (managed via the plugin, not this page).
+  plugin?: string
+}
+
+// The Settings > Rules page's list read model (Phase G plugins arc, Task 12
+// fix). Rules (.agents/rules/*.md, project + global) are file-managed only --
+// there is no create/edit/delete surface here, mirroring workflows -- so this
+// is read-only, but it's the one place a user can see every live rule (name,
+// activation mode, scope) and, for a plugin-sourced one, which plugin owns it
+// (parallel to SkillEntry.plugin / McpServerConfig.plugin).
+export interface RuleEntry {
+  name: string
+  description: string
+  activation: 'always' | 'manual' | 'model' | 'glob'
+  source: 'project' | 'global'
+  error?: string
+  plugin?: string
 }
 
 // Create/update payload for a skill (Settings page editor + /learn's proposal
@@ -337,6 +357,11 @@ export interface McpServerConfig {
   args?: string[]
   env?: Record<string, string>
   source: 'global' | 'project'
+  // Set when this server was contributed by an enabled plugin's mcp.json
+  // rather than a direct global/project config (Phase G plugins arc). Carries
+  // the plugin's on-disk dirName. A plugin-sourced server is UNTRUSTED by
+  // default regardless of `source` -- see isTrusted in mcp/store.ts.
+  plugin?: string
 }
 // A server found via read-only discovery of configs BearCode itself did not
 // write (Task 13 / design §8 G3): a project's `<proj>/.mcp.json` or the
@@ -411,6 +436,66 @@ export interface GithubDeviceStart {
   verificationUri: string
   deviceCode: string
   interval: number
+}
+
+// ---- Plugins (Phase G plugins arc) ----
+// A plugin is a `plugins/<name>/` directory (`plugin.json` marker + optional
+// `skills/`, `rules/`, `mcp.json`, `hooks.json`). These summary shapes are pure
+// metadata for discovery/the install-review card -- never anything executable.
+export interface PluginServerSummary {
+  name: string
+  transport: McpTransport
+  command?: string
+  args?: string[]
+  url?: string
+}
+export interface PluginSkillSummary {
+  name: string
+  description: string
+  // Actual on-disk folder name under `<plugin>/skills/`, which the loader
+  // bridge (enumeratePluginIngredients) needs to build a real path from --
+  // `name` above may differ from it (frontmatter `name:` override, design
+  // 4.1) and must never be used to address the filesystem.
+  folder: string
+}
+export interface PluginRuleSummary {
+  name: string
+  activation: 'always' | 'manual' | 'model' | 'glob'
+}
+export interface PluginManifest {
+  name: string
+  description?: string
+  version?: string
+  scope: 'global' | 'project'
+  skills: PluginSkillSummary[]
+  rules: PluginRuleSummary[]
+  servers: PluginServerSummary[]
+  hookCount: number
+}
+export interface PluginEntry extends PluginManifest {
+  enabled: boolean
+  source?: string
+  // Canonical identity for enable-state/uninstall: the actual scanned
+  // directory name on disk, NOT the (attacker/author-controlled) manifest
+  // `name` field. `name` above stays a display label only.
+  dirName: string
+  // Whether Update can actually do anything: only a plugin whose install
+  // carries a `.git` dir (a direct clone) can be `git pull`ed. A
+  // marketplace-subpath install's `cpSync` copy has no `.git`, so
+  // updatePlugin is a silent no-op for it -- the UI hides/disables Update
+  // rather than offering an action that never does anything.
+  updatable: boolean
+}
+// Result of a plugin update attempt (main/plugins/marketplace.ts
+// updatePlugin): 'not-updatable' when the install has no `.git` (a
+// marketplace-subpath cpSync copy) to `git pull`.
+export type PluginUpdateResult = 'updated' | 'not-updatable'
+// A catalog hit surfaced by a marketplace's marketplace.json (Task 7/8).
+export interface MarketplacePlugin {
+  name: string
+  description: string
+  source: string
+  marketplaceUrl: string
 }
 
 // ---- Artifacts (Ba) ----
@@ -878,6 +963,11 @@ export interface AppSettings {
   // stay untrusted (L2 trust-gated) until the user explicitly trusts them.
   mcpUntrustedGlobalServers?: string[]
   mcpSpawnConsented?: string[]
+  // Plugin-sourced MCP servers (Phase G plugins arc) are untrusted by default
+  // regardless of scope (a plugin bundle's url/command is author-supplied,
+  // not user-typed) -- explicit per-server opt-in, keyed "<pluginDirName>:
+  // <serverName>". Optional & additive.
+  mcpTrustedPluginServers?: string[]
   // Optional override for the GitHub Device Flow OAuth App client_id (public/
   // secret-free). Empty → the shipped placeholder; the PAT path needs none.
   githubClientId?: string
@@ -886,6 +976,12 @@ export interface AppSettings {
   // like mcpTrustedProjectServers). Optional & additive.
   skillsDisabledGlobal?: string[]
   skillsDisabledProject?: Record<string, string[]>
+  // Plugins (Phase G plugins arc): the enabled-set, keyed "<scope>:<name>"
+  // (mirrors mcpEnabledServers' string[] idiom -- default DISABLED, a freshly
+  // installed plugin never auto-activates). `marketplaces` is the list of
+  // git-repo marketplace URLs the user has added. Optional & additive.
+  pluginsEnabled?: string[]
+  marketplaces?: string[]
 }
 
 export interface SettingsInfo extends AppSettings {
@@ -1116,6 +1212,11 @@ export interface BearcodeApi {
     // Trust a global server that was installed pending trust (a Smithery global
     // install). Project-scoped trust uses trust() with the project path.
     trustGlobal(name: string): Promise<McpServerStatus>
+    // Trust / revoke trust for a plugin-sourced server (untrusted by default
+    // regardless of scope -- see store.ts isTrusted's `plugin` branch), keyed
+    // on the plugin-qualified name.
+    trustPlugin(plugin: string, name: string): Promise<McpServerStatus>
+    untrustPlugin(plugin: string, name: string): Promise<McpServerStatus>
     spawnConsent(name: string): Promise<void>
     reconnect(name: string, projectPath: string | null): Promise<McpServerStatus>
     // (Re)trigger the OAuth sign-in for a remote server that needs it: opens
@@ -1170,6 +1271,14 @@ export interface BearcodeApi {
     ): Promise<void>
     save(callId: string, resolution: SkillProposalResolution): Promise<SkillSaveResult>
   }
+  // Settings > Rules page's read-only list (Phase G plugins arc, Task 12 fix):
+  // every live rule (project + global), each with its activation mode and, for
+  // a plugin-sourced one, the owning plugin's name -- see RuleEntry. No
+  // create/update/delete: rules stay file-managed (.agents/rules/*.md), same
+  // as workflows.
+  rules: {
+    list(projectPath: string | null): Promise<RuleEntry[]>
+  }
   // Memory CRUD + promote (Task 6): Settings > Memory page's list plus
   // add/update/delete of individual bullets and promote-to-rule/skill.
   memory: {
@@ -1183,6 +1292,33 @@ export interface BearcodeApi {
     ): Promise<void>
     delete(scope: MemoryScopeName, index: number, projectPath: string | null): Promise<void>
     promote(input: MemoryPromoteInput, projectPath: string | null): Promise<void>
+  }
+  // Plugins (Phase G plugins arc, Task 9): the Settings > Plugins page's
+  // installed-list + enable-toggle/uninstall/update, and the browse-catalog /
+  // add-marketplace / install-from-URL flow (Task 8's prepareInstall stages a
+  // candidate without writing anything real; confirmInstall is the only call
+  // that lands it in the live plugins tree). Every write is path-jailed and
+  // kebab-name validated main-side (plugins/index.ts, plugins/marketplace.ts).
+  plugins: {
+    list(projectPath: string | null): Promise<PluginEntry[]>
+    catalog(): Promise<MarketplacePlugin[]>
+    listMarketplaces(): Promise<string[]>
+    addMarketplace(url: string): Promise<void>
+    removeMarketplace(url: string): Promise<void>
+    prepareInstall(
+      source: string,
+      marketplaceUrl?: string
+    ): Promise<{ manifest: PluginManifest; stagePath: string }>
+    confirmInstall(stagePath: string): Promise<void>
+    installFromUrl(url: string): Promise<{ manifest: PluginManifest; stagePath: string }>
+    setEnabled(
+      scope: 'global' | 'project',
+      name: string,
+      on: boolean,
+      projectPath: string | null
+    ): Promise<void>
+    update(name: string): Promise<PluginUpdateResult>
+    uninstall(scope: 'global' | 'project', name: string, projectPath: string | null): Promise<void>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

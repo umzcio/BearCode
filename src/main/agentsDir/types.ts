@@ -15,6 +15,7 @@ export interface Rule {
   source: 'project' | 'global'
   error?: string // set when the file is malformed; assembly skips
   warnings?: string[] // non-fatal issues (e.g. unresolved cross-refs), set at load time
+  plugin?: string // set when this rule was folded in from a plugin (dirName); absent for direct .agents/ rules
 }
 
 // Workflow types for the .agents/ workflows spine (design 3.1/5.1-5.4,
@@ -49,6 +50,7 @@ export interface Skill {
   source: 'project' | 'global'
   error?: string // missing description / non-kebab name / malformed frontmatter
   warnings?: string[] // e.g. truncation, set at load time
+  plugin?: string // set when this skill was folded in from a plugin (dirName); absent for direct .agents/ skills
 }
 
 export interface AgentsContent {

@@ -12,6 +12,7 @@ import { Toggle } from '../../Toggle'
 import { Select } from '../../Select'
 import type { SelectOption } from '../../Select'
 import { BrowseSmitheryModal } from '../BrowseSmitheryModal'
+import { PluginBadge } from '../../PluginBadge'
 
 // A settings row: title + description on the left, the control on the right.
 function Row({
@@ -259,6 +260,16 @@ export function ConnectorsPage(): JSX.Element | null {
   }
 
   const trustServer = (view: McpServerView): void => {
+    // A plugin-sourced server is untrusted by default REGARDLESS of `source`
+    // (store.ts isTrusted's `plugin` branch) and is keyed on the
+    // plugin-qualified name, so it must route to trustPlugin FIRST -- before
+    // the source==='global' branch below, which would otherwise edit
+    // mcpUntrustedGlobalServers (a key isTrusted's plugin branch never reads),
+    // making the Trust button a silent no-op for every plugin MCP server.
+    if (view.config.plugin) {
+      void window.bearcode.mcp.trustPlugin(view.config.plugin, view.config.name).then(refresh)
+      return
+    }
     // A global server pending trust (a Smithery install) is trusted without a
     // project path; a project-scoped server is trusted per-project.
     if (view.config.source === 'global') {
@@ -387,6 +398,7 @@ export function ConnectorsPage(): JSX.Element | null {
                       <span className={'connector-badge' + (isRemote ? '' : ' local')}>
                         {isRemote ? 'remote' : 'local ⚠'}
                       </span>
+                      {view.config.plugin ? <PluginBadge name={view.config.plugin} /> : null}
                     </div>
                     <div className="set-row-desc">
                       <span className={'status-dot' + (isConnected ? ' ok' : '')} />
@@ -432,7 +444,14 @@ export function ConnectorsPage(): JSX.Element | null {
                       Reconnect
                     </button>
                   )}
-                  <button className="pill-btn" onClick={() => removeServer(view)}>
+                  <button
+                    className="pill-btn"
+                    disabled={!!view.config.plugin}
+                    title={
+                      view.config.plugin ? `Managed by the ${view.config.plugin} plugin` : undefined
+                    }
+                    onClick={() => removeServer(view)}
+                  >
                     Remove
                   </button>
                   <Toggle
