@@ -634,6 +634,18 @@ export function interruptBelongsToToolCall(
     if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
     return (tc.args as { name?: unknown } | null | undefined)?.name === value.name
   }
+  if (value?.kind === 'hook_ask') {
+    // Task 8 review fix: mirror the browser/mcp/integration branches above.
+    // A hook-ask approval can wrap ANY tool (wrap.ts wraps every custom
+    // tool; fsBackend.ts's hookPreGate wraps every built-in fs tool), so
+    // without this it fell through to the terminal `return true` below and
+    // could CLAIM an unrelated dangling run_command candidate on the id-less
+    // fallback path, mislabeling the re-surfaced card. Both call sites
+    // always supply a toolCallId from the live runtime, so pairing is
+    // toolCallId-only, never a fallback.
+    if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
+    return false
+  }
   return true
 }
 
@@ -815,6 +827,30 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
         : 'github_list_repos'
     ) as ToolName
     return { tool, input: value.input ?? {}, toolCallId }
+  }
+  if (value?.kind === 'hook_ask') {
+    // Task 8 review fix: re-surface a parked hook-ask approval as its REAL
+    // card -- a hook's PreToolUse matcher can target ANY tool (a built-in fs
+    // tool via fsBackend.ts's GatedDiffFsBackend, or any tool wrapped by
+    // wrap.ts's wrapToolsWithHooks), never just run_command, so without this
+    // branch every hook_ask interrupt fell through to the empty run_command
+    // fallback below -- a blank-looking card whose approval actually resumed
+    // whatever real tool the hook gated (a write, a browser_evaluate, an mcp__
+    // call, ...) without the user ever seeing what it was. The interrupt
+    // payload carries the true tool name + call input (hooks/wrap.ts and
+    // fsBackend.ts's hookPreGate both set `tool`/`input` on the interrupt()
+    // call), so the rehydrated card shows exactly what will execute on
+    // approval. `tool` here is asserted, not validated against ToolName's
+    // closed union (mirrors the mcp__/integration branches above, which do
+    // the same for names outside their own prefix checks): an arbitrary
+    // wrapped tool name is not itself a security boundary -- the
+    // toolCallId-keyed denied-replay pin (byHookToolCallId) is what actually
+    // blocks execution on Deny, regardless of what label the card shows.
+    return {
+      tool: (typeof value.tool === 'string' ? value.tool : 'run_command') as ToolName,
+      input: value.input ?? {},
+      toolCallId
+    }
   }
   if (value?.kind === 'propose_skill') {
     // The card is built from the payload alone (name/description/body) so the
@@ -2309,20 +2345,44 @@ function buildAgentAndContext(
   const backend = projectPath
     ? new DiffFsBackend(conversationId, projectPath, diffGroupId, worktreeMappings)
     : undefined
+  // Hooks (Phase G hooks arc, Task 8): computed here, BEFORE backendFactory
+  // and BEFORE the rules try/catch below, so both the GatedDiffFsBackend
+  // instances the factory mints AND wrapToolsWithHooks (further down) share
+  // the identical, unconditionally-computed context. `trusted` deliberately
+  // is NOT threaded out of the rules try/catch below -- a failure there must
+  // never leave this secure-default computation unset. `sandbox` mirrors the
+  // exact source run_command reads for its own Sandbox Mode decision.
+  const { trusted: hooksTrusted } = resolveTrustForTurn(projectPath)
+  const hookCtx: HookCtx = {
+    conversationId,
+    projectPath,
+    trusted: hooksTrusted,
+    sandbox: projectPath != null && getProjectSettings(projectPath)?.sandboxMode === true
+  }
   // createDeepAgent gets a FACTORY (resolved per builtin-tool invocation, so
   // the Bb3 edit gate sees each call's provider tool-call id) while ctx.backend
   // below keeps pointing at the ONE shared DiffFsBackend -- the staged-files
   // post-loop and closeOutTurn read its stagedFiles. The runtime cast is
   // needed because the published BackendFactory parameter type omits the
   // toolCall field the tool-time runtime actually carries (verified:
-  // scratchpad bb3-edit-gating-probe.md section 2, probe B).
+  // scratchpad bb3-edit-gating-probe.md section 2, probe B). `hookCtx` is
+  // threaded through so GatedDiffFsBackend's built-in ls/read_file/write_file/
+  // edit_file/glob/grep delegations run PreToolUse/PostToolUse too (Task 8
+  // review finding: those built-ins are generated internally by
+  // createDeepAgent/createFilesystemMiddleware and never pass through
+  // wrapToolsWithHooks below) -- this SAME factory closure is also what
+  // normalizeSubagentSpec threads into every subagent's own
+  // createFilesystemMiddleware (createDeepAgent's `backend:` param, set
+  // below), so the researcher/browser subagents' built-in fs tools are
+  // covered by this one change too.
   const backendFactory = backend
     ? (runtime: unknown): GatedDiffFsBackend =>
         new GatedDiffFsBackend(
           backend,
           (runtime as { toolCall?: { id?: string } } | undefined)?.toolCall?.id,
           conversationId,
-          projectPath as string
+          projectPath as string,
+          hookCtx
         )
     : undefined
   // .agents rules load once per turn, right here at agent build (design 3.2):
@@ -2449,20 +2509,12 @@ function buildAgentAndContext(
   // passes the per-tool 'integration' permission gate inside the tool body.
   const integrationTools = buildIntegrationTools(conversationId)
   // Hooks (Phase G hooks arc, Task 8): ONE generic wrapper applied to the
-  // fully composed tool list, right before createDeepAgent -- matchers
-  // inside each hook record decide which tools actually fire, so nothing
-  // else here needs to change per-tool. `trusted` is re-derived (cheap,
-  // pure db reads, same as resolveTrustForTurn's use above) rather than
-  // threaded out of the rules try/catch above, so a failure there can never
-  // leave this secure-default computation unset. `sandbox` mirrors the exact
-  // source run_command reads for its own Sandbox Mode decision.
-  const { trusted: hooksTrusted } = resolveTrustForTurn(projectPath)
-  const hookCtx: HookCtx = {
-    conversationId,
-    projectPath,
-    trusted: hooksTrusted,
-    sandbox: projectPath != null && getProjectSettings(projectPath)?.sandboxMode === true
-  }
+  // fully composed CUSTOM tool list, right before createDeepAgent --
+  // matchers inside each hook record decide which tools actually fire, so
+  // nothing else here needs to change per-tool. `hookCtx` was computed once,
+  // unconditionally, above (before the rules try/catch) and is reused here
+  // and by backendFactory's GatedDiffFsBackend instances (built-in fs tools)
+  // so both paths share the identical context.
   const allTools = [
     ...(backendFactory
       ? buildTools(projectPath as string, conversationId, sink, diffGroupId, worktreeMappings)
@@ -2810,6 +2862,27 @@ export async function rehydratePausedRun(
       // re-executes from its interrupt() and returns its own result; the
       // crash-resumed tool_result row is a cosmetic history gap. Deny stays safe
       // — the toolCallId is preserved so the pin lands in byToolCallId.
+      const card = synthesizedApprovalCard(pairing.value)
+      tool = card.tool
+      input = card.input
+      toolCallId = card.toolCallId
+    } else if ((pairing.value as { kind?: string } | null | undefined)?.kind === 'hook_ask') {
+      // Task 8 review fix: hook-ask approvals re-park from the payload like
+      // browser/edit above. The dangling scan is run_command-only so
+      // pairing.call is null unless the hook happened to wrap run_command
+      // itself (and even then, interruptBelongsToToolCall's hook_ask branch
+      // above only pairs by toolCallId, never the id-less fallback), so
+      // synthesizedApprovalCard reconstructs the REAL card -- the tool the
+      // hook actually gated + its call input -- instead of the empty
+      // run_command fallback whose innocuous-looking approval would resume
+      // and EXECUTE whatever real tool (a write, a browser_evaluate, an
+      // mcp__ call, ...) the hook parked. No ctx seeding (the Bb3 edit
+      // precedent): the replayed tool re-executes from its own interrupt()
+      // and returns its own result; the crash-resumed tool_result row is a
+      // cosmetic history gap. Deny stays safe -- the toolCallId is preserved
+      // so the pin lands in byHookToolCallId (wrap.ts's
+      // takeDeniedHookReplayPin / fsBackend.ts's hookPreGate both consult it
+      // before re-running).
       const card = synthesizedApprovalCard(pairing.value)
       tool = card.tool
       input = card.input

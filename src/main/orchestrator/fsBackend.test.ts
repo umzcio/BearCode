@@ -30,6 +30,19 @@ vi.mock('@langchain/langgraph', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@langchain/langgraph')>()
   return { ...actual, interrupt: vi.fn() }
 })
+// Task 8 review fix: GatedDiffFsBackend now runs the built-in fs tools
+// (ls/read_file/write_file/edit_file/glob/grep) through the SAME
+// PreToolUse/PostToolUse hooks layer wrap.ts uses for custom tools. Mocked
+// exactly like hooks/wrap.test.ts mocks it -- this test file exercises only
+// the gating/decision-routing logic, not real hook spawning (covered by
+// runner.test.ts), and avoids pulling the real runner.ts's transitive
+// sandbox/policy.ts -> 'electron' import into a plain node vitest run.
+const mockRunPreToolUse = vi.fn()
+const mockRunPostToolUse = vi.fn()
+vi.mock('../hooks/runner', () => ({
+  runPreToolUse: (...args: unknown[]) => mockRunPreToolUse(...args),
+  runPostToolUse: (...args: unknown[]) => mockRunPostToolUse(...args)
+}))
 
 import { GraphInterrupt, interrupt, isGraphInterrupt } from '@langchain/langgraph'
 import { stageFile } from '../diffs'
@@ -464,5 +477,216 @@ describe('F8 fileAccessPolicy — outside-root READ relaxation (writes stay jail
     )
     // Inside-root is unchanged regardless of the flag.
     expect(jailPath(projectPath, 'a/b.txt')).toBe(join(projectPath, 'a', 'b.txt'))
+  })
+})
+
+// Task 8 review fix: createDeepAgent() generates ls/read_file/write_file/
+// edit_file/glob/grep INTERNALLY (createFilesystemMiddleware(backend)) and
+// never routes them through graph.ts's wrapToolsWithHooks, so a hook whose
+// matcher targets any of those tool names silently never fired -- including
+// the design doc's own flagship "format-on-edit" example. These tests prove
+// GatedDiffFsBackend now runs the identical PreToolUse/PostToolUse gating
+// wrap.ts runs for every custom tool.
+describe('GatedDiffFsBackend hook gating (Task 8 review fix)', () => {
+  let projectPath: string
+  let shared: ReturnType<typeof fakeShared>
+  let gated: GatedDiffFsBackend
+  const hookCtx = { conversationId: 'convo', projectPath: '/proj', trusted: true }
+
+  beforeEach(() => {
+    clearDeniedReplayPins('convo')
+    mockRunPreToolUse.mockReset().mockResolvedValue({ decision: 'allow' })
+    mockRunPostToolUse.mockReset().mockResolvedValue(undefined)
+    vi.mocked(evaluateEditForConversation).mockClear().mockReturnValue('apply')
+    vi.mocked(getSettings).mockReturnValue({ fileAccessPolicy: 'deny' } as never)
+    vi.mocked(interrupt).mockClear()
+    projectPath = realpathSync(mkdtempSync(join(tmpdir(), 'bearcode-hookgate-')))
+    mkdirSync(join(projectPath, 'a'))
+    writeFileSync(join(projectPath, 'a', 'b.txt'), 'hello')
+    shared = fakeShared()
+    gated = new GatedDiffFsBackend(
+      shared as unknown as DiffFsBackend,
+      'tc1',
+      'convo',
+      projectPath,
+      hookCtx
+    )
+  })
+
+  it('a plain 4-arg construction (hookCtx unset) never consults the hooks layer at all', async () => {
+    const noHooks = new GatedDiffFsBackend(
+      shared as unknown as DiffFsBackend,
+      'tc1',
+      'convo',
+      projectPath
+    )
+    await noHooks.write('a/b.txt', 'new')
+    await noHooks.ls('a')
+    expect(mockRunPreToolUse).not.toHaveBeenCalled()
+    expect(mockRunPostToolUse).not.toHaveBeenCalled()
+  })
+
+  it('PreToolUse deny on write_file short-circuits BEFORE the edit-rule engine, shared never called', async () => {
+    mockRunPreToolUse.mockResolvedValue({ decision: 'deny', reason: 'no writes to secrets' })
+    const result = await gated.write('a/b.txt', 'new')
+    expect(result).toEqual({ error: 'no writes to secrets' })
+    expect(mockRunPreToolUse).toHaveBeenCalledWith(
+      'write_file',
+      { file_path: 'a/b.txt', content: 'new' },
+      hookCtx
+    )
+    // Hooks run BEFORE the base gate -- the rules engine must never even run.
+    expect(evaluateEditForConversation).not.toHaveBeenCalled()
+    expect(shared.write).not.toHaveBeenCalled()
+    expect(interrupt).not.toHaveBeenCalled()
+  })
+
+  it('PreToolUse ask on edit_file raises the hook_ask interrupt contract; approved proceeds to the base gate', async () => {
+    mockRunPreToolUse.mockResolvedValue({ decision: 'ask', reason: 'confirm this edit' })
+    vi.mocked(interrupt).mockReturnValue({ approved: true })
+    await gated.edit('a/b.txt', 'hello', 'goodbye')
+    expect(interrupt).toHaveBeenCalledWith({
+      kind: 'hook_ask',
+      tool: 'edit_file',
+      input: {
+        file_path: 'a/b.txt',
+        old_string: 'hello',
+        new_string: 'goodbye',
+        replace_all: false
+      },
+      reason: 'confirm this edit',
+      toolCallId: 'tc1'
+    })
+    // Allowed by the hook -> the base 'apply' decision still runs and delegates.
+    expect(evaluateEditForConversation).toHaveBeenCalled()
+    expect(shared.edit).toHaveBeenCalledWith('a/b.txt', 'hello', 'goodbye', false)
+  })
+
+  it('PreToolUse ask denied by the user blocks the write, base gate never reached', async () => {
+    mockRunPreToolUse.mockResolvedValue({ decision: 'ask' })
+    vi.mocked(interrupt).mockReturnValue({ approved: false })
+    const result = await gated.write('a/b.txt', 'new')
+    expect(result).toEqual({ error: 'User denied this action.' })
+    expect(evaluateEditForConversation).not.toHaveBeenCalled()
+    expect(shared.write).not.toHaveBeenCalled()
+  })
+
+  it('a throwing hooks layer fails OPEN: the base gate still runs normally', async () => {
+    mockRunPreToolUse.mockRejectedValue(new Error('hooks layer exploded'))
+    const result = await gated.write('a/b.txt', 'new')
+    expect(result).toEqual({ path: 'x', filesUpdate: null })
+    expect(shared.write).toHaveBeenCalledWith('a/b.txt', 'new')
+  })
+
+  it('fires PostToolUse after a successful write, never awaited into the return path', async () => {
+    const result = await gated.write('a/b.txt', 'new')
+    expect(result).toEqual({ path: 'x', filesUpdate: null })
+    expect(mockRunPostToolUse).toHaveBeenCalledWith(
+      'write_file',
+      { file_path: 'a/b.txt', content: 'new' },
+      true,
+      { path: 'x', filesUpdate: null },
+      hookCtx
+    )
+  })
+
+  it('does NOT fire PostToolUse when the hook denied the call (original never ran)', async () => {
+    mockRunPreToolUse.mockResolvedValue({ decision: 'deny', reason: 'no' })
+    await gated.write('a/b.txt', 'new')
+    expect(mockRunPostToolUse).not.toHaveBeenCalled()
+  })
+
+  it('a denied-replay pin (byHookToolCallId) blocks the replay BEFORE runPreToolUse is even consulted', async () => {
+    // Mirrors wrap.test.ts's identical case: on a keyed-resume replay this
+    // whole path re-runs from the top; a hook-ask card the user denied must
+    // win even if runPreToolUse would now return a different decision.
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1' }])
+    const result = await gated.write('a/b.txt', 'new')
+    expect(result).toEqual({ error: 'User denied this action.' })
+    expect(mockRunPreToolUse).not.toHaveBeenCalled()
+    expect(shared.write).not.toHaveBeenCalled()
+
+    // Take-once (byHookToolCallId specifically): a genuinely UNRELATED call
+    // (a fresh toolCallId the pin never touched) is not silently denied by
+    // the hooks layer -- pinDeniedReplays also populates the write gate's
+    // OWN byToolCallId pin from the same denied card (tools.ts's shared
+    // discipline: every denied toolCallId is recorded in BOTH namespaces),
+    // so a same-toolCallId retry is deliberately still blocked one more time
+    // by takeDeniedEditReplayPin -- that double-consumption is covered by
+    // the existing 'a consumed pin never denies a later identical write'
+    // case above for the base gate's own pin.
+    const other = new GatedDiffFsBackend(
+      shared as unknown as DiffFsBackend,
+      'tc-other',
+      'convo',
+      projectPath,
+      hookCtx
+    )
+    const result2 = await other.write('a/b.txt', 'newer')
+    expect(result2).toEqual({ path: 'x', filesUpdate: null })
+    expect(mockRunPreToolUse).toHaveBeenCalledTimes(1)
+  })
+
+  // The whole point of this fixer pass: the BUILT-IN read tools (ls/
+  // read_file/grep/glob) never routed through wrapToolsWithHooks either, so
+  // they must get the identical treatment as write/edit above.
+  it('gates ls() (a built-in read tool) through PreToolUse deny', async () => {
+    mockRunPreToolUse.mockResolvedValue({ decision: 'deny', reason: 'no directory listing' })
+    const result = await gated.ls('a')
+    expect(result).toEqual({ error: 'no directory listing' })
+    expect(mockRunPreToolUse).toHaveBeenCalledWith('ls', { path: 'a' }, hookCtx)
+    expect(shared.ls).not.toHaveBeenCalled()
+  })
+
+  it('gates read() through PreToolUse ask -> approved proceeds to the shared read', async () => {
+    mockRunPreToolUse.mockResolvedValue({ decision: 'ask', reason: 'reading a sensitive file' })
+    vi.mocked(interrupt).mockReturnValue({ approved: true })
+    await gated.read('a/b.txt', 0, 10)
+    expect(interrupt).toHaveBeenCalledWith({
+      kind: 'hook_ask',
+      tool: 'read_file',
+      input: { file_path: 'a/b.txt', offset: 0, limit: 10 },
+      reason: 'reading a sensitive file',
+      toolCallId: 'tc1'
+    })
+    expect(shared.read).toHaveBeenCalledWith('a/b.txt', 0, 10, false)
+  })
+
+  it('gates grep()/glob() through PreToolUse deny, matching field names hooks would author matchers against', async () => {
+    mockRunPreToolUse.mockResolvedValue({ decision: 'deny', reason: 'no' })
+    await gated.grep('needle', 'a', '*.txt')
+    expect(mockRunPreToolUse).toHaveBeenCalledWith(
+      'grep',
+      { pattern: 'needle', path: 'a', glob: '*.txt' },
+      hookCtx
+    )
+    expect(shared.grep).not.toHaveBeenCalled()
+    await gated.glob('**/*.txt', 'a')
+    expect(mockRunPreToolUse).toHaveBeenCalledWith(
+      'glob',
+      { pattern: '**/*.txt', path: 'a' },
+      hookCtx
+    )
+    expect(shared.glob).not.toHaveBeenCalled()
+  })
+
+  it('fires PostToolUse after a successful read-side delegation too', async () => {
+    await gated.grep('needle', 'a', null)
+    expect(mockRunPostToolUse).toHaveBeenCalledWith(
+      'grep',
+      { pattern: 'needle', path: 'a', glob: null },
+      true,
+      { matches: [] },
+      hookCtx
+    )
+  })
+
+  it('an allowed hook still lets the OUTSIDE-workspace read policy (F8) run afterward', async () => {
+    // Hooks are additive, layered IN FRONT of the base gate -- an 'allow'
+    // from the hooks layer must not relax the outside-root deny below it.
+    mockRunPreToolUse.mockResolvedValue({ decision: 'allow' })
+    const result = await gated.read('../outside.txt')
+    expect(result).toEqual({ error: expect.stringContaining('outside the workspace') })
+    expect(shared.read).not.toHaveBeenCalled()
   })
 })

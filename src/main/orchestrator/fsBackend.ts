@@ -31,7 +31,8 @@ import type { FileDiffFile } from '../../shared/types'
 import { stageFile } from '../diffs'
 import { evaluateEditForConversation, resolveConversationMode } from '../permissions'
 import { getSettings } from '../settings'
-import { takeDeniedEditReplayPin } from './tools'
+import { takeDeniedEditReplayPin, takeDeniedHookReplayPin } from './tools'
+import { runPostToolUse, runPreToolUse, type HookCtx } from '../hooks/runner'
 import { matchWorktree, toWorktreePath, type WorktreeMapping } from '../worktree/paths'
 
 const execFileAsync = promisify(execFile)
@@ -387,8 +388,92 @@ export class GatedDiffFsBackend implements BackendProtocolV2 {
     private readonly shared: DiffFsBackend,
     private readonly toolCallId: string | undefined,
     private readonly conversationId: string,
-    private readonly projectPath: string
+    private readonly projectPath: string,
+    // Task 8 review fix: createDeepAgent() generates ls/read_file/write_file/
+    // edit_file/glob/grep INTERNALLY via createFilesystemMiddleware(backend)
+    // -- they never pass through graph.ts's wrapToolsWithHooks (which only
+    // sees the JS-composed custom tools), so without threading hooks through
+    // HERE a hook whose matcher targets any built-in fs tool name silently
+    // never fires, including the design doc's own flagship "format-on-edit"
+    // example. `backend` is the SAME factory closure passed to both
+    // createDeepAgent's top-level `backend:` option and (via
+    // normalizeSubagentSpec) every subagent's own createFilesystemMiddleware,
+    // so threading hookCtx through the constructor here covers the main
+    // agent AND the researcher/browser subagents' built-in fs tools with one
+    // change (graph.ts's backendFactory closes over the same hookCtx it
+    // already builds for wrapToolsWithHooks). Optional and undefined in
+    // every pre-Task-8 test construction (which still passes only 4
+    // constructor args) -- a plain no-op allow, not a degraded state: hooks
+    // are strictly additive, never load-bearing for existing behavior.
+    private readonly hookCtx?: HookCtx
   ) {}
+
+  // Runs PreToolUse for a built-in fs tool call BEFORE the tool's own
+  // permission gate below (hooks are a layer IN FRONT of the base gate,
+  // never a replacement for it -- mirrors wrap.ts's wrapToolsWithHooks
+  // byte-for-byte, including the fail-open discipline and the denied-replay-
+  // pin guard). `tool` uses the exact built-in tool names
+  // (ls/read_file/write_file/edit_file/glob/grep) a hooks.json matcher
+  // targets. Returns null (proceed) when hookCtx is unset, the hooks layer
+  // allows, or consulting it throws.
+  private async hookPreGate(
+    tool: 'ls' | 'read_file' | 'write_file' | 'edit_file' | 'glob' | 'grep',
+    input: Record<string, unknown>
+  ): Promise<{ error: string } | null> {
+    if (!this.hookCtx) return null
+    // BEFORE consulting the hooks layer at all: a keyed-resume replay
+    // re-runs this whole method from the top (the identical hazard
+    // wrap.ts's own guard and takeDeniedEditReplayPin below both close) --
+    // a hook-ask card the user explicitly denied must win over whatever the
+    // hooks layer would newly compute on replay (a non-deterministic hook,
+    // or the hook being edited/disabled via Settings > Hooks while the card
+    // was pending). Consumes byHookToolCallId ONLY -- its own namespace,
+    // never the shared byToolCallId set the write/edit gate's own pin below
+    // reads -- exactly the discipline takeDeniedHookReplayPin's doc comment
+    // (tools.ts) requires.
+    if (takeDeniedHookReplayPin(this.conversationId, this.toolCallId)) {
+      return { error: 'User denied this action.' }
+    }
+    let decision: { decision: 'allow' | 'deny' | 'ask'; reason?: string }
+    try {
+      decision = await runPreToolUse(tool, input, this.hookCtx)
+    } catch {
+      // Outer safety net: runner.ts already fails open for a single hook's
+      // own spawn/timeout/parse failure, but if consulting the hooks layer
+      // itself throws for any other reason, that must ALSO fail open (never
+      // wedge or block the agent) -- the base permission gate below stays
+      // authoritative either way.
+      decision = { decision: 'allow' }
+    }
+    if (decision.decision === 'deny') {
+      return { error: decision.reason ?? 'Blocked by a hook.' }
+    }
+    if (decision.decision === 'ask') {
+      const approval = interrupt({
+        kind: 'hook_ask',
+        tool,
+        input,
+        reason: decision.reason,
+        toolCallId: this.toolCallId
+      }) as { approved?: boolean } | null | undefined
+      if (!approval?.approved) return { error: 'User denied this action.' }
+    }
+    return null
+  }
+
+  // PostToolUse is observe-only and fire-and-forget, exactly like wrap.ts's
+  // own call: never awaited into the caller's return path, never lets a
+  // hook's failure surface back into the agent loop. A no-op when hookCtx
+  // is unset.
+  private hookPost(
+    tool: 'ls' | 'read_file' | 'write_file' | 'edit_file' | 'glob' | 'grep',
+    input: Record<string, unknown>,
+    ok: boolean,
+    result: unknown
+  ): void {
+    if (!this.hookCtx) return
+    void runPostToolUse(tool, input, ok, result, this.hookCtx).catch(() => {})
+  }
 
   // Returns {error} when the write must not happen, null when it may proceed
   // ('apply' decision or an approved interrupt). jailPath runs in its own
@@ -396,7 +481,15 @@ export class GatedDiffFsBackend implements BackendProtocolV2 {
   // shared methods classify it; the rules evaluation and interrupt() run
   // OUTSIDE any try so a GraphInterrupt always propagates as the
   // pending-approval pause instead of being swallowed into {error}.
-  private gate(filePath: string, tool: 'write_file' | 'edit_file'): { error: string } | null {
+  private async gate(
+    filePath: string,
+    tool: 'write_file' | 'edit_file',
+    hookInput: Record<string, unknown>
+  ): Promise<{ error: string } | null> {
+    // Hooks run BEFORE the base edit-rule gate (design: PreToolUse tightens,
+    // never bypasses, the normal permission evaluation below).
+    const hookDenied = await this.hookPreGate(tool, hookInput)
+    if (hookDenied) return hookDenied
     // BEFORE anything else -- jail resolution included -- honor a recorded
     // denial from the approval batch (tools.ts deniedReplayPins): on the
     // keyed-resume replay this method re-runs from the top, and if the rules
@@ -460,9 +553,12 @@ export class GatedDiffFsBackend implements BackendProtocolV2 {
   }
 
   async write(filePath: string, content: string): Promise<WriteResult> {
-    const denied = this.gate(filePath, 'write_file')
+    const hookInput = { file_path: filePath, content }
+    const denied = await this.gate(filePath, 'write_file', hookInput)
     if (denied) return denied
-    return this.shared.write(filePath, content)
+    const result = await this.shared.write(filePath, content)
+    this.hookPost('write_file', hookInput, !result.error, result)
+    return result
   }
 
   async edit(
@@ -471,9 +567,17 @@ export class GatedDiffFsBackend implements BackendProtocolV2 {
     newString: string,
     replaceAll = false
   ): Promise<EditResult> {
-    const denied = this.gate(filePath, 'edit_file')
+    const hookInput = {
+      file_path: filePath,
+      old_string: oldString,
+      new_string: newString,
+      replace_all: replaceAll
+    }
+    const denied = await this.gate(filePath, 'edit_file', hookInput)
     if (denied) return denied
-    return this.shared.edit(filePath, oldString, newString, replaceAll)
+    const result = await this.shared.edit(filePath, oldString, newString, replaceAll)
+    this.hookPost('edit_file', hookInput, !result.error, result)
+    return result
   }
 
   // F8 read gate: reads INSIDE the workspace root are unchanged (ungated, no
@@ -487,10 +591,15 @@ export class GatedDiffFsBackend implements BackendProtocolV2 {
   // interrupt() runs OUTSIDE any try (like the write gate) so a GraphInterrupt
   // propagates as the pending-approval pause; resolveInWorkspace is pure and
   // does not throw for the outside case, so no try is needed here.
-  private guardRead(
+  private async guardRead(
     rawPath: string | undefined,
-    tool: string
-  ): { error: string } | { allowOutside: boolean } {
+    tool: 'ls' | 'read_file' | 'grep' | 'glob',
+    hookInput: Record<string, unknown>
+  ): Promise<{ error: string } | { allowOutside: boolean }> {
+    // Hooks run BEFORE the outside-workspace policy check below, same
+    // discipline as the write/edit gate.
+    const hookDenied = await this.hookPreGate(tool, hookInput)
+    if (hookDenied) return hookDenied
     let outside: boolean
     let real: string
     try {
@@ -528,32 +637,47 @@ export class GatedDiffFsBackend implements BackendProtocolV2 {
   // resolved allowOutsideRead flag to the shared method. uploadFiles/
   // downloadFiles are optional in the protocol and DiffFsBackend omits them.
   async ls(path: string): Promise<LsResult> {
-    const g = this.guardRead(path, 'ls')
+    const hookInput = { path }
+    const g = await this.guardRead(path, 'ls', hookInput)
     if ('error' in g) return { error: g.error }
-    return this.shared.ls(path, g.allowOutside)
+    const result = await this.shared.ls(path, g.allowOutside)
+    this.hookPost('ls', hookInput, !result.error, result)
+    return result
   }
 
   async read(filePath: string, offset?: number, limit?: number): Promise<ReadResult> {
-    const g = this.guardRead(filePath, 'read_file')
+    const hookInput = { file_path: filePath, offset, limit }
+    const g = await this.guardRead(filePath, 'read_file', hookInput)
     if ('error' in g) return { error: g.error }
-    return this.shared.read(filePath, offset, limit, g.allowOutside)
+    const result = await this.shared.read(filePath, offset, limit, g.allowOutside)
+    this.hookPost('read_file', hookInput, !result.error, result)
+    return result
   }
 
   async readRaw(filePath: string): Promise<ReadRawResult> {
-    const g = this.guardRead(filePath, 'read_file')
+    const hookInput = { file_path: filePath }
+    const g = await this.guardRead(filePath, 'read_file', hookInput)
     if ('error' in g) return { error: g.error }
-    return this.shared.readRaw(filePath, g.allowOutside)
+    const result = await this.shared.readRaw(filePath, g.allowOutside)
+    this.hookPost('read_file', hookInput, !result.error, result)
+    return result
   }
 
   async grep(pattern: string, path?: string | null, glob?: string | null): Promise<GrepResult> {
-    const g = this.guardRead(path ?? undefined, 'grep')
+    const hookInput = { pattern, path, glob }
+    const g = await this.guardRead(path ?? undefined, 'grep', hookInput)
     if ('error' in g) return { error: g.error }
-    return this.shared.grep(pattern, path, glob, g.allowOutside)
+    const result = await this.shared.grep(pattern, path, glob, g.allowOutside)
+    this.hookPost('grep', hookInput, !result.error, result)
+    return result
   }
 
   async glob(pattern: string, path?: string): Promise<GlobResult> {
-    const g = this.guardRead(path, 'glob')
+    const hookInput = { pattern, path }
+    const g = await this.guardRead(path, 'glob', hookInput)
     if ('error' in g) return { error: g.error }
-    return this.shared.glob(pattern, path, g.allowOutside)
+    const result = await this.shared.glob(pattern, path, g.allowOutside)
+    this.hookPost('glob', hookInput, !result.error, result)
+    return result
   }
 }
