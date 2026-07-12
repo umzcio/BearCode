@@ -80,3 +80,39 @@ export function uninstallPlugin(
   // invariant on reinstall, not just first install.
   setPluginEnabled(scope, name, false)
 }
+
+// The loader bridge: turns enabled plugins into the raw ingredient paths the
+// existing pillar loaders (skills/rules/MCP) fold in. `pluginName` here is
+// always the on-disk `dirName` (Task 3's identity fix), never the spoofable
+// manifest `name` field, so provenance/enable-state/paths all agree on one
+// identity. Only ENABLED plugins contribute; project plugins only when the
+// caller has already marked the workspace trusted (listPlugins enforces the
+// same gate for discovery).
+export interface PluginIngredients {
+  skillFolders: { pluginName: string; path: string }[]
+  ruleFiles: { pluginName: string; path: string }[]
+  mcpConfigs: { pluginName: string; path: string }[]
+}
+
+export function enumeratePluginIngredients(
+  projectPath: string | null,
+  opts?: { trusted?: boolean }
+): PluginIngredients {
+  const out: PluginIngredients = { skillFolders: [], ruleFiles: [], mcpConfigs: [] }
+  for (const p of listPlugins(projectPath, opts)) {
+    if (!p.enabled) continue
+    const root = pluginsDir(p.scope, projectPath)
+    const dir = join(root, p.dirName)
+    for (const s of p.skills)
+      out.skillFolders.push({ pluginName: p.dirName, path: join(dir, 'skills', s.name) })
+    for (const r of p.rules)
+      out.ruleFiles.push({ pluginName: p.dirName, path: join(dir, 'rules', `${r.name}.md`) })
+    for (const f of ['mcp.json', 'mcp_config.json']) {
+      if (existsSync(join(dir, f))) {
+        out.mcpConfigs.push({ pluginName: p.dirName, path: join(dir, f) })
+        break
+      }
+    }
+  }
+  return out
+}
