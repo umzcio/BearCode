@@ -6,6 +6,8 @@ import { Toggle } from '../../Toggle'
 import { Select } from '../../Select'
 import type { SelectOption } from '../../Select'
 import { PluginBadge } from '../../PluginBadge'
+import { EmptyState } from '../../ui/EmptyState'
+import { Loading } from '../../ui/Loading'
 
 const KEBAB_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
 
@@ -188,11 +190,11 @@ export function HooksPage(): JSX.Element | null {
       <div className="set-card">
         {hooks === null ? (
           <div className="set-row">
-            <div className="set-row-desc">Loading…</div>
+            <Loading />
           </div>
         ) : globalHooks.length === 0 ? (
           <div className="set-row">
-            <div className="set-row-desc">No global hooks yet — add one below.</div>
+            <EmptyState title="No global hooks yet" hint="Add one below." />
           </div>
         ) : (
           globalHooks.map((h, idx) => renderRow(h, true, idx))

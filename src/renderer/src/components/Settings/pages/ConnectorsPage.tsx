@@ -13,6 +13,8 @@ import { Select } from '../../Select'
 import type { SelectOption } from '../../Select'
 import { BrowseSmitheryModal } from '../BrowseSmitheryModal'
 import { PluginBadge } from '../../PluginBadge'
+import { EmptyState } from '../../ui/EmptyState'
+import { Loading } from '../../ui/Loading'
 
 // A settings row: title + description on the left, the control on the right.
 function Row({
@@ -104,9 +106,9 @@ function ImportLocalPicker({
   return (
     <div className="connector-add-form">
       {found === null ? (
-        <div className="set-row-desc">Scanning…</div>
+        <Loading label="Scanning…" />
       ) : found.length === 0 ? (
-        <div className="domain-empty">No local MCP servers found.</div>
+        <EmptyState title="No local MCP servers found" />
       ) : (
         <>
           {found.map((s) => (
@@ -375,9 +377,13 @@ export function ConnectorsPage(): JSX.Element | null {
       <div className="set-group-title">Servers</div>
       <div className="set-card">
         {servers === null ? (
-          <div className="connector-empty">Loading…</div>
+          <div className="set-row">
+            <Loading />
+          </div>
         ) : servers.length === 0 ? (
-          <div className="connector-empty">No servers yet.</div>
+          <div className="set-row">
+            <EmptyState title="No servers yet" hint="Add one below." />
+          </div>
         ) : (
           servers.map((view) => {
             const name = view.config.name

@@ -10,6 +10,8 @@ import type {
 import { useAppStore } from '../../../state/store'
 import { Select } from '../../Select'
 import type { SelectOption } from '../../Select'
+import { EmptyState } from '../../ui/EmptyState'
+import { Loading } from '../../ui/Loading'
 
 const KEBAB_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
 
@@ -138,7 +140,7 @@ export function MemoryPage(): JSX.Element | null {
       <div className="set-card">
         {data.entries.length === 0 ? (
           <div className="set-row">
-            <div className="set-row-desc">No memory yet.</div>
+            <EmptyState title="No memory yet" hint="Add one below." />
           </div>
         ) : (
           data.entries.map((entry) => (
@@ -274,8 +276,14 @@ export function MemoryPage(): JSX.Element | null {
         Durable facts the agent remembers across sessions — pulled into every turn.
       </div>
 
-      {list ? renderScope('global', list.global) : null}
-      {list && workspacePath ? renderScope('project', list.project) : null}
+      {list === null ? (
+        <Loading />
+      ) : (
+        <>
+          {renderScope('global', list.global)}
+          {workspacePath ? renderScope('project', list.project) : null}
+        </>
+      )}
     </>
   )
 }

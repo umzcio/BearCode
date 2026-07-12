@@ -7,6 +7,8 @@ import { Select } from '../../Select'
 import type { SelectOption } from '../../Select'
 import { PluginBadge } from '../../PluginBadge'
 import { BrowsePluginsModal } from '../BrowsePluginsModal'
+import { EmptyState } from '../../ui/EmptyState'
+import { Loading } from '../../ui/Loading'
 
 const KEBAB_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
 
@@ -124,14 +126,18 @@ export function SkillsPage(): JSX.Element | null {
       <div className="set-card">
         {skills === null ? (
           <div className="set-row">
-            <div className="set-row-desc">Loading…</div>
+            <Loading />
           </div>
         ) : skills.length === 0 ? (
           <div className="set-row">
-            <div className="set-row-desc">
-              No skills yet — create one below, or capture one from a conversation with{' '}
-              <code>/learn</code>.
-            </div>
+            <EmptyState
+              title="No skills yet"
+              hint={
+                <>
+                  Create one below, or capture one from a conversation with <code>/learn</code>.
+                </>
+              }
+            />
           </div>
         ) : (
           skills.map((entry) => (
