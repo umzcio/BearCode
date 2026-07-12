@@ -16,6 +16,7 @@ describe('SETTINGS_NAV', () => {
       'rules',
       'connectors',
       'plugins',
+      'hooks',
       'memory',
       'integrations',
       'browser'

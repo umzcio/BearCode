@@ -8,6 +8,7 @@ export type SettingsPageId =
   | 'rules'
   | 'connectors'
   | 'plugins'
+  | 'hooks'
   | 'memory'
   | 'integrations'
   | 'browser'
@@ -43,6 +44,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       { id: 'rules', label: 'Rules', icon: 'IconLines' },
       { id: 'connectors', label: 'Connectors', icon: 'IconBlocks' },
       { id: 'plugins', label: 'Plugins', icon: 'IconPackage' },
+      { id: 'hooks', label: 'Hooks', icon: 'IconTerminal' },
       { id: 'memory', label: 'Memory', icon: 'IconBrain' },
       { id: 'integrations', label: 'Integrations', icon: 'IconLink' },
       { id: 'browser', label: 'Browser', icon: 'IconGlobe' }

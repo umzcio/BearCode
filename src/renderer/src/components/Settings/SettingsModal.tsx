@@ -16,7 +16,8 @@ import {
   IconGlobe,
   IconKeyboard,
   IconChat,
-  IconPackage
+  IconPackage,
+  IconTerminal
 } from '../icons'
 import { GeneralPage } from './pages/GeneralPage'
 import { ProvidersPage } from './pages/ProvidersPage'
@@ -28,6 +29,7 @@ import { IntegrationsPage } from './pages/IntegrationsPage'
 import { SkillsPage } from './pages/SkillsPage'
 import { RulesPage } from './pages/RulesPage'
 import { PluginsPage } from './pages/PluginsPage'
+import { HooksPage } from './pages/HooksPage'
 import { MemoryPage } from './pages/MemoryPage'
 import { SettingPlaceholder } from './SettingPlaceholder'
 import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
@@ -64,7 +66,8 @@ const NAV_ICONS: Record<string, (props: { size?: number }) => React.JSX.Element>
   IconGlobe,
   IconKeyboard,
   IconChat,
-  IconPackage
+  IconPackage,
+  IconTerminal
 }
 
 // Intentional WIP panels for the Customize group (not "coming soon" badges).
@@ -300,6 +303,8 @@ function SettingsPanel({
           {page === 'connectors' ? <ConnectorsPage /> : null}
 
           {page === 'plugins' ? <PluginsPage /> : null}
+
+          {page === 'hooks' ? <HooksPage /> : null}
 
           {page === 'integrations' ? <IntegrationsPage /> : null}
 

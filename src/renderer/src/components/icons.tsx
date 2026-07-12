@@ -292,3 +292,10 @@ export const IconPackage = icon(
     <line x1="12" y1="13" x2="12" y2="21" />
   </>
 )
+export const IconTerminal = icon(
+  <>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <polyline points="7 9 11 12.5 7 16" />
+    <line x1="12" y1="16" x2="17" y2="16" />
+  </>
+)
