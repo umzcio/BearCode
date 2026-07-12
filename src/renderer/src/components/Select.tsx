@@ -165,7 +165,11 @@ export function Select<T extends string>({
                 left: pos.left,
                 minWidth: pos.width,
                 maxWidth: 320,
-                zIndex: 1000
+                zIndex: 1000,
+                // Menu always opens below-left of the trigger (see `toggle`
+                // above -- no viewport flip logic), so it should grow from
+                // that corner rather than its own center.
+                transformOrigin: 'top left'
               }}
             >
               {options.map((o, i) => (

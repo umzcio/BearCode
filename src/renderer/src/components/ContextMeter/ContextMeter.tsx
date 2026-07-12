@@ -109,7 +109,7 @@ export function ContextMeter(): React.JSX.Element | null {
           <div className="context-pop-bar">
             <div
               className={'context-pop-bar-fill ' + state}
-              style={{ width: `${Math.min(100, pct)}%` }}
+              style={{ transform: `scaleX(${Math.min(100, pct) / 100})` }}
             />
           </div>
           <div className="context-pop-sub">

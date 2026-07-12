@@ -44,6 +44,27 @@
   max-width: 280px;
   min-width: 0;
   z-index: 1000;
+  transition:
+    opacity var(--dur-menu) var(--ease-out),
+    transform var(--dur-menu) var(--ease-out);
+  opacity: 1;
+  transform: scale(1);
+}
+@starting-style {
+  .app-select-menu {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-select-menu {
+    transition: opacity var(--dur-fast) ease;
+  }
+  @starting-style {
+    .app-select-menu {
+      transform: none;
+    }
+  }
 }
 /* Roving-tabindex keyboard highlight -- mirrors .menu-item:hover so the
    active option is visible whether reached by mouse or keyboard. */
