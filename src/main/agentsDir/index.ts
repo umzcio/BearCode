@@ -234,7 +234,7 @@ function loadOneWorkflow(
 // A skill is a FOLDER containing SKILL.md (agentskills.io, design 4.1) -- not
 // a flat *.md like rules/workflows. Lists <dir>/<skill>/SKILL.md for every
 // subdirectory that actually has a SKILL.md; missing/unreadable dir -> [].
-function listSkillFolders(dir: string): { name: string; path: string }[] {
+export function listSkillFolders(dir: string): { name: string; path: string }[] {
   if (!existsSync(dir)) return []
   try {
     return readdirSync(dir, { withFileTypes: true })
