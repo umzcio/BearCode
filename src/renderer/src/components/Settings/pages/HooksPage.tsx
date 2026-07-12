@@ -16,6 +16,13 @@ const EVENT_OPTIONS: SelectOption<HookEvent>[] = [
 
 type Draft = {
   originalName: string | null
+  // The entry's identity as loaded, captured separately from the editable
+  // fields below -- needed so update() can tell authoring.ts exactly which
+  // (event, matcher, command) entry to replace, without touching sibling
+  // entries under the same name (design 2026-07-11-hooks-arc-design.md §5.1).
+  originalEvent: HookEvent
+  originalMatcher: string
+  originalCommand: string
   name: string
   event: HookEvent
   matcher: string
@@ -26,6 +33,9 @@ type Draft = {
 function emptyDraft(): Draft {
   return {
     originalName: null,
+    originalEvent: 'PreToolUse',
+    originalMatcher: '',
+    originalCommand: '',
     name: '',
     event: 'PreToolUse',
     matcher: '',
@@ -66,6 +76,9 @@ export function HooksPage(): JSX.Element | null {
   const startEdit = (entry: HookRecord): void => {
     setDraft({
       originalName: entry.name,
+      originalEvent: entry.event,
+      originalMatcher: entry.matcher,
+      originalCommand: entry.command,
       name: entry.name,
       event: entry.event,
       matcher: entry.matcher,
@@ -85,7 +98,15 @@ export function HooksPage(): JSX.Element | null {
       timeout: Number.isFinite(timeoutNum) && timeoutNum > 0 ? timeoutNum : undefined
     }
     const action = draft.originalName
-      ? window.bearcode.hooks.update(draft.originalName, input)
+      ? window.bearcode.hooks.update(
+          draft.originalName,
+          {
+            event: draft.originalEvent,
+            matcher: draft.originalMatcher,
+            command: draft.originalCommand
+          },
+          input
+        )
       : window.bearcode.hooks.create(input)
     void action.then(() => {
       setDraft(null)
@@ -119,8 +140,11 @@ export function HooksPage(): JSX.Element | null {
   const projectHooks = (hooks ?? []).filter((h) => h.scope === 'project')
   const pluginHooks = (hooks ?? []).filter((h) => h.scope === 'plugin')
 
-  const renderRow = (entry: HookRecord, editable: boolean): JSX.Element => (
-    <div className="set-row hook-row" key={`${entry.scope}:${entry.plugin ?? ''}:${entry.name}`}>
+  const renderRow = (entry: HookRecord, editable: boolean, idx: number): JSX.Element => (
+    <div
+      className="set-row hook-row"
+      key={`${entry.scope}:${entry.plugin ?? ''}:${entry.name}:${entry.event}:${idx}`}
+    >
       <div className="set-row-text">
         <div className="set-row-title">
           {entry.name}
@@ -171,7 +195,7 @@ export function HooksPage(): JSX.Element | null {
             <div className="set-row-desc">No global hooks yet — add one below.</div>
           </div>
         ) : (
-          globalHooks.map((h) => renderRow(h, true))
+          globalHooks.map((h, idx) => renderRow(h, true, idx))
         )}
       </div>
 
@@ -249,14 +273,14 @@ export function HooksPage(): JSX.Element | null {
       {projectHooks.length > 0 ? (
         <>
           <div className="set-group-title">Project hooks</div>
-          <div className="set-card">{projectHooks.map((h) => renderRow(h, false))}</div>
+          <div className="set-card">{projectHooks.map((h, idx) => renderRow(h, false, idx))}</div>
         </>
       ) : null}
 
       {pluginHooks.length > 0 ? (
         <>
           <div className="set-group-title">Plugin hooks</div>
-          <div className="set-card">{pluginHooks.map((h) => renderRow(h, false))}</div>
+          <div className="set-card">{pluginHooks.map((h, idx) => renderRow(h, false, idx))}</div>
         </>
       ) : null}
     </>
