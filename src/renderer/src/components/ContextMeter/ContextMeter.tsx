@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../../state/store'
 import {
@@ -10,6 +10,7 @@ import {
   conversationCost
 } from '../../lib/contextMeter'
 import type { ProviderModels } from '@shared/types'
+import { Popover } from '../ui/Popover'
 import './ContextMeter.css'
 
 // Compact token count for the breakdown rows, e.g. 18200 → "18.2k".
@@ -44,23 +45,7 @@ export function ContextMeter(): React.JSX.Element | null {
   const modelRef = useAppStore((s) => s.modelRef)
   const modelPricing = useAppStore((s) => s.settings?.modelPricing)
   const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return undefined
-    const onDoc = (e: MouseEvent): void => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('click', onDoc)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('click', onDoc)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   const ctxWindow = contextWindowFor(providers, modelRef)
   if (!convo || !convoId || !ctxWindow) return null
@@ -80,8 +65,9 @@ export function ContextMeter(): React.JSX.Element | null {
   const cost = conversationCost(byModel, modelPricing)
 
   return (
-    <div className="context-meter-wrap" ref={rootRef}>
+    <div className="context-meter-wrap">
       <button
+        ref={triggerRef}
         className={'context-ring ' + state}
         aria-label={`Context ${pct}% used`}
         title={`${measured ? '' : '~'}${pct}% context used`}
@@ -100,8 +86,13 @@ export function ContextMeter(): React.JSX.Element | null {
           />
         </svg>
       </button>
-      {open ? (
-        <div className="menu context-popover">
+      <Popover
+        anchorRef={triggerRef}
+        open={open}
+        onClose={() => setOpen(false)}
+        placement="top-end"
+      >
+        <div className="menu menu--in-popover context-popover">
           <div className="context-pop-row">
             <span className="context-pop-label">Context window</span>
             <span className="context-pop-pct">{pct}%</span>
@@ -148,7 +139,7 @@ export function ContextMeter(): React.JSX.Element | null {
             </>
           ) : null}
         </div>
-      ) : null}
+      </Popover>
     </div>
   )
 }

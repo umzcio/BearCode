@@ -2,19 +2,13 @@
   position: relative;
   display: inline-flex;
 }
+/* The dropdown itself is portaled + positioned + animated by Popover (see
+   Popover.tsx / shared.css `.menu`/`.menu--in-popover`); no dropdown
+   positioning lives here anymore. `.menu-group-label` uses the canonical
+   shared style (no per-picker fork). */
 .display-menu {
-  top: 28px;
-  right: 0;
   min-width: 220px;
   padding: 5px;
-}
-.display-menu .menu-group-label {
-  text-transform: none;
-  font-weight: 500;
-  font-size: 12px;
-  letter-spacing: 0;
-  padding: 6px 10px 3px;
-  color: var(--text-dim);
 }
 .display-menu .menu-item {
   display: flex;
