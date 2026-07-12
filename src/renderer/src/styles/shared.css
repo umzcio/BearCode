@@ -335,6 +335,69 @@ code.tok {
   margin: 5px 4px;
 }
 
+/* ---------- Empty / Loading / Error primitives ---------- */
+/* Shared placeholder rows (EmptyState / Loading / ErrorCard) -- generalize
+   the per-page `domain-empty` forks so every "nothing here", "still
+   loading", and "that failed" moment reads the same: one 13px font-size,
+   consistent padding, left-aligned to match the dominant list style. */
+.empty-state {
+  padding: 10px 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: left;
+}
+.empty-state-title {
+  color: var(--text-dim);
+}
+.empty-state-hint {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+
+.loading-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: left;
+}
+.loading-spinner {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--text-dim);
+  animation: loading-spin 700ms linear infinite;
+}
+@keyframes loading-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner {
+    animation: none;
+  }
+}
+
+.ui-error-card {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: rgba(240, 106, 106, 0.08);
+  border: 1px solid rgba(240, 106, 106, 0.35);
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pill-btn:active,
   .chrome-btn:active,
