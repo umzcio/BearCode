@@ -1,16 +1,7 @@
-/* Positions either the slash menu or the resume picker directly above the
-   composer, regardless of the composer's current height (the pill and the
-   textarea both resize it). Composer.tsx supplies this wrapper; both
-   components share the sizing rules below. */
-.slash-menu-wrap {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 100%;
-  margin-bottom: 8px;
-  z-index: 60;
-}
-
+/* Positioning (portal + flip + width-match to the composer) and animation
+   live on the shared Popover now (Composer.tsx wraps SlashMenu/MentionMenu/
+   ResumePicker in one); these rules just make each menu fill that Popover's
+   box, in normal flow (`position: static`) so Popover can measure it. */
 .slash-menu {
   position: static;
   width: 100%;
