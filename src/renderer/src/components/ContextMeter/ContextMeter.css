@@ -84,9 +84,16 @@
 }
 .context-pop-bar-fill {
   height: 100%;
+  width: 100%;
   border-radius: 3px;
   background: var(--accent);
-  transition: width 0.25s ease;
+  transform-origin: left;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .context-pop-bar-fill {
+    transition: none;
+  }
 }
 .context-pop-bar-fill.near {
   background: var(--amber);
