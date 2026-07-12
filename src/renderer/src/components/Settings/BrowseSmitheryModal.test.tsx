@@ -37,7 +37,7 @@ describe('BrowseSmitheryModal', () => {
       target: { value: 'exa' }
     })
     fireEvent.click(screen.getByText('Search'))
-    await waitFor(() => expect(screen.getByText(/add a Smithery API key/i)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Smithery API key required/i)).toBeTruthy())
     expect(screen.getByText(/Providers/)).toBeTruthy()
   })
 

@@ -3,6 +3,9 @@ import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { McpServerConfig, McpServerView, SmitheryHit } from '@shared/types'
 import { IconClose } from '../icons'
+import { EmptyState } from '../ui/EmptyState'
+import { Loading } from '../ui/Loading'
+import { ErrorCard } from '../ui/ErrorCard'
 
 // ============================================================================
 // OAuth verification note (Task 12, 2026-07-09)
@@ -130,7 +133,6 @@ export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props
   // empty search box (matches Claude's connector browser).
   useEffect(() => {
     load('')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Esc closes only this modal, not the Settings window behind it. SettingsModal
@@ -203,9 +205,7 @@ export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props
           <div>
             <div className="page-title">Browse Smithery</div>
             <div className="smithery-sub">
-              {pendingSecrets
-                ? 'Finish setup'
-                : 'Add an MCP server from the Smithery registry.'}
+              {pendingSecrets ? 'Finish setup' : 'Add an MCP server from the Smithery registry.'}
             </div>
           </div>
           <button className="icon-btn" aria-label="Close" onClick={onClose}>
@@ -251,11 +251,7 @@ export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props
                 Skip for now
               </button>
             </div>
-            {error ? (
-              <div className="domain-empty" role="alert">
-                {error}
-              </div>
-            ) : null}
+            {error ? <ErrorCard>{error}</ErrorCard> : null}
           </div>
         ) : (
           <>
@@ -274,23 +270,23 @@ export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props
             </div>
 
             {keyMissing ? (
-              <div className="smithery-empty">
-                Add a Smithery API key to browse the registry — Settings → Providers → Smithery,
-                then search again.
-              </div>
+              <EmptyState
+                title="Smithery API key required"
+                hint="Add one in Settings → Providers → Smithery, then search again."
+              />
             ) : error ? (
-              <div className="smithery-empty" role="alert">
-                {error}
-              </div>
+              <ErrorCard>{error}</ErrorCard>
             ) : loading ? (
-              <div className="smithery-empty">Loading servers…</div>
+              <Loading label="Loading servers…" />
             ) : hits !== null && hits.length === 0 ? (
-              <div className="smithery-empty">
-                {isDefault ? 'No servers found.' : `No servers matched “${query}”.`}
-              </div>
+              <EmptyState
+                title={isDefault ? 'No servers found' : `No servers matched “${query}”`}
+              />
             ) : hits !== null ? (
               <>
-                <div className="smithery-list-label">{isDefault ? 'Popular servers' : 'Results'}</div>
+                <div className="smithery-list-label">
+                  {isDefault ? 'Popular servers' : 'Results'}
+                </div>
                 <div className="smithery-results">
                   {hits.map((hit) => {
                     const mg = monogram(hit.name)
@@ -326,7 +322,9 @@ export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props
                         </div>
                         <div className="smithery-hit-side">
                           <span
-                            className={'connector-badge' + (hit.transport === 'http' ? '' : ' local')}
+                            className={
+                              'connector-badge' + (hit.transport === 'http' ? '' : ' local')
+                            }
                           >
                             {hit.transport === 'http' ? 'Remote' : 'Local'}
                           </span>

@@ -4,6 +4,7 @@ import { useAppStore, type Convo } from '../../state/store'
 import { relativeAge } from '../../lib/time'
 import bearMark from '../../assets/bear.svg'
 import { Hint } from '../Hint'
+import { EmptyState } from '../ui/EmptyState'
 import { groupConversations, type ConvoLike } from './grouping'
 
 // Cache the projected subset per Convo object reference (audit M-15). The
@@ -160,7 +161,11 @@ export function Sidebar(): React.JSX.Element {
       </div>
 
       <div className="projects-scroll">
-        {groups.length === 0 ? <div className="empty-note">No conversations yet</div> : null}
+        {groups.length === 0 ? (
+          <div className="sidebar-empty">
+            <EmptyState title="No conversations yet" />
+          </div>
+        ) : null}
         {groups.map((group) => {
           // Every folder group is a project keyed by its path; look up its
           // stored color/icon/name (a folder with no row shows the default icon

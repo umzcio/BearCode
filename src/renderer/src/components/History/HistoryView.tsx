@@ -14,6 +14,9 @@ import { relativeAge } from '../../lib/time'
 import { groupByTime } from '../../lib/groupByTime'
 import { IconSearch } from '../icons'
 import { renderSnippet } from './snippet'
+import { EmptyState } from '../ui/EmptyState'
+import { Loading } from '../ui/Loading'
+import { ErrorCard } from '../ui/ErrorCard'
 import './HistoryView.css'
 
 function modelLabel(ref: string | null): string {
@@ -37,6 +40,8 @@ export function HistoryView(): React.JSX.Element {
   // Results tagged with the query they belong to, so we can show "Searching…"
   // for a stale/absent result without a synchronous setState inside the effect.
   const [result, setResult] = useState<{ query: string; hits: HistoryHit[] } | null>(null)
+  // Same query-tagging trick for a failed search (the FTS IPC call can reject).
+  const [searchError, setSearchError] = useState<{ query: string; message: string } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -51,9 +56,19 @@ export function HistoryView(): React.JSX.Element {
     if (trimmed === '') return
     let cancelled = false
     const t = setTimeout(() => {
-      void window.bearcode.history.search(trimmed).then((hits) => {
-        if (!cancelled) setResult({ query: trimmed, hits })
-      })
+      void window.bearcode.history
+        .search(trimmed)
+        .then((hits) => {
+          if (!cancelled) {
+            setResult({ query: trimmed, hits })
+            setSearchError(null)
+          }
+        })
+        .catch((e: unknown) => {
+          if (!cancelled) {
+            setSearchError({ query: trimmed, message: e instanceof Error ? e.message : String(e) })
+          }
+        })
     }, 150)
     return () => {
       cancelled = true
@@ -69,6 +84,7 @@ export function HistoryView(): React.JSX.Element {
   }, [conversations, convoOrder])
 
   const hits = result && result.query === trimmed ? result.hits : null
+  const searchErrorMsg = searchError && searchError.query === trimmed ? searchError.message : null
 
   return (
     <div className="history-view">
@@ -86,7 +102,7 @@ export function HistoryView(): React.JSX.Element {
       <div className="history-scroll">
         {trimmed === '' ? (
           groups.length === 0 ? (
-            <div className="history-empty">No conversations yet</div>
+            <EmptyState title="No conversations yet" />
           ) : (
             groups.map((group) => (
               <div className="history-bucket" key={group.bucket}>
@@ -131,8 +147,10 @@ export function HistoryView(): React.JSX.Element {
               </div>
             ))
           )
+        ) : searchErrorMsg ? (
+          <ErrorCard>{searchErrorMsg}</ErrorCard>
         ) : hits === null ? (
-          <div className="history-empty">Searching…</div>
+          <Loading label="Searching…" />
         ) : hits.length > 0 ? (
           hits.map((hit) => (
             <div
@@ -174,7 +192,7 @@ export function HistoryView(): React.JSX.Element {
             </div>
           ))
         ) : (
-          <div className="history-empty">No matches</div>
+          <EmptyState title="No matches" hint="Try a different search term." />
         )}
       </div>
     </div>

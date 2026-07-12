@@ -9,6 +9,8 @@ import { FilePreview } from './FilePreview/FilePreview'
 import { deriveRailEntries, versionsOfType, type ArtifactEvent } from '../lib/auxRail'
 import { ARTIFACT_STATUS_LABELS, ARTIFACT_TYPE_LABELS } from './events/ArtifactCard'
 import { IconClose, IconCopy, IconFile, IconPaw, IconRevert } from './icons'
+import { EmptyState } from './ui/EmptyState'
+import { Loading } from './ui/Loading'
 import './ReviewPanel.css'
 
 const MonacoDiff = lazy(() => import('./MonacoDiff'))
@@ -435,7 +437,15 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
               )}
             </button>
           ))}
-          {files.length === 0 ? <div className="diff-loading">Loading changes…</div> : null}
+          {files.length === 0 ? (
+            <div className="diff-loading">
+              {diff === null ? (
+                <Loading label="Loading changes…" />
+              ) : (
+                <EmptyState title="No changes" />
+              )}
+            </div>
+          ) : null}
         </div>
       ) : (
         <>
@@ -511,7 +521,13 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
           {/* Body */}
           <div className="ap-body">
             {!activeFile ? (
-              <div className="diff-loading">Loading changes…</div>
+              <div className="diff-loading">
+                {diff === null ? (
+                  <Loading label="Loading changes…" />
+                ) : (
+                  <EmptyState title="No changes" />
+                )}
+              </div>
             ) : body === 'preview' ? (
               <FilePreview fileId={activeFile.fileId} />
             ) : body === 'code' ? (

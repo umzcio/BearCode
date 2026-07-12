@@ -184,10 +184,8 @@
   font-size: 12px;
   flex-shrink: 0;
 }
-.empty-note {
-  padding: 6px 10px 6px 34px;
-  color: var(--text-dim);
-  font-size: 13px;
+.sidebar-empty {
+  padding: 0 10px;
 }
 
 .sidebar-footer {

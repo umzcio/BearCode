@@ -137,9 +137,3 @@
   padding: 0 1px;
 }
 
-.history-empty {
-  padding: 32px 12px;
-  text-align: center;
-  color: var(--text-dim);
-  font-size: 13.5px;
-}
