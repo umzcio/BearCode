@@ -12,8 +12,8 @@ import { Select } from '../../Select'
 import type { SelectOption } from '../../Select'
 import { EmptyState } from '../../ui/EmptyState'
 import { Loading } from '../../ui/Loading'
-
-const KEBAB_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
+import { FieldHint } from '../../ui/FieldHint'
+import { isKebabName, KEBAB_HINT } from '../../../lib/validators'
 
 const PROMOTE_OPTIONS: SelectOption<PromoteTarget>[] = [
   { value: 'rule', label: 'Rule' },
@@ -108,7 +108,7 @@ export function MemoryPage(): JSX.Element | null {
   const submitPromote = (): void => {
     if (!promoteDraft) return
     const name = promoteDraft.name.trim()
-    if (!KEBAB_PATTERN.test(name)) return
+    if (!isKebabName(name)) return
     if (promoteDraft.target === 'skill' && !promoteDraft.description.trim()) return
     void window.bearcode.memory
       .promote(
@@ -129,7 +129,7 @@ export function MemoryPage(): JSX.Element | null {
 
   const promoteValid =
     !!promoteDraft &&
-    KEBAB_PATTERN.test(promoteDraft.name.trim()) &&
+    isKebabName(promoteDraft.name.trim()) &&
     (promoteDraft.target !== 'skill' || promoteDraft.description.trim().length > 0)
 
   const renderScope = (scopeName: MemoryScopeName, data: MemoryScopeData): JSX.Element => (
@@ -188,6 +188,14 @@ export function MemoryPage(): JSX.Element | null {
                         value={promoteDraft.name}
                         onChange={(e) => setPromoteDraft({ ...promoteDraft, name: e.target.value })}
                       />
+                      <FieldHint
+                        show={
+                          promoteDraft.name.trim().length > 0 &&
+                          !isKebabName(promoteDraft.name.trim())
+                        }
+                      >
+                        {KEBAB_HINT}
+                      </FieldHint>
                     </div>
                     {promoteDraft.target === 'skill' ? (
                       <div className="skill-field">

@@ -8,8 +8,8 @@ import type { SelectOption } from '../../Select'
 import { PluginBadge } from '../../PluginBadge'
 import { EmptyState } from '../../ui/EmptyState'
 import { Loading } from '../../ui/Loading'
-
-const KEBAB_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
+import { FieldHint } from '../../ui/FieldHint'
+import { isKebabName } from '../../../lib/validators'
 
 const EVENT_OPTIONS: SelectOption<HookEvent>[] = [
   { value: 'PreToolUse', label: 'Pre Tool Use' },
@@ -135,8 +135,7 @@ export function HooksPage(): JSX.Element | null {
       .then(refresh)
   }
 
-  const draftValid =
-    !!draft && KEBAB_PATTERN.test(draft.name.trim()) && draft.command.trim().length > 0
+  const draftValid = !!draft && isKebabName(draft.name.trim()) && draft.command.trim().length > 0
 
   const globalHooks = (hooks ?? []).filter((h) => h.scope === 'global')
   const projectHooks = (hooks ?? []).filter((h) => h.scope === 'project')
@@ -213,11 +212,9 @@ export function HooksPage(): JSX.Element | null {
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
               />
-              {draft.name.trim().length > 0 && !KEBAB_PATTERN.test(draft.name.trim()) ? (
-                <div className="hook-field-hint">
-                  Lowercase letters, numbers, and dashes only — e.g. <code>format-on-write</code>.
-                </div>
-              ) : null}
+              <FieldHint show={draft.name.trim().length > 0 && !isKebabName(draft.name.trim())}>
+                Lowercase letters, numbers, and dashes only — e.g. <code>format-on-write</code>.
+              </FieldHint>
             </div>
             <div className="hook-field">
               <div className="set-row-title">Event</div>

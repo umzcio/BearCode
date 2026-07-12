@@ -15,6 +15,7 @@ import { BrowseSmitheryModal } from '../BrowseSmitheryModal'
 import { PluginBadge } from '../../PluginBadge'
 import { EmptyState } from '../../ui/EmptyState'
 import { Loading } from '../../ui/Loading'
+import { FieldHint } from '../../ui/FieldHint'
 
 // A settings row: title + description on the left, the control on the right.
 function Row({
@@ -353,6 +354,10 @@ export function ConnectorsPage(): JSX.Element | null {
     })
   }
 
+  const manualValid =
+    draft.name.trim().length > 0 &&
+    (draft.transport === 'http' ? draft.url.trim().length > 0 : draft.command.trim().length > 0)
+
   return (
     <>
       <div className="page-title">Connectors</div>
@@ -618,7 +623,12 @@ export function ConnectorsPage(): JSX.Element | null {
                 />
               </>
             )}
-            <button className="pill-btn primary" onClick={submitManualAdd}>
+            <FieldHint show={!manualValid}>
+              {draft.transport === 'http'
+                ? 'Name and URL are required.'
+                : 'Name and command are required.'}
+            </FieldHint>
+            <button className="pill-btn primary" disabled={!manualValid} onClick={submitManualAdd}>
               Add server
             </button>
           </div>

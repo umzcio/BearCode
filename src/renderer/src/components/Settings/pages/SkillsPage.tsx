@@ -9,8 +9,8 @@ import { PluginBadge } from '../../PluginBadge'
 import { BrowsePluginsModal } from '../BrowsePluginsModal'
 import { EmptyState } from '../../ui/EmptyState'
 import { Loading } from '../../ui/Loading'
-
-const KEBAB_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
+import { FieldHint } from '../../ui/FieldHint'
+import { isKebabName, KEBAB_HINT } from '../../../lib/validators'
 
 const SCOPE_OPTIONS: SelectOption<'project' | 'global'>[] = [
   { value: 'project', label: 'Project' },
@@ -109,7 +109,7 @@ export function SkillsPage(): JSX.Element | null {
   }
 
   const draftValid =
-    !!draft && KEBAB_PATTERN.test(draft.name.trim()) && draft.description.trim().length > 0
+    !!draft && isKebabName(draft.name.trim()) && draft.description.trim().length > 0
 
   return (
     <>
@@ -224,6 +224,9 @@ export function SkillsPage(): JSX.Element | null {
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
               />
+              <FieldHint show={draft.name.trim().length > 0 && !isKebabName(draft.name.trim())}>
+                {KEBAB_HINT}
+              </FieldHint>
             </div>
             <div className="skill-field">
               <div className="set-row-title">Description</div>
@@ -234,6 +237,9 @@ export function SkillsPage(): JSX.Element | null {
                 value={draft.description}
                 onChange={(e) => setDraft({ ...draft, description: e.target.value })}
               />
+              <FieldHint show={draft.description.trim().length === 0}>
+                Description is required.
+              </FieldHint>
             </div>
             <div className="skill-field">
               <div className="set-row-title">Body</div>
