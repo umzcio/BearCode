@@ -260,6 +260,16 @@ export function ConnectorsPage(): JSX.Element | null {
   }
 
   const trustServer = (view: McpServerView): void => {
+    // A plugin-sourced server is untrusted by default REGARDLESS of `source`
+    // (store.ts isTrusted's `plugin` branch) and is keyed on the
+    // plugin-qualified name, so it must route to trustPlugin FIRST -- before
+    // the source==='global' branch below, which would otherwise edit
+    // mcpUntrustedGlobalServers (a key isTrusted's plugin branch never reads),
+    // making the Trust button a silent no-op for every plugin MCP server.
+    if (view.config.plugin) {
+      void window.bearcode.mcp.trustPlugin(view.config.plugin, view.config.name).then(refresh)
+      return
+    }
     // A global server pending trust (a Smithery install) is trusted without a
     // project path; a project-scoped server is trusted per-project.
     if (view.config.source === 'global') {

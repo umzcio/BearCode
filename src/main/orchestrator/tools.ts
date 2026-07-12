@@ -1320,7 +1320,13 @@ function projectOf(conversationId: string): string | null {
 export function buildMcpTools(conversationId: string) {
   if (getSettings().mcpEnabled !== true) return []
   const projectPath = projectOf(conversationId)
-  const enabledTrustedServers = loadServers(projectPath).filter(
+  // Thread workspace trust into loadServers so an enabled project plugin's
+  // mcp.json server is enumerated once the workspace has been trusted --
+  // otherwise loadServers' default-untrusted `opts.trusted` silently drops
+  // it before it ever reaches the isMcpTrusted per-server gate below.
+  const enabledTrustedServers = loadServers(projectPath, {
+    trusted: projectPath != null && isProjectTrusted(projectPath)
+  }).filter(
     (cfg) => isMcpEnabled(cfg.name) && isMcpTrusted(cfg.name, cfg.source, projectPath, cfg.plugin)
   )
   if (enabledTrustedServers.length === 0) return []

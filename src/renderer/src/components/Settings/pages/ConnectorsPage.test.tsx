@@ -37,6 +37,7 @@ const addSpy = vi.fn(() => Promise.resolve())
 const setEnabledSpy = vi.fn(() => Promise.resolve({ state: 'connected', tools: [] }))
 const trustSpy = vi.fn(() => Promise.resolve({ state: 'connected', tools: [] }))
 const trustGlobalSpy = vi.fn(() => Promise.resolve({ state: 'disabled' }))
+const trustPluginSpy = vi.fn(() => Promise.resolve({ state: 'disabled' }))
 const spawnConsentSpy = vi.fn(() => Promise.resolve())
 const reconnectSpy = vi.fn(() => Promise.resolve({ state: 'connected', tools: [] }))
 const removeSpy = vi.fn(() => Promise.resolve())
@@ -56,6 +57,7 @@ function mount(overrides: Record<string, unknown> = {}): void {
       setEnabled: setEnabledSpy,
       trust: trustSpy,
       trustGlobal: trustGlobalSpy,
+      trustPlugin: trustPluginSpy,
       spawnConsent: spawnConsentSpy,
       reconnect: reconnectSpy,
       status: vi.fn(() => Promise.resolve({ state: 'connected', tools: [] })),
@@ -170,6 +172,32 @@ describe('ConnectorsPage (Task 9)', () => {
     fireEvent.click(screen.getByText('Trust'))
     await waitFor(() => expect(trustGlobalSpy).toHaveBeenCalledWith('exa-labs/exa-mcp'))
     expect(trustSpy).not.toHaveBeenCalled()
+  })
+
+  it('trusting an untrusted plugin-sourced server calls trustPlugin, not trustGlobal', async () => {
+    // Critical whole-branch finding: trustServer used to route EVERY
+    // source==='global' server (plugin-tagged ones included) to trustGlobal,
+    // which edits a settings key isTrusted's `plugin` branch never reads --
+    // making the Trust button a silent no-op for a plugin MCP server.
+    listSpy.mockResolvedValue([
+      {
+        config: {
+          name: 'plugin-server',
+          transport: 'http',
+          url: 'https://mcp.example/plugin',
+          source: 'global',
+          plugin: 'my-plugin'
+        },
+        enabled: false,
+        status: { state: 'untrusted' },
+        spawnConsented: false
+      }
+    ] as never)
+    mount({ mcpEnabled: true })
+    await waitFor(() => expect(screen.getByText('plugin-server')).toBeTruthy())
+    fireEvent.click(screen.getByText('Trust'))
+    await waitFor(() => expect(trustPluginSpy).toHaveBeenCalledWith('my-plugin', 'plugin-server'))
+    expect(trustGlobalSpy).not.toHaveBeenCalled()
   })
 
   it('a plugin-sourced server shows a provenance badge and has a disabled Remove control', async () => {

@@ -44,7 +44,8 @@ vi.mock('./db', () => ({
   setPermissionMode: vi.fn(),
   clearAll: vi.fn(),
   insertArtifactComment: vi.fn(),
-  listArtifactComments: vi.fn(() => [])
+  listArtifactComments: vi.fn(() => []),
+  isProjectTrusted: vi.fn(() => true)
 }))
 vi.mock('./agentsDir', () => ({ loadAgentsContent: vi.fn() }))
 vi.mock('./orchestrator/commands', () => ({ listCommands: vi.fn() }))

@@ -9,6 +9,20 @@ import { auth } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { McpServerConfig, McpToolInfo, McpServerStatus } from '../../shared/types'
 import { loadServers, resolveConfig, isEnabled, isTrusted, hasSpawnConsent } from './store'
 import { makeMcpOAuthProvider, type McpOAuthProvider } from './oauthProvider'
+import { isProjectTrusted } from '../db'
+
+// Project-scope plugin mcp.json servers are only enumerated by loadServers
+// when the caller passes `{ trusted: true }` (mirrors loadAgentsContent's
+// project-trust gate for skills/rules -- a project's .agents/plugins/ may
+// arrive via a cloned repo). Every loadServers call site in this manager
+// must thread the SAME workspace-trust source ipc.ts uses for plugins:list
+// (db.isProjectTrusted), or an enabled project plugin's server is silently
+// never found/connected even in a trusted workspace.
+function loadServersForProject(projectPath: string | null): McpServerConfig[] {
+  return loadServers(projectPath, {
+    trusted: projectPath != null && isProjectTrusted(projectPath)
+  })
+}
 
 // MCP client + adapter errors can carry ANSI color codes and multi-line
 // "Call log" dumps (same shape Playwright throws -- see
@@ -134,7 +148,7 @@ export class McpManager {
   }
 
   private findConfig(name: string, projectPath: string | null): McpServerConfig | undefined {
-    return loadServers(projectPath).find((c) => c.name === name)
+    return loadServersForProject(projectPath).find((c) => c.name === name)
   }
 
   // Security floor at the single process/connection chokepoint. enable() is the
@@ -227,7 +241,7 @@ export class McpManager {
   // passive refresh would 401 — we neither open a browser nor spam an error).
   async ensureEnabledConnected(projectPath: string | null): Promise<void> {
     await Promise.all(
-      loadServers(projectPath).map(async (cfg) => {
+      loadServersForProject(projectPath).map(async (cfg) => {
         if (!isEnabled(cfg.name)) return
         if (!isTrusted(cfg.name, cfg.source, projectPath, cfg.plugin)) return
         if (this.servers.has(cfg.name)) return

@@ -24,6 +24,7 @@ import type {
   PingResult,
   PluginEntry,
   PluginManifest,
+  PluginUpdateResult,
   PreviewPayload,
   ProjectSettings,
   ProviderId,
@@ -811,7 +812,11 @@ export function registerIpc(): void {
 
   ipcMain.handle('bearcode:mcp:list', (_e, projectPath: unknown) => {
     const proj = asProjectPath(projectPath)
-    return loadMcpServers(proj).map((cfg) => mcpServerView(cfg, proj))
+    // Thread workspace trust so an enabled project plugin's mcp.json server is
+    // enumerated once the workspace is trusted, mirroring plugins:list below.
+    return loadMcpServers(proj, { trusted: proj != null && db.isProjectTrusted(proj) }).map((cfg) =>
+      mcpServerView(cfg, proj)
+    )
   })
   // Like list, but first (non-interactively) connects any enabled+trusted
   // server that's idle, so opening the Connectors page / @-menu surfaces
@@ -819,7 +824,9 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:mcp:ensure-connected', async (_e, projectPath: unknown) => {
     const proj = asProjectPath(projectPath)
     await mcpManager.ensureEnabledConnected(proj)
-    return loadMcpServers(proj).map((cfg) => mcpServerView(cfg, proj))
+    return loadMcpServers(proj, { trusted: proj != null && db.isProjectTrusted(proj) }).map((cfg) =>
+      mcpServerView(cfg, proj)
+    )
   })
   ipcMain.handle('bearcode:mcp:add', (_e, cfg: unknown, projectPath: unknown) => {
     if (cfg == null || typeof cfg !== 'object') {
@@ -1349,7 +1356,7 @@ export function registerIpc(): void {
       setPluginEnabled(validatePluginScope(scope), validatePluginName(name), on)
     }
   )
-  ipcMain.handle('bearcode:plugins:update', (_e, name: unknown): Promise<void> => {
+  ipcMain.handle('bearcode:plugins:update', (_e, name: unknown): Promise<PluginUpdateResult> => {
     return pluginMarket.updatePlugin(validatePluginName(name))
   })
   ipcMain.handle(

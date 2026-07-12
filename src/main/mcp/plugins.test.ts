@@ -91,4 +91,34 @@ describe('plugin MCP servers', () => {
     expect(githubServers[0].plugin).toBeUndefined()
     expect(githubServers[0].url).toBe('https://direct.example')
   })
+
+  // Important whole-branch finding: loadServers' `opts.trusted` gate for
+  // project-scope plugin mcp.json servers had NO production caller threading
+  // it (every ipc.ts / manager.ts / tools.ts call site passed loadServers
+  // bare) -- so an enabled project plugin's MCP server could never be
+  // enumerated even in a workspace the user had explicitly trusted.
+  it('surfaces an enabled PROJECT plugin server only when { trusted: true } is passed', async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), 'bc-mcp-proj-'))
+    try {
+      const p = join(projectPath, '.agents', 'plugins', 'projpack')
+      mkdirSync(p, { recursive: true })
+      writeFileSync(join(p, 'plugin.json'), '{}')
+      writeFileSync(
+        join(p, 'mcp.json'),
+        JSON.stringify({ mcpServers: { 'proj-api': { type: 'http', url: 'https://proj' } } })
+      )
+      store.pluginsEnabled = ['project:projpack']
+
+      const { loadServers } = await import('./store')
+      const untrusted = loadServers(projectPath)
+      expect(untrusted.find((s) => s.name === 'proj-api')).toBeUndefined()
+
+      const trusted = loadServers(projectPath, { trusted: true })
+      const srv = trusted.find((s) => s.name === 'proj-api')
+      expect(srv).toBeTruthy()
+      expect(srv?.plugin).toBe('projpack')
+    } finally {
+      rmSync(projectPath, { recursive: true, force: true })
+    }
+  })
 })
