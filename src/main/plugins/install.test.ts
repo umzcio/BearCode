@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, writeFileSync, existsSync } from 'fs'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -13,11 +13,25 @@ vi.mock('./marketplace', async (orig) => {
   const actual = await orig<typeof import('./marketplace')>()
   return actual
 })
+// confirmInstall always targets pluginsDir('global', null), which resolves
+// via os.homedir() -- redirect that to a scratch dir per test so this suite
+// never writes a real 'copied' plugin folder into the developer's/CI's
+// actual home directory (mirrors index.test.ts's project-scope-only
+// approach, but confirmInstall has no scope param to swap instead).
+let fakeHome: string
+vi.mock('os', async (orig) => {
+  const actual = await orig<typeof import('os')>()
+  return { ...actual, homedir: () => fakeHome }
+})
 
 describe('install flow', () => {
   beforeEach(() => {
     for (const k of Object.keys(store)) delete store[k]
     vi.resetModules()
+    fakeHome = mkdtempSync(join(tmpdir(), 'bc-home-'))
+  })
+  afterEach(() => {
+    rmSync(fakeHome, { recursive: true, force: true })
   })
   it('confirmInstall copies a staged plugin into the global plugins dir (jailed)', async () => {
     const { confirmInstall } = await import('./marketplace')
