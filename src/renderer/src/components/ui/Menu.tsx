@@ -8,6 +8,8 @@ export interface MenuItem {
   description?: string
   disabled?: boolean
   danger?: boolean
+  // Leading icon (e.g. the composer's add-context menu, Home's folder rows).
+  icon?: React.ReactNode
 }
 
 export interface MenuGroup {
@@ -43,10 +45,30 @@ export function Menu({
   const listRef = useRef<HTMLDivElement>(null)
   const flat = groups.flatMap((g) => g.items)
   const [activeIndex, setActiveIndex] = useState(0)
+  // Tracks `open` across renders using state (not a ref -- refs can't be
+  // read/written during render) so the block below can detect the
+  // closed->open edge.
+  const [wasOpen, setWasOpen] = useState(open)
 
-  // When the menu opens, start the active item on the current value (falling
-  // back to the first enabled item) and focus the listbox so it receives
-  // arrow keys.
+  // When the menu transitions from closed -> open, start the active item on
+  // the current value (falling back to the first enabled item). This is the
+  // React-endorsed "adjust state during render" pattern (not an effect) --
+  // it re-renders synchronously before paint instead of causing an extra
+  // commit, and only fires on the closed->open edge (not on every
+  // value/groups change while already open, which would fight the user's
+  // arrow-key nav). See
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      const selected = flat.findIndex((it) => it.value === value && !it.disabled)
+      const firstEnabled = flat.findIndex((it) => !it.disabled)
+      setActiveIndex(selected >= 0 ? selected : firstEnabled >= 0 ? firstEnabled : 0)
+    }
+  }
+
+  // Focus the listbox on open so it receives arrow keys. This is a genuine
+  // imperative side effect (not state), so it stays in a useLayoutEffect.
   //
   // This must stay a useLayoutEffect (not useEffect/rAF): Popover
   // (`Menu`'s child in the component tree) also measures + positions
@@ -60,13 +82,7 @@ export function Menu({
   // wrapper.
   useLayoutEffect(() => {
     if (!open) return
-    const selected = flat.findIndex((it) => it.value === value && !it.disabled)
-    const firstEnabled = flat.findIndex((it) => !it.disabled)
-    setActiveIndex(selected >= 0 ? selected : firstEnabled >= 0 ? firstEnabled : 0)
     listRef.current?.focus()
-    // Only re-run when the menu opens -- not on every value/groups change
-    // while it's already open (that would fight the user's arrow-key nav).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   // Step `from` by `dir`, wrapping around and skipping disabled items. Falls
@@ -159,6 +175,7 @@ export function Menu({
                     if (!item.disabled) setActiveIndex(idx)
                   }}
                 >
+                  {item.icon}
                   {item.description ? (
                     <span className="mi-text">
                       <span className="mi-title">{item.label}</span>
