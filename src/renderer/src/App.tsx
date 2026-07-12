@@ -132,7 +132,10 @@ function App(): React.JSX.Element {
         </div>
         <TrustBanner />
         <OutsideAccessCard />
-        <div className="main-view" key={view.kind}>
+        <div
+          className="main-view"
+          key={view.kind === 'conversation' && convo ? `conversation:${convo.id}` : view.kind}
+        >
           {view.kind === 'home' ? <Home /> : null}
           {view.kind === 'history' ? <HistoryView /> : null}
           {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}

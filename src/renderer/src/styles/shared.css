@@ -11,6 +11,7 @@
   -webkit-app-region: no-drag;
   transition:
     background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
     transform var(--dur-press) var(--ease-out);
 }
 .chrome-btn:hover {
@@ -47,6 +48,7 @@
   font-family: inherit;
   transition:
     background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
     transform var(--dur-press) var(--ease-out);
 }
 .icon-btn:hover {
@@ -83,6 +85,7 @@
   font-family: inherit;
   transition:
     background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
     transform var(--dur-press) var(--ease-out);
 }
 .pill-btn:hover {
