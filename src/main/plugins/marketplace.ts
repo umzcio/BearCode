@@ -58,9 +58,13 @@ function friendlyGitError(e: unknown, ref?: string): Error {
   if (/Remote branch .* not found|Could not find remote branch/i.test(msg))
     return new Error(`That branch was not found in the repository${ref ? `: ${ref}` : ''}.`)
   if (/not found|does not exist|Could not read from remote|Repository not found/i.test(msg))
-    return new Error('Could not find that repository — check the URL is correct and public (or that you have access).')
+    return new Error(
+      'Could not find that repository — check the URL is correct and public (or that you have access).'
+    )
   if (/Authentication failed|Permission denied|403|401/i.test(msg))
-    return new Error('Access denied to that repository — you may need to sign in or use a URL you have access to.')
+    return new Error(
+      'Access denied to that repository — you may need to sign in or use a URL you have access to.'
+    )
   return new Error('Could not clone that repository.')
 }
 
@@ -178,7 +182,8 @@ export async function listCatalog(): Promise<MarketplacePlugin[]> {
         name: e.name,
         description: typeof e.description === 'string' ? e.description : '',
         source: e.source,
-        marketplaceUrl: url
+        marketplaceUrl: url,
+        kind: e.kind === 'skill' || e.kind === 'plugin' ? e.kind : undefined
       })
     }
   }

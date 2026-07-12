@@ -56,6 +56,7 @@ import {
   pinDeniedReplays,
   takeDeniedBrowserReplayPin,
   takeDeniedEditReplayPin,
+  takeDeniedHookReplayPin,
   takeDeniedReplayPin,
   takeUnsandboxedDenyPin,
   tryEnterPlanReview
@@ -240,6 +241,47 @@ describe('denied-replay pins for unsandboxed runs (takeUnsandboxedDenyPin)', () 
     pinDeniedReplays('convo', [{ toolCallId: 'tc1', command: 'echo hi' }])
     expect(takeUnsandboxedDenyPin('convo', 'tc1', 'echo hi')).toBe(false)
     expect(takeDeniedReplayPin('convo', 'tc1', 'echo hi')).toBe(true)
+  })
+})
+
+describe('denied-replay pins for hooks (takeDeniedHookReplayPin)', () => {
+  it('returns false when nothing is pinned', () => {
+    expect(takeDeniedHookReplayPin('convo', 'tc1')).toBe(false)
+  })
+
+  it('is toolCallId-only: an id-less call never claims anything', () => {
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1' }])
+    expect(takeDeniedHookReplayPin('convo', undefined)).toBe(false)
+    expect(takeDeniedHookReplayPin('convo', 'tc1')).toBe(true)
+  })
+
+  it('consumes a toolCallId pin exactly once', () => {
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1' }])
+    expect(takeDeniedHookReplayPin('convo', 'tc1')).toBe(true)
+    expect(takeDeniedHookReplayPin('convo', 'tc1')).toBe(false)
+  })
+
+  it('lives in its own namespace: consuming it does NOT also consume the tool-specific pin', () => {
+    // Any denied card (regardless of tool kind) pins its toolCallId into
+    // BOTH the tool-specific byToolCallId set AND the hooks-only namespace,
+    // since wrap.ts sits in front of every tool and must not share
+    // take-once state with the tool's own gate (double-consumption would let
+    // the second consumer silently fall through to a fresh re-evaluation).
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1', command: 'git push --force' }])
+    expect(takeDeniedHookReplayPin('convo', 'tc1')).toBe(true)
+    expect(takeDeniedReplayPin('convo', 'tc1', 'git push --force')).toBe(true)
+  })
+
+  it('excludes the unsandboxed "keep it sandboxed" pin (denial there means something else)', () => {
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1', unsandboxedCommand: 'echo hi' }])
+    expect(takeDeniedHookReplayPin('convo', 'tc1')).toBe(false)
+  })
+
+  it('scopes pins per conversation and clears them wholesale', () => {
+    pinDeniedReplays('convo', [{ toolCallId: 'tc1' }])
+    expect(takeDeniedHookReplayPin('other', 'tc1')).toBe(false)
+    clearDeniedReplayPins('convo')
+    expect(takeDeniedHookReplayPin('convo', 'tc1')).toBe(false)
   })
 })
 

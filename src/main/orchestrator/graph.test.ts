@@ -333,6 +333,34 @@ describe('interruptBelongsToToolCall (pending-interrupt attribution)', () => {
     const idless = { kind: 'browser', tool: 'browser_click', input: { ref: 'e1' } }
     expect(interruptBelongsToToolCall(idless, { id: 'x', name: 'browser_click' })).toBe(false)
   })
+
+  it('a hook_ask payload never claims an unrelated run_command candidate (Task 8 review fix)', () => {
+    // Mirrors the browser test above: a hook-ask approval can wrap ANY tool
+    // (wrap.ts wraps every custom tool; fsBackend.ts's hookPreGate wraps
+    // every built-in fs tool), so it must never fall through to the
+    // terminal `return true` and CLAIM an unrelated dangling run_command
+    // candidate.
+    const hookValue = { kind: 'hook_ask', tool: 'activate_skill', input: {} }
+    expect(
+      interruptBelongsToToolCall(hookValue, {
+        id: 'tc1',
+        name: 'run_command',
+        args: { command: 'ls' }
+      })
+    ).toBe(false)
+  })
+
+  it('a hook_ask payload pairs to its wrapped tool call by toolCallId, never a fallback', () => {
+    const v = {
+      kind: 'hook_ask',
+      tool: 'write_file',
+      input: { file_path: 'a.txt' },
+      toolCallId: 'tcH'
+    }
+    expect(interruptBelongsToToolCall(v, { id: 'tcH', name: 'write_file' })).toBe(true)
+    const idless = { kind: 'hook_ask', tool: 'write_file', input: { file_path: 'a.txt' } }
+    expect(interruptBelongsToToolCall(idless, { id: 'x', name: 'write_file' })).toBe(false)
+  })
 })
 
 describe('edit interrupt pairing', () => {
@@ -574,6 +602,47 @@ describe('synthesizedApprovalCard (call:null synthesis and edit rehydration)', (
     expect(card.tool).toBe('browser_navigate')
     expect(card.input).toEqual({})
   })
+
+  it('rebuilds a hook_ask card as the REAL wrapped tool, never the empty run_command fallback (Task 8 review fix)', () => {
+    // A hook's PreToolUse matcher can target ANY tool -- not just
+    // run_command -- so the reviewer's own example (activate_skill) must
+    // surface as its true card, carrying the real input the tool will
+    // receive on approval.
+    expect(
+      synthesizedApprovalCard({
+        kind: 'hook_ask',
+        tool: 'activate_skill',
+        input: { name: 'some-skill' },
+        reason: 'guard hook',
+        toolCallId: 'tcHook'
+      })
+    ).toEqual({
+      tool: 'activate_skill',
+      input: { name: 'some-skill' },
+      toolCallId: 'tcHook'
+    })
+  })
+
+  it('a hook_ask card wrapping a built-in fs tool also surfaces as its real tool/input', () => {
+    expect(
+      synthesizedApprovalCard({
+        kind: 'hook_ask',
+        tool: 'write_file',
+        input: { file_path: 'a.txt', content: 'x' },
+        toolCallId: 'tcHookWrite'
+      })
+    ).toEqual({
+      tool: 'write_file',
+      input: { file_path: 'a.txt', content: 'x' },
+      toolCallId: 'tcHookWrite'
+    })
+  })
+
+  it('a hook_ask payload with a missing/non-string tool degrades to run_command rather than crashing', () => {
+    const card = synthesizedApprovalCard({ kind: 'hook_ask', input: { x: 1 }, toolCallId: 'tc9' })
+    expect(card.tool).toBe('run_command')
+    expect(card.input).toEqual({ x: 1 })
+  })
 })
 
 describe('pairedApprovalInput (live paired-card input enrichment)', () => {
@@ -640,6 +709,12 @@ describe('isRehydratableInterrupt (crash-resume kind filter)', () => {
 
   it('accepts run_command_unsandboxed', () => {
     expect(isRehydratableInterrupt({ kind: 'run_command_unsandboxed' })).toBe(true)
+  })
+
+  it('accepts hook_ask (a hook-ask card pending at crash/restart survives, like run_command)', () => {
+    expect(isRehydratableInterrupt({ kind: 'hook_ask', tool: 'activate_skill', input: {} })).toBe(
+      true
+    )
   })
 })
 
@@ -822,6 +897,36 @@ describe('pairInterruptsToCalls (interrupt-to-tool_call pairing)', () => {
       tool: 'browser_evaluate',
       input: { script: 'fetch("/steal")' },
       toolCallId: 'tcEval'
+    })
+  })
+
+  it('crash-resume: a hook_ask interrupt pairs to NO run_command candidate, then synthesizes its real card (Task 8 review fix)', () => {
+    // Same composition rehydratePausedRun runs for hook_ask: the dangling
+    // scan is run_command-only, so a parked hook-ask approval (here wrapping
+    // activate_skill, the reviewer's own example) must pair to null and
+    // re-park from synthesizedApprovalCard -- the REAL card, not the empty
+    // run_command fallback whose approval would EXECUTE the parked action.
+    const hookInterrupt = {
+      interruptId: 'ih',
+      value: {
+        kind: 'hook_ask',
+        tool: 'activate_skill',
+        input: { name: 'some-skill' },
+        toolCallId: 'tcSkill'
+      }
+    }
+    const dangling = findDanglingRunCommandCalls([
+      { tool_calls: [{ id: 'tcSkill', name: 'activate_skill', args: { name: 'some-skill' } }] }
+    ])
+    // The gated call is NOT a run_command, so the scan yields nothing.
+    expect(dangling).toEqual([])
+    const out = pairInterruptsToCalls([hookInterrupt], dangling)
+    expect(out[0].call).toBeNull()
+    const card = synthesizedApprovalCard(out[0].value)
+    expect(card).toEqual({
+      tool: 'activate_skill',
+      input: { name: 'some-skill' },
+      toolCallId: 'tcSkill'
     })
   })
 })

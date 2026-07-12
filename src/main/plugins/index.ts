@@ -109,13 +109,19 @@ export interface PluginIngredients {
   skillFolders: { pluginName: string; path: string }[]
   ruleFiles: { pluginName: string; path: string }[]
   mcpConfigs: { pluginName: string; path: string }[]
+  hookFiles: { pluginName: string; path: string }[]
 }
 
 export function enumeratePluginIngredients(
   projectPath: string | null,
   opts?: { trusted?: boolean }
 ): PluginIngredients {
-  const out: PluginIngredients = { skillFolders: [], ruleFiles: [], mcpConfigs: [] }
+  const out: PluginIngredients = {
+    skillFolders: [],
+    ruleFiles: [],
+    mcpConfigs: [],
+    hookFiles: []
+  }
   for (const p of listPlugins(projectPath, opts)) {
     if (!p.enabled) continue
     const root = pluginsDir(p.scope, projectPath)
@@ -136,6 +142,8 @@ export function enumeratePluginIngredients(
         break
       }
     }
+    if (existsSync(join(dir, 'hooks.json')))
+      out.hookFiles.push({ pluginName: p.dirName, path: join(dir, 'hooks.json') })
   }
   return out
 }

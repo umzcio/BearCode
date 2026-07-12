@@ -74,7 +74,9 @@ const DEFAULTS: AppSettings = {
   skillsDisabledGlobal: [],
   skillsDisabledProject: {},
   pluginsEnabled: [],
-  marketplaces: []
+  marketplaces: [],
+  hooksDisabledGlobal: [],
+  hooksConsented: []
 }
 
 // Custom models may only target the four first-party curated providers. Ollama
@@ -277,6 +279,10 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   // mcpEnabledServers/skillsDisabledGlobal above. Optional & additive.
   merged.pluginsEnabled = coerceStringArray(s['pluginsEnabled'])
   merged.marketplaces = coerceStringArray(s['marketplaces'])
+  // Hooks (Phase G hooks arc): same string[] coercion guarantee as
+  // pluginsEnabled/skillsDisabledGlobal above. Optional & additive.
+  merged.hooksDisabledGlobal = coerceStringArray(s['hooksDisabledGlobal'])
+  merged.hooksConsented = coerceStringArray(s['hooksConsented'])
   return merged
 }
 
@@ -413,6 +419,13 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.marketplaces !== undefined) {
     patch = { ...patch, marketplaces: coerceStringArray(patch.marketplaces) }
+  }
+  // Hooks: same coercion guarantee as pluginsEnabled/skillsDisabledGlobal.
+  if (patch.hooksDisabledGlobal !== undefined) {
+    patch = { ...patch, hooksDisabledGlobal: coerceStringArray(patch.hooksDisabledGlobal) }
+  }
+  if (patch.hooksConsented !== undefined) {
+    patch = { ...patch, hooksConsented: coerceStringArray(patch.hooksConsented) }
   }
   const next = { ...getSettings(), ...patch }
   cache = next

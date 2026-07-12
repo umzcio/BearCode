@@ -496,6 +496,63 @@ export interface MarketplacePlugin {
   description: string
   source: string
   marketplaceUrl: string
+  // Optional catalog hint (Task 11 of the hooks arc): lets BrowsePluginsModal
+  // filter to skill-only entries in 'skills' mode. Undefined when the
+  // marketplace.json entry doesn't declare it -- such entries only ever show
+  // in 'plugins' mode.
+  kind?: 'skill' | 'plugin'
+}
+
+// ---- Hooks (Phase G hooks arc) ----
+// Tool-lifecycle hooks: user-registered shell commands that fire at the
+// agent's tool-execution boundary (PreToolUse/PostToolUse). Hooks can only
+// TIGHTEN a permission decision (deny/ask), never bypass it -- a broken,
+// timed-out, or malformed hook fails OPEN (proceeds to normal permission
+// eval). Only the 'command' handler type exists (design §9: no injectSteps).
+export type HookEvent = 'PreToolUse' | 'PostToolUse'
+export type HookDecisionKind = 'allow' | 'deny' | 'ask'
+export interface HookHandler {
+  type: 'command'
+  command: string
+  timeout?: number
+}
+export interface HookEventEntry {
+  matcher?: string
+  handler: HookHandler
+}
+export interface HookConfig {
+  enabled?: boolean
+  PreToolUse?: HookEventEntry[]
+  PostToolUse?: HookEventEntry[]
+}
+// One flattened (name, event, matcher) hook, ready to run. `plugin` is set
+// only when scope === 'plugin' (the owning plugin's dirName). `consented`
+// reflects the current enable/consent state (state.ts): global hooks default
+// on, project/plugin hooks default off until the user explicitly consents.
+export interface HookRecord {
+  name: string
+  scope: 'global' | 'project' | 'plugin'
+  plugin?: string
+  event: HookEvent
+  matcher: string
+  command: string
+  timeout: number
+  consented: boolean
+}
+export interface HookDecision {
+  decision: HookDecisionKind
+  reason?: string
+}
+// Wire shape for authoring/editing a GLOBAL hook (Settings > Hooks form and
+// bearcode:hooks:create/update). Project/plugin hooks.json files stay
+// file-managed and are never authored through this input (design §2 decision
+// #3). Structurally matches main/hooks/authoring.ts's WriteGlobalHookInput.
+export interface HookAuthoringInput {
+  name: string
+  event: HookEvent
+  matcher: string
+  command: string
+  timeout?: number
 }
 
 // ---- Artifacts (Ba) ----
@@ -982,6 +1039,13 @@ export interface AppSettings {
   // git-repo marketplace URLs the user has added. Optional & additive.
   pluginsEnabled?: string[]
   marketplaces?: string[]
+  // Hooks (Phase G hooks arc): the enable/consent sets. Global hooks default
+  // ON (active unless named here); project/plugin hooks default OFF (active
+  // only once consented here). `hooksConsented` keys are
+  // "<scope>:<source>:<name>" (source = projectPath for project, plugin
+  // dirName for plugin). Optional & additive.
+  hooksDisabledGlobal?: string[]
+  hooksConsented?: string[]
 }
 
 export interface SettingsInfo extends AppSettings {
@@ -1319,6 +1383,29 @@ export interface BearcodeApi {
     ): Promise<void>
     update(name: string): Promise<PluginUpdateResult>
     uninstall(scope: 'global' | 'project', name: string, projectPath: string | null): Promise<void>
+  }
+  // Hooks (Phase G hooks arc, Task 9): the Settings > Hooks page's discovered
+  // hook list (global always, project/plugin trust-gated) + the per-hook
+  // enable/consent toggle, and global-hook authoring (create/update/delete --
+  // project/plugin hooks.json files are read-only in-app, design §2
+  // decision #3). Every write is path-jailed and kebab-name validated
+  // main-side (hooks/authoring.ts, hooks/validate.ts).
+  hooks: {
+    list(projectPath: string | null): Promise<HookRecord[]>
+    setActive(
+      scope: 'global' | 'project' | 'plugin',
+      source: string,
+      name: string,
+      on: boolean,
+      projectPath: string | null
+    ): Promise<void>
+    create(input: HookAuthoringInput): Promise<void>
+    update(
+      name: string,
+      original: { event: HookEvent; matcher: string; command: string },
+      input: HookAuthoringInput
+    ): Promise<void>
+    delete(name: string): Promise<void>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void

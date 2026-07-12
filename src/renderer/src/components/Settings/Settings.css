@@ -1048,6 +1048,88 @@
   cursor: default;
 }
 
+/* --- Hooks settings page --- */
+.hook-row {
+  align-items: center;
+  gap: 10px;
+}
+.hook-command {
+  display: inline-block;
+  max-width: 100%;
+  margin-top: 4px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--code-bg, rgba(0, 0, 0, 0.18));
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.hook-actions {
+  display: flex;
+  gap: 8px;
+}
+.hook-actions .pill-btn {
+  border: 1px solid var(--border);
+}
+.hook-actions .pill-btn:hover {
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+}
+.hook-add-card {
+  margin-top: 12px;
+}
+.hook-new-btn {
+  margin-top: 12px;
+}
+.hook-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+.hook-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hook-field .set-row-title {
+  margin-bottom: 0;
+}
+.hook-field .set-input {
+  width: 100%;
+  min-width: 0;
+}
+.hook-field-hint {
+  font-size: 12px;
+  color: var(--warning, #d98a3d);
+}
+.hook-field-hint code {
+  font-size: 11px;
+  opacity: 0.9;
+}
+.hook-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+.hook-form-actions .pill-btn {
+  border: 1px solid var(--border);
+  padding: 7px 16px;
+}
+.hook-form-actions .pill-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.hook-form-actions .pill-btn.primary:hover {
+  background: var(--accent-strong, var(--accent));
+}
+.hook-form-actions .pill-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* Browse Smithery modal — Claude-style connector list (portaled to body). */
 .smithery-panel {
   width: min(680px, calc(100% - 56px));

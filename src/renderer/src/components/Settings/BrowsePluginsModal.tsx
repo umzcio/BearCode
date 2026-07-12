@@ -13,6 +13,11 @@ import { IconClose } from '../icons'
 // rule, and MCP server a plugin would add, verbatim, before confirmInstall
 // copies it into the live plugins tree.
 interface Props {
+  // Task 11 of the hooks arc: this modal doubles as the "Browse Skills"
+  // catalog. 'skills' reworks the copy and filters the catalog to
+  // `kind === 'skill'` entries only; everything else (install flow, review
+  // card, add-marketplace) is shared verbatim. Defaults to 'plugins'.
+  mode?: 'plugins' | 'skills'
   onClose: () => void
   onInstalled: () => void
 }
@@ -33,13 +38,17 @@ function cleanError(e: unknown): string {
     .trim()
 }
 
-export function BrowsePluginsModal({ onClose, onInstalled }: Props): JSX.Element {
+export function BrowsePluginsModal({ mode = 'plugins', onClose, onInstalled }: Props): JSX.Element {
   const [catalog, setCatalog] = useState<MarketplacePlugin[] | null>(null)
   const [mkUrl, setMkUrl] = useState('')
   const [installUrl, setInstallUrl] = useState('')
   const [review, setReview] = useState<Review | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const filteredCatalog = (catalog ?? []).filter((p) =>
+    mode === 'skills' ? p.kind === 'skill' : true
+  )
 
   const load = (): void => {
     void window.bearcode.plugins.catalog().then(setCatalog)
@@ -121,11 +130,15 @@ export function BrowsePluginsModal({ onClose, onInstalled }: Props): JSX.Element
       <div className="smithery-panel">
         <div className="smithery-header">
           <div>
-            <div className="page-title">Browse Plugins</div>
+            <div className="page-title">
+              {mode === 'skills' ? 'Browse Skills' : 'Browse Plugins'}
+            </div>
             <div className="smithery-sub">
               {review
                 ? 'Review before installing'
-                : 'Install bundles of skills, rules, and connectors.'}
+                : mode === 'skills'
+                  ? 'Browse and install skills.'
+                  : 'Install bundles of skills, rules, and connectors.'}
             </div>
           </div>
           <button className="icon-btn" aria-label="Close" onClick={onClose}>
@@ -203,13 +216,15 @@ export function BrowsePluginsModal({ onClose, onInstalled }: Props): JSX.Element
 
             {catalog === null ? (
               <div className="smithery-empty">Loading catalog…</div>
-            ) : catalog.length === 0 ? (
+            ) : filteredCatalog.length === 0 ? (
               <div className="smithery-empty">
-                No plugins in the catalog yet. Add a marketplace above.
+                {mode === 'skills'
+                  ? 'No skills in the catalog yet. Add a marketplace above.'
+                  : 'No plugins in the catalog yet. Add a marketplace above.'}
               </div>
             ) : (
               <div className="smithery-results">
-                {catalog.map((p) => (
+                {filteredCatalog.map((p) => (
                   <div className="smithery-hit" key={`${p.marketplaceUrl}#${p.name}`}>
                     <div className="smithery-hit-main">
                       <div className="smithery-hit-title">

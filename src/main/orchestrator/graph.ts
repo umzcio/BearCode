@@ -41,6 +41,7 @@ import {
   getEvents,
   getLastCompactionEvent,
   getOutsidePolicy,
+  getProjectSettings,
   isProjectTrusted,
   listArtifactComments,
   markArtifactCommentsSent,
@@ -119,6 +120,8 @@ import {
 } from './tools'
 import { browserManager } from '../browser/manager'
 import { browserActionLabel } from '../browser/guard'
+import { wrapToolsWithHooks } from '../hooks/wrap'
+import type { HookCtx } from '../hooks/runner'
 
 // The tuple shape yielded by `.stream(..., { streamMode: "messages", subgraphs: true })`
 // with a single (non-array) streamMode: [namespace, [chunk, metadata]]. (The
@@ -631,6 +634,18 @@ export function interruptBelongsToToolCall(
     if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
     return (tc.args as { name?: unknown } | null | undefined)?.name === value.name
   }
+  if (value?.kind === 'hook_ask') {
+    // Task 8 review fix: mirror the browser/mcp/integration branches above.
+    // A hook-ask approval can wrap ANY tool (wrap.ts wraps every custom
+    // tool; fsBackend.ts's hookPreGate wraps every built-in fs tool), so
+    // without this it fell through to the terminal `return true` below and
+    // could CLAIM an unrelated dangling run_command candidate on the id-less
+    // fallback path, mislabeling the re-surfaced card. Both call sites
+    // always supply a toolCallId from the live runtime, so pairing is
+    // toolCallId-only, never a fallback.
+    if (typeof value.toolCallId === 'string') return tc.id === value.toolCallId
+    return false
+  }
   return true
 }
 
@@ -812,6 +827,30 @@ export function synthesizedApprovalCard(interruptValue: unknown): {
         : 'github_list_repos'
     ) as ToolName
     return { tool, input: value.input ?? {}, toolCallId }
+  }
+  if (value?.kind === 'hook_ask') {
+    // Task 8 review fix: re-surface a parked hook-ask approval as its REAL
+    // card -- a hook's PreToolUse matcher can target ANY tool (a built-in fs
+    // tool via fsBackend.ts's GatedDiffFsBackend, or any tool wrapped by
+    // wrap.ts's wrapToolsWithHooks), never just run_command, so without this
+    // branch every hook_ask interrupt fell through to the empty run_command
+    // fallback below -- a blank-looking card whose approval actually resumed
+    // whatever real tool the hook gated (a write, a browser_evaluate, an mcp__
+    // call, ...) without the user ever seeing what it was. The interrupt
+    // payload carries the true tool name + call input (hooks/wrap.ts and
+    // fsBackend.ts's hookPreGate both set `tool`/`input` on the interrupt()
+    // call), so the rehydrated card shows exactly what will execute on
+    // approval. `tool` here is asserted, not validated against ToolName's
+    // closed union (mirrors the mcp__/integration branches above, which do
+    // the same for names outside their own prefix checks): an arbitrary
+    // wrapped tool name is not itself a security boundary -- the
+    // toolCallId-keyed denied-replay pin (byHookToolCallId) is what actually
+    // blocks execution on Deny, regardless of what label the card shows.
+    return {
+      tool: (typeof value.tool === 'string' ? value.tool : 'run_command') as ToolName,
+      input: value.input ?? {},
+      toolCallId
+    }
   }
   if (value?.kind === 'propose_skill') {
     // The card is built from the payload alone (name/description/body) so the
@@ -2306,20 +2345,44 @@ function buildAgentAndContext(
   const backend = projectPath
     ? new DiffFsBackend(conversationId, projectPath, diffGroupId, worktreeMappings)
     : undefined
+  // Hooks (Phase G hooks arc, Task 8): computed here, BEFORE backendFactory
+  // and BEFORE the rules try/catch below, so both the GatedDiffFsBackend
+  // instances the factory mints AND wrapToolsWithHooks (further down) share
+  // the identical, unconditionally-computed context. `trusted` deliberately
+  // is NOT threaded out of the rules try/catch below -- a failure there must
+  // never leave this secure-default computation unset. `sandbox` mirrors the
+  // exact source run_command reads for its own Sandbox Mode decision.
+  const { trusted: hooksTrusted } = resolveTrustForTurn(projectPath)
+  const hookCtx: HookCtx = {
+    conversationId,
+    projectPath,
+    trusted: hooksTrusted,
+    sandbox: projectPath != null && getProjectSettings(projectPath)?.sandboxMode === true
+  }
   // createDeepAgent gets a FACTORY (resolved per builtin-tool invocation, so
   // the Bb3 edit gate sees each call's provider tool-call id) while ctx.backend
   // below keeps pointing at the ONE shared DiffFsBackend -- the staged-files
   // post-loop and closeOutTurn read its stagedFiles. The runtime cast is
   // needed because the published BackendFactory parameter type omits the
   // toolCall field the tool-time runtime actually carries (verified:
-  // scratchpad bb3-edit-gating-probe.md section 2, probe B).
+  // scratchpad bb3-edit-gating-probe.md section 2, probe B). `hookCtx` is
+  // threaded through so GatedDiffFsBackend's built-in ls/read_file/write_file/
+  // edit_file/glob/grep delegations run PreToolUse/PostToolUse too (Task 8
+  // review finding: those built-ins are generated internally by
+  // createDeepAgent/createFilesystemMiddleware and never pass through
+  // wrapToolsWithHooks below) -- this SAME factory closure is also what
+  // normalizeSubagentSpec threads into every subagent's own
+  // createFilesystemMiddleware (createDeepAgent's `backend:` param, set
+  // below), so the researcher/browser subagents' built-in fs tools are
+  // covered by this one change too.
   const backendFactory = backend
     ? (runtime: unknown): GatedDiffFsBackend =>
         new GatedDiffFsBackend(
           backend,
           (runtime as { toolCall?: { id?: string } } | undefined)?.toolCall?.id,
           conversationId,
-          projectPath as string
+          projectPath as string,
+          hookCtx
         )
     : undefined
   // .agents rules load once per turn, right here at agent build (design 3.2):
@@ -2445,6 +2508,37 @@ function buildAgentAndContext(
   // connected, so this append is unconditional like mcpTools; every call still
   // passes the per-tool 'integration' permission gate inside the tool body.
   const integrationTools = buildIntegrationTools(conversationId)
+  // Hooks (Phase G hooks arc, Task 8): ONE generic wrapper applied to the
+  // fully composed CUSTOM tool list, right before createDeepAgent --
+  // matchers inside each hook record decide which tools actually fire, so
+  // nothing else here needs to change per-tool. `hookCtx` was computed once,
+  // unconditionally, above (before the rules try/catch) and is reused here
+  // and by backendFactory's GatedDiffFsBackend instances (built-in fs tools)
+  // so both paths share the identical context.
+  const allTools = [
+    ...(backendFactory
+      ? buildTools(projectPath as string, conversationId, sink, diffGroupId, worktreeMappings)
+      : []),
+    ...browserTools,
+    // buildMcpTools' per-tool tool() carries a distinct zod-inferred generic,
+    // so its shared array is widened to unknown[] at the source; the elements
+    // are StructuredTools like browserTools, so re-narrow to that shape here.
+    ...(mcpTools as typeof browserTools),
+    // Integration tools share the same unknown[]→StructuredTool widening as
+    // MCP (distinct zod-inferred generics collapsed at the source).
+    ...(integrationTools as typeof browserTools),
+    // activate_skill is folder-independent (global skills load with no
+    // project open), so it is appended unconditionally like browserTools.
+    // buildSkillTools' single-tool literal array infers a concrete
+    // DynamicStructuredTool type that doesn't structurally overlap with
+    // browserTools' union, so widen through unknown first (same pattern
+    // buildMcpTools/buildIntegrationTools hit at their source).
+    ...(buildSkillTools(conversationId, projectPath) as unknown as typeof browserTools),
+    // remember is folder-independent (global memory writes with no project),
+    // so it is appended unconditionally like buildSkillTools/browserTools.
+    ...(buildMemoryTools(conversationId, projectPath) as unknown as typeof browserTools)
+  ]
+  const wrappedTools = wrapToolsWithHooks(allTools, hookCtx) as typeof browserTools
   const agent = createDeepAgent({
     model,
     middleware: summarizationMiddleware,
@@ -2465,35 +2559,27 @@ function buildAgentAndContext(
     // subagent with only ls/read/write/edit/glob/grep and it (correctly) said it
     // had no browser access. Handing it browserTools scopes it to exactly the
     // browsing surface (the guard chain still gates every call).
-    subagents: [RESEARCHER_SUBAGENT, { ...BROWSER_SUBAGENT, tools: browserTools }],
+    // The browser subagent must ALSO go through wrapToolsWithHooks -- a
+    // separate wrapped copy of browserTools, since the main tool list above
+    // already carries its own wrapped copy inside wrappedTools. Without this,
+    // any browser_*-matching PreToolUse/PostToolUse hook (a deny/ask policy
+    // on navigation, say) is silently bypassed whenever the model delegates
+    // via task(subagent_type="browser") instead of calling browser_* directly.
+    subagents: [
+      RESEARCHER_SUBAGENT,
+      {
+        ...BROWSER_SUBAGENT,
+        tools: wrapToolsWithHooks(browserTools, hookCtx) as typeof browserTools
+      }
+    ],
     ...(backendFactory ? { backend: backendFactory } : {}),
     // F4 decoupling: browser_* tools (buildBrowserTools) are ALWAYS present —
     // browsing has no project-folder dependency (session data keys off
     // conversationId, not projectPath). Project-scoped tools (buildTools) stay
-    // folder-gated behind backendFactory, exactly as before.
-    tools: [
-      ...(backendFactory
-        ? buildTools(projectPath as string, conversationId, sink, diffGroupId, worktreeMappings)
-        : []),
-      ...browserTools,
-      // buildMcpTools' per-tool tool() carries a distinct zod-inferred generic,
-      // so its shared array is widened to unknown[] at the source; the elements
-      // are StructuredTools like browserTools, so re-narrow to that shape here.
-      ...(mcpTools as typeof browserTools),
-      // Integration tools share the same unknown[]→StructuredTool widening as
-      // MCP (distinct zod-inferred generics collapsed at the source).
-      ...(integrationTools as typeof browserTools),
-      // activate_skill is folder-independent (global skills load with no
-      // project open), so it is appended unconditionally like browserTools.
-      // buildSkillTools' single-tool literal array infers a concrete
-      // DynamicStructuredTool type that doesn't structurally overlap with
-      // browserTools' union, so widen through unknown first (same pattern
-      // buildMcpTools/buildIntegrationTools hit at their source).
-      ...(buildSkillTools(conversationId, projectPath) as unknown as typeof browserTools),
-      // remember is folder-independent (global memory writes with no project),
-      // so it is appended unconditionally like buildSkillTools/browserTools.
-      ...(buildMemoryTools(conversationId, projectPath) as unknown as typeof browserTools)
-    ]
+    // folder-gated behind backendFactory, exactly as before. wrappedTools
+    // (Task 8) is allTools run through wrapToolsWithHooks -- same tools, same
+    // order, each one now hook-gated ahead of its own permission evaluation.
+    tools: wrappedTools
   })
   const ctx: DriveContext = {
     conversationId,
@@ -2662,7 +2748,14 @@ export function isRehydratableInterrupt(value: unknown): boolean {
     // propose_skill (G-skills Task 8) is rehydratable like plan_review -- its
     // resume carries a SkillProposalResolution, not {approved} -- so a parked
     // /learn proposal is not dropped to 'cancelled' by a crash/restart either.
-    kind === 'propose_skill'
+    kind === 'propose_skill' ||
+    // hook_ask (hooks arc Task 8) resumes with the identical {approved}
+    // shape as run_command, so it is equally crash-resumable. Without this a
+    // hook-ask card still pending at crash/restart degrades the ENTIRE
+    // pending batch -- including unrelated sibling cards -- to 'cancelled'
+    // instead of being re-surfaced (rehydratePausedRun's "one bad apple"
+    // comment above).
+    kind === 'hook_ask'
   )
 }
 
@@ -2769,6 +2862,27 @@ export async function rehydratePausedRun(
       // re-executes from its interrupt() and returns its own result; the
       // crash-resumed tool_result row is a cosmetic history gap. Deny stays safe
       // — the toolCallId is preserved so the pin lands in byToolCallId.
+      const card = synthesizedApprovalCard(pairing.value)
+      tool = card.tool
+      input = card.input
+      toolCallId = card.toolCallId
+    } else if ((pairing.value as { kind?: string } | null | undefined)?.kind === 'hook_ask') {
+      // Task 8 review fix: hook-ask approvals re-park from the payload like
+      // browser/edit above. The dangling scan is run_command-only so
+      // pairing.call is null unless the hook happened to wrap run_command
+      // itself (and even then, interruptBelongsToToolCall's hook_ask branch
+      // above only pairs by toolCallId, never the id-less fallback), so
+      // synthesizedApprovalCard reconstructs the REAL card -- the tool the
+      // hook actually gated + its call input -- instead of the empty
+      // run_command fallback whose innocuous-looking approval would resume
+      // and EXECUTE whatever real tool (a write, a browser_evaluate, an
+      // mcp__ call, ...) the hook parked. No ctx seeding (the Bb3 edit
+      // precedent): the replayed tool re-executes from its own interrupt()
+      // and returns its own result; the crash-resumed tool_result row is a
+      // cosmetic history gap. Deny stays safe -- the toolCallId is preserved
+      // so the pin lands in byHookToolCallId (wrap.ts's
+      // takeDeniedHookReplayPin / fsBackend.ts's hookPreGate both consult it
+      // before re-running).
       const card = synthesizedApprovalCard(pairing.value)
       tool = card.tool
       input = card.input

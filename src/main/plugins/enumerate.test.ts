@@ -29,6 +29,7 @@ function fullPlugin(root: string, name: string): void {
   writeFileSync(join(p, 'skills', 's1', 'SKILL.md'), '---\nname: s1\ndescription: d\n---\nb')
   writeFileSync(join(p, 'rules', 'r1.md'), '---\nactivation: always\ndescription: d\n---\nb')
   writeFileSync(join(p, 'mcp.json'), '{"mcpServers":{}}')
+  writeFileSync(join(p, 'hooks.json'), '{}')
 }
 
 describe('enumeratePluginIngredients', () => {
@@ -50,6 +51,7 @@ describe('enumeratePluginIngredients', () => {
     expect(ing.skillFolders.map((s) => s.pluginName)).toEqual(['onpack'])
     expect(ing.ruleFiles[0].pluginName).toBe('onpack')
     expect(ing.mcpConfigs[0].pluginName).toBe('onpack')
+    expect(ing.hookFiles.map((h) => h.pluginName)).toEqual(['onpack'])
   })
   it('suppresses enabled PROJECT plugins when untrusted', async () => {
     const { enumeratePluginIngredients, pluginsDir } = await import('./index')
@@ -57,6 +59,8 @@ describe('enumeratePluginIngredients', () => {
     fullPlugin(pluginsDir('project', proj), 'ppack')
     store.pluginsEnabled = ['project:ppack']
     expect(enumeratePluginIngredients(proj, { trusted: false }).skillFolders).toEqual([])
+    expect(enumeratePluginIngredients(proj, { trusted: false }).hookFiles).toEqual([])
     expect(enumeratePluginIngredients(proj, { trusted: true }).skillFolders.length).toBe(1)
+    expect(enumeratePluginIngredients(proj, { trusted: true }).hookFiles.length).toBe(1)
   })
 })

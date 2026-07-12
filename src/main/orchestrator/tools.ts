@@ -116,6 +116,10 @@ interface DeniedPinSet {
   byMcpAction: Map<string, number>
   byIntegrationAction: Map<string, number>
   byUnsandboxedCommand: Map<string, number>
+  // A SEPARATE (never shared) copy of every denied toolCallId, consumed only
+  // by wrap.ts's takeDeniedHookReplayPin -- see that function's doc comment
+  // for why this cannot reuse byToolCallId.
+  byHookToolCallId: Set<string>
 }
 const deniedReplayPins = new Map<string, DeniedPinSet>()
 
@@ -139,9 +143,25 @@ export function pinDeniedReplays(
     byBrowserAction: new Map(),
     byMcpAction: new Map(),
     byIntegrationAction: new Map(),
-    byUnsandboxedCommand: new Map()
+    byUnsandboxedCommand: new Map(),
+    byHookToolCallId: new Set()
   }
   for (const pin of pins) {
+    // wrap.ts (the hooks layer) sits in FRONT of every tool -- including
+    // run_command/edit_file/browser/mcp/integration, each of which has its
+    // OWN take*ReplayPin call consulting byToolCallId below. If wrap.ts's
+    // hook-ask guard consumed FROM byToolCallId too, take-once semantics
+    // would let it silently swallow the pin before the tool's own gate ever
+    // saw it on replay, reopening the exact bypass those per-tool pins exist
+    // to close. So every denied toolCallId is ALSO recorded here, in its own
+    // namespace, for wrap.ts alone to consume. Excluded: the unsandboxed-run
+    // "keep it sandboxed" pin, whose denial means something different (run
+    // sandboxed, not "block the tool entirely") -- consuming it here would
+    // make wrap.ts wrongly refuse the whole call instead of letting
+    // run_command's own gate fall back to sandboxed execution.
+    if (pin.toolCallId !== undefined && pin.unsandboxedCommand === undefined) {
+      set.byHookToolCallId.add(pin.toolCallId)
+    }
     if (pin.unsandboxedCommand !== undefined) {
       // Must be checked ahead of the bare toolCallId branch below: a
       // Task-7-shaped pin carries BOTH toolCallId and unsandboxedCommand, and
@@ -335,6 +355,31 @@ export function takeUnsandboxedDenyPin(
   if (n <= 1) set.byUnsandboxedCommand.delete(command)
   else set.byUnsandboxedCommand.set(command, n - 1)
   return true
+}
+
+// Consulted by wrap.ts (hooks/wrap.ts) at the very TOP of every wrapped
+// tool's execution, before runPreToolUse is even called: LangGraph replays
+// the entire wrapped async function from the top on a keyed resume, so a
+// hook-ask card the user explicitly denied must win over any decision the
+// hooks layer would newly compute on replay (a non-deterministic hook
+// script, or the hook being edited/disabled via Settings > Hooks while the
+// card was pending) -- exactly the class of bug takeDeniedReplayPin and its
+// per-tool analogs above close for their own gates. toolCallId-only by
+// design (mirrors the id-carrying branch of every other take* here): wrap.ts
+// wraps every tool generically, so there is no reliable id-less action
+// string to fall back on across arbitrary tool shapes the way
+// command/editPath/browserAction/mcpAction/integrationAction do for their
+// specific tool families. Consumes from byHookToolCallId ONLY -- see that
+// field's doc comment in pinDeniedReplays for why it must never share
+// byToolCallId with the tool-specific takes.
+export function takeDeniedHookReplayPin(
+  conversationId: string,
+  toolCallId: string | undefined
+): boolean {
+  if (toolCallId === undefined) return false
+  const set = deniedReplayPins.get(conversationId)
+  if (!set) return false
+  return set.byHookToolCallId.delete(toolCallId)
 }
 
 // The truthy resume-object contract for a plan_review interrupt (design 3.1).
