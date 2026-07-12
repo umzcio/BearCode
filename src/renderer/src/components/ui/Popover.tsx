@@ -107,6 +107,10 @@ export function Popover({
     const onScroll = (e: Event): void => {
       const t = e.target as Node
       if (popRef.current?.contains(t)) return
+      // Also ignore scrolls originating from within the anchor itself (e.g.
+      // the composer textarea auto-scrolling while typing) -- the anchor
+      // doesn't move, so there's nothing to detach from.
+      if (anchorRef.current?.contains(t)) return
       onClose()
     }
 
