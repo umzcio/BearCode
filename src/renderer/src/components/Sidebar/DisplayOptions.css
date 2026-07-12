@@ -8,13 +8,11 @@
    shared style (no per-picker fork). */
 .display-menu {
   min-width: 220px;
-  padding: 5px;
 }
 .display-menu .menu-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
   font-size: 13px;
 }
 .display-menu .check {
