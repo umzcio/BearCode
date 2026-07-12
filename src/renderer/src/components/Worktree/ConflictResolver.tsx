@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useState } from 'react'
 import { applyChoice } from '@shared/conflict'
 import { useAppStore } from '../../state/store'
 import { IconClose, IconGitBranch } from '../icons'
+import { Hint } from '../Hint'
 import './ConflictResolver.css'
 
 const MonacoEditable = lazy(() => import('../MonacoEditable'))
@@ -152,13 +153,15 @@ export function ConflictResolver(): React.JSX.Element | null {
             <IconGitBranch />
             <span>Resolve conflicts — {basename(repoPath)}</span>
           </div>
-          <button
-            className="content-close"
-            title="Close (keeps the merge in progress)"
-            onClick={() => dismiss()}
-          >
-            <IconClose />
-          </button>
+          <Hint label="Close (keeps the merge in progress)" side="bottom">
+            <button
+              className="content-close"
+              aria-label="Close (keeps the merge in progress)"
+              onClick={() => dismiss()}
+            >
+              <IconClose />
+            </button>
+          </Hint>
         </div>
 
         <div className="conflict-progress">
