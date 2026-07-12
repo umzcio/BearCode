@@ -12,6 +12,7 @@ import { Toggle } from '../../Toggle'
 import { Select } from '../../Select'
 import type { SelectOption } from '../../Select'
 import { BrowseSmitheryModal } from '../BrowseSmitheryModal'
+import { useAnimatedUnmount } from '../../../lib/useAnimatedUnmount'
 import { PluginBadge } from '../../PluginBadge'
 import { EmptyState } from '../../ui/EmptyState'
 import { Loading } from '../../ui/Loading'
@@ -197,6 +198,10 @@ export function ConnectorsPage(): JSX.Element | null {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [pendingConsent, setPendingConsent] = useState<string | null>(null)
   const [addMode, setAddMode] = useState<'manual' | 'browse' | 'import' | null>(null)
+  // Keeps the Smithery browse modal mounted through its exit transition;
+  // BrowseSmitheryModal itself owns no open/closed state, so the fade+scale
+  // out has to be driven from here.
+  const { mounted: browseMounted, state: browseState } = useAnimatedUnmount(addMode === 'browse')
   const [draft, setDraft] = useState<ManualDraft>(EMPTY_DRAFT)
   // Server names with a sign-in flow in flight. mcp.authorize() blocks main-side
   // for the whole browser+loopback round-trip and the interim 'authorizing'
@@ -642,11 +647,12 @@ export function ConnectorsPage(): JSX.Element | null {
         ) : null}
       </div>
 
-      {addMode === 'browse' ? (
+      {browseMounted ? (
         <BrowseSmitheryModal
           projectPath={workspacePath}
           onClose={() => setAddMode(null)}
           onInstalled={refresh}
+          state={browseState}
         />
       ) : null}
     </>

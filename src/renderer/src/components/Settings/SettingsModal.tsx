@@ -37,6 +37,7 @@ import type { SettingsPageId } from './SettingsNav'
 import { Select } from '../Select'
 import { Hint } from '../Hint'
 import { useModalDialog } from '../../lib/useModalDialog'
+import { useAnimatedUnmount } from '../../lib/useAnimatedUnmount'
 import './Settings.css'
 
 const SHORTCUTS: { label: string; keys: string[] }[] = [
@@ -78,9 +79,10 @@ export function SettingsModal(): React.JSX.Element | null {
   const open = useAppStore((s) => s.settingsOpen)
   const settings = useAppStore((s) => s.settings)
   const initialPage = useAppStore((s) => s.settingsInitialPage)
-  if (!open || !settings) return null
+  const { mounted, state } = useAnimatedUnmount(open && !!settings)
+  if (!mounted || !settings) return null
   // Remounts on each open, so drafts initialize fresh from current settings.
-  return <SettingsPanel settings={settings} initialPage={initialPage} />
+  return <SettingsPanel settings={settings} initialPage={initialPage} state={state} />
 }
 
 function Row({
@@ -114,10 +116,12 @@ function PageHead({ title, sub }: { title: string; sub: string }): React.JSX.Ele
 
 function SettingsPanel({
   settings,
-  initialPage
+  initialPage,
+  state
 }: {
   settings: SettingsInfo
   initialPage: string | null
+  state: 'open' | 'closing'
 }): React.JSX.Element {
   const close = useAppStore((s) => s.closeSettings)
   const setAppearance = useAppStore((s) => s.setAppearance)
@@ -155,8 +159,18 @@ function SettingsPanel({
   }
 
   return (
-    <div className="modal-overlay open" onClick={(e) => e.target === e.currentTarget && close()}>
-      <div className="settings-panel" ref={dialogRef} {...dialogProps} aria-label="Settings">
+    <div
+      className="modal-overlay open"
+      data-state={state}
+      onClick={(e) => e.target === e.currentTarget && close()}
+    >
+      <div
+        className="settings-panel"
+        data-state={state}
+        ref={dialogRef}
+        {...dialogProps}
+        aria-label="Settings"
+      >
         <div className="settings-rail">
           {SETTINGS_NAV.map((group) => (
             <div className="rail-group" key={group.label ?? 'ungrouped'}>

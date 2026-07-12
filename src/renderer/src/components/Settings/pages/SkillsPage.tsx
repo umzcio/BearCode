@@ -11,6 +11,7 @@ import { EmptyState } from '../../ui/EmptyState'
 import { Loading } from '../../ui/Loading'
 import { FieldHint } from '../../ui/FieldHint'
 import { isKebabName, KEBAB_HINT } from '../../../lib/validators'
+import { useAnimatedUnmount } from '../../../lib/useAnimatedUnmount'
 
 const SCOPE_OPTIONS: SelectOption<'project' | 'global'>[] = [
   { value: 'project', label: 'Project' },
@@ -43,6 +44,9 @@ export function SkillsPage(): JSX.Element | null {
   const [pendingDelete, setPendingDelete] = useState<SkillEntry | null>(null)
   const [confirmText, setConfirmText] = useState('')
   const [browsing, setBrowsing] = useState(false)
+  // BrowsePluginsModal owns no open/closed state of its own; keep it mounted
+  // through its exit transition here.
+  const { mounted: browseMounted, state: browseState } = useAnimatedUnmount(browsing)
 
   const refresh = (): void => {
     void window.bearcode.skills.list(workspacePath).then((list) => setSkills(list))
@@ -279,7 +283,7 @@ export function SkillsPage(): JSX.Element | null {
         </button>
       )}
 
-      {browsing ? (
+      {browseMounted ? (
         <BrowsePluginsModal
           mode="skills"
           onClose={() => setBrowsing(false)}
@@ -287,6 +291,7 @@ export function SkillsPage(): JSX.Element | null {
             setBrowsing(false)
             refresh()
           }}
+          state={browseState}
         />
       ) : null}
     </>

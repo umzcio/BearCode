@@ -28,7 +28,9 @@ export function useAnimatedUnmount(
       setS({ open, mounted: true, phase: 'open' })
     } else {
       // Under reduced motion, skip the exit transition and unmount now.
-      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      // (matchMedia is absent in some test/non-browser environments -- treat
+      // that as "not reduced" rather than throwing.)
+      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
       setS({ open, mounted: !reduce, phase: 'closing' })
     }
   }

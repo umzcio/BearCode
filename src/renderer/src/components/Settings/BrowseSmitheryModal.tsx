@@ -46,6 +46,9 @@ interface Props {
   projectPath: string | null
   onClose: () => void
   onInstalled: (view: McpServerView) => void
+  // Set by the caller's useAnimatedUnmount while this modal remains mounted
+  // through its exit transition. Defaults to 'open' (no caller opts in).
+  state?: 'open' | 'closing'
 }
 
 const KEY_MISSING_RE = /No Smithery API key configured/i
@@ -86,7 +89,12 @@ function monogram(name: string): { letter: string; hue: number } {
   return { letter, hue: h }
 }
 
-export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props): JSX.Element {
+export function BrowseSmitheryModal({
+  projectPath,
+  onClose,
+  onInstalled,
+  state = 'open'
+}: Props): JSX.Element {
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SmitheryHit[] | null>(null)
   const [keyMissing, setKeyMissing] = useState(false)
@@ -200,8 +208,12 @@ export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props
   }
 
   return createPortal(
-    <div className="modal-overlay open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="smithery-panel">
+    <div
+      className="modal-overlay open"
+      data-state={state}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="smithery-panel" data-state={state}>
         <div className="smithery-header">
           <div>
             <div className="page-title">Browse Smithery</div>

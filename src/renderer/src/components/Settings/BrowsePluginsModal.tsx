@@ -24,6 +24,9 @@ interface Props {
   mode?: 'plugins' | 'skills'
   onClose: () => void
   onInstalled: () => void
+  // Set by the caller's useAnimatedUnmount while this modal remains mounted
+  // through its exit transition. Defaults to 'open' (no caller opts in).
+  state?: 'open' | 'closing'
 }
 
 interface Review {
@@ -42,7 +45,12 @@ function cleanError(e: unknown): string {
     .trim()
 }
 
-export function BrowsePluginsModal({ mode = 'plugins', onClose, onInstalled }: Props): JSX.Element {
+export function BrowsePluginsModal({
+  mode = 'plugins',
+  onClose,
+  onInstalled,
+  state = 'open'
+}: Props): JSX.Element {
   const [catalog, setCatalog] = useState<MarketplacePlugin[] | null>(null)
   const [mkUrl, setMkUrl] = useState('')
   const [installUrl, setInstallUrl] = useState('')
@@ -127,11 +135,12 @@ export function BrowsePluginsModal({ mode = 'plugins', onClose, onInstalled }: P
   return createPortal(
     <div
       className="modal-overlay open"
+      data-state={state}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="smithery-panel">
+      <div className="smithery-panel" data-state={state}>
         <div className="smithery-header">
           <div>
             <div className="page-title">
