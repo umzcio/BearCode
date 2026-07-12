@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ProviderId } from '@shared/types'
 import { modelDisplay, useAppStore } from '../../state/store'
 import { ProviderIcon } from '../ProviderIcon'
 import { Hint } from '../Hint'
 import { IconChevronDown, IconSearch } from '../icons'
+import { Popover } from '../ui/Popover'
 import './ModelPicker.css'
 
 export function ModelPicker(): React.JSX.Element {
@@ -15,7 +16,7 @@ export function ModelPicker(): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
-  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const lastTick = useRef(modelMenuTick)
 
@@ -62,23 +63,15 @@ export function ModelPicker(): React.JSX.Element {
     setOpen((o) => !o)
   }, [modelMenuTick])
 
-  useEffect(() => {
-    if (!open) return undefined
-    const close = (e: MouseEvent): void => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('click', close)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('click', close)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  useEffect(() => {
+  // Popover owns click-outside/Esc/scroll dismissal + positioning. This
+  // effect only seeds the roving highlight on the current model and focuses
+  // the listbox so it receives arrow keys -- stays a useLayoutEffect (not
+  // useEffect) because Popover measures + positions itself in its own
+  // useLayoutEffect on the same open transition, and layout effects fire
+  // bottom-up (Popover, nested inside this component, before this one), so
+  // the listbox is never `visibility: hidden` when `.focus()` is called
+  // (Chromium silently no-ops focus on a hidden element). See Popover.tsx.
+  useLayoutEffect(() => {
     if (!open) return
     const i = flatOptions.findIndex((o) => o.id === `model-${modelRef}`)
     setActiveIndex(i >= 0 ? i : 0)
@@ -108,9 +101,9 @@ export function ModelPicker(): React.JSX.Element {
   }
 
   return (
-    <div className="model-picker" ref={rootRef}>
+    <div className="model-picker">
       <Hint label="Select Model" keys="⌘/" side="top" disabled={open}>
-        <button className="pill-btn" onClick={() => setOpen((o) => !o)}>
+        <button ref={triggerRef} className="pill-btn" onClick={() => setOpen((o) => !o)}>
           {modelRef ? (
             <ProviderIcon provider={modelRef.slice(0, modelRef.indexOf('/')) as ProviderId} />
           ) : (
@@ -122,9 +115,14 @@ export function ModelPicker(): React.JSX.Element {
           </span>
         </button>
       </Hint>
-      {open ? (
+      <Popover
+        anchorRef={triggerRef}
+        open={open}
+        onClose={() => setOpen(false)}
+        placement="top-end"
+      >
         <div
-          className="menu model-menu"
+          className="menu menu--in-popover model-menu"
           role="listbox"
           ref={menuRef}
           tabIndex={-1}
@@ -209,7 +207,7 @@ export function ModelPicker(): React.JSX.Element {
             )
           })}
         </div>
-      ) : null}
+      </Popover>
     </div>
   )
 }
