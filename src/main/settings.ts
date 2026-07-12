@@ -71,7 +71,9 @@ const DEFAULTS: AppSettings = {
   mcpSpawnConsented: [],
   githubClientId: '',
   skillsDisabledGlobal: [],
-  skillsDisabledProject: {}
+  skillsDisabledProject: {},
+  pluginsEnabled: [],
+  marketplaces: []
 }
 
 // Custom models may only target the four first-party curated providers. Ollama
@@ -269,6 +271,10 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   merged.githubClientId = typeof s['githubClientId'] === 'string' ? s['githubClientId'] : ''
   merged.skillsDisabledGlobal = coerceStringArray(s['skillsDisabledGlobal'])
   merged.skillsDisabledProject = coerceStringArrayMap(s['skillsDisabledProject'])
+  // Plugins (Phase G plugins arc): same string[] coercion guarantee as
+  // mcpEnabledServers/skillsDisabledGlobal above. Optional & additive.
+  merged.pluginsEnabled = coerceStringArray(s['pluginsEnabled'])
+  merged.marketplaces = coerceStringArray(s['marketplaces'])
   return merged
 }
 
@@ -395,6 +401,13 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.skillsDisabledProject !== undefined) {
     patch = { ...patch, skillsDisabledProject: coerceStringArrayMap(patch.skillsDisabledProject) }
+  }
+  // Plugins: same coercion guarantee as skillsDisabledGlobal/mcpEnabledServers.
+  if (patch.pluginsEnabled !== undefined) {
+    patch = { ...patch, pluginsEnabled: coerceStringArray(patch.pluginsEnabled) }
+  }
+  if (patch.marketplaces !== undefined) {
+    patch = { ...patch, marketplaces: coerceStringArray(patch.marketplaces) }
   }
   const next = { ...getSettings(), ...patch }
   cache = next

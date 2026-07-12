@@ -413,6 +413,46 @@ export interface GithubDeviceStart {
   interval: number
 }
 
+// ---- Plugins (Phase G plugins arc) ----
+// A plugin is a `plugins/<name>/` directory (`plugin.json` marker + optional
+// `skills/`, `rules/`, `mcp.json`, `hooks.json`). These summary shapes are pure
+// metadata for discovery/the install-review card -- never anything executable.
+export interface PluginServerSummary {
+  name: string
+  transport: McpTransport
+  command?: string
+  url?: string
+}
+export interface PluginSkillSummary {
+  name: string
+  description: string
+}
+export interface PluginRuleSummary {
+  name: string
+  activation: 'always' | 'manual' | 'model' | 'glob'
+}
+export interface PluginManifest {
+  name: string
+  description?: string
+  version?: string
+  scope: 'global' | 'project'
+  skills: PluginSkillSummary[]
+  rules: PluginRuleSummary[]
+  servers: PluginServerSummary[]
+  hookCount: number
+}
+export interface PluginEntry extends PluginManifest {
+  enabled: boolean
+  source?: string
+}
+// A catalog hit surfaced by a marketplace's marketplace.json (Task 7/8).
+export interface MarketplacePlugin {
+  name: string
+  description: string
+  source: string
+  marketplaceUrl: string
+}
+
 // ---- Artifacts (Ba) ----
 
 // The agent's structured deliverables (design 2026-07-04-ba-artifacts-design.md
@@ -886,6 +926,12 @@ export interface AppSettings {
   // like mcpTrustedProjectServers). Optional & additive.
   skillsDisabledGlobal?: string[]
   skillsDisabledProject?: Record<string, string[]>
+  // Plugins (Phase G plugins arc): the enabled-set, keyed "<scope>:<name>"
+  // (mirrors mcpEnabledServers' string[] idiom -- default DISABLED, a freshly
+  // installed plugin never auto-activates). `marketplaces` is the list of
+  // git-repo marketplace URLs the user has added. Optional & additive.
+  pluginsEnabled?: string[]
+  marketplaces?: string[]
 }
 
 export interface SettingsInfo extends AppSettings {
