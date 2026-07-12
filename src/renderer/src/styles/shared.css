@@ -9,10 +9,16 @@
   border-radius: 6px;
   display: flex;
   -webkit-app-region: no-drag;
+  transition:
+    background var(--dur-fast) ease,
+    transform var(--dur-press) var(--ease-out);
 }
 .chrome-btn:hover {
   background: var(--bg-hover);
   color: var(--text-mid);
+}
+.chrome-btn:active {
+  transform: scale(0.97);
 }
 .chrome-btn svg {
   width: 16px;
@@ -39,10 +45,16 @@
   align-items: center;
   justify-content: center;
   font-family: inherit;
+  transition:
+    background var(--dur-fast) ease,
+    transform var(--dur-press) var(--ease-out);
 }
 .icon-btn:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+.icon-btn:active {
+  transform: scale(0.97);
 }
 .icon-btn svg {
   width: 16px;
@@ -69,9 +81,15 @@
   border-radius: 8px;
   cursor: pointer;
   font-family: inherit;
+  transition:
+    background var(--dur-fast) ease,
+    transform var(--dur-press) var(--ease-out);
 }
 .pill-btn:hover {
   background: var(--bg-hover);
+}
+.pill-btn:active {
+  transform: scale(0.97);
 }
 .pill-btn .chev {
   color: var(--text-dim);
@@ -269,4 +287,12 @@ code.tok {
   height: 1px;
   background: var(--border-soft);
   margin: 5px 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-btn:active,
+  .chrome-btn:active,
+  .icon-btn:active {
+    transform: none;
+  }
 }
