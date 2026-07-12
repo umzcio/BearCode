@@ -498,6 +498,47 @@ export interface MarketplacePlugin {
   marketplaceUrl: string
 }
 
+// ---- Hooks (Phase G hooks arc) ----
+// Tool-lifecycle hooks: user-registered shell commands that fire at the
+// agent's tool-execution boundary (PreToolUse/PostToolUse). Hooks can only
+// TIGHTEN a permission decision (deny/ask), never bypass it -- a broken,
+// timed-out, or malformed hook fails OPEN (proceeds to normal permission
+// eval). Only the 'command' handler type exists (design §9: no injectSteps).
+export type HookEvent = 'PreToolUse' | 'PostToolUse'
+export type HookDecisionKind = 'allow' | 'deny' | 'ask'
+export interface HookHandler {
+  type: 'command'
+  command: string
+  timeout?: number
+}
+export interface HookEventEntry {
+  matcher?: string
+  handler: HookHandler
+}
+export interface HookConfig {
+  enabled?: boolean
+  PreToolUse?: HookEventEntry[]
+  PostToolUse?: HookEventEntry[]
+}
+// One flattened (name, event, matcher) hook, ready to run. `plugin` is set
+// only when scope === 'plugin' (the owning plugin's dirName). `consented`
+// reflects the current enable/consent state (state.ts): global hooks default
+// on, project/plugin hooks default off until the user explicitly consents.
+export interface HookRecord {
+  name: string
+  scope: 'global' | 'project' | 'plugin'
+  plugin?: string
+  event: HookEvent
+  matcher: string
+  command: string
+  timeout: number
+  consented: boolean
+}
+export interface HookDecision {
+  decision: HookDecisionKind
+  reason?: string
+}
+
 // ---- Artifacts (Ba) ----
 
 // The agent's structured deliverables (design 2026-07-04-ba-artifacts-design.md
@@ -982,6 +1023,13 @@ export interface AppSettings {
   // git-repo marketplace URLs the user has added. Optional & additive.
   pluginsEnabled?: string[]
   marketplaces?: string[]
+  // Hooks (Phase G hooks arc): the enable/consent sets. Global hooks default
+  // ON (active unless named here); project/plugin hooks default OFF (active
+  // only once consented here). `hooksConsented` keys are
+  // "<scope>:<source>:<name>" (source = projectPath for project, plugin
+  // dirName for plugin). Optional & additive.
+  hooksDisabledGlobal?: string[]
+  hooksConsented?: string[]
 }
 
 export interface SettingsInfo extends AppSettings {
