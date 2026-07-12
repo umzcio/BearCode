@@ -150,7 +150,7 @@ export class McpManager {
   // Returns a human-readable denial reason, or null when launch is permitted.
   private launchDenial(cfg: McpServerConfig, projectPath: string | null): string | null {
     if (!isEnabled(cfg.name)) return `MCP server is not enabled: ${cfg.name}`
-    if (!isTrusted(cfg.name, cfg.source, projectPath))
+    if (!isTrusted(cfg.name, cfg.source, projectPath, cfg.plugin))
       return `MCP server is not trusted for this project: ${cfg.name}`
     if (cfg.transport === 'stdio' && !hasSpawnConsent(cfg.name))
       return `Local MCP server requires spawn consent before it can run: ${cfg.name}`
@@ -229,7 +229,7 @@ export class McpManager {
     await Promise.all(
       loadServers(projectPath).map(async (cfg) => {
         if (!isEnabled(cfg.name)) return
-        if (!isTrusted(cfg.name, cfg.source, projectPath)) return
+        if (!isTrusted(cfg.name, cfg.source, projectPath, cfg.plugin)) return
         if (this.servers.has(cfg.name)) return
         if (cfg.transport === 'http') {
           const haveTokens = Boolean(await this.oauthProviderFor(cfg.name).tokens())

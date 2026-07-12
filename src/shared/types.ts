@@ -337,6 +337,11 @@ export interface McpServerConfig {
   args?: string[]
   env?: Record<string, string>
   source: 'global' | 'project'
+  // Set when this server was contributed by an enabled plugin's mcp.json
+  // rather than a direct global/project config (Phase G plugins arc). Carries
+  // the plugin's on-disk dirName. A plugin-sourced server is UNTRUSTED by
+  // default regardless of `source` -- see isTrusted in mcp/store.ts.
+  plugin?: string
 }
 // A server found via read-only discovery of configs BearCode itself did not
 // write (Task 13 / design §8 G3): a project's `<proj>/.mcp.json` or the
@@ -927,6 +932,11 @@ export interface AppSettings {
   // stay untrusted (L2 trust-gated) until the user explicitly trusts them.
   mcpUntrustedGlobalServers?: string[]
   mcpSpawnConsented?: string[]
+  // Plugin-sourced MCP servers (Phase G plugins arc) are untrusted by default
+  // regardless of scope (a plugin bundle's url/command is author-supplied,
+  // not user-typed) -- explicit per-server opt-in, keyed "<pluginDirName>:
+  // <serverName>". Optional & additive.
+  mcpTrustedPluginServers?: string[]
   // Optional override for the GitHub Device Flow OAuth App client_id (public/
   // secret-free). Empty → the shipped placeholder; the PAT path needs none.
   githubClientId?: string

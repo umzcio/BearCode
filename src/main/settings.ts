@@ -69,6 +69,7 @@ const DEFAULTS: AppSettings = {
   mcpTrustedProjectServers: {},
   mcpUntrustedGlobalServers: [],
   mcpSpawnConsented: [],
+  mcpTrustedPluginServers: [],
   githubClientId: '',
   skillsDisabledGlobal: [],
   skillsDisabledProject: {},
@@ -268,6 +269,7 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   merged.mcpTrustedProjectServers = coerceStringArrayMap(s['mcpTrustedProjectServers'])
   merged.mcpUntrustedGlobalServers = coerceStringArray(s['mcpUntrustedGlobalServers'])
   merged.mcpSpawnConsented = coerceStringArray(s['mcpSpawnConsented'])
+  merged.mcpTrustedPluginServers = coerceStringArray(s['mcpTrustedPluginServers'])
   merged.githubClientId = typeof s['githubClientId'] === 'string' ? s['githubClientId'] : ''
   merged.skillsDisabledGlobal = coerceStringArray(s['skillsDisabledGlobal'])
   merged.skillsDisabledProject = coerceStringArrayMap(s['skillsDisabledProject'])
@@ -389,6 +391,9 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.mcpSpawnConsented !== undefined) {
     patch = { ...patch, mcpSpawnConsented: coerceStringArray(patch.mcpSpawnConsented) }
+  }
+  if (patch.mcpTrustedPluginServers !== undefined) {
+    patch = { ...patch, mcpTrustedPluginServers: coerceStringArray(patch.mcpTrustedPluginServers) }
   }
   if (patch.githubClientId !== undefined) {
     patch = {
