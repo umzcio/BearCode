@@ -138,11 +138,19 @@ export function BrowseSmitheryModal({
 
   const runSearch = (): void => load(query)
 
-  // Load the popular-servers default as soon as the modal opens, so it is not an
-  // empty search box (matches Claude's connector browser).
-  useEffect(() => {
+  // Load the popular-servers default as soon as the modal opens, so it is not
+  // an empty search box (matches Claude's connector browser). This modal is
+  // freshly mounted by its caller each time it opens (createPortal below), so
+  // a state-guarded one-time init during render -- the React-endorsed "adjust
+  // state during render" pattern (refs can't be read during render), rather
+  // than a setState call inside a useEffect body -- fires `load` exactly once
+  // per mount without the extra commit a mount effect would cost. See
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [inited, setInited] = useState(false)
+  if (!inited) {
+    setInited(true)
     load('')
-  }, [])
+  }
 
   // Esc closes only this modal, not the Settings window behind it. SettingsModal
   // listens for Escape on `window` (bubble phase); intercept in the CAPTURE phase
