@@ -25,12 +25,7 @@ export function isHookActive(
   return (s.hooksConsented ?? []).includes(consentKey(rec.scope, source, rec.name))
 }
 
-export function setHookActive(
-  scope: HookScope,
-  source: string,
-  name: string,
-  on: boolean
-): void {
+export function setHookActive(scope: HookScope, source: string, name: string, on: boolean): void {
   const s = getSettings()
   if (scope === 'global') {
     const cur = s.hooksDisabledGlobal ?? []

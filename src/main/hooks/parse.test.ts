@@ -20,7 +20,14 @@ describe('parseHooksJson', () => {
     // fmt -> one PostToolUse record, timeout capped to 120, matcher 'edit'
     // guard -> skipped entirely because enabled:false
     expect(recs).toEqual([
-      { name: 'fmt', scope: 'global', event: 'PostToolUse', matcher: 'edit', command: 'prettier', timeout: 120 }
+      {
+        name: 'fmt',
+        scope: 'global',
+        event: 'PostToolUse',
+        matcher: 'edit',
+        command: 'prettier',
+        timeout: 120
+      }
     ])
   })
 

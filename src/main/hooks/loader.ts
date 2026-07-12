@@ -40,10 +40,7 @@ function loadFrom(
   }))
 }
 
-export function loadHooks(
-  projectPath: string | null,
-  opts?: { trusted?: boolean }
-): HookRecord[] {
+export function loadHooks(projectPath: string | null, opts?: { trusted?: boolean }): HookRecord[] {
   const trusted = opts?.trusted ?? false
   const out: HookRecord[] = []
 
