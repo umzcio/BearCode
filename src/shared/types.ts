@@ -444,6 +444,10 @@ export interface PluginManifest {
 export interface PluginEntry extends PluginManifest {
   enabled: boolean
   source?: string
+  // Canonical identity for enable-state/uninstall: the actual scanned
+  // directory name on disk, NOT the (attacker/author-controlled) manifest
+  // `name` field. `name` above stays a display label only.
+  dirName: string
 }
 // A catalog hit surfaced by a marketplace's marketplace.json (Task 7/8).
 export interface MarketplacePlugin {

@@ -47,4 +47,50 @@ describe('plugin discovery + state', () => {
     expect(existsSync(join(pluginsDir('project', proj), 'gone'))).toBe(false)
     expect(() => uninstallPlugin('project', '../evil', proj)).toThrow(/traversal|kebab/i)
   })
+
+  it('keys identity off the real directory name, not the manifest-declared name', async () => {
+    const { listPlugins, uninstallPlugin, pluginsDir } = await import('./index')
+    const proj = mkdtempSync(join(tmpdir(), 'bc-proj-'))
+    const dir = pluginsDir('project', proj)
+    // Two folders on disk: `a` is honest; `b`'s plugin.json falsely claims
+    // its display name is also "a".
+    plugin(dir, 'a')
+    mkdirSync(join(dir, 'b'), { recursive: true })
+    writeFileSync(join(dir, 'b', 'plugin.json'), JSON.stringify({ name: 'a', description: 'b' }))
+
+    const entries = listPlugins(proj, { trusted: true })
+    const a = entries.find((e) => e.dirName === 'a')
+    const b = entries.find((e) => e.dirName === 'b')
+    expect(a).toBeDefined()
+    expect(b).toBeDefined()
+    expect(b?.name).toBe('a') // display label can still collide
+    expect(a?.source).not.toBe(b?.source) // but identity (source/dirName) must not
+
+    // Uninstalling literal dir `a` must not affect `b`, even though `b`
+    // displays as "a" too.
+    uninstallPlugin('project', 'a', proj)
+    expect(existsSync(join(dir, 'a'))).toBe(false)
+    expect(existsSync(join(dir, 'b'))).toBe(true)
+    const after = listPlugins(proj, { trusted: true })
+    expect(after.some((e) => e.dirName === 'a')).toBe(false)
+    expect(after.some((e) => e.dirName === 'b')).toBe(true)
+  })
+
+  it('uninstall scrubs enabled-state so a reinstalled plugin starts disabled', async () => {
+    const { uninstallPlugin, pluginsDir } = await import('./index')
+    const { setPluginEnabled, isPluginEnabled } = await import('./state')
+    const proj = mkdtempSync(join(tmpdir(), 'bc-proj-'))
+    plugin(pluginsDir('project', proj), 'reinstalled')
+
+    setPluginEnabled('project', 'reinstalled', true)
+    expect(isPluginEnabled('project', 'reinstalled')).toBe(true)
+
+    uninstallPlugin('project', 'reinstalled', proj)
+    expect(isPluginEnabled('project', 'reinstalled')).toBe(false)
+
+    // A later install reusing the same name must not inherit the old
+    // enabled state.
+    plugin(pluginsDir('project', proj), 'reinstalled')
+    expect(isPluginEnabled('project', 'reinstalled')).toBe(false)
+  })
 })

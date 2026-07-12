@@ -8,7 +8,7 @@ import { join, resolve, sep } from 'path'
 import { COMMAND_NAME_PATTERN } from '../../shared/types'
 import type { PluginEntry } from '../../shared/types'
 import { parsePluginDir } from './manifest'
-import { isPluginEnabled } from './state'
+import { isPluginEnabled, setPluginEnabled } from './state'
 
 export function pluginsDir(scope: 'global' | 'project', projectPath: string | null): string {
   if (scope === 'global') return join(homedir(), '.bearcode', 'agents', 'plugins')
@@ -48,7 +48,11 @@ function scanScope(scope: 'global' | 'project', projectPath: string | null): Plu
   for (const n of names) {
     const m = parsePluginDir(join(dir, n), scope)
     if (!m) continue
-    out.push({ ...m, enabled: isPluginEnabled(scope, m.name), source: `${scope}:${m.name}` })
+    // Identity is the real on-disk directory name `n`, not the (possibly
+    // attacker/author-controlled) manifest-declared m.name -- two folders
+    // must never collide on one enabled-state key or uninstall target just
+    // because their plugin.json both claim the same display name.
+    out.push({ ...m, dirName: n, enabled: isPluginEnabled(scope, n), source: `${scope}:${n}` })
   }
   return out
 }
@@ -70,4 +74,9 @@ export function uninstallPlugin(
 ): void {
   const folder = jailedPluginFolder(scope, name, projectPath)
   if (existsSync(folder)) rmSync(folder, { recursive: true, force: true })
+  // Scrub the enabled-state key too, so a plugin later reinstalled under the
+  // same directory name doesn't silently inherit the old 'enabled' state —
+  // preserves state.ts's "a freshly installed plugin never auto-activates"
+  // invariant on reinstall, not just first install.
+  setPluginEnabled(scope, name, false)
 }
