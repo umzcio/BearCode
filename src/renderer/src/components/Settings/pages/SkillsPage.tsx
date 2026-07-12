@@ -6,6 +6,7 @@ import { Toggle } from '../../Toggle'
 import { Select } from '../../Select'
 import type { SelectOption } from '../../Select'
 import { PluginBadge } from '../../PluginBadge'
+import { BrowsePluginsModal } from '../BrowsePluginsModal'
 
 const KEBAB_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
 
@@ -39,6 +40,7 @@ export function SkillsPage(): JSX.Element | null {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [pendingDelete, setPendingDelete] = useState<SkillEntry | null>(null)
   const [confirmText, setConfirmText] = useState('')
+  const [browsing, setBrowsing] = useState(false)
 
   const refresh = (): void => {
     void window.bearcode.skills.list(workspacePath).then((list) => setSkills(list))
@@ -114,6 +116,9 @@ export function SkillsPage(): JSX.Element | null {
         Reusable workflows and domain knowledge the agent discovers by description and loads on
         demand.
       </div>
+      <button className="pill-btn" onClick={() => setBrowsing(true)}>
+        Browse Skills
+      </button>
 
       <div className="set-group-title">Available skills</div>
       <div className="set-card">
@@ -261,6 +266,17 @@ export function SkillsPage(): JSX.Element | null {
           + New skill
         </button>
       )}
+
+      {browsing ? (
+        <BrowsePluginsModal
+          mode="skills"
+          onClose={() => setBrowsing(false)}
+          onInstalled={() => {
+            setBrowsing(false)
+            refresh()
+          }}
+        />
+      ) : null}
     </>
   )
 }

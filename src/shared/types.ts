@@ -496,6 +496,11 @@ export interface MarketplacePlugin {
   description: string
   source: string
   marketplaceUrl: string
+  // Optional catalog hint (Task 11 of the hooks arc): lets BrowsePluginsModal
+  // filter to skill-only entries in 'skills' mode. Undefined when the
+  // marketplace.json entry doesn't declare it -- such entries only ever show
+  // in 'plugins' mode.
+  kind?: 'skill' | 'plugin'
 }
 
 // ---- Hooks (Phase G hooks arc) ----
