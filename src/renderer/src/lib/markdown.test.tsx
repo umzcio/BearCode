@@ -7,7 +7,12 @@ afterEach(cleanup)
 
 describe('Markdown file chips', () => {
   it('renders a spaced absolute path in backticks as code.tok.file', () => {
-    render(<Markdown text="See `/Users/zach/Desktop/New test/index.html` for details." onFileClick={vi.fn()} />)
+    render(
+      <Markdown
+        text="See `/Users/zach/Desktop/New test/index.html` for details."
+        onFileClick={vi.fn()}
+      />
+    )
     const chip = screen.getByText('/Users/zach/Desktop/New test/index.html')
     expect(chip.tagName).toBe('CODE')
     expect(chip.className).toContain('tok')
