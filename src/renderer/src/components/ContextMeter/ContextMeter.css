@@ -44,6 +44,11 @@
   stroke-linecap: round;
   transition: stroke-dashoffset 0.25s ease;
 }
+@media (prefers-reduced-motion: reduce) {
+  .context-ring .ring-fill {
+    transition: none;
+  }
+}
 
 /* The dropdown itself is portaled + positioned + animated by Popover (see
    Popover.tsx / shared.css `.menu`/`.menu--in-popover`); this is content

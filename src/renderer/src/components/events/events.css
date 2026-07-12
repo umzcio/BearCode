@@ -618,6 +618,14 @@
   .approval-card.pulse-once {
     animation: none;
   }
+  /* Chevrons still flip to reflect expanded/collapsed state (comprehension),
+     just without the animated sweep. */
+  .worked-head .chev,
+  .step-row .chev,
+  .diff-head .chev,
+  .artifact-card .chev {
+    transition: none;
+  }
 }
 
 .allow-grid {

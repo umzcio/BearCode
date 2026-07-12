@@ -106,6 +106,14 @@
     transform: rotate(360deg);
   }
 }
+@media (prefers-reduced-motion: reduce) {
+  .mic-btn.recording {
+    animation: none;
+  }
+  .mic-btn.transcribing svg {
+    animation: none;
+  }
+}
 /* Non-fatal voice error, mirroring the Settings pricing-sync inline error. */
 .composer-voice-error {
   padding: 0 14px 10px;

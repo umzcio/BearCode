@@ -741,6 +741,11 @@
 .toggle.on .toggle-knob {
   transform: translateX(16px);
 }
+@media (prefers-reduced-motion: reduce) {
+  .toggle-knob {
+    transition: none;
+  }
+}
 
 /* ---------- Models management (F7) ---------- */
 .model-provider-head {
