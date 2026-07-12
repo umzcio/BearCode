@@ -38,7 +38,7 @@ export function ConvoRowMenu({
     <div className="convo-menu" onClick={(e) => e.stopPropagation()}>
       <button
         ref={btnRef}
-        className="row-act"
+        className={open ? 'row-act menu-open' : 'row-act'}
         title="More"
         onClick={(e) => {
           e.stopPropagation()
