@@ -141,7 +141,8 @@ export function BrowsePluginsModal({ onClose, onInstalled }: Props): JSX.Element
             ) : null}
             {review.manifest.servers.map((s) => (
               <div className="plugin-review-server" key={s.name}>
-                <b>{s.name}</b> — {s.transport}: <code>{s.command ?? s.url}</code>
+                <b>{s.name}</b> — {s.transport}:{' '}
+                <code>{s.command ? [s.command, ...(s.args ?? [])].join(' ') : (s.url ?? '')}</code>
               </div>
             ))}
             {review.manifest.hookCount ? (

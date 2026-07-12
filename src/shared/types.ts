@@ -446,6 +446,7 @@ export interface PluginServerSummary {
   name: string
   transport: McpTransport
   command?: string
+  args?: string[]
   url?: string
 }
 export interface PluginSkillSummary {
@@ -478,7 +479,17 @@ export interface PluginEntry extends PluginManifest {
   // directory name on disk, NOT the (attacker/author-controlled) manifest
   // `name` field. `name` above stays a display label only.
   dirName: string
+  // Whether Update can actually do anything: only a plugin whose install
+  // carries a `.git` dir (a direct clone) can be `git pull`ed. A
+  // marketplace-subpath install's `cpSync` copy has no `.git`, so
+  // updatePlugin is a silent no-op for it -- the UI hides/disables Update
+  // rather than offering an action that never does anything.
+  updatable: boolean
 }
+// Result of a plugin update attempt (main/plugins/marketplace.ts
+// updatePlugin): 'not-updatable' when the install has no `.git` (a
+// marketplace-subpath cpSync copy) to `git pull`.
+export type PluginUpdateResult = 'updated' | 'not-updatable'
 // A catalog hit surfaced by a marketplace's marketplace.json (Task 7/8).
 export interface MarketplacePlugin {
   name: string
@@ -1306,7 +1317,7 @@ export interface BearcodeApi {
       on: boolean,
       projectPath: string | null
     ): Promise<void>
-    update(name: string): Promise<void>
+    update(name: string): Promise<PluginUpdateResult>
     uninstall(scope: 'global' | 'project', name: string, projectPath: string | null): Promise<void>
   }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void

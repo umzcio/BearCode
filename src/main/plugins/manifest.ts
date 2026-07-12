@@ -85,10 +85,12 @@ function parseServers(path: string): PluginServerSummary[] | null {
     const e = v as Record<string, unknown>
     const declared = (e.type ?? e.transport) as string | undefined
     const transport = declared === 'stdio' || (e.command && !e.url) ? 'stdio' : 'http'
+    const rawArgs = Array.isArray(e.args) ? e.args : undefined
     out.push({
       name: sName,
       transport,
       command: typeof e.command === 'string' ? e.command : undefined,
+      args: rawArgs?.every((a) => typeof a === 'string') ? (rawArgs as string[]) : undefined,
       url: typeof e.url === 'string' ? e.url : undefined
     })
   }

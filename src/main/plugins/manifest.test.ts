@@ -34,7 +34,12 @@ describe('parsePluginDir', () => {
     expect(m.version).toBe('1.0.0')
     expect(m.skills).toEqual([{ name: 'hello', description: 'Say hi', folder: 'hello' }])
     expect(m.rules).toEqual([{ name: 'style', activation: 'always' }])
-    expect(m.servers).toEqual([{ name: 'db', transport: 'stdio', command: 'npx' }])
+    // Minor whole-branch finding: PluginServerSummary carried only `command`,
+    // so a stdio server's args were dropped before ever reaching the install
+    // review card -- npx -y pg looked identical to a bare, argless npx.
+    expect(m.servers).toEqual([
+      { name: 'db', transport: 'stdio', command: 'npx', args: ['-y', 'pg'] }
+    ])
     expect(m.hookCount).toBe(2)
     expect(m.scope).toBe('global')
   })
