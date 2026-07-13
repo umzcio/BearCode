@@ -6,11 +6,15 @@ import { Toggle } from '../../Toggle'
 import { BrowsePluginsModal } from '../BrowsePluginsModal'
 import { EmptyState } from '../../ui/EmptyState'
 import { Loading } from '../../ui/Loading'
+import { useAnimatedUnmount } from '../../../lib/useAnimatedUnmount'
 
 export function PluginsPage(): JSX.Element {
   const workspacePath = useAppStore((s) => s.workspacePath)
   const [plugins, setPlugins] = useState<PluginEntry[] | null>(null)
   const [browsing, setBrowsing] = useState(false)
+  // BrowsePluginsModal owns no open/closed state of its own; keep it mounted
+  // through its exit transition here.
+  const { mounted: browseMounted, state: browseState } = useAnimatedUnmount(browsing)
 
   const refresh = (): void => {
     void window.bearcode.plugins.list(workspacePath).then(setPlugins)
@@ -95,8 +99,12 @@ export function PluginsPage(): JSX.Element {
           </div>
         </div>
       ))}
-      {browsing ? (
-        <BrowsePluginsModal onClose={() => setBrowsing(false)} onInstalled={refresh} />
+      {browseMounted ? (
+        <BrowsePluginsModal
+          onClose={() => setBrowsing(false)}
+          onInstalled={refresh}
+          state={browseState}
+        />
       ) : null}
     </div>
   )

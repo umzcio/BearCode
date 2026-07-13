@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { McpServerConfig, McpServerView, SmitheryHit } from '@shared/types'
@@ -46,6 +46,9 @@ interface Props {
   projectPath: string | null
   onClose: () => void
   onInstalled: (view: McpServerView) => void
+  // Set by the caller's useAnimatedUnmount while this modal remains mounted
+  // through its exit transition. Defaults to 'open' (no caller opts in).
+  state?: 'open' | 'closing'
 }
 
 const KEY_MISSING_RE = /No Smithery API key configured/i
@@ -86,7 +89,12 @@ function monogram(name: string): { letter: string; hue: number } {
   return { letter, hue: h }
 }
 
-export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props): JSX.Element {
+export function BrowseSmitheryModal({
+  projectPath,
+  onClose,
+  onInstalled,
+  state = 'open'
+}: Props): JSX.Element {
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SmitheryHit[] | null>(null)
   const [keyMissing, setKeyMissing] = useState(false)
@@ -130,9 +138,17 @@ export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props
 
   const runSearch = (): void => load(query)
 
-  // Load the popular-servers default as soon as the modal opens, so it is not an
-  // empty search box (matches Claude's connector browser).
+  // Load the popular-servers default as soon as the modal opens, so it is not
+  // an empty search box (matches Claude's connector browser). This modal is
+  // freshly mounted by its caller each time it opens (createPortal below), so
+  // a ref-guarded one-time init in a mount effect fires `load` exactly once
+  // per mount. The setStates inside `load`'s async promise callbacks don't
+  // trip react-hooks/set-state-in-effect since they run in callbacks, not
+  // synchronously in the effect body.
+  const initedRef = useRef(false)
   useEffect(() => {
+    if (initedRef.current) return
+    initedRef.current = true
     load('')
   }, [])
 
@@ -200,8 +216,12 @@ export function BrowseSmitheryModal({ projectPath, onClose, onInstalled }: Props
   }
 
   return createPortal(
-    <div className="modal-overlay open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="smithery-panel">
+    <div
+      className="modal-overlay open"
+      data-state={state}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="smithery-panel" data-state={state}>
         <div className="smithery-header">
           <div>
             <div className="page-title">Browse Smithery</div>

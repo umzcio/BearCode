@@ -4,6 +4,7 @@ import { useAppStore } from '../../state/store'
 import { IconClose, IconGitBranch } from '../icons'
 import { Hint } from '../Hint'
 import { Loading } from '../ui/Loading'
+import { useAnimatedUnmount } from '../../lib/useAnimatedUnmount'
 import './ConflictResolver.css'
 
 const MonacoEditable = lazy(() => import('../MonacoEditable'))
@@ -21,7 +22,14 @@ function basename(p: string): string {
 // file is resolved the merge is committed via `completeMerge`; Abort restores
 // the base repo at any point. Clearing `store.conflict` closes the modal.
 export function ConflictResolver(): React.JSX.Element | null {
-  const conflict = useAppStore((s) => s.conflict)
+  const liveConflict = useAppStore((s) => s.conflict)
+  const { mounted, state } = useAnimatedUnmount(liveConflict != null)
+  // `store.conflict` goes null the instant the modal starts closing, but the
+  // panel must keep rendering its last content while it fades out -- retain
+  // the last known value across that window.
+  const [conflict, setConflict] = useState(liveConflict)
+  if (liveConflict !== null && liveConflict !== conflict) setConflict(liveConflict)
+
   const [text, setText] = useState('')
   // The pristine marker-laden text as loaded for the current file. Accept
   // ours/theirs always derive from this (not the live buffer) so the two are
@@ -36,6 +44,16 @@ export function ConflictResolver(): React.JSX.Element | null {
   // A per-file load failure (scoped by file so a stale error can't bleed into
   // the next file). While set for the active file, resolution is blocked.
   const [loadError, setLoadError] = useState<{ file: string; message: string } | null>(null)
+
+  // Once the exit transition finishes (mounted goes false), reset the
+  // retained state. Without this, a LATER merge session that conflicts on
+  // the same first file never re-runs the load effect below (its deps are
+  // unchanged from the previous session's last file), so the editor shows
+  // the PREVIOUS session's stale buffer with resolve controls enabled.
+  if (!mounted && conflict !== null) {
+    setConflict(null)
+    setLoadedFile(null)
+  }
 
   const convId = conflict?.convId
   const repoPath = conflict?.repoPath
@@ -69,7 +87,7 @@ export function ConflictResolver(): React.JSX.Element | null {
     }
   }, [convId, repoPath, file])
 
-  if (!conflict || !convId || !repoPath || !files) return null
+  if (!mounted || !conflict || !convId || !repoPath || !files) return null
 
   const currentErrored = !!file && loadError?.file === file
   // Loading until the active file's readConflict has landed (or errored).
@@ -144,11 +162,12 @@ export function ConflictResolver(): React.JSX.Element | null {
   return (
     <div
       className="modal-overlay open"
+      data-state={state}
       onClick={(e) => {
         if (e.target === e.currentTarget) dismiss()
       }}
     >
-      <div className="conflict-panel">
+      <div className="conflict-panel" data-state={state}>
         <div className="conflict-head">
           <div className="conflict-title">
             <IconGitBranch />

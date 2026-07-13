@@ -30,6 +30,10 @@ export function DisplayOptions(): React.JSX.Element {
   const setSidebarView = useAppStore((s) => s.setSidebarView)
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
+  // Tracks `open` across renders using state (not a ref -- refs can't be
+  // read/written during render) so the block below can detect the
+  // closed->open edge. Mirrors ui/Menu.tsx's identical pattern.
+  const [wasOpen, setWasOpen] = useState(open)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const groupBy: GroupBy = settings?.sidebarGroupBy ?? 'project'
@@ -57,12 +61,25 @@ export function DisplayOptions(): React.JSX.Element {
     }
   ]
 
+  // When the menu transitions from closed -> open, start the active row on
+  // the current group-by selection. This is the React-endorsed "adjust
+  // state during render" pattern (not an effect) -- it re-renders
+  // synchronously before paint instead of causing an extra commit, and only
+  // fires on the closed->open edge. See
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      const i = flatOptions.findIndex((o) => o.id === `group-${groupBy}`)
+      setActiveIndex(i >= 0 ? i : 0)
+    }
+  }
+
+  // Focus the listbox on open so it receives arrow keys. This is a genuine
+  // imperative side effect (not state), so it stays in an effect.
   useEffect(() => {
     if (!open) return
-    const i = flatOptions.findIndex((o) => o.id === `group-${groupBy}`)
-    setActiveIndex(i >= 0 ? i : 0)
     menuRef.current?.focus()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   const onMenuKey = (e: React.KeyboardEvent): void => {

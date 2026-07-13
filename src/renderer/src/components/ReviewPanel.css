@@ -247,6 +247,12 @@
 .file-section-head .chev.closed {
   transform: rotate(-90deg);
 }
+@media (prefers-reduced-motion: reduce) {
+  /* Chevron still flips to reflect open/closed state; just no animated sweep. */
+  .file-section-head .chev {
+    transition: none;
+  }
+}
 .file-section-body {
   padding: 0 0 8px;
 }

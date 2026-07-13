@@ -51,6 +51,26 @@
   }
 }
 
+/* Exit animations, driven by useAnimatedUnmount's data-state="closing" while
+   the element stays mounted through the same transition it entered with. */
+.modal-overlay[data-state='closing'] {
+  opacity: 0;
+  /* Keeps the dead overlay + closing panel from eating clicks or firing
+     button actions during the 220ms exit transition. */
+  pointer-events: none;
+}
+.settings-panel[data-state='closing'],
+.smithery-panel[data-state='closing'] {
+  opacity: 0;
+  transform: scale(0.96);
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-panel[data-state='closing'],
+  .smithery-panel[data-state='closing'] {
+    transform: none;
+  }
+}
+
 .settings-panel {
   width: min(1120px, calc(100% - 56px));
   height: min(780px, calc(100% - 56px));
@@ -723,6 +743,11 @@
 }
 .toggle.on .toggle-knob {
   transform: translateX(16px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .toggle-knob {
+    transition: none;
+  }
 }
 
 /* ---------- Models management (F7) ---------- */

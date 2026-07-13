@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
 import type { EffortLevel, FolderProject, OutsideFolderAccess, PermissionMode } from '@shared/types'
 import { EFFORT_LEVELS, EFFORT_LABELS } from '@shared/effort'
@@ -6,6 +6,7 @@ import { useAppStore } from '../../state/store'
 import { Select } from '../Select'
 import { Hint } from '../Hint'
 import { useModalDialog } from '../../lib/useModalDialog'
+import { useAnimatedUnmount } from '../../lib/useAnimatedUnmount'
 import { SettingPlaceholder } from '../Settings/SettingPlaceholder'
 import {
   IconClose,
@@ -56,27 +57,67 @@ export function ProjectSettingsModal(): JSX.Element | null {
   const stored = useAppStore((s) =>
     path ? (s.folderSettings.find((f) => f.path === path) ?? null) : null
   )
-  if (!path) return null
-  const folder: FolderProject = stored ?? {
-    path,
-    name: null,
-    color: null,
-    icon: null,
-    defaultModelRef: null,
-    defaultEffort: null,
-    defaultPermissionMode: null,
-    sandboxMode: false,
-    sandboxAllowNetwork: false,
-    trusted: false,
-    outsideFolderAccess: 'ask',
-    outsideFolderAllowedPaths: [],
-    outsideFolderDeniedPaths: [],
-    outsideFolderPendingPaths: []
+  const { mounted, state } = useAnimatedUnmount(path != null)
+
+  // Memoized so the object identity is stable across renders when neither
+  // `path` nor `stored` changed -- required for the render-time "keep last
+  // known folder" adjustment below to settle instead of looping.
+  const folder = useMemo<FolderProject | null>(() => {
+    if (!path) return null
+    return (
+      stored ?? {
+        path,
+        name: null,
+        color: null,
+        icon: null,
+        defaultModelRef: null,
+        defaultEffort: null,
+        defaultPermissionMode: null,
+        sandboxMode: false,
+        sandboxAllowNetwork: false,
+        trusted: false,
+        outsideFolderAccess: 'ask',
+        outsideFolderAllowedPaths: [],
+        outsideFolderDeniedPaths: [],
+        outsideFolderPendingPaths: []
+      }
+    )
+  }, [path, stored])
+
+  // `path` (and therefore `folder`) goes null the instant the modal starts
+  // closing, but the panel must keep rendering its last content while it
+  // fades out -- retain the last known folder across that window.
+  const [lastFolder, setLastFolder] = useState<FolderProject | null>(folder)
+  if (folder !== null && folder !== lastFolder) setLastFolder(folder)
+
+  // Reopening the SAME folder within the 220ms closing window keeps the panel
+  // mounted (the exit animation's whole point), so keying on `path` alone no
+  // longer guarantees a remount -- a fast close+reopen on the same folder
+  // would leave stale drafts. Track the closed->open edge with a generation
+  // counter (adjusted during render, mirroring the retain-state pattern
+  // above -- no ref access during render) and fold it into the key so every
+  // real reopen remounts (fresh drafts), whether or not the previous close
+  // had finished animating out.
+  const [wasOpen, setWasOpen] = useState(path != null)
+  const [gen, setGen] = useState(0)
+  if ((path != null) !== wasOpen) {
+    setWasOpen(path != null)
+    if (path != null) setGen((g) => g + 1)
   }
-  return <ProjectSettingsPanel key={folder.path} folder={folder} />
+
+  if (!mounted || !lastFolder) return null
+  return (
+    <ProjectSettingsPanel key={`${lastFolder.path}:${gen}`} folder={lastFolder} state={state} />
+  )
 }
 
-function ProjectSettingsPanel({ folder }: { folder: FolderProject }): JSX.Element {
+function ProjectSettingsPanel({
+  folder,
+  state
+}: {
+  folder: FolderProject
+  state: 'open' | 'closing'
+}): JSX.Element {
   const providers = useAppStore((s) => s.providers)
   const close = useAppStore((s) => s.closeProjectSettings)
   const updateProject = useAppStore((s) => s.updateProject)
@@ -124,8 +165,18 @@ function ProjectSettingsPanel({ folder }: { folder: FolderProject }): JSX.Elemen
   }
 
   return (
-    <div className="modal-overlay open" onClick={(e) => e.target === e.currentTarget && close()}>
-      <div className="settings-panel" ref={dialogRef} {...dialogProps} aria-labelledby={titleId}>
+    <div
+      className="modal-overlay open"
+      data-state={state}
+      onClick={(e) => e.target === e.currentTarget && close()}
+    >
+      <div
+        className="settings-panel"
+        data-state={state}
+        ref={dialogRef}
+        {...dialogProps}
+        aria-labelledby={titleId}
+      >
         <div className="settings-rail">
           <div className="rail-group">
             <div className="rail-group-label" id={titleId}>

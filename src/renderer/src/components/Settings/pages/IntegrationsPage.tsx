@@ -7,6 +7,7 @@ import { useAppStore } from '../../../state/store'
 import { Loading } from '../../ui/Loading'
 import { ErrorCard } from '../../ui/ErrorCard'
 import { Hint } from '../../Hint'
+import { useAnimatedUnmount } from '../../../lib/useAnimatedUnmount'
 
 // A settings row: title + description on the left, the control on the right.
 function Row({
@@ -55,10 +56,12 @@ function describe(status: IntegrationStatus, providerLabel: string): string {
 // lesson: Esc must close only this modal, not the Settings window behind it).
 function GithubConnectModal({
   onClose,
-  onConnected
+  onConnected,
+  state
 }: {
   onClose: () => void
   onConnected: (status: IntegrationStatus) => void
+  state: 'open' | 'closing'
 }): JSX.Element {
   const [mode, setMode] = useState<'device' | 'pat'>('device')
   const [device, setDevice] = useState<GithubDeviceStart | null>(null)
@@ -142,8 +145,12 @@ function GithubConnectModal({
   }
 
   return createPortal(
-    <div className="modal-overlay open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="smithery-panel">
+    <div
+      className="modal-overlay open"
+      data-state={state}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="smithery-panel" data-state={state}>
         <div className="smithery-header">
           <div>
             <div className="page-title">Connect GitHub</div>
@@ -299,6 +306,10 @@ function BitbucketConnectForm({
 export function IntegrationsPage(): JSX.Element {
   const [statuses, setStatuses] = useState<IntegrationStatus[] | null>(null)
   const [githubModalOpen, setGithubModalOpen] = useState(false)
+  // GithubConnectModal owns no open/closed state of its own; keep it mounted
+  // through its exit transition here.
+  const { mounted: githubModalMounted, state: githubModalState } =
+    useAnimatedUnmount(githubModalOpen)
   const [bitbucketFormOpen, setBitbucketFormOpen] = useState(false)
   const settings = useAppStore((s) => s.settings)
   const saveSettings = useAppStore((s) => s.saveSettings)
@@ -402,13 +413,14 @@ export function IntegrationsPage(): JSX.Element {
         </>
       )}
 
-      {githubModalOpen ? (
+      {githubModalMounted ? (
         <GithubConnectModal
           onClose={() => setGithubModalOpen(false)}
           onConnected={() => {
             setGithubModalOpen(false)
             refresh()
           }}
+          state={githubModalState}
         />
       ) : null}
     </>
