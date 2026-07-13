@@ -4,6 +4,7 @@ planning/
 PLAN*.md
 .claude/
 design/
+docs/
 
 # macOS
 .DS_Store
