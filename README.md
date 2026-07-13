@@ -134,8 +134,8 @@ Open a folder --> Agent reads .agents/ --> You chat / it edits --> Hooks + Sandb
 |-------|-----------|
 | **Shell** | Electron 39 · electron-vite · electron-builder (macOS-first) |
 | **UI** | React 19 · TypeScript strict · Zustand · Monaco Editor |
-| **Agent runtime** | Vercel AI SDK (`ai`) · LangChain.js · LangGraph.js · `deepagents` |
-| **Model providers** | `@ai-sdk/anthropic` · `@ai-sdk/openai` · `@ai-sdk/google` · `@langchain/ollama` · OpenRouter |
+| **Agent runtime** | LangChain.js · LangGraph.js · `deepagents` (sole engine — the earlier Vercel AI SDK-based loop was retired) |
+| **Model providers** | `@langchain/anthropic` · `@langchain/openai` · `@langchain/google-genai` · `@langchain/ollama` · OpenRouter |
 | **Browser tool** | Playwright · Electron `WebContentsView` + CDP |
 | **Storage** | better-sqlite3 (conversations, settings, trust) |
 | **Documents** | pdf-lib · unpdf · mammoth · docx · exceljs |
