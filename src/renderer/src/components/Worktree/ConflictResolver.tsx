@@ -45,6 +45,16 @@ export function ConflictResolver(): React.JSX.Element | null {
   // the next file). While set for the active file, resolution is blocked.
   const [loadError, setLoadError] = useState<{ file: string; message: string } | null>(null)
 
+  // Once the exit transition finishes (mounted goes false), reset the
+  // retained state. Without this, a LATER merge session that conflicts on
+  // the same first file never re-runs the load effect below (its deps are
+  // unchanged from the previous session's last file), so the editor shows
+  // the PREVIOUS session's stale buffer with resolve controls enabled.
+  if (!mounted && conflict !== null) {
+    setConflict(null)
+    setLoadedFile(null)
+  }
+
   const convId = conflict?.convId
   const repoPath = conflict?.repoPath
   const files = conflict?.files
