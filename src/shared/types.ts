@@ -1061,6 +1061,27 @@ export interface PingResult {
   respondedAt: number
 }
 
+// ---- Auto-update (signed macOS builds arc) ----
+
+export type UpdaterState =
+  | 'idle'
+  | 'checking'
+  | 'downloading'
+  | 'ready'
+  | 'up-to-date'
+  | 'error'
+  | 'dev-build'
+
+export interface UpdaterStatus {
+  state: UpdaterState
+  // Present on 'downloading' and 'ready' — the version being installed.
+  version?: string
+  // Present on 'error' — a human-readable message.
+  message?: string
+  // Present on 'up-to-date' — when the last successful check completed.
+  checkedAt?: number
+}
+
 export interface BearcodeApi {
   ping(): Promise<PingResult>
   run: {
@@ -1407,7 +1428,21 @@ export interface BearcodeApi {
     ): Promise<void>
     delete(name: string): Promise<void>
   }
+  // App-level info surfaced in Settings (current version for the "Software
+  // Update" section).
+  app: {
+    getVersion(): Promise<string>
+  }
+  // Signed macOS builds arc: electron-updater wrapper. checkNow() triggers a
+  // check (or returns the in-flight/dev-build status immediately if one is
+  // already running or the app isn't packaged); installNow() quits and
+  // installs an already-downloaded update.
+  updater: {
+    checkNow(): Promise<UpdaterStatus>
+    installNow(): Promise<void>
+  }
   onEvent(cb: (conversationId: string, event: Event) => void): () => void
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void
   onConversationMeta(cb: (meta: ConversationMeta) => void): () => void
+  onUpdaterStatus(cb: (status: UpdaterStatus) => void): () => void
 }
