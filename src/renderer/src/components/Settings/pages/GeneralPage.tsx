@@ -1,11 +1,17 @@
 import { useState } from 'react'
 import type { JSX } from 'react'
 import { useAppStore } from '../../../state/store'
+import { Loading } from '../../ui/Loading'
+import { ErrorCard } from '../../ui/ErrorCard'
 
 export function GeneralPage(): JSX.Element | null {
   const settings = useAppStore((s) => s.settings)
   const saveSettings = useAppStore((s) => s.saveSettings)
   const deleteAll = useAppStore((s) => s.deleteAllConversations)
+  const appVersion = useAppStore((s) => s.appVersion)
+  const updaterStatus = useAppStore((s) => s.updaterStatus)
+  const checkForUpdates = useAppStore((s) => s.checkForUpdates)
+  const installUpdate = useAppStore((s) => s.installUpdate)
 
   const [name, setName] = useState(settings?.profileName ?? '')
   const [callMe, setCallMe] = useState(settings?.profileCallMe ?? '')
@@ -24,6 +30,23 @@ export function GeneralPage(): JSX.Element | null {
   const saveInstructions = (): void => {
     if (instructions !== (settings.customInstructions ?? ''))
       void saveSettings({ customInstructions: instructions })
+  }
+
+  const statusLabel = (): string => {
+    switch (updaterStatus.state) {
+      case 'up-to-date':
+        return updaterStatus.checkedAt
+          ? `Up to date (checked ${new Date(updaterStatus.checkedAt).toLocaleTimeString()})`
+          : 'Up to date'
+      case 'dev-build':
+        return 'Auto-update is unavailable in development builds'
+      case 'downloading':
+        return `Downloading BearCode ${updaterStatus.version ?? ''}…`
+      case 'ready':
+        return `Version ${updaterStatus.version ?? ''} downloaded`
+      default:
+        return ''
+    }
   }
 
   return (
@@ -104,6 +127,37 @@ export function GeneralPage(): JSX.Element | null {
           >
             Delete
           </button>
+        </div>
+      </div>
+
+      <div className="set-group-title">Software Update</div>
+      <div className="set-card">
+        <div className="set-row">
+          <div className="set-row-text">
+            <div className="set-row-title">BearCode {appVersion ?? ''}</div>
+            <div className="set-row-desc">
+              {updaterStatus.state === 'checking' || updaterStatus.state === 'downloading' ? (
+                <Loading label={statusLabel() || 'Checking…'} />
+              ) : updaterStatus.state === 'error' ? (
+                <ErrorCard>{updaterStatus.message}</ErrorCard>
+              ) : (
+                statusLabel()
+              )}
+            </div>
+          </div>
+          {updaterStatus.state === 'ready' ? (
+            <button className="pill-btn primary" onClick={installUpdate}>
+              Restart &amp; Install
+            </button>
+          ) : (
+            <button
+              className="pill-btn"
+              onClick={() => void checkForUpdates()}
+              disabled={updaterStatus.state === 'checking' || updaterStatus.state === 'downloading'}
+            >
+              Check for Updates
+            </button>
+          )}
         </div>
       </div>
     </>
