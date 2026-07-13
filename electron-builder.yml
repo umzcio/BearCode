@@ -28,7 +28,9 @@ mac:
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   hardenedRuntime: true
-  identity: "Developer ID Application: The University of Montana (5JJ6G6A84S)"
+  # electron-builder prepends "Developer ID Application: " itself when
+  # searching the keychain -- the identity value must NOT include that prefix.
+  identity: "The University of Montana (5JJ6G6A84S)"
   # electron-builder 26.x: notarize is a plain boolean. Notarization activates
   # from APPLE_API_KEY/APPLE_API_KEY_ID/APPLE_API_ISSUER env vars alone -- no
   # teamId field exists on this option (that older object form was removed).
