@@ -2,6 +2,7 @@ import { app, shell, session, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { bootResumeInterruptedRuns, registerIpc } from './ipc'
+import { initUpdater } from './updater'
 import { runDevSmoke } from './devSmoke'
 import { REMOTE_DEBUG_PORT, setMainWindow, setBrowserDebuggingEnabled } from './mainWindow'
 import { getSettings } from './settings'
@@ -84,6 +85,7 @@ function createWindow(): void {
     win.show()
     runBootResumeOnce()
     runDevSmoke(win)
+    initUpdater(win)
   })
 
   win.on('closed', () => {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { statSync, readFileSync } from 'fs'
-import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import type {
   AddRuleInput,
   AppSettings,
@@ -140,6 +140,7 @@ import {
   resumeInterruptedRuns,
   startRunOrchestrator
 } from './orchestrator'
+import { checkNow, installNow } from './updater'
 
 function broadcast(channel: string, ...args: unknown[]): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -184,6 +185,12 @@ export function registerIpc(): void {
       node: process.versions.node,
       respondedAt: Date.now()
     }
+  })
+
+  ipcMain.handle('bearcode:app:getVersion', (): string => app.getVersion())
+  ipcMain.handle('bearcode:updater:checkNow', () => checkNow())
+  ipcMain.handle('bearcode:updater:installNow', () => {
+    installNow()
   })
 
   ipcMain.handle(
