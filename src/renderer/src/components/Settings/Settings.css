@@ -55,6 +55,9 @@
    the element stays mounted through the same transition it entered with. */
 .modal-overlay[data-state='closing'] {
   opacity: 0;
+  /* Keeps the dead overlay + closing panel from eating clicks or firing
+     button actions during the 220ms exit transition. */
+  pointer-events: none;
 }
 .settings-panel[data-state='closing'],
 .smithery-panel[data-state='closing'] {
