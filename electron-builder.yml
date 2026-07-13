@@ -27,7 +27,13 @@ mac:
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
+  hardenedRuntime: true
+  identity: "Developer ID Application: The University of Montana (5JJ6G6A84S)"
+  notarize:
+    teamId: 5JJ6G6A84S
+  target:
+    - dmg
+    - zip
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:
@@ -40,3 +46,7 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
+publish:
+  provider: github
+  owner: umzcio
+  repo: BearCode

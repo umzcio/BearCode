@@ -1,0 +1,19 @@
+# Copy to scripts/.notary-config.local (gitignored) and fill in your values,
+# then `source scripts/.notary-config.local` before running
+# `npm run build:mac:publish` (or export the three vars any other way).
+#
+# electron-builder's built-in notarize step (@electron/notarize) reads these
+# env var names directly -- no separate notarize script needed here.
+
+# Path to your App Store Connect API .p8 key file
+export APPLE_API_KEY="$HOME/Downloads/AuthKey_XXXXXXXXXX.p8"
+
+# Key ID -- App Store Connect -> Users and Access -> Integrations -> API Keys
+export APPLE_API_KEY_ID="XXXXXXXXXX"
+
+# Issuer UUID -- top of the API Keys page
+export APPLE_API_ISSUER="00000000-0000-0000-0000-000000000000"
+
+# GitHub personal access token with `repo` scope, for `--publish always` to
+# upload the release assets.
+export GH_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"

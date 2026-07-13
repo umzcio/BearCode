@@ -19,6 +19,7 @@ release/
 # Local env & secrets
 .env
 .env.*
+scripts/.notary-config.local
 
 # Test artifacts
 .playwright-mcp/
