@@ -70,6 +70,27 @@ describe('initUpdater', () => {
     })
   })
 
+  it('forwards checking-for-update as a checking status', async () => {
+    const { initUpdater } = await import('./updater')
+    const win = fakeWindow()
+    initUpdater(win as never)
+    fire('checking-for-update')
+    expect(win.webContents.send).toHaveBeenCalledWith('bearcode:updater:status', {
+      state: 'checking'
+    })
+  })
+
+  it('forwards update-available as a downloading status with the version', async () => {
+    const { initUpdater } = await import('./updater')
+    const win = fakeWindow()
+    initUpdater(win as never)
+    fire('update-available', { version: '1.2.3' })
+    expect(win.webContents.send).toHaveBeenCalledWith('bearcode:updater:status', {
+      state: 'downloading',
+      version: '1.2.3'
+    })
+  })
+
   it('forwards an error event as an error status', async () => {
     const { initUpdater } = await import('./updater')
     const win = fakeWindow()

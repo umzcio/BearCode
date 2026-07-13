@@ -10,6 +10,7 @@ const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
 
 let targetWindow: BrowserWindow | null = null
 let currentStatus: UpdaterStatus = { state: 'idle' }
+let initialized = false
 
 function setStatus(status: UpdaterStatus): void {
   currentStatus = status
@@ -24,6 +25,8 @@ function setStatus(status: UpdaterStatus): void {
 export function initUpdater(win: BrowserWindow): void {
   if (!app.isPackaged) return
   targetWindow = win
+  if (initialized) return
+  initialized = true
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
