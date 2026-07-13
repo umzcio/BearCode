@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="resources/icon.png" alt="BearCode" width="140" />
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/bearcode-Desktop_Agent_Manager-2544FB?style=for-the-badge&labelColor=0A163F" alt="BearCode" />
 </p>
 
@@ -51,6 +55,18 @@ Open a folder --> Agent reads .agents/ --> You chat / it edits --> Hooks + Sandb
    Shell commands run inside a per-project macOS Seatbelt sandbox unless explicitly trusted.
 5. **You review and merge.** Worktree mode isolates risky changes on a branch with a built-in
    merge/conflict resolver; nothing lands until you say so.
+
+---
+
+## See It In Action
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=Fm-Cl4R_Kvc">
+    <img src="https://img.youtube.com/vi/Fm-Cl4R_Kvc/maxresdefault.jpg" alt="BearCode — demo video (YouTube)" width="720" />
+  </a>
+  <br/>
+  <sub><a href="https://www.youtube.com/watch?v=Fm-Cl4R_Kvc">▶ Watch on YouTube</a></sub>
+</p>
 
 ---
 

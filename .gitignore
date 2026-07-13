@@ -3,6 +3,7 @@ planning/
 *.plan.md
 PLAN*.md
 .claude/
+design/
 
 # macOS
 .DS_Store
