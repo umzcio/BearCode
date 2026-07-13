@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { McpServerConfig, McpServerView, SmitheryHit } from '@shared/types'
@@ -141,16 +141,16 @@ export function BrowseSmitheryModal({
   // Load the popular-servers default as soon as the modal opens, so it is not
   // an empty search box (matches Claude's connector browser). This modal is
   // freshly mounted by its caller each time it opens (createPortal below), so
-  // a state-guarded one-time init during render -- the React-endorsed "adjust
-  // state during render" pattern (refs can't be read during render), rather
-  // than a setState call inside a useEffect body -- fires `load` exactly once
-  // per mount without the extra commit a mount effect would cost. See
-  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
-  const [inited, setInited] = useState(false)
-  if (!inited) {
-    setInited(true)
+  // a ref-guarded one-time init in a mount effect fires `load` exactly once
+  // per mount. The setStates inside `load`'s async promise callbacks don't
+  // trip react-hooks/set-state-in-effect since they run in callbacks, not
+  // synchronously in the effect body.
+  const initedRef = useRef(false)
+  useEffect(() => {
+    if (initedRef.current) return
+    initedRef.current = true
     load('')
-  }
+  }, [])
 
   // Esc closes only this modal, not the Settings window behind it. SettingsModal
   // listens for Escape on `window` (bubble phase); intercept in the CAPTURE phase
