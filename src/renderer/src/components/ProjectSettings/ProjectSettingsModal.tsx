@@ -90,8 +90,25 @@ export function ProjectSettingsModal(): JSX.Element | null {
   const [lastFolder, setLastFolder] = useState<FolderProject | null>(folder)
   if (folder !== null && folder !== lastFolder) setLastFolder(folder)
 
+  // Reopening the SAME folder within the 220ms closing window keeps the panel
+  // mounted (the exit animation's whole point), so keying on `path` alone no
+  // longer guarantees a remount -- a fast close+reopen on the same folder
+  // would leave stale drafts. Track the closed->open edge with a generation
+  // counter (adjusted during render, mirroring the retain-state pattern
+  // above -- no ref access during render) and fold it into the key so every
+  // real reopen remounts (fresh drafts), whether or not the previous close
+  // had finished animating out.
+  const [wasOpen, setWasOpen] = useState(path != null)
+  const [gen, setGen] = useState(0)
+  if ((path != null) !== wasOpen) {
+    setWasOpen(path != null)
+    if (path != null) setGen((g) => g + 1)
+  }
+
   if (!mounted || !lastFolder) return null
-  return <ProjectSettingsPanel key={lastFolder.path} folder={lastFolder} state={state} />
+  return (
+    <ProjectSettingsPanel key={`${lastFolder.path}:${gen}`} folder={lastFolder} state={state} />
+  )
 }
 
 function ProjectSettingsPanel({

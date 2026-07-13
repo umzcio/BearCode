@@ -80,9 +80,23 @@ export function SettingsModal(): React.JSX.Element | null {
   const settings = useAppStore((s) => s.settings)
   const initialPage = useAppStore((s) => s.settingsInitialPage)
   const { mounted, state } = useAnimatedUnmount(open && !!settings)
+  // Reopening within the 220ms closing window keeps the panel mounted (that's
+  // the point of the exit animation), so a plain "remounts on each open"
+  // assumption no longer holds -- a fast close+reopen wouldn't otherwise
+  // remount and drafts would keep stale state. Track the closed->open edge
+  // with a generation counter (adjusted during render, mirroring
+  // useAnimatedUnmount's own pattern -- no ref access during render) and key
+  // the panel on it so every real reopen forces a fresh mount (fresh drafts
+  // from current settings), regardless of whether the previous close had
+  // finished animating out.
+  const [wasOpen, setWasOpen] = useState(open)
+  const [gen, setGen] = useState(0)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) setGen((g) => g + 1)
+  }
   if (!mounted || !settings) return null
-  // Remounts on each open, so drafts initialize fresh from current settings.
-  return <SettingsPanel settings={settings} initialPage={initialPage} state={state} />
+  return <SettingsPanel key={gen} settings={settings} initialPage={initialPage} state={state} />
 }
 
 function Row({
