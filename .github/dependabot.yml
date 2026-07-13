@@ -1,0 +1,33 @@
+# Dependabot version updates. Groups keep PR volume manageable across this
+# repo's large dependency surface (Electron, LangChain, the AI SDK provider
+# packages) -- packages match the first group they fit, so the explicit
+# ecosystem groups below take priority over the minor-and-patch catch-all.
+# Docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    groups:
+      electron:
+        patterns:
+          - "electron"
+          - "electron-*"
+          - "@electron-toolkit/*"
+      langchain:
+        patterns:
+          - "@langchain/*"
+          - "langsmith"
+          - "deepagents"
+      ai-sdk:
+        patterns:
+          - "@ai-sdk/*"
+          - "ai"
+          - "@openrouter/ai-sdk-provider"
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
