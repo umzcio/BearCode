@@ -45,7 +45,8 @@ import type {
   SkillProposalResolution,
   SkillSaveResult,
   SmitheryHit,
-  TranscribeMeta
+  TranscribeMeta,
+  UpdaterStatus
 } from '../shared/types'
 
 // The renderer talks to main only through this typed surface.
@@ -407,6 +408,13 @@ const bearcode: BearcodeApi = {
     ): Promise<void> => ipcRenderer.invoke('bearcode:hooks:update', name, original, input),
     delete: (name: string): Promise<void> => ipcRenderer.invoke('bearcode:hooks:delete', name)
   },
+  app: {
+    getVersion: (): Promise<string> => ipcRenderer.invoke('bearcode:app:getVersion')
+  },
+  updater: {
+    checkNow: (): Promise<UpdaterStatus> => ipcRenderer.invoke('bearcode:updater:checkNow'),
+    installNow: (): Promise<void> => ipcRenderer.invoke('bearcode:updater:installNow')
+  },
   onEvent: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, conversationId: string, event: Event): void =>
       cb(conversationId, event)
@@ -426,6 +434,11 @@ const bearcode: BearcodeApi = {
     const listener = (_e: Electron.IpcRendererEvent, meta: ConversationMeta): void => cb(meta)
     ipcRenderer.on('bearcode:conversation-meta', listener)
     return () => ipcRenderer.removeListener('bearcode:conversation-meta', listener)
+  },
+  onUpdaterStatus: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, status: UpdaterStatus): void => cb(status)
+    ipcRenderer.on('bearcode:updater:status', listener)
+    return () => ipcRenderer.removeListener('bearcode:updater:status', listener)
   }
 }
 

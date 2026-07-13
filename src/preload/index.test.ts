@@ -86,3 +86,46 @@ describe('preload run.start mentions forwarding', () => {
     )
   })
 })
+
+describe('preload updater bridge', () => {
+  it('app.getVersion invokes bearcode:app:getVersion', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as { app: { getVersion: () => Promise<string> } }
+    invoke.mockClear()
+    invoke.mockResolvedValueOnce('1.0.0')
+    await expect(bearcode.app.getVersion()).resolves.toBe('1.0.0')
+    expect(invoke).toHaveBeenCalledWith('bearcode:app:getVersion')
+  })
+
+  it('updater.checkNow invokes bearcode:updater:checkNow', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as { updater: { checkNow: () => Promise<unknown> } }
+    invoke.mockClear()
+    await bearcode.updater.checkNow()
+    expect(invoke).toHaveBeenCalledWith('bearcode:updater:checkNow')
+  })
+
+  it('updater.installNow invokes bearcode:updater:installNow', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as { updater: { installNow: () => Promise<void> } }
+    invoke.mockClear()
+    await bearcode.updater.installNow()
+    expect(invoke).toHaveBeenCalledWith('bearcode:updater:installNow')
+  })
+
+  it('onUpdaterStatus subscribes to bearcode:updater:status and returns an unsubscribe fn', async () => {
+    const { ipcRenderer } = await import('electron')
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      onUpdaterStatus: (cb: (status: unknown) => void) => () => void
+    }
+    const cb = vi.fn()
+    const unsubscribe = bearcode.onUpdaterStatus(cb)
+    expect(ipcRenderer.on).toHaveBeenCalledWith('bearcode:updater:status', expect.any(Function))
+    unsubscribe()
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+      'bearcode:updater:status',
+      expect.any(Function)
+    )
+  })
+})
