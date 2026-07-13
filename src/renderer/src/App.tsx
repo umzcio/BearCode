@@ -12,6 +12,7 @@ import { Hint } from './components/Hint'
 import { IconPanel } from './components/icons'
 import { TrustBanner } from './components/TrustBanner'
 import { OutsideAccessCard } from './components/OutsideAccessCard'
+import { UpdateBanner } from './components/UpdateBanner'
 import { useAppStore } from './state/store'
 import { useCmdHeld } from './lib/useCmdHeld'
 import { useShallow } from 'zustand/react/shallow'
@@ -132,6 +133,7 @@ function App(): React.JSX.Element {
         </div>
         <TrustBanner />
         <OutsideAccessCard />
+        <UpdateBanner />
         <div
           className="main-view"
           key={view.kind === 'conversation' && convo ? `conversation:${convo.id}` : view.kind}
