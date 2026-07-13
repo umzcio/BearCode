@@ -26,6 +26,7 @@ import type {
   SettingsInfo,
   SkillInfo,
   SkillProposalResolution,
+  UpdaterStatus,
   WorktreeInfo
 } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
@@ -263,6 +264,10 @@ interface AppState {
   workspaceHasAgentsConfig: boolean
   outsideAccess: OutsideAccessInfo | null
   trustBannerDismissed: boolean
+  // Signed macOS builds arc: current app version + live electron-updater status.
+  appVersion: string | null
+  updaterStatus: UpdaterStatus
+  updateBannerDismissed: boolean
   settingsOpen: boolean
   // Which settings page to open on (e.g. 'providers' for the missing-key flow);
   // null → default page. Consumed once by SettingsModal on open.
@@ -399,6 +404,9 @@ interface AppState {
   refreshTrustState(path: string | null): Promise<void>
   trustWorkspace(): Promise<void>
   dismissTrustBanner(): void
+  checkForUpdates(): Promise<void>
+  installUpdate(): void
+  dismissUpdateBanner(): void
   allowOutside(abs: string): Promise<void>
   denyOutside(abs: string): Promise<void>
   removeOutside(path: string, abs: string): Promise<void>
@@ -571,6 +579,9 @@ export const useAppStore = create<AppState>((set, get) => {
     workspaceHasAgentsConfig: false,
     outsideAccess: null,
     trustBannerDismissed: false,
+    appVersion: null,
+    updaterStatus: { state: 'idle' },
+    updateBannerDismissed: false,
     settingsOpen: false,
     settingsInitialPage: null,
     auxSelection: null,
@@ -624,6 +635,10 @@ export const useAppStore = create<AppState>((set, get) => {
           return { conversations, convoOrder: orderByRecency(conversations) }
         })
       })
+      window.bearcode.onUpdaterStatus((status) => {
+        set({ updaterStatus: status })
+      })
+      void window.bearcode.app.getVersion().then((appVersion) => set({ appVersion }))
       void (async () => {
         const settings = await window.bearcode.settings.get()
         set({ settings })
@@ -1251,6 +1266,14 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ workspaceTrusted: true })
     },
     dismissTrustBanner: () => set({ trustBannerDismissed: true }),
+    checkForUpdates: async () => {
+      const status = await window.bearcode.updater.checkNow()
+      set({ updaterStatus: status })
+    },
+    installUpdate: () => {
+      window.bearcode.updater.installNow()
+    },
+    dismissUpdateBanner: () => set({ updateBannerDismissed: true }),
     allowOutside: async (abs) => {
       const path = get().workspacePath
       if (!path) return
