@@ -8,6 +8,7 @@ import { Select } from '../../Select'
 import { Toggle } from '../../Toggle'
 import { EmptyState } from '../../ui/EmptyState'
 import { ErrorCard } from '../../ui/ErrorCard'
+import { ProviderIcon } from '../../ProviderIcon'
 
 // The four first-party providers a custom model can be added under (Ollama is
 // dynamic/local and manages its own catalog).
@@ -154,7 +155,7 @@ export function ModelsPage(): JSX.Element | null {
       {manageableModels.map((p) => (
         <div key={p.id} style={{ marginBottom: 14 }}>
           <div className="set-group-title model-provider-head">
-            <span className="provider-dot" style={{ background: p.color }} />
+            <ProviderIcon provider={p.id} size={14} />
             {p.displayName}
           </div>
           <div className="set-card pad">

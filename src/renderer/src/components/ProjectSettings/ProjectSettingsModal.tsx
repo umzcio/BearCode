@@ -15,7 +15,8 @@ import {
   IconBrain,
   IconPlug,
   IconBlocks,
-  IconShield
+  IconShield,
+  IconTerminal
 } from '../icons'
 import { PROJECT_ICONS } from './projectIcons'
 import { Toggle } from '../Toggle'
@@ -32,7 +33,7 @@ const PS_NAV: { id: PageId; label: string; icon: (p: { size?: number }) => JSX.E
   { id: 'general', label: 'General', icon: IconGear },
   { id: 'appearance', label: 'Appearance', icon: IconPalette },
   { id: 'defaults', label: 'Defaults', icon: IconBrain },
-  { id: 'sandbox', label: 'Sandbox', icon: IconShield },
+  { id: 'sandbox', label: 'Sandbox', icon: IconTerminal },
   { id: 'security', label: 'Security', icon: IconShield },
   { id: 'connectors', label: 'Connectors', icon: IconPlug },
   { id: 'skills', label: 'Skills', icon: IconBlocks }

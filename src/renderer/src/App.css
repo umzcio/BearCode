@@ -42,9 +42,11 @@
   min-height: 52px;
   -webkit-app-region: drag;
 }
-/* Native traffic lights overlay the main area when the sidebar is hidden. */
+/* Native traffic lights overlay the main area when the sidebar is hidden. The
+   asymmetric top/bottom padding nudges the toggle + breadcrumb down ~2px so the
+   row sits on the traffic-light centerline instead of floating above it. */
 .main.sidebar-collapsed .topbar {
-  padding-left: 84px;
+  padding: 19.5px 18px 11.5px 84px;
 }
 
 /* ---------- Trust banner ---------- */
