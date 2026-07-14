@@ -155,6 +155,16 @@ describe('checkNow', () => {
     const status = await checkNow()
     expect(status).toEqual({ state: 'error', message: 'boom' })
   })
+
+  it('does not clobber a ready (downloaded, awaiting install) status with a new check', async () => {
+    const { initUpdater, checkNow } = await import('./updater')
+    initUpdater(fakeWindow() as never)
+    fire('update-downloaded', { version: '1.2.3' })
+    autoUpdater.checkForUpdates.mockClear()
+    const status = await checkNow()
+    expect(status).toEqual({ state: 'ready', version: '1.2.3' })
+    expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled()
+  })
 })
 
 describe('installNow', () => {
