@@ -34,7 +34,21 @@ beforeEach(() => {
       update: updateSpy,
       list: vi.fn(() => Promise.resolve([folder]))
     },
-    settings: { set: setSpy }
+    settings: { set: setSpy },
+    mcp: {
+      list: vi.fn(() => Promise.resolve([])),
+      add: vi.fn(() => Promise.resolve()),
+      setEnabledConfigOnly: vi.fn(() => Promise.resolve()),
+      trust: vi.fn(() => Promise.resolve({ state: 'disabled' })),
+      remove: vi.fn(() => Promise.resolve())
+    },
+    skills: {
+      list: vi.fn(() => Promise.resolve([])),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      setEnabled: vi.fn()
+    }
   }
   useAppStore.setState({
     projectSettingsPath: folder.path,
@@ -86,9 +100,9 @@ describe('ProjectSettingsModal (folder = project, left-nav shell)', () => {
     expect(screen.getByLabelText('Project default effort')).toBeTruthy()
     expect(screen.getByLabelText('Project default permission mode')).toBeTruthy()
     goTo('Connectors')
-    // Phase-G placeholder present (no "coming soon").
+    // Real Connectors tab content now, not the retired placeholder.
     expect(screen.queryByText(/coming soon/i)).toBeNull()
-    expect(screen.getByText('Project Connectors')).toBeTruthy()
+    expect(screen.getByText('Add Server')).toBeTruthy()
   })
 
   it('a custom name blurs to updateProject(path, {name}); blank clears to null', () => {
@@ -145,5 +159,21 @@ describe('ProjectSettingsModal (folder = project, left-nav shell)', () => {
         defaultPermissionMode: null
       }
     })
+  })
+})
+
+describe('ProjectSettingsModal — Connectors/Skills tabs', () => {
+  it('Connectors tab renders real content, not the placeholder', async () => {
+    render(<ProjectSettingsModal />)
+    goTo('Connectors')
+    expect(screen.queryByText(/arriving in a future update/i)).not.toBeInTheDocument()
+    expect(await screen.findByText('Add Server')).toBeInTheDocument()
+  })
+
+  it('Skills tab renders real content, not the placeholder', async () => {
+    render(<ProjectSettingsModal />)
+    goTo('Skills')
+    expect(screen.queryByText(/arriving in a future update/i)).not.toBeInTheDocument()
+    expect(await screen.findByText('+ New skill')).toBeInTheDocument()
   })
 })

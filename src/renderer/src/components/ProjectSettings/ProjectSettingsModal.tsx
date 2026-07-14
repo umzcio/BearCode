@@ -7,7 +7,8 @@ import { Select } from '../Select'
 import { Hint } from '../Hint'
 import { useModalDialog } from '../../lib/useModalDialog'
 import { useAnimatedUnmount } from '../../lib/useAnimatedUnmount'
-import { SettingPlaceholder } from '../Settings/SettingPlaceholder'
+import { ProjectConnectorsTab } from './ProjectConnectorsTab'
+import { ProjectSkillsTab } from './ProjectSkillsTab'
 import {
   IconClose,
   IconGear,
@@ -513,27 +514,9 @@ function ProjectSettingsPanel({
             </>
           ) : null}
 
-          {page === 'connectors' ? (
-            <>
-              <div className="page-title">Connectors</div>
-              <div className="page-sub">MCP servers and tools scoped to this folder.</div>
-              <SettingPlaceholder
-                title="Project Connectors"
-                description="Per-project MCP servers and tools the agent can call — arriving in a future update."
-              />
-            </>
-          ) : null}
+          {page === 'connectors' ? <ProjectConnectorsTab projectPath={folder.path} /> : null}
 
-          {page === 'skills' ? (
-            <>
-              <div className="page-title">Skills</div>
-              <div className="page-sub">Reusable workflows scoped to this folder.</div>
-              <SettingPlaceholder
-                title="Project Skills"
-                description="Reusable workflows scoped to this project — arriving in a future update."
-              />
-            </>
-          ) : null}
+          {page === 'skills' ? <ProjectSkillsTab projectPath={folder.path} /> : null}
         </div>
       </div>
     </div>
