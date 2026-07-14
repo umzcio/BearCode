@@ -3,7 +3,6 @@ import type { JSX } from 'react'
 import type {
   DiscoveredMcpServer,
   McpServerView,
-  McpTransport,
   PermissionRuleEffect,
   RuleScope
 } from '@shared/types'
@@ -16,7 +15,12 @@ import { useAnimatedUnmount } from '../../../lib/useAnimatedUnmount'
 import { PluginBadge } from '../../PluginBadge'
 import { EmptyState } from '../../ui/EmptyState'
 import { Loading } from '../../ui/Loading'
-import { FieldHint } from '../../ui/FieldHint'
+import {
+  ConnectorAddForm,
+  EMPTY_MANUAL_DRAFT as EMPTY_DRAFT,
+  parsePairs
+} from '../ConnectorAddForm'
+import type { ManualDraft } from '../ConnectorAddForm'
 
 // A settings row: title + description on the left, the control on the right.
 function Row({
@@ -145,45 +149,11 @@ function ImportLocalPicker({
   )
 }
 
-type ManualDraft = {
-  name: string
-  transport: McpTransport
-  scope: 'global' | 'project'
-  url: string
-  command: string
-  args: string
-  headers: string
-  env: string
-}
-
-const EMPTY_DRAFT: ManualDraft = {
-  name: '',
-  transport: 'http',
-  scope: 'global',
-  url: '',
-  command: '',
-  args: '',
-  headers: '',
-  env: ''
-}
-
 // Two RuleScopes are equal when both are 'global', or both name the same
 // project. Used to reflect a tool's existing rule into its Select.
 function sameScope(a: RuleScope, b: RuleScope): boolean {
   if (a === 'global' || b === 'global') return a === b
   return a.projectPath === b.projectPath
-}
-
-// Parses "k=v, k2=v2" into a Record, ignoring blank/malformed entries.
-function parsePairs(raw: string): Record<string, string> {
-  const out: Record<string, string> = {}
-  for (const part of raw.split(',')) {
-    const [k, ...rest] = part.split('=')
-    const key = k?.trim()
-    const val = rest.join('=').trim()
-    if (key && val) out[key] = val
-  }
-  return out
 }
 
 export function ConnectorsPage(): JSX.Element | null {
@@ -358,10 +328,6 @@ export function ConnectorsPage(): JSX.Element | null {
       refresh()
     })
   }
-
-  const manualValid =
-    draft.name.trim().length > 0 &&
-    (draft.transport === 'http' ? draft.url.trim().length > 0 : draft.command.trim().length > 0)
 
   return (
     <>
@@ -550,93 +516,12 @@ export function ConnectorsPage(): JSX.Element | null {
           />
         </Row>
         {addMode === 'manual' ? (
-          <div className="connector-add-form">
-            <input
-              type="text"
-              className="set-input"
-              placeholder="Server name"
-              value={draft.name}
-              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-            />
-            <Select
-              ariaLabel="Transport"
-              value={draft.transport}
-              options={[
-                { value: 'http', label: 'Remote (HTTP)' },
-                { value: 'stdio', label: 'Local (stdio)' }
-              ]}
-              onChange={(transport) => setDraft({ ...draft, transport })}
-            />
-            {workspacePath ? (
-              <Select
-                ariaLabel="Scope"
-                value={draft.scope}
-                options={[
-                  {
-                    value: 'global',
-                    label: 'Global (this machine)',
-                    description: 'Private to you; never committed'
-                  },
-                  {
-                    value: 'project',
-                    label: 'Project (committed)',
-                    description: 'Written to .agents/mcp.json and shared with the repo'
-                  }
-                ]}
-                onChange={(scope) => setDraft({ ...draft, scope })}
-              />
-            ) : null}
-            {draft.transport === 'http' ? (
-              <>
-                <input
-                  type="text"
-                  className="set-input"
-                  placeholder="https://server.example/mcp"
-                  value={draft.url}
-                  onChange={(e) => setDraft({ ...draft, url: e.target.value })}
-                />
-                <input
-                  type="text"
-                  className="set-input"
-                  placeholder="Headers: key=value, key2=value2"
-                  value={draft.headers}
-                  onChange={(e) => setDraft({ ...draft, headers: e.target.value })}
-                />
-              </>
-            ) : (
-              <>
-                <input
-                  type="text"
-                  className="set-input"
-                  placeholder="Command, e.g. npx"
-                  value={draft.command}
-                  onChange={(e) => setDraft({ ...draft, command: e.target.value })}
-                />
-                <input
-                  type="text"
-                  className="set-input"
-                  placeholder="Args, comma-separated"
-                  value={draft.args}
-                  onChange={(e) => setDraft({ ...draft, args: e.target.value })}
-                />
-                <input
-                  type="text"
-                  className="set-input"
-                  placeholder="Env: key=value, key2=value2"
-                  value={draft.env}
-                  onChange={(e) => setDraft({ ...draft, env: e.target.value })}
-                />
-              </>
-            )}
-            <FieldHint show={!manualValid}>
-              {draft.transport === 'http'
-                ? 'Name and URL are required.'
-                : 'Name and command are required.'}
-            </FieldHint>
-            <button className="pill-btn primary" disabled={!manualValid} onClick={submitManualAdd}>
-              Add server
-            </button>
-          </div>
+          <ConnectorAddForm
+            draft={draft}
+            onChange={setDraft}
+            onSubmit={submitManualAdd}
+            showScopeSelector={workspacePath != null}
+          />
         ) : null}
         {addMode === 'import' ? (
           <ImportLocalPicker

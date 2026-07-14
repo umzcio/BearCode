@@ -14,6 +14,9 @@ export default defineConfig({
     // .test.tsx opts into jsdom per-file via a `// @vitest-environment jsdom`
     // docblock; everything else stays on node (below).
     include: ['src/**/*.test.{ts,tsx}'],
-    environment: 'node'
+    environment: 'node',
+    // jest-dom matchers (toBeInTheDocument, toBeDisabled, ...) used across
+    // renderer component tests.
+    setupFiles: ['@testing-library/jest-dom/vitest']
   }
 })
