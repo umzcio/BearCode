@@ -22,7 +22,7 @@
     "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.92",
+    "@ai-sdk/anthropic": "^4.0.14",
     "@ai-sdk/google": "^3.0.88",
     "@ai-sdk/openai": "^3.0.80",
     "@ai-sdk/openai-compatible": "^2.0.56",
