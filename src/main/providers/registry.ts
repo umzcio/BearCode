@@ -38,9 +38,9 @@ export const ANTHROPIC_MODELS: ModelInfo[] = [
 ]
 
 export const OPENAI_MODELS: ModelInfo[] = [
-  { id: 'gpt-5.1', label: 'GPT-5.1', contextWindow: 400_000 },
-  { id: 'gpt-5-mini', label: 'GPT-5 mini', contextWindow: 400_000 },
-  { id: 'gpt-4.1', label: 'GPT-4.1', contextWindow: 1_000_000 }
+  { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', contextWindow: 1_050_000 },
+  { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', contextWindow: 1_050_000 },
+  { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', contextWindow: 1_050_000 }
 ]
 
 export const GOOGLE_MODELS: ModelInfo[] = [

@@ -11,7 +11,7 @@ import { getConversationMeta, setTitle } from './db'
 // model already in play rather than assuming what else is available.
 export const CHEAP_MODEL: Partial<Record<ProviderId, string>> = {
   anthropic: 'claude-haiku-4-5',
-  openai: 'gpt-5-mini',
+  openai: 'gpt-5.6-luna',
   google: 'gemini-2.5-flash'
 }
 

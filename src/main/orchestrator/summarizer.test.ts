@@ -89,8 +89,8 @@ describe('cheapModelRef', () => {
     expect(cheapModelRef('anthropic/claude-opus-4-8')).toBe('anthropic/claude-haiku-4-5')
   })
 
-  it('maps OpenAI to gpt-5-mini', () => {
-    expect(cheapModelRef('openai/gpt-5.1')).toBe('openai/gpt-5-mini')
+  it('maps OpenAI to gpt-5.6-luna', () => {
+    expect(cheapModelRef('openai/gpt-5.6-sol')).toBe('openai/gpt-5.6-luna')
   })
 
   it('reuses the conversation model when the provider has no cheap sibling', () => {
