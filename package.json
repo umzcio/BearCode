@@ -26,7 +26,7 @@
     "@ai-sdk/google": "^3.0.88",
     "@ai-sdk/openai": "^3.0.80",
     "@ai-sdk/openai-compatible": "^2.0.56",
-    "@ai-sdk/provider-utils": "^4.0.35",
+    "@ai-sdk/provider-utils": "^5.0.9",
     "@electron-toolkit/utils": "^4.0.0",
     "@langchain/anthropic": "^1.5.1",
     "@langchain/core": "^1.2.2",
