@@ -259,6 +259,8 @@ const bearcode: BearcodeApi = {
     ): Promise<void> => ipcRenderer.invoke('bearcode:mcp:remove', name, source, projectPath),
     setEnabled: (name: string, on: boolean, projectPath: string | null): Promise<McpServerStatus> =>
       ipcRenderer.invoke('bearcode:mcp:set-enabled', name, on, projectPath),
+    setEnabledConfigOnly: (name: string, on: boolean): Promise<void> =>
+      ipcRenderer.invoke('bearcode:mcp:set-enabled-config-only', name, on),
     trust: (name: string, projectPath: string): Promise<McpServerStatus> =>
       ipcRenderer.invoke('bearcode:mcp:trust', name, projectPath),
     trustGlobal: (name: string): Promise<McpServerStatus> =>

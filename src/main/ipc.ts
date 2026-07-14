@@ -900,6 +900,19 @@ export function registerIpc(): void {
       return mcpManager.enable(name, asProjectPath(projectPath))
     }
   )
+  // Config-only enable/disable: writes ONLY the enabled flag, never calls
+  // mcpManager (no connect/spawn/OAuth). Used by ProjectConnectorsTab, which
+  // manages a project that may not be the active workspace -- toggling a
+  // server there must never spawn a process or open an OAuth browser for a
+  // project the user isn't even working in right now (see planning/2026-07-14
+  // -project-connectors-skills-design.md decision #1).
+  ipcMain.handle('bearcode:mcp:set-enabled-config-only', (_e, name: unknown, on: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`Invalid MCP server name: ${String(name)}`)
+    }
+    if (typeof on !== 'boolean') throw new Error(`Invalid MCP enabled flag: ${String(on)}`)
+    setMcpServerEnabled(name, on)
+  })
   ipcMain.handle('bearcode:mcp:trust', (_e, name: unknown, projectPath: unknown) => {
     if (typeof name !== 'string' || name.length === 0) {
       throw new Error(`Invalid MCP server name: ${String(name)}`)

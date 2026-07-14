@@ -1293,6 +1293,10 @@ export interface BearcodeApi {
     add(cfg: McpServerConfig, projectPath: string | null): Promise<void>
     remove(name: string, source: 'global' | 'project', projectPath: string | null): Promise<void>
     setEnabled(name: string, on: boolean, projectPath: string | null): Promise<McpServerStatus>
+    // Config-only variant of setEnabled: writes the enabled flag but never
+    // connects (no spawn, no OAuth browser). Used by ProjectConnectorsTab to
+    // manage a project that may not be the active workspace.
+    setEnabledConfigOnly(name: string, on: boolean): Promise<void>
     trust(name: string, projectPath: string): Promise<McpServerStatus>
     // Trust a global server that was installed pending trust (a Smithery global
     // install). Project-scoped trust uses trust() with the project path.

@@ -110,6 +110,7 @@ describe('bearcode:mcp:* IPC surface (Task 8)', () => {
       'bearcode:mcp:add',
       'bearcode:mcp:remove',
       'bearcode:mcp:set-enabled',
+      'bearcode:mcp:set-enabled-config-only',
       'bearcode:mcp:trust',
       'bearcode:mcp:spawn-consent',
       'bearcode:mcp:reconnect',
@@ -183,6 +184,27 @@ describe('bearcode:mcp:* IPC surface (Task 8)', () => {
       /name/i
     )
     expect(upsertServer).not.toHaveBeenCalled()
+  })
+
+  it('set-enabled-config-only flips the store flag without touching mcpManager', async () => {
+    const handler = handlers.get('bearcode:mcp:set-enabled-config-only')!
+    const { setEnabled } = await import('./mcp/store')
+    const { mcpManager } = await import('./mcp/manager')
+    const result = handler(null, 'gh', true)
+    expect(setEnabled).toHaveBeenCalledWith('gh', true)
+    expect(mcpManager.enable).not.toHaveBeenCalled()
+    expect(mcpManager.teardown).not.toHaveBeenCalled()
+    expect(result).toBeUndefined()
+  })
+
+  it('set-enabled-config-only rejects an invalid enabled flag', () => {
+    const handler = handlers.get('bearcode:mcp:set-enabled-config-only')!
+    expect(() => handler(null, 'gh', 'yes')).toThrow(/enabled flag/i)
+  })
+
+  it('set-enabled-config-only rejects an empty server name', () => {
+    const handler = handlers.get('bearcode:mcp:set-enabled-config-only')!
+    expect(() => handler(null, '', true)).toThrow(/server name/i)
   })
 
   it('setSecret writes through keys.setVaultSecret (never a getter)', async () => {
