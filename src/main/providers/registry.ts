@@ -1,14 +1,7 @@
-// Provider registry built on the Vercel AI SDK. Each provider is
-// instantiated directly with the user's own key: never route through the
-// Vercel AI Gateway. Curated model lists live here and are meant to be
-// edited as the vendors ship new models.
-import { createAnthropic } from '@ai-sdk/anthropic'
-import { createOpenAI } from '@ai-sdk/openai'
-import { createGoogleGenerativeAI } from '@ai-sdk/google'
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
-import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import type { LanguageModel } from 'ai'
-import type { ProviderOptions } from '@ai-sdk/provider-utils'
+// Provider registry: curated model lists + provider metadata (display
+// name, color, key requirement). Model CONSTRUCTION lives in
+// orchestrator/models.ts's makeModel() (LangChain-based) -- this file is
+// pure data/config, no LLM client code.
 import type {
   CustomModel,
   ManageableModel,
@@ -17,7 +10,7 @@ import type {
   ProviderId,
   ProviderModels
 } from '../../shared/types'
-import { getKey, keyStatus } from '../keys'
+import { keyStatus } from '../keys'
 import { getSettings } from '../settings'
 
 interface ProviderRegistryEntry {
@@ -25,10 +18,7 @@ interface ProviderRegistryEntry {
   displayName: string
   color: string
   requiresKey: boolean
-  make(modelId: string): LanguageModel
   listModels(): Promise<{ models: ModelInfo[]; reachable: boolean; note?: string }>
-  // provider-specific options merged into streamText calls (thinking etc.)
-  providerOptions?(modelId: string): ProviderOptions | undefined
 }
 
 export const ANTHROPIC_MODELS: ModelInfo[] = [
@@ -79,20 +69,13 @@ export const REGISTRY: ProviderRegistryEntry[] = [
     displayName: 'Anthropic',
     color: '#d97757',
     requiresKey: true,
-    make: (modelId) => createAnthropic({ apiKey: getKey('anthropic') })(modelId),
-    listModels: async () => ({ models: ANTHROPIC_MODELS, reachable: true }),
-    providerOptions: (modelId) =>
-      // Claude 4.6+ models take adaptive thinking; Haiku 4.5 does not.
-      modelId.startsWith('claude-haiku')
-        ? undefined
-        : { anthropic: { thinking: { type: 'adaptive' } } }
+    listModels: async () => ({ models: ANTHROPIC_MODELS, reachable: true })
   },
   {
     id: 'openai',
     displayName: 'OpenAI',
     color: '#9ad0b7',
     requiresKey: true,
-    make: (modelId) => createOpenAI({ apiKey: getKey('openai') })(modelId),
     listModels: async () => ({ models: OPENAI_MODELS, reachable: true })
   },
   {
@@ -100,18 +83,13 @@ export const REGISTRY: ProviderRegistryEntry[] = [
     displayName: 'Google',
     color: '#4c8dff',
     requiresKey: true,
-    make: (modelId) => createGoogleGenerativeAI({ apiKey: getKey('google') })(modelId),
-    listModels: async () => ({ models: GOOGLE_MODELS, reachable: true }),
-    providerOptions: () => ({
-      google: { thinkingConfig: { includeThoughts: true } }
-    })
+    listModels: async () => ({ models: GOOGLE_MODELS, reachable: true })
   },
   {
     id: 'openrouter',
     displayName: 'OpenRouter',
     color: '#b58cff',
     requiresKey: true,
-    make: (modelId) => createOpenRouter({ apiKey: getKey('openrouter') }).chat(modelId),
     listModels: async () => ({ models: OPENROUTER_MODELS, reachable: true })
   },
   {
@@ -119,11 +97,6 @@ export const REGISTRY: ProviderRegistryEntry[] = [
     displayName: 'Ollama',
     color: '#3ecf8e',
     requiresKey: false,
-    make: (modelId) =>
-      createOpenAICompatible({
-        name: 'ollama',
-        baseURL: `${getSettings().ollamaBaseUrl.replace(/\/$/, '')}/v1`
-      })(modelId),
     listModels: listOllamaModels
   }
 ]
