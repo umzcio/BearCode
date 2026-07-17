@@ -44,3 +44,28 @@ describe('Markdown file chips', () => {
     expect(chip.className).toBe('tok')
   })
 })
+
+describe('Markdown paragraph line breaks', () => {
+  it('preserves single line breaks within a paragraph as <br>', () => {
+    const { container } = render(<Markdown text={'Line one\nLine two\nLine three'} />)
+    const p = container.querySelector('p')
+    expect(p).not.toBeNull()
+    expect(p!.querySelectorAll('br')).toHaveLength(2)
+    expect(p!.textContent).toBe('Line oneLine twoLine three')
+  })
+
+  it('still starts a new paragraph on a blank line', () => {
+    const { container } = render(<Markdown text={'First para\n\nSecond para'} />)
+    const paragraphs = container.querySelectorAll('p')
+    expect(paragraphs).toHaveLength(2)
+    expect(paragraphs[0].textContent).toBe('First para')
+    expect(paragraphs[1].textContent).toBe('Second para')
+  })
+
+  it('renders a lone "---" line as visible text on its own line, not swallowed mid-sentence', () => {
+    const { container } = render(<Markdown text={'Before\n---\nAfter'} />)
+    const p = container.querySelector('p')
+    expect(p!.querySelectorAll('br')).toHaveLength(2)
+    expect(p!.textContent).toBe('Before---After')
+  })
+})

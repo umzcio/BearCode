@@ -4,7 +4,7 @@
 // (amber chips). No raw HTML ever touches the DOM.
 // `trailing` (the streaming cursor) is appended inside the last block.
 
-import { useMemo, type ReactNode } from 'react'
+import { Fragment, useMemo, type ReactNode } from 'react'
 
 // Inline code that names a workspace file, e.g. `index.html`, `src/app.ts`, or
 // an absolute path with spaces. Still requires a trailing .ext so prose isn't matched.
@@ -66,7 +66,7 @@ function renderInline(
 }
 
 type Block =
-  | { kind: 'p'; text: string }
+  | { kind: 'p'; lines: string[] }
   | { kind: 'h5'; text: string }
   | { kind: 'ol'; items: string[] }
   | { kind: 'ul'; items: string[] }
@@ -100,7 +100,7 @@ function parseBlocks(text: string): Block[] {
 
   const flush = (): void => {
     if (para.length) {
-      blocks.push({ kind: 'p', text: para.join(' ') })
+      blocks.push({ kind: 'p', lines: para })
       para = []
     }
     if (ol.length) {
@@ -265,7 +265,12 @@ export function Markdown({
           )
         return (
           <p key={i}>
-            {renderInline(block.text, onFileClick, onFileOpen)}
+            {block.lines.map((line, li) => (
+              <Fragment key={li}>
+                {li > 0 ? <br /> : null}
+                {renderInline(line, onFileClick, onFileOpen)}
+              </Fragment>
+            ))}
             {tail}
           </p>
         )
