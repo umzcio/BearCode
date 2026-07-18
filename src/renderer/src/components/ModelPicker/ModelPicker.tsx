@@ -6,6 +6,7 @@ import { ProviderIcon } from '../ProviderIcon'
 import { Hint } from '../Hint'
 import { IconChevronDown, IconSearch } from '../icons'
 import { Popover } from '../ui/Popover'
+import ursaTeddy from '../../assets/ursa-teddy.svg'
 import './ModelPicker.css'
 
 export function ModelPicker(): React.JSX.Element {
@@ -123,7 +124,9 @@ export function ModelPicker(): React.JSX.Element {
     <div className="model-picker">
       <Hint label="Select Model" keys="⌘/" side="top" disabled={open}>
         <button ref={triggerRef} className="pill-btn" onClick={() => setOpen((o) => !o)}>
-          {modelRef ? (
+          {modelRef === URSA_MODEL_REF ? (
+            <img src={ursaTeddy} alt="" className="ursa-icon" />
+          ) : modelRef ? (
             <ProviderIcon provider={modelRef.slice(0, modelRef.indexOf('/')) as ProviderId} />
           ) : (
             <span className="provider-dot" style={{ background: current.color }} />
@@ -171,6 +174,7 @@ export function ModelPicker(): React.JSX.Element {
               }
             }}
           >
+            <img src={ursaTeddy} alt="" className="ursa-icon" />
             <span>Ursa</span>
             {!ursaEnabled ? (
               <span className="ursa-hint">Enable Ursa in Settings first</span>
