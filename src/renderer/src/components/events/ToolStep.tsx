@@ -214,29 +214,30 @@ function browserActionLabel(call: ToolCallEvent): string {
   }
 }
 
-// ConversationView renders a second, pinned copy of the first pending
-// approval's ToolStep directly above the composer (so the user never has to
-// scroll up to find it). That copy must NOT duplicate the inline card's
-// singletons -- the number-key hotkey listeners and the jump-to-approval
-// anchor id both belong to exactly one card. Wrapping the pinned copy in
-// this provider makes useFirstPendingCallId below return null inside it, so
-// the pinned card renders as a plain clickable card (no hotkeys, no anchor,
-// no number chips) while the inline card keeps all three. Clicks on either
-// copy are safe: graph.ts's resolveInterrupt no-ops a second resolve for an
-// already-answered callId.
+// ConversationView renders the FIRST pending approval's ToolStep a second
+// time, pinned directly above the composer, wrapped in this provider -- so
+// the user never has to scroll up to find the card. The pinned copy is THE
+// interactive card: hotkeys, the 1/2/3 number chips, and the anchor id all
+// live there (useFirstPendingCallId below returns null OUTSIDE it), while
+// the transcript's inline copy keeps only the passive record -- its
+// .approval-card is hidden by CSS (`.convo-scroll .approval-card`,
+// ConversationView.css), leaving the step row + waiting note in place.
+// Clicks on either copy would be safe regardless: graph.ts's
+// resolveInterrupt no-ops a second resolve for an answered callId.
 export const PinnedApprovalArea = createContext(false)
 
 // Parallel approvals can put several pending cards on screen at once (any
 // mix of run_command and write_file/edit_file); the number-key hotkeys and
 // the jump-to-approval anchor id belong only to the FIRST pending tool_call
 // in the conversation's event order, so one keypress never answers more than
-// one card. Computed ONCE per ToolStep render (instead of once per Pending*
-// card, M-17) and passed down as an `isFirst` prop to whichever card is
-// rendered.
+// one card -- and only the pinned copy above the composer is interactive
+// (see PinnedApprovalArea above), so the singletons can never double up.
+// Computed ONCE per ToolStep render (instead of once per Pending* card,
+// M-17) and passed down as an `isFirst` prop to whichever card is rendered.
 function useFirstPendingCallId(convoId: string): string | null {
   const pinnedCopy = useContext(PinnedApprovalArea)
   return useAppStore((s) => {
-    if (pinnedCopy) return null
+    if (!pinnedCopy) return null
     const events = s.conversations[convoId]?.events
     if (!events) return null
     for (const e of events) {

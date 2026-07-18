@@ -463,13 +463,17 @@ describe('ConversationView pinned approval', () => {
       convoOrder: ['c1']
     } as never)
     const { container } = render(<ConversationView convoId="c1" />)
-    // Two copies of the card: the inline transcript one + the pinned one.
+    // Two ToolStep instances render (the transcript record + the pinned copy);
+    // CSS hides the transcript copy's .approval-card so only the pinned card
+    // is ever visible (jsdom doesn't apply stylesheets, so assert structure).
     expect(screen.getAllByText('Allow running this command?')).toHaveLength(2)
     expect(container.querySelector('.pinned-approval')).not.toBeNull()
-    // Hotkey/anchor singletons stay unique to the inline copy: exactly one
-    // anchor id and exactly one set of 1/2/3 number chips in the whole DOM.
+    // Hotkey/anchor/number-chip singletons live on the PINNED copy -- the
+    // interactive card at the composer: exactly one anchor id, inside it.
     expect(container.querySelectorAll('#pending-approval-card')).toHaveLength(1)
-    expect(container.querySelector('.pinned-approval #pending-approval-card')).toBeNull()
+    expect(container.querySelector('.pinned-approval #pending-approval-card')).not.toBeNull()
+    expect(container.querySelectorAll('.pinned-approval .opt-num').length).toBeGreaterThan(0)
+    expect(container.querySelector('.convo-scroll .opt-num')).toBeNull()
   })
 
   it('drops the pinned copy once the approval resolves', () => {
