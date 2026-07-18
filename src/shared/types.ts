@@ -708,6 +708,12 @@ export interface ModelCapabilities {
   costTier: 'low' | 'mid' | 'high'
 }
 
+// The sentinel modelRef that marks a conversation as Ursa-routed rather than
+// pinned to a single model. Lives here (not in main/orchestrator/ursa.ts,
+// which is main-process-only) so the renderer can reference it without
+// crossing the Electron process boundary.
+export const URSA_MODEL_REF = 'ursa/auto'
+
 // A user-configured named model assignment Ursa can dispatch a turn to.
 export interface UrsaRole {
   name: string

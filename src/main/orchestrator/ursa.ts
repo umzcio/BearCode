@@ -7,13 +7,16 @@
 import { z } from 'zod'
 import { SystemMessage, HumanMessage } from '@langchain/core/messages'
 import type { ProviderId, UrsaRole } from '../../shared/types'
+import { URSA_MODEL_REF } from '../../shared/types'
 import { makeModel } from './models'
 import { CHEAP_MODEL } from '../title'
 import { getSettings } from '../settings'
 import { keyStatus } from '../keys'
 import { parseModelRef } from '../providers/registry'
 
-export const URSA_MODEL_REF = 'ursa/auto'
+// Re-exported (not redeclared) so main-process callers of ursa.ts and
+// renderer callers of shared/types.ts see the exact same sentinel string.
+export { URSA_MODEL_REF }
 
 export function isUrsaModelRef(ref: string): boolean {
   return ref === URSA_MODEL_REF

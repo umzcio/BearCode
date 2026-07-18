@@ -58,6 +58,19 @@
   color: var(--accent);
 }
 
+.ursa-entry {
+  font-weight: 600;
+}
+.ursa-entry.disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ursa-hint {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin-left: 8px;
+}
+
 .menu-group-label .group-icon {
   display: flex;
   color: var(--text);
