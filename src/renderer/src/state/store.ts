@@ -29,6 +29,7 @@ import type {
   UpdaterStatus,
   WorktreeInfo
 } from '@shared/types'
+import { URSA_MODEL_REF } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
 import { describeError } from '../lib/errors'
 import { mergeEvent } from '../lib/mergeEvent'
@@ -448,6 +449,7 @@ export function modelDisplay(
   providers: ProviderModels[],
   ref: ModelRef | null
 ): { name: string; color: string } {
+  if (ref === URSA_MODEL_REF) return { name: 'Ursa', color: '#4c8dff' }
   if (ref) {
     const slash = ref.indexOf('/')
     const providerId = ref.slice(0, slash)

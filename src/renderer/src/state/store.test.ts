@@ -13,9 +13,11 @@ import {
   shouldFollowNewDiff,
   shouldOpenBrowserPane,
   refConfigured,
+  modelDisplay,
   type Convo
 } from './store'
 import type { ProviderModels } from '@shared/types'
+import { URSA_MODEL_REF } from '@shared/types'
 
 const info: PermissionRulesInfo = {
   userRules: [
@@ -1088,5 +1090,13 @@ describe('F9 folder = project: settings + inheritance', () => {
     expect(conversations.setMode).toHaveBeenCalledWith('c1', 'accept-edits')
     expect(conversations.setEffort).toHaveBeenCalledWith('c1', 'adaptive')
     expect(useAppStore.getState().modelRef).toBe('anthropic/claude-opus-4-8')
+  })
+})
+
+describe('modelDisplay — Ursa sentinel', () => {
+  it('returns "Ursa" instead of falling through to "Choose a model"', () => {
+    const result = modelDisplay([], URSA_MODEL_REF)
+    expect(result.name).toBe('Ursa')
+    expect(result.color).toBe('#4c8dff')
   })
 })
