@@ -17,9 +17,11 @@ import {
   IconKeyboard,
   IconChat,
   IconPackage,
-  IconTerminal
+  IconTerminal,
+  IconPaw
 } from '../icons'
 import { GeneralPage } from './pages/GeneralPage'
+import { UrsaPage } from './pages/UrsaPage'
 import { ProvidersPage } from './pages/ProvidersPage'
 import { ModelsPage } from './pages/ModelsPage'
 import { PermissionsPage } from './pages/PermissionsPage'
@@ -69,7 +71,8 @@ const NAV_ICONS: Record<string, (props: { size?: number }) => React.JSX.Element>
   IconKeyboard,
   IconChat,
   IconPackage,
-  IconTerminal
+  IconTerminal,
+  IconPaw
 }
 
 // Intentional WIP panels for the Customize group (not "coming soon" badges).
@@ -328,6 +331,8 @@ function SettingsPanel({
           ) : null}
 
           {page === 'models' ? <ModelsPage /> : null}
+
+          {page === 'ursa' ? <UrsaPage /> : null}
 
           {page === 'browser' ? <BrowserPage /> : null}
 

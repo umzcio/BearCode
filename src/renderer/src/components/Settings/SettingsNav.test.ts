@@ -9,7 +9,8 @@ describe('SETTINGS_NAV', () => {
       'permissions',
       'appearance',
       'providers',
-      'models'
+      'models',
+      'ursa'
     ])
     expect(SETTINGS_NAV[1].items.map((i) => i.id)).toEqual([
       'skills',
