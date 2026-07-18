@@ -6,6 +6,7 @@ import type {
   CustomModel,
   ManageableModel,
   ManageableProvider,
+  ModelCapabilities,
   ModelInfo,
   ProviderId,
   ProviderModels
@@ -45,6 +46,59 @@ export const OPENROUTER_MODELS: ModelInfo[] = [
   { id: 'moonshotai/kimi-k2', label: 'Kimi K2' },
   { id: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B' }
 ]
+
+// Ursa Phase 1: static per-model metadata, keyed by "provider/modelId". Drives
+// both the GPT-5.6 reasoning.effort fix (models.ts's buildModelExtras) and the
+// Ursa classifier's model knowledge. Data only -- no LLM client code here.
+const CAPABILITIES: Record<string, ModelCapabilities> = {
+  'anthropic/claude-opus-4-8': {
+    strengths: ['code', 'research', 'writing', 'general'],
+    costTier: 'high'
+  },
+  'anthropic/claude-sonnet-5': {
+    strengths: ['code', 'writing', 'general'],
+    costTier: 'mid'
+  },
+  'anthropic/claude-haiku-4-5': {
+    strengths: ['general'],
+    costTier: 'low'
+  },
+  'openai/gpt-5.6-sol': {
+    reasoning: { effort: 'high' },
+    strengths: ['code', 'general'],
+    costTier: 'high'
+  },
+  'openai/gpt-5.6-terra': {
+    reasoning: { effort: 'medium' },
+    strengths: ['writing', 'general'],
+    costTier: 'mid'
+  },
+  'openai/gpt-5.6-luna': {
+    reasoning: { effort: 'medium' },
+    strengths: ['code', 'general'],
+    costTier: 'low'
+  },
+  'google/gemini-3.1-pro-preview': {
+    strengths: ['research', 'long-context', 'general'],
+    costTier: 'high'
+  },
+  'google/gemini-2.5-pro': {
+    strengths: ['research', 'long-context'],
+    costTier: 'mid'
+  },
+  'google/gemini-2.5-flash': {
+    strengths: ['general'],
+    costTier: 'low'
+  }
+}
+
+// Static capability lookup for a "provider/modelId" ref. Returns null for any
+// ref not in the curated table above (custom models, Ollama, OpenRouter) --
+// callers (buildModelExtras, the Ursa classifier) must treat null as "no
+// special handling," never throw.
+export function capabilitiesFor(ref: string): ModelCapabilities | null {
+  return CAPABILITIES[ref] ?? null
+}
 
 async function listOllamaModels(): Promise<{
   models: ModelInfo[]

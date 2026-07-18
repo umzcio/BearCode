@@ -687,6 +687,7 @@ export type Event =
       startedAt: number
       endedAt: number
       usage?: { inputTokens: number; outputTokens: number; lastInputTokens: number }
+      ursaRole?: string
     }
   | { type: 'error'; id: string; message: string; recoverable: boolean }
   // Optional & additive marker emitted when the summarization middleware folds
@@ -697,6 +698,28 @@ export type Event =
 // ---- Provider layer ----
 
 export type ProviderId = 'anthropic' | 'openai' | 'google' | 'openrouter' | 'ollama'
+
+// Ursa Phase 1: static per-model metadata (registry.ts's capabilitiesFor())
+// used both by the GPT-5.6 reasoning-effort fix and by the Ursa classifier's
+// model knowledge.
+export interface ModelCapabilities {
+  reasoning?: { effort: 'low' | 'medium' | 'high' | 'xhigh' }
+  strengths: Array<'code' | 'research' | 'writing' | 'vision' | 'long-context' | 'general'>
+  costTier: 'low' | 'mid' | 'high'
+}
+
+// A user-configured named model assignment Ursa can dispatch a turn to.
+export interface UrsaRole {
+  name: string
+  modelRef: string
+  description: string
+}
+
+export interface UrsaGuardrails {
+  // role name -> USD ceiling for the current project's cumulative spend on
+  // that role. A role with no entry has no ceiling.
+  roleCeilings: Record<string, number>
+}
 
 export interface ModelInfo {
   id: string
@@ -991,6 +1014,10 @@ export interface AppSettings {
   disabledModels?: string[]
   // User-added models merged into the curated lists (custom wins on id collision).
   customModels?: CustomModel[]
+  // Ursa Phase 1: user-configured named model assignments + cost guardrails
+  // (global app settings, not per-project). See planning/2026-07-17-ursa-orchestrator-plan.md.
+  ursaRoles: UrsaRole[]
+  ursaGuardrails: UrsaGuardrails
   // F8 Agent Settings (global defaults; per-project overrides = F9). Optional &
   // additive: absent → behavior-preserving defaults (custom / deny / auto).
   securityPreset?: SecurityPreset
