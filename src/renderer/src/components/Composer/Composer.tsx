@@ -6,6 +6,7 @@ import type {
   MentionRef,
   PickedAttachmentWire
 } from '@shared/types'
+import { URSA_MODEL_REF } from '@shared/types'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
 import { EffortPicker } from '../EffortPicker/EffortPicker'
@@ -387,7 +388,10 @@ export function Composer({
   }
 
   return (
-    <div className="composer" ref={composerRef}>
+    <div
+      className={'composer' + (modelRef === URSA_MODEL_REF ? ' composer--ursa' : '')}
+      ref={composerRef}
+    >
       {showNotice ? (
         <div className="composer-notice">
           No API key for the selected model.{' '}

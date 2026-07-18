@@ -13,6 +13,62 @@
      changes), not the window's -- so use a container query, not a media query. */
   container-type: inline-size;
 }
+
+/* Ursa selected: an on-brand rotating gradient aura. Only steps through
+   shades of the app's own accent blue -- no outside hues. */
+@property --ursa-ang {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.composer--ursa {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--bg-raised), var(--bg-raised)) padding-box,
+    conic-gradient(from var(--ursa-ang, 0deg), #2f5fb8, #4c8dff, #5c98ff, #8fc0ff, #5c98ff, #4c8dff, #2f5fb8)
+      border-box;
+  animation: ursa-spin var(--dur-ambient) linear infinite;
+}
+.composer--ursa::before {
+  content: '';
+  position: absolute;
+  inset: -14px;
+  z-index: -1;
+  border-radius: 24px;
+  background: conic-gradient(
+    from var(--ursa-ang, 0deg),
+    #2f5fb8,
+    #4c8dff,
+    #5c98ff,
+    #8fc0ff,
+    #5c98ff,
+    #4c8dff,
+    #2f5fb8
+  );
+  filter: blur(22px);
+  opacity: 0.5;
+  animation: ursa-spin var(--dur-ambient) linear infinite;
+}
+@keyframes ursa-spin {
+  to {
+    --ursa-ang: 360deg;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer--ursa,
+  .composer--ursa::before {
+    animation: none;
+  }
+  .composer--ursa {
+    background:
+      linear-gradient(var(--bg-raised), var(--bg-raised)) padding-box,
+      linear-gradient(135deg, #4c8dff, #5c98ff) border-box;
+  }
+  .composer--ursa::before {
+    opacity: 0.3;
+  }
+}
+
 .composer textarea {
   width: 100%;
   background: none;
