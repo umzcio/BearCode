@@ -1,0 +1,70 @@
+diff --git a/node_modules/@langchain/openai/dist/converters/responses.cjs b/node_modules/@langchain/openai/dist/converters/responses.cjs
+index e07fca1..8598f53 100644
+--- a/node_modules/@langchain/openai/dist/converters/responses.cjs
++++ b/node_modules/@langchain/openai/dist/converters/responses.cjs
+@@ -1093,6 +1093,30 @@ const convertMessagesToResponsesInput = ({ messages, zdrEnabled, model }) => {
+ 							filename: require_misc.getRequiredFilenameFromMetadata(item)
+ 						};
+ 					}
++					// BearCode patch (patches/@langchain+openai+*.patch): image data blocks
++					// fell through to the Chat Completions converter below, which emits
++					// {type:"image_url"} -- a Completions-format part the Responses endpoint
++					// rejects ("400 Invalid value: 'image_url'"). The image_url->input_image
++					// remap further down never runs for data blocks because this branch
++					// returns first. Convert images to the Responses shape here, mirroring
++					// the "file" cases above.
++					if (item.type === "image") {
++						if (item.source_type === "url") return {
++							type: "input_image",
++							detail: "auto",
++							image_url: item.url
++						};
++						if (item.source_type === "id") return {
++							type: "input_image",
++							detail: "auto",
++							file_id: item.id
++						};
++						if (item.source_type === "base64") return {
++							type: "input_image",
++							detail: "auto",
++							image_url: `data:${item.mime_type ?? "image/png"};base64,${item.data}`
++						};
++					}
+ 					return (0, _langchain_core_messages.convertToProviderContentBlock)(item, require_completions.completionsApiContentBlockConverter);
+ 				}
+ 				if (item.type === "text") return {
+diff --git a/node_modules/@langchain/openai/dist/converters/responses.js b/node_modules/@langchain/openai/dist/converters/responses.js
+index ce1e1a3..cff050e 100644
+--- a/node_modules/@langchain/openai/dist/converters/responses.js
++++ b/node_modules/@langchain/openai/dist/converters/responses.js
+@@ -1093,6 +1093,30 @@ const convertMessagesToResponsesInput = ({ messages, zdrEnabled, model }) => {
+ 							filename: getRequiredFilenameFromMetadata(item)
+ 						};
+ 					}
++					// BearCode patch (patches/@langchain+openai+*.patch): image data blocks
++					// fell through to the Chat Completions converter below, which emits
++					// {type:"image_url"} -- a Completions-format part the Responses endpoint
++					// rejects ("400 Invalid value: 'image_url'"). The image_url->input_image
++					// remap further down never runs for data blocks because this branch
++					// returns first. Convert images to the Responses shape here, mirroring
++					// the "file" cases above.
++					if (item.type === "image") {
++						if (item.source_type === "url") return {
++							type: "input_image",
++							detail: "auto",
++							image_url: item.url
++						};
++						if (item.source_type === "id") return {
++							type: "input_image",
++							detail: "auto",
++							file_id: item.id
++						};
++						if (item.source_type === "base64") return {
++							type: "input_image",
++							detail: "auto",
++							image_url: `data:${item.mime_type ?? "image/png"};base64,${item.data}`
++						};
++					}
+ 					return convertToProviderContentBlock(item, completionsApiContentBlockConverter);
+ 				}
+ 				if (item.type === "text") return {

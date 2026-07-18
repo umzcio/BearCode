@@ -89,6 +89,10 @@ export const TEXT_EXTENSIONS = [
   'toml',
   'ini',
   'xml',
+  // SVG rides the TEXT lane, never the image lane: no provider vision API
+  // accepts image/svg+xml as an image block (they take raster formats only),
+  // but as XML source the model can read and edit it directly.
+  'svg',
   'csv',
   'tsv',
   'sh',

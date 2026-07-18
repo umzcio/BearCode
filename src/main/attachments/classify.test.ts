@@ -57,6 +57,15 @@ describe('classifyPicked', () => {
     })
   })
 
+  it('classifies an .svg as text (XML source), never as an image', () => {
+    // No provider vision API accepts image/svg+xml as an image block, but as
+    // XML source the model can read and edit it -- so SVG rides the text lane.
+    expect(classifyPicked(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>', 'utf8'), 'ursa-teddy.svg')).toEqual({
+      kind: 'text',
+      mime: 'text/plain'
+    })
+  })
+
   it('rejects a binary masquerading under a text extension (NUL byte)', () => {
     expect(classifyPicked(Buffer.from([0x00, 0x01, 0x02, 0x03]), 'evil.ts')).toBeNull()
   })
