@@ -240,6 +240,17 @@ function getDb(): Database.Database {
       // column already exists
     }
   }
+  // Ursa Phase 1: the concrete model a turn's classifier last resolved the
+  // Ursa sentinel to, so a crash-resume rebuilds the agent against the same
+  // model the checkpoint was built with instead of re-classifying (which could
+  // pick a different role and desync the resumed executor). Same
+  // idempotent-guarded ALTER idiom as the columns above; old DBs upgrade in
+  // place. NULL = never resolved (or the conversation never used Ursa).
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN last_resolved_model_ref TEXT`)
+  } catch {
+    // column already exists
+  }
   backfillEventFts(db)
   zombieRunIds = cancelZombieRuns(db)
   return db
@@ -669,6 +680,26 @@ export function setModelRef(conversationId: string, modelRef: string): void {
   getDb()
     .prepare(`UPDATE conversations SET model_ref = ?, updated_at = ? WHERE id = ?`)
     .run(modelRef, Date.now(), conversationId)
+}
+
+// Ursa Phase 1 rehydration continuity: the classifier resolves a role ONCE
+// per turn, at the start of runGraph. If that turn crashes mid-flight and
+// rehydratePausedRun rebuilds the agent from the LangGraph checkpoint, it MUST
+// reuse the exact same concrete model the checkpoint was built against --
+// re-classifying could pick a different role and desync the resumed executor
+// from its own checkpoint. This value is overwritten every turn and is
+// meaningless once a turn completes (turn_meta is the durable record).
+export function setLastResolvedModelRef(conversationId: string, ref: string): void {
+  getDb()
+    .prepare(`UPDATE conversations SET last_resolved_model_ref = ? WHERE id = ?`)
+    .run(ref, conversationId)
+}
+
+export function getLastResolvedModelRef(conversationId: string): string | null {
+  const row = getDb()
+    .prepare(`SELECT last_resolved_model_ref FROM conversations WHERE id = ?`)
+    .get(conversationId) as { last_resolved_model_ref: string | null } | undefined
+  return row?.last_resolved_model_ref ?? null
 }
 
 export function setPermissionMode(conversationId: string, mode: PermissionMode): void {

@@ -40,6 +40,7 @@ import {
   getConversationMeta,
   getEvents,
   getLastCompactionEvent,
+  getLastResolvedModelRef,
   getOutsidePolicy,
   getProjectSettings,
   isProjectTrusted,
@@ -47,6 +48,7 @@ import {
   markArtifactCommentsSent,
   recordPendingOutsidePath,
   setActiveRules,
+  setLastResolvedModelRef,
   setPermissionMode,
   touchedFilesFor
 } from '../db'
@@ -85,6 +87,7 @@ import { parseModelRef, supportsNativePdf } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
 import { makeModel } from './models'
+import { isUrsaModelRef, resolveUrsaModelRef } from './ursa'
 import { compactionAdvanced } from './compaction'
 import {
   COMPACT_ACK_DIRECTIVE,
@@ -286,6 +289,12 @@ interface DriveContext {
   sink: RunSink
   providerId: ProviderId
   modelId: string
+  // Ursa Phase 1: the role name the classifier routed this turn to, when the
+  // conversation's modelRef was the Ursa sentinel. undefined for a manually
+  // selected model. Surfaced on turn_meta for the transparency badge; never
+  // read by anything downstream (by the time ctx exists, modelRef is already
+  // concrete).
+  ursaRole?: string
   startedAt: number
   userText: string
   projectPath: string
@@ -2320,7 +2329,11 @@ function buildAgentAndContext(
   command: CommandRef | null,
   sink: RunSink,
   signal: AbortSignal,
-  mentions: MentionRef[] = []
+  mentions: MentionRef[] = [],
+  // Ursa Phase 1: the resolved role name, threaded from runGraph so it lands on
+  // turn_meta. Defaulted to undefined so rehydratePausedRun's call site (which
+  // has only a concrete resolved ref, no live role) stays valid unchanged.
+  ursaRole?: string
 ): BuildResult {
   const { provider: providerId, modelId } = parseModelRef(modelRef)
   const meta = getConversationMeta(conversationId)
@@ -2586,6 +2599,7 @@ function buildAgentAndContext(
     sink,
     providerId,
     modelId,
+    ...(ursaRole ? { ursaRole } : {}),
     startedAt: Date.now(),
     userText,
     projectPath: projectPath ?? '',
@@ -2603,6 +2617,42 @@ function buildAgentAndContext(
     turnUsage: makeTurnUsage()
   }
   return { agent, ctx }
+}
+
+// Ursa Phase 1: resolve a turn's modelRef before the agent is built. For a
+// concrete "provider/modelId" ref this is a pass-through; for the Ursa sentinel
+// it classifies the turn once (via the cheap-model mechanism title.ts uses),
+// persists the concrete result for crash-resume continuity, and returns the
+// chosen role name so it can be recorded on turn_meta. Everything downstream of
+// buildAgentAndContext only ever sees the concrete ref -- it is completely
+// unaware Ursa exists. Extracted (not inlined in runGraph) so the resolution
+// decision is unit-testable without driving a full agent stream.
+export async function resolveTurnModelRef(
+  conversationId: string,
+  modelRef: string,
+  userText: string
+): Promise<{ modelRef: string; ursaRole?: string }> {
+  if (!isUrsaModelRef(modelRef)) return { modelRef }
+  const meta = getConversationMeta(conversationId)
+  const resolved = await resolveUrsaModelRef({
+    userText,
+    projectPath: meta?.projectPath ?? null
+  })
+  setLastResolvedModelRef(conversationId, resolved.modelRef)
+  return { modelRef: resolved.modelRef, ursaRole: resolved.roleName }
+}
+
+// Ursa Phase 1: on crash-resume, reuse the concrete model the paused turn's
+// checkpoint was built against (persisted by resolveTurnModelRef) instead of
+// re-classifying, which could pick a different role and desync the resumed
+// executor. If nothing was persisted (shouldn't happen -- runGraph always sets
+// it before a turn can reach a pausable state), the raw sentinel flows through
+// and buildAgentAndContext throws inside parseModelRef exactly like today's
+// unresolved-provider error -- the correct, honest failure mode (never silently
+// guessing a role for a resumed turn).
+export function rehydrateModelRef(conversationId: string, modelRef: string): string {
+  if (!isUrsaModelRef(modelRef)) return modelRef
+  return getLastResolvedModelRef(conversationId) ?? modelRef
 }
 
 export async function runGraph(opts: {
@@ -2656,14 +2706,24 @@ export async function runGraph(opts: {
     markForceCompact(conversationId)
   }
 
-  const built = buildAgentAndContext(
+  // Ursa Phase 1: resolve the sentinel to a concrete "provider/modelId" ref
+  // BEFORE buildAgentAndContext (which parseModelRefs it) ever sees it. A
+  // manually selected model is returned untouched.
+  const { modelRef: resolvedModelRef, ursaRole } = await resolveTurnModelRef(
     conversationId,
     modelRef,
+    userText
+  )
+
+  const built = buildAgentAndContext(
+    conversationId,
+    resolvedModelRef,
     userText,
     command,
     sink,
     signal,
-    mentions
+    mentions,
+    ursaRole
   )
   if ('refusal' in built) {
     // REFUSAL PATH (design 5.3/11, Global Constraints, review finding): the
@@ -2705,7 +2765,7 @@ export async function runGraph(opts: {
           : 'Proceed.'
 
   try {
-    const pdfNative = supportsNativePdf(parseModelRef(modelRef).provider)
+    const pdfNative = supportsNativePdf(parseModelRef(resolvedModelRef).provider)
     const content = buildUserMessageContent(
       modelText,
       attachments,
@@ -2777,7 +2837,18 @@ export async function rehydratePausedRun(
   sink: RunSink,
   signal: AbortSignal
 ): Promise<boolean> {
-  const built = buildAgentAndContext(conversationId, modelRef, userText, command, sink, signal)
+  // Ursa Phase 1: resume against the concrete model the paused turn resolved to,
+  // not the sentinel -- re-classifying could pick a different role and desync
+  // the resumed executor from its own checkpoint.
+  const effectiveModelRef = rehydrateModelRef(conversationId, modelRef)
+  const built = buildAgentAndContext(
+    conversationId,
+    effectiveModelRef,
+    userText,
+    command,
+    sink,
+    signal
+  )
   // A refusal marker during rehydrate returns false (not resumable): it
   // cannot happen for a turn that already ran unless the workflow file
   // changed on disk since (design 5.3/11, review finding) -- degrading to
@@ -3007,7 +3078,8 @@ async function closeOutTurn(
     model: ctx.modelId,
     startedAt: ctx.startedAt,
     endedAt: Date.now(),
-    ...(usageSnapshot ? { usage: usageSnapshot } : {})
+    ...(usageSnapshot ? { usage: usageSnapshot } : {}),
+    ...(ctx.ursaRole ? { ursaRole: ctx.ursaRole } : {})
   }
   appendEvent(ctx.conversationId, turnMeta)
   ctx.sink.emit(ctx.conversationId, turnMeta)

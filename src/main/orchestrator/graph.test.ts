@@ -10,15 +10,25 @@ vi.mock('../db', () => ({
   dropDanglingCancel: vi.fn(),
   getConversationMeta: vi.fn(() => null),
   getEvents: vi.fn(() => []),
+  getLastResolvedModelRef: vi.fn(() => null),
   listArtifactComments: vi.fn(() => []),
   markArtifactCommentsSent: vi.fn(),
   setActiveRules: vi.fn(),
+  setLastResolvedModelRef: vi.fn(),
   setPermissionMode: vi.fn()
 }))
 
 vi.mock('./checkpointer', () => ({
   getCheckpointer: () => ({ getTuple: vi.fn() }),
   pruneCheckpoints: vi.fn()
+}))
+
+// Ursa (Phase 1) resolution is mocked so graph.ts's resolveTurnModelRef seam
+// can be exercised without the real cheap-model classifier call.
+vi.mock('./ursa', () => ({
+  URSA_MODEL_REF: 'ursa/auto',
+  isUrsaModelRef: (ref: string) => ref === 'ursa/auto',
+  resolveUrsaModelRef: vi.fn()
 }))
 
 import {
@@ -47,9 +57,13 @@ import {
   resolveInterrupt,
   forgetPendingApproval,
   persistRuleMentions,
+  resolveTurnModelRef,
+  rehydrateModelRef,
   __parkForTest,
   type ApprovalItem
 } from './graph'
+import { resolveUrsaModelRef } from './ursa'
+import { getLastResolvedModelRef, setLastResolvedModelRef } from '../db'
 import type { PlanReviewResolution, SkillProposalResolution } from './tools'
 import { browserManager } from '../browser/manager'
 import type { RunSink } from '../sink'
@@ -1646,5 +1660,47 @@ describe('persistRuleMentions', () => {
       { kind: 'rule', name: 'security' }
     ])
     expect(setActiveRules).toHaveBeenCalledWith('c1', ['style', 'security'])
+  })
+})
+
+describe('runGraph — Ursa resolution', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  it('resolves URSA_MODEL_REF to a concrete modelRef, records the role, and persists it for rehydration', async () => {
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'anthropic/claude-haiku-4-5',
+      roleName: 'grunt'
+    })
+    vi.mocked(getConversationMeta).mockReturnValue({ projectPath: '/tmp/proj' } as never)
+    const result = await resolveTurnModelRef('c1', 'ursa/auto', 'refactor this module')
+    expect(result).toEqual({ modelRef: 'anthropic/claude-haiku-4-5', ursaRole: 'grunt' })
+    expect(resolveUrsaModelRef).toHaveBeenCalledWith({
+      userText: 'refactor this module',
+      projectPath: '/tmp/proj'
+    })
+    expect(setLastResolvedModelRef).toHaveBeenCalledWith('c1', 'anthropic/claude-haiku-4-5')
+  })
+
+  it('passes a concrete modelRef through untouched (no classifier call)', async () => {
+    const result = await resolveTurnModelRef('c1', 'anthropic/claude-sonnet-5', 'hi')
+    expect(result).toEqual({ modelRef: 'anthropic/claude-sonnet-5' })
+    expect(resolveUrsaModelRef).not.toHaveBeenCalled()
+    expect(setLastResolvedModelRef).not.toHaveBeenCalled()
+  })
+
+  it('rehydrateModelRef reuses the persisted resolution for the sentinel instead of re-classifying', () => {
+    vi.mocked(getLastResolvedModelRef).mockReturnValue('anthropic/claude-haiku-4-5')
+    expect(rehydrateModelRef('c1', 'ursa/auto')).toBe('anthropic/claude-haiku-4-5')
+    expect(getLastResolvedModelRef).toHaveBeenCalledWith('c1')
+  })
+
+  it('rehydrateModelRef leaves the sentinel unresolved when nothing was persisted (honest failure downstream)', () => {
+    vi.mocked(getLastResolvedModelRef).mockReturnValue(null)
+    expect(rehydrateModelRef('c1', 'ursa/auto')).toBe('ursa/auto')
+  })
+
+  it('rehydrateModelRef returns a concrete ref unchanged', () => {
+    expect(rehydrateModelRef('c1', 'anthropic/claude-sonnet-5')).toBe('anthropic/claude-sonnet-5')
+    expect(getLastResolvedModelRef).not.toHaveBeenCalled()
   })
 })
