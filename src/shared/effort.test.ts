@@ -43,8 +43,22 @@ describe('effortCapabilities', () => {
       effortEnabled: false, thinkingEnabled: true
     })
   })
-  it('OpenAI / openrouter: both greyed', () => {
-    expect(effortCapabilities('openai/gpt-5')).toEqual({ effortEnabled: false, thinkingEnabled: false })
+  it('OpenAI reasoning models (gpt-5*, o*): effort only, no thinking toggle', () => {
+    expect(effortCapabilities('openai/gpt-5.6-sol')).toEqual({
+      effortEnabled: true, thinkingEnabled: false
+    })
+    expect(effortCapabilities('openai/gpt-5')).toEqual({ effortEnabled: true, thinkingEnabled: false })
+    expect(effortCapabilities('openai/o3')).toEqual({ effortEnabled: true, thinkingEnabled: false })
+  })
+  it('OpenAI non-reasoning models (gpt-5-chat*, gpt-4*): both greyed', () => {
+    expect(effortCapabilities('openai/gpt-5-chat')).toEqual({
+      effortEnabled: false, thinkingEnabled: false
+    })
+    expect(effortCapabilities('openai/gpt-4o')).toEqual({
+      effortEnabled: false, thinkingEnabled: false
+    })
+  })
+  it('openrouter: both greyed (arbitrary third-party models, no guaranteed support)', () => {
     expect(effortCapabilities('openrouter/anthropic/claude-opus-4-8')).toEqual({
       effortEnabled: false, thinkingEnabled: false
     })

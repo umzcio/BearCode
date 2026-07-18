@@ -17,6 +17,34 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite'
 import type { BaseCheckpointSaver } from '@langchain/langgraph'
+import type { CheckpointListOptions, CheckpointTuple } from '@langchain/langgraph-checkpoint'
+import type { RunnableConfig } from '@langchain/core/runnables'
+import { sanitizeCheckpointMessages } from './checkpointSanitize'
+
+// Repairs the "input_json_delta" checkpoint corruption (see
+// checkpointSanitize.ts) transparently on every read, so conversations
+// checkpointed before patches/@langchain+core+1.2.2.patch existed heal
+// themselves the next time they're loaded -- no migration step, no direct
+// sqlite surgery. The patch stops NEW poisoning; this repairs what's already
+// on disk. A real SqliteSaver subclass (not composition) so this remains a
+// legitimate BaseCheckpointSaver for any instanceof check LangGraph makes.
+class SanitizingSqliteSaver extends SqliteSaver {
+  async getTuple(config: RunnableConfig): Promise<CheckpointTuple | undefined> {
+    const tuple = await super.getTuple(config)
+    if (tuple) sanitizeCheckpointMessages(tuple.checkpoint.channel_values)
+    return tuple
+  }
+
+  async *list(
+    config: RunnableConfig,
+    options?: CheckpointListOptions
+  ): AsyncGenerator<CheckpointTuple> {
+    for await (const tuple of super.list(config, options)) {
+      sanitizeCheckpointMessages(tuple.checkpoint.channel_values)
+      yield tuple
+    }
+  }
+}
 
 let instance: BaseCheckpointSaver | null = null
 
@@ -26,7 +54,8 @@ function checkpointsDbPath(): string {
 
 export function getCheckpointer(): BaseCheckpointSaver {
   if (!instance) {
-    instance = SqliteSaver.fromConnString(checkpointsDbPath())
+    const base = SqliteSaver.fromConnString(checkpointsDbPath())
+    instance = Object.setPrototypeOf(base, SanitizingSqliteSaver.prototype) as BaseCheckpointSaver
   }
   return instance
 }

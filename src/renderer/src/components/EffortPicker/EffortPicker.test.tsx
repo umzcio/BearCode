@@ -39,12 +39,22 @@ describe('EffortPicker', () => {
     fireEvent.click(screen.getByText('Thinking'))
     expect(useAppStore.getState().thinking).toBe(false)
   })
-  it('greys the effort section for a non-Anthropic model', () => {
-    useAppStore.setState({ modelRef: 'openai/gpt-5' })
+  it('greys the effort section for a non-reasoning OpenAI model', () => {
+    // gpt-5-chat is explicitly excluded from OpenAI's reasoning-model family
+    // (unlike gpt-5/gpt-5.6-*, which are now effort-enabled -- see effort.ts).
+    useAppStore.setState({ modelRef: 'openai/gpt-5-chat' })
     render(<EffortPicker />)
     fireEvent.click(screen.getByText('Adaptive'))
     // Clicking a greyed tier is a no-op.
     fireEvent.click(screen.getByText('High'))
     expect(useAppStore.getState().effort).toBe('adaptive')
+  })
+  it('enables effort (but not thinking) for an OpenAI reasoning model', () => {
+    useAppStore.setState({ modelRef: 'openai/gpt-5.6-sol' })
+    render(<EffortPicker />)
+    fireEvent.click(screen.getByText('Adaptive'))
+    fireEvent.click(screen.getByText('High'))
+    expect(useAppStore.getState().effort).toBe('high')
+    expect(screen.queryByText('Thinking')).toBeNull()
   })
 })
