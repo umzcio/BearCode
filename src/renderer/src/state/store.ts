@@ -465,6 +465,12 @@ export function modelDisplay(
 
 export function refConfigured(providers: ProviderModels[], ref: ModelRef | null): boolean {
   if (!ref) return false
+  // The Ursa sentinel isn't a real "provider/modelId" ref -- ModelPicker
+  // already gates its selectability on ursaEnabled + at least one usable
+  // provider, so a conversation that has it selected is inherently ready.
+  // Per-turn eligibility is re-checked server-side by resolveUrsaModelRef;
+  // a failure there surfaces as its own error event, not this composer notice.
+  if (ref === URSA_MODEL_REF) return true
   const slash = ref.indexOf('/')
   const providerId = ref.slice(0, slash)
   const modelId = ref.slice(slash + 1)

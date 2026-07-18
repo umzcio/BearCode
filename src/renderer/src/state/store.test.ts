@@ -982,6 +982,15 @@ describe('refConfigured (F7 opt-out)', () => {
   it('is false for a null ref', () => {
     expect(refConfigured(providers, null)).toBe(false)
   })
+
+  it('is always true for the Ursa sentinel, even with no matching provider entry', () => {
+    // Regression: the sentinel isn't a real "provider/modelId" ref, so without
+    // this special case the composer's "No API key for the selected model"
+    // notice showed even when Ursa was fully usable -- ModelPicker already
+    // gates its selectability, this must not re-derive a false negative.
+    expect(refConfigured(providers, URSA_MODEL_REF)).toBe(true)
+    expect(refConfigured([], URSA_MODEL_REF)).toBe(true)
+  })
 })
 
 describe('F9 folder = project: settings + inheritance', () => {
