@@ -8,7 +8,7 @@ import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
 import { BearcodeChatOllama } from './ollamaCompat'
 import { getKey } from '../keys'
 import { getSettings } from '../settings'
-import { parseModelRef } from '../providers/registry'
+import { parseModelRef, capabilitiesFor } from '../providers/registry'
 import type { EffortLevel, ProviderId } from '../../shared/types'
 
 function requireKey(provider: ProviderId): string {
@@ -36,6 +36,20 @@ function requireKey(provider: ProviderId): string {
 // Older 1.x models don't support thinking and error if this is set, so guard
 // on model id, mirroring the Haiku exclusion above and the legacy engine's
 // providerOptions() in src/main/providers/registry.ts.
+// BearCode's EffortLevel has no direct OpenAI equivalent for 'adaptive' or
+// 'max' -- OpenAI's own docs say reasoning models default to 'medium', so
+// 'adaptive' maps there; 'max' maps to OpenAI's highest real tier, 'xhigh'.
+function mapEffortToOpenAIReasoning(effort: EffortLevel): 'low' | 'medium' | 'high' | 'xhigh' {
+  switch (effort) {
+    case 'adaptive':
+      return 'medium'
+    case 'max':
+      return 'xhigh'
+    default:
+      return effort
+  }
+}
+
 export function buildModelExtras(
   provider: ProviderId,
   modelId: string,
@@ -56,10 +70,13 @@ export function buildModelExtras(
       return thinking ? { thinkingConfig: { includeThoughts: true } } : {}
     case 'ollama':
       return { think: thinking }
-    default:
-      // openai, openrouter: reasoning is folded into effort (greyed in UI); no
-      // separate thinking knob.
-      return {}
+    default: {
+      // openai, openrouter: no separate thinking knob (folded into effort).
+      const caps = capabilitiesFor(`${provider}/${modelId}`)
+      if (!caps?.reasoning) return {}
+      const requestedEffort = opts.effort ?? caps.reasoning.effort
+      return { reasoning: { effort: mapEffortToOpenAIReasoning(requestedEffort) } }
+    }
   }
 }
 
