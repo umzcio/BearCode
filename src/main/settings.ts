@@ -6,9 +6,7 @@ import type {
   CustomModel,
   ProjectSettings,
   ProviderId,
-  SettingsInfo,
-  UrsaRole,
-  UrsaGuardrails
+  SettingsInfo
 } from '../shared/types'
 import {
   isSttBackend,
@@ -79,8 +77,7 @@ const DEFAULTS: AppSettings = {
   marketplaces: [],
   hooksDisabledGlobal: [],
   hooksConsented: [],
-  ursaRoles: [],
-  ursaGuardrails: { roleCeilings: {} }
+  ursaEnabled: false
 }
 
 // Custom models may only target the four first-party curated providers. Ollama
@@ -118,39 +115,6 @@ function coerceCustomModels(raw: unknown): CustomModel[] {
     }
   }
   return out
-}
-
-// Keep only well-formed roles: non-empty name/description, a modelRef that
-// parses as "provider/modelId". A malformed settings.json or a bad UI write
-// can never poison the classifier's eligible-role list.
-function coerceUrsaRoles(raw: unknown): UrsaRole[] {
-  if (!Array.isArray(raw)) return []
-  const out: UrsaRole[] = []
-  for (const v of raw) {
-    if (v == null || typeof v !== 'object') continue
-    const { name, modelRef, description } = v as Record<string, unknown>
-    if (
-      typeof name === 'string' &&
-      name.length > 0 &&
-      typeof modelRef === 'string' &&
-      modelRef.includes('/') &&
-      typeof description === 'string'
-    ) {
-      out.push({ name, modelRef, description })
-    }
-  }
-  return out
-}
-
-function coerceUrsaGuardrails(raw: unknown): UrsaGuardrails {
-  if (raw == null || typeof raw !== 'object') return { roleCeilings: {} }
-  const { roleCeilings } = raw as Record<string, unknown>
-  if (roleCeilings == null || typeof roleCeilings !== 'object') return { roleCeilings: {} }
-  const out: Record<string, number> = {}
-  for (const [k, v] of Object.entries(roleCeilings as Record<string, unknown>)) {
-    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[k] = v
-  }
-  return { roleCeilings: out }
 }
 
 export function coerceStringArray(raw: unknown): string[] {
@@ -320,10 +284,8 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   // pluginsEnabled/skillsDisabledGlobal above. Optional & additive.
   merged.hooksDisabledGlobal = coerceStringArray(s['hooksDisabledGlobal'])
   merged.hooksConsented = coerceStringArray(s['hooksConsented'])
-  // Ursa Phase 1: roles/guardrails are optional & additive, same coercion
-  // guarantee as customModels/mcpTrustedProjectServers above.
-  merged.ursaRoles = coerceUrsaRoles(s['ursaRoles'])
-  merged.ursaGuardrails = coerceUrsaGuardrails(s['ursaGuardrails'])
+  // Ursa Phase 1: on/off switch only. Optional & additive.
+  merged.ursaEnabled = s['ursaEnabled'] === true
   return merged
 }
 
@@ -468,13 +430,8 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   if (patch.hooksConsented !== undefined) {
     patch = { ...patch, hooksConsented: coerceStringArray(patch.hooksConsented) }
   }
-  // Ursa Phase 1: never persist a malformed role/guardrail payload -- coerce
-  // the patch before write, same pattern as customModels/disabledModels.
-  if (patch.ursaRoles !== undefined) {
-    patch = { ...patch, ursaRoles: coerceUrsaRoles(patch.ursaRoles) }
-  }
-  if (patch.ursaGuardrails !== undefined) {
-    patch = { ...patch, ursaGuardrails: coerceUrsaGuardrails(patch.ursaGuardrails) }
+  if (patch.ursaEnabled !== undefined) {
+    patch = { ...patch, ursaEnabled: patch.ursaEnabled === true }
   }
   const next = { ...getSettings(), ...patch }
   cache = next

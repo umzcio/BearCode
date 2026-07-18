@@ -15,7 +15,14 @@ export function ModelPicker(): React.JSX.Element {
   const openSettings = useAppStore((s) => s.openSettings)
   const modelMenuTick = useAppStore((s) => s.modelMenuTick)
   const settings = useAppStore((s) => s.settings)
-  const hasUrsaRoles = (settings?.ursaRoles?.length ?? 0) > 0
+  // Ursa's roles are curated in code (main/orchestrator/ursa.ts), not user
+  // data -- the renderer only needs to know whether Ursa is turned on and
+  // whether at least one provider is usable at all, not which specific
+  // curated roles exist (that would duplicate CURATED_ROLES across the
+  // Electron process boundary for no benefit).
+  const ursaEnabled = settings?.ursaEnabled === true
+  const anyProviderUsable = providers.some((p) => p.reachable && (!p.requiresKey || p.keyConfigured))
+  const ursaSelectable = ursaEnabled && anyProviderUsable
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
@@ -29,7 +36,7 @@ export function ModelPicker(): React.JSX.Element {
   // order they render, so keyboard nav and the mouse click handlers commit
   // the identical action.
   const flatOptions: { id: string; commit: () => void }[] = []
-  if (hasUrsaRoles) {
+  if (ursaSelectable) {
     flatOptions.push({
       id: 'model-ursa',
       commit: () => {
@@ -145,28 +152,30 @@ export function ModelPicker(): React.JSX.Element {
             id="opt-model-ursa"
             role="option"
             aria-selected={modelRef === URSA_MODEL_REF}
-            aria-disabled={!hasUrsaRoles}
+            aria-disabled={!ursaSelectable}
             className={
               'menu-item ursa-entry' +
               (modelRef === URSA_MODEL_REF ? ' selected' : '') +
-              (!hasUrsaRoles ? ' disabled' : '') +
+              (!ursaSelectable ? ' disabled' : '') +
               (flatOptions[activeIndex]?.id === 'model-ursa' ? ' active' : '')
             }
             onClick={() => {
-              if (!hasUrsaRoles) return
+              if (!ursaSelectable) return
               const idx = flatOptions.findIndex((o) => o.id === 'model-ursa')
               flatOptions[idx]?.commit()
             }}
             onMouseEnter={() => {
-              if (hasUrsaRoles) {
+              if (ursaSelectable) {
                 const idx = flatOptions.findIndex((o) => o.id === 'model-ursa')
                 setActiveIndex(idx)
               }
             }}
           >
             <span>Ursa</span>
-            {!hasUrsaRoles ? (
-              <span className="ursa-hint">Add a role in Settings &gt; Ursa first</span>
+            {!ursaEnabled ? (
+              <span className="ursa-hint">Enable Ursa in Settings first</span>
+            ) : !anyProviderUsable ? (
+              <span className="ursa-hint">Add an API key in Settings &gt; Providers first</span>
             ) : null}
             <span className="check">✓</span>
           </div>

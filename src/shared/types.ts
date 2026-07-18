@@ -714,17 +714,15 @@ export interface ModelCapabilities {
 // crossing the Electron process boundary.
 export const URSA_MODEL_REF = 'ursa/auto'
 
-// A user-configured named model assignment Ursa can dispatch a turn to.
+// A named model assignment Ursa's classifier can dispatch a turn to. The set
+// of roles is curated in code (main/orchestrator/ursa.ts's CURATED_ROLES),
+// never user-editable -- this type exists so the renderer's turn_meta badge
+// and Settings > Ursa's read-only status page share the same shape, not so
+// end users can construct their own roles.
 export interface UrsaRole {
   name: string
   modelRef: string
   description: string
-}
-
-export interface UrsaGuardrails {
-  // role name -> USD ceiling for the current project's cumulative spend on
-  // that role. A role with no entry has no ceiling.
-  roleCeilings: Record<string, number>
 }
 
 export interface ModelInfo {
@@ -1020,10 +1018,10 @@ export interface AppSettings {
   disabledModels?: string[]
   // User-added models merged into the curated lists (custom wins on id collision).
   customModels?: CustomModel[]
-  // Ursa Phase 1: user-configured named model assignments + cost guardrails
-  // (global app settings, not per-project). See planning/2026-07-17-ursa-orchestrator-plan.md.
-  ursaRoles: UrsaRole[]
-  ursaGuardrails: UrsaGuardrails
+  // Ursa Phase 1: on/off switch only -- role assignments are curated in code
+  // (main/orchestrator/ursa.ts's CURATED_ROLES), never user-configurable.
+  // Optional & additive: settings persisted before this feature coerce to false.
+  ursaEnabled?: boolean
   // F8 Agent Settings (global defaults; per-project overrides = F9). Optional &
   // additive: absent → behavior-preserving defaults (custom / deny / auto).
   securityPreset?: SecurityPreset
@@ -1195,6 +1193,9 @@ export interface BearcodeApi {
   keys: {
     set(provider: ProviderId, key: string): Promise<void>
     status(): Promise<Record<ProviderId, boolean>>
+  }
+  ursa: {
+    requiredProviders(): Promise<ProviderId[]>
   }
   settings: {
     get(): Promise<SettingsInfo>

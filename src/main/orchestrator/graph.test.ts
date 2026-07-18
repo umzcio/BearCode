@@ -1671,13 +1671,9 @@ describe('runGraph — Ursa resolution', () => {
       modelRef: 'anthropic/claude-haiku-4-5',
       roleName: 'grunt'
     })
-    vi.mocked(getConversationMeta).mockReturnValue({ projectPath: '/tmp/proj' } as never)
     const result = await resolveTurnModelRef('c1', 'ursa/auto', 'refactor this module')
     expect(result).toEqual({ modelRef: 'anthropic/claude-haiku-4-5', ursaRole: 'grunt' })
-    expect(resolveUrsaModelRef).toHaveBeenCalledWith({
-      userText: 'refactor this module',
-      projectPath: '/tmp/proj'
-    })
+    expect(resolveUrsaModelRef).toHaveBeenCalledWith({ userText: 'refactor this module' })
     expect(setLastResolvedModelRef).toHaveBeenCalledWith('c1', 'anthropic/claude-haiku-4-5')
   })
 
@@ -1688,23 +1684,11 @@ describe('runGraph — Ursa resolution', () => {
     expect(setLastResolvedModelRef).not.toHaveBeenCalled()
   })
 
-  it('propagates a guardrail needsConsent signal without persisting a resolution', async () => {
-    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
-      needsConsent: {
-        roleName: 'coder',
-        modelRef: 'openai/gpt-5.6-sol',
-        reason: '"coder" has crossed its $0.01 budget for this project (current: $0.05).'
-      }
-    })
-    vi.mocked(getConversationMeta).mockReturnValue({ projectPath: '/tmp/proj' } as never)
-    const result = await resolveTurnModelRef('c1', 'ursa/auto', 'refactor this')
-    expect(result).toEqual({
-      needsConsent: {
-        roleName: 'coder',
-        modelRef: 'openai/gpt-5.6-sol',
-        reason: expect.stringContaining('budget')
-      }
-    })
+  it('propagates a thrown error (e.g. Ursa disabled, or no eligible role) without persisting a resolution', async () => {
+    vi.mocked(resolveUrsaModelRef).mockRejectedValue(new Error('Ursa is disabled.'))
+    await expect(resolveTurnModelRef('c1', 'ursa/auto', 'refactor this')).rejects.toThrow(
+      /disabled/i
+    )
     expect(setLastResolvedModelRef).not.toHaveBeenCalled()
   })
 

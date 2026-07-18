@@ -13,23 +13,18 @@ vi.mock('fs', () => ({
 
 import { getSettings, setSettings } from './settings'
 
-describe('ursaRoles / ursaGuardrails', () => {
-  it('defaults to an empty roles array and empty ceilings', () => {
-    const s = getSettings()
-    expect(s.ursaRoles).toEqual([])
-    expect(s.ursaGuardrails).toEqual({ roleCeilings: {} })
+describe('ursaEnabled', () => {
+  it('defaults to false', () => {
+    expect(getSettings().ursaEnabled).toBe(false)
   })
 
-  it('round-trips a well-formed role through setSettings', () => {
-    const role = { name: 'coder', modelRef: 'openai/gpt-5.6-sol', description: 'Writes code' }
-    setSettings({ ursaRoles: [role] })
-    expect(getSettings().ursaRoles).toEqual([role])
+  it('round-trips true through setSettings', () => {
+    setSettings({ ursaEnabled: true })
+    expect(getSettings().ursaEnabled).toBe(true)
   })
 
-  it('drops a malformed role (missing modelRef) on write', () => {
-    setSettings({
-      ursaRoles: [{ name: 'bad', description: 'no modelRef' } as never]
-    })
-    expect(getSettings().ursaRoles).toEqual([])
+  it('coerces a non-boolean write to false rather than persisting garbage', () => {
+    setSettings({ ursaEnabled: 'yes' as never })
+    expect(getSettings().ursaEnabled).toBe(false)
   })
 })

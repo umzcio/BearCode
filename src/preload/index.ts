@@ -118,6 +118,9 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:keys:set', provider, key),
     status: () => ipcRenderer.invoke('bearcode:keys:status')
   },
+  ursa: {
+    requiredProviders: () => ipcRenderer.invoke('bearcode:ursa:required-providers')
+  },
   settings: {
     get: () => ipcRenderer.invoke('bearcode:settings:get'),
     set: (patch: Partial<AppSettings>) => ipcRenderer.invoke('bearcode:settings:set', patch)

@@ -44,6 +44,7 @@ import type {
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
 import { keyStatus, setKey, setVaultSecret } from './keys'
+import { ursaRequiredProviders } from './orchestrator/ursa'
 import {
   loadServers as loadMcpServers,
   upsertServer as upsertMcpServer,
@@ -501,6 +502,12 @@ export function registerIpc(): void {
     setKey(provider, key)
   })
   ipcMain.handle('bearcode:keys:status', () => keyStatus())
+
+  // Ursa Phase 1: the curated role table lives entirely in main
+  // (orchestrator/ursa.ts) -- this just tells the Settings > Ursa page which
+  // providers it depends on, so the page can render a read-only key-status
+  // check without duplicating the role table in the renderer.
+  ipcMain.handle('bearcode:ursa:required-providers', () => ursaRequiredProviders())
 
   ipcMain.handle('bearcode:settings:get', () => settingsInfo())
   ipcMain.handle('bearcode:settings:set', (_e, patch: Partial<AppSettings>) => {
