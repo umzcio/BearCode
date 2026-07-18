@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AttachmentRef } from '@shared/types'
-import { useAppStore, workedSecondsByTurn } from '../state/store'
+import { useAppStore, workedSecondsByTurn, modelDisplay } from '../state/store'
 import { Composer } from './Composer/Composer'
 import { RunStatusBar } from './RunStatusBar/RunStatusBar'
 import { WorktreeBar } from './Worktree/WorktreeBar'
@@ -65,6 +65,7 @@ function AttachmentPill({
 
 export function ConversationView({ convoId }: { convoId: string }): React.JSX.Element {
   const convo = useAppStore((s) => s.conversations[convoId])
+  const providers = useAppStore((s) => s.providers)
   const send = useAppStore((s) => s.send)
   const cancelRun = useAppStore((s) => s.cancelRun)
   const retryRun = useAppStore((s) => s.retryRun)
@@ -296,6 +297,15 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                       onRetry={() => retryRun(convoId)}
                     />
                   ))}
+                  {turn.turnMeta?.ursaRole ? (
+                    <span className="msg-ursa-badge">
+                      {turn.turnMeta.ursaRole} ·{' '}
+                      {
+                        modelDisplay(providers, `${turn.turnMeta.provider}/${turn.turnMeta.model}`)
+                          .name
+                      }
+                    </span>
+                  ) : null}
                   {turn.done || turn.errors.length > 0 ? (
                     <div className="msg-actions">
                       <Hint label="Copy" side="top">

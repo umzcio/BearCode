@@ -157,6 +157,91 @@ describe('ConversationView compaction marker', () => {
   })
 })
 
+// Task 11: Ursa role/model hover badge on assistant turns routed through Ursa.
+describe('ConversationView Ursa badge', () => {
+  it('shows a role/model badge on hover for a turn that ran under Ursa', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      modelRef: 'ursa/auto',
+      providers: [
+        {
+          id: 'anthropic',
+          displayName: 'Anthropic',
+          color: '#c98a4b',
+          requiresKey: true,
+          keyConfigured: true,
+          reachable: true,
+          models: [{ id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' }]
+        }
+      ],
+      conversations: {
+        c1: {
+          id: 'c1',
+          projectPath: '/p',
+          title: 'T',
+          modelRef: 'ursa/auto',
+          permissionMode: 'accept-edits',
+          updatedAt: 1,
+          loaded: true,
+          runState: 'idle',
+          events: [
+            { type: 'user_message', id: 'u1', text: 'quick question' },
+            { type: 'assistant_text', id: 'a1', text: 'quick answer' },
+            {
+              type: 'turn_meta',
+              id: 'm1',
+              provider: 'anthropic',
+              model: 'claude-haiku-4-5',
+              startedAt: 1,
+              endedAt: 2,
+              ursaRole: 'grunt'
+            }
+          ]
+        }
+      },
+      convoOrder: ['c1']
+    } as never)
+    render(<ConversationView convoId="c1" />)
+    const badge = screen.getByText(/grunt/)
+    expect(badge.textContent).toContain('Claude Haiku 4.5')
+  })
+
+  it('renders no badge for a turn that did not run under Ursa', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      providers: [],
+      conversations: {
+        c1: {
+          id: 'c1',
+          projectPath: '/p',
+          title: 'T',
+          modelRef: 'anthropic/claude-sonnet-5',
+          permissionMode: 'accept-edits',
+          updatedAt: 1,
+          loaded: true,
+          runState: 'idle',
+          events: [
+            { type: 'user_message', id: 'u1', text: 'hi' },
+            { type: 'assistant_text', id: 'a1', text: 'hello' },
+            {
+              type: 'turn_meta',
+              id: 'm1',
+              provider: 'anthropic',
+              model: 'claude-sonnet-5',
+              startedAt: 1,
+              endedAt: 2
+            }
+          ]
+        }
+      },
+      convoOrder: ['c1']
+    } as never)
+    const { container } = render(<ConversationView convoId="c1" />)
+    expect(container.querySelector('.msg-ursa-badge')).toBeNull()
+  })
+})
+
 // F1 Task 7: jump-to-match. ConversationView consumes the transient
 // `focusEventId` set by a content-search hit -- it scrolls the matching event
 // into view, flashes a highlight, and (with more than one match) shows a

@@ -8,6 +8,10 @@ export interface Turn {
   artifacts: Extract<Event, { type: 'artifact' }>[]
   errors: Extract<Event, { type: 'error' }>[]
   done: boolean
+  // The turn's closing turn_meta event (Ursa Phase 1 Task 11), if it has
+  // completed. Carries provider/model/ursaRole for the hover badge -- not set
+  // until the turn actually finishes, same moment `done` flips true.
+  turnMeta?: Extract<Event, { type: 'turn_meta' }>
 }
 
 // A transcript is a stream of turns interleaved with top-level markers. Today
@@ -49,6 +53,7 @@ export function groupTurns(events: Event[]): TranscriptItem[] {
         current.errors.push(ev)
       } else if (ev.type === 'turn_meta') {
         current.done = true
+        current.turnMeta = ev
       }
     }
   }
@@ -76,6 +81,7 @@ export function sameTranscriptItem(a: TranscriptItem, b: TranscriptItem): boolea
     return (
       x.user === y.user &&
       x.done === y.done &&
+      x.turnMeta === y.turnMeta &&
       arr(x.steps, y.steps) &&
       arr(x.texts as Event[], y.texts as Event[]) &&
       arr(x.diffs as Event[], y.diffs as Event[]) &&

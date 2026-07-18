@@ -178,6 +178,21 @@
   user-select: none;
 }
 
+/* Ursa transparency badge (Task 11): which role/model actually handled this
+   turn. Hover-revealed like msg-user-meta -- informational, not part of the
+   normal reading flow. */
+.msg-ursa-badge {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--text-dim);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.agent-turn:hover .msg-ursa-badge,
+.msg-ursa-badge:focus-within {
+  opacity: 1;
+}
+
 .convo-status {
   padding: 0 24px;
   display: flex;
