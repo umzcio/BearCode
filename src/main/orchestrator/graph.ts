@@ -2631,13 +2631,21 @@ export async function resolveTurnModelRef(
   conversationId: string,
   modelRef: string,
   userText: string
-): Promise<{ modelRef: string; ursaRole?: string }> {
+): Promise<
+  | { modelRef: string; ursaRole?: string }
+  | { needsConsent: { roleName: string; modelRef: string; reason: string } }
+> {
   if (!isUrsaModelRef(modelRef)) return { modelRef }
   const meta = getConversationMeta(conversationId)
   const resolved = await resolveUrsaModelRef({
     userText,
     projectPath: meta?.projectPath ?? null
   })
+  // Guardrail breach: propagate the typed signal untouched -- runGraph refuses
+  // the turn rather than persisting a resolution that overspends. Nothing is
+  // written to last_resolved_model_ref: no turn happens, so there is nothing to
+  // rehydrate.
+  if ('needsConsent' in resolved) return resolved
   setLastResolvedModelRef(conversationId, resolved.modelRef)
   return { modelRef: resolved.modelRef, ursaRole: resolved.roleName }
 }
@@ -2709,11 +2717,24 @@ export async function runGraph(opts: {
   // Ursa Phase 1: resolve the sentinel to a concrete "provider/modelId" ref
   // BEFORE buildAgentAndContext (which parseModelRefs it) ever sees it. A
   // manually selected model is returned untouched.
-  const { modelRef: resolvedModelRef, ursaRole } = await resolveTurnModelRef(
-    conversationId,
-    modelRef,
-    userText
-  )
+  const turnModel = await resolveTurnModelRef(conversationId, modelRef, userText)
+  if ('needsConsent' in turnModel) {
+    // Phase 1 scope: refuse the turn with an actionable error rather than
+    // silently overspending OR silently blocking forever. A future increment
+    // wires this into a real approval-card UI (mirroring the existing
+    // command/edit approval pattern); tracked as a Phase 1 follow-up, not
+    // invented here. The user_message is already persisted above; no turn_meta
+    // is emitted because no model turn happened.
+    emitAndPersist(conversationId, sink, {
+      type: 'error',
+      id: randomUUID(),
+      message: `${turnModel.needsConsent.reason} Raise the ceiling in Settings > Ursa, or pick a different role/model for this turn.`,
+      recoverable: true
+    })
+    sink.setState(conversationId, 'error')
+    return { paused: false }
+  }
+  const { modelRef: resolvedModelRef, ursaRole } = turnModel
 
   const built = buildAgentAndContext(
     conversationId,

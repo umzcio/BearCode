@@ -1688,6 +1688,26 @@ describe('runGraph — Ursa resolution', () => {
     expect(setLastResolvedModelRef).not.toHaveBeenCalled()
   })
 
+  it('propagates a guardrail needsConsent signal without persisting a resolution', async () => {
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      needsConsent: {
+        roleName: 'coder',
+        modelRef: 'openai/gpt-5.6-sol',
+        reason: '"coder" has crossed its $0.01 budget for this project (current: $0.05).'
+      }
+    })
+    vi.mocked(getConversationMeta).mockReturnValue({ projectPath: '/tmp/proj' } as never)
+    const result = await resolveTurnModelRef('c1', 'ursa/auto', 'refactor this')
+    expect(result).toEqual({
+      needsConsent: {
+        roleName: 'coder',
+        modelRef: 'openai/gpt-5.6-sol',
+        reason: expect.stringContaining('budget')
+      }
+    })
+    expect(setLastResolvedModelRef).not.toHaveBeenCalled()
+  })
+
   it('rehydrateModelRef reuses the persisted resolution for the sentinel instead of re-classifying', () => {
     vi.mocked(getLastResolvedModelRef).mockReturnValue('anthropic/claude-haiku-4-5')
     expect(rehydrateModelRef('c1', 'ursa/auto')).toBe('anthropic/claude-haiku-4-5')
