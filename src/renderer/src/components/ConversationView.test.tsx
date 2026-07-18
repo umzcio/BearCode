@@ -427,3 +427,76 @@ describe('ConversationView jump-to-match (F1)', () => {
     expect(screen.getByText(/2 of 2/i)).toBeTruthy()
   })
 })
+
+describe('ConversationView pinned approval', () => {
+  const baseConvo = {
+    id: 'c1',
+    projectPath: '/p',
+    title: 'T',
+    modelRef: 'anthropic/claude-sonnet-5',
+    permissionMode: 'accept-edits',
+    updatedAt: 1,
+    loaded: true,
+    runState: 'awaiting-approval'
+  }
+
+  it('renders a second, pinned copy of the pending approval card above the composer', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      providers: [],
+      conversations: {
+        c1: {
+          ...baseConvo,
+          events: [
+            { type: 'user_message', id: 'u1', text: 'build it' },
+            {
+              type: 'tool_call',
+              id: 't1',
+              tool: 'run_command',
+              input: { command: 'open index.html' },
+              approvalState: 'pending'
+            }
+          ]
+        }
+      },
+      convoOrder: ['c1']
+    } as never)
+    const { container } = render(<ConversationView convoId="c1" />)
+    // Two copies of the card: the inline transcript one + the pinned one.
+    expect(screen.getAllByText('Allow running this command?')).toHaveLength(2)
+    expect(container.querySelector('.pinned-approval')).not.toBeNull()
+    // Hotkey/anchor singletons stay unique to the inline copy: exactly one
+    // anchor id and exactly one set of 1/2/3 number chips in the whole DOM.
+    expect(container.querySelectorAll('#pending-approval-card')).toHaveLength(1)
+    expect(container.querySelector('.pinned-approval #pending-approval-card')).toBeNull()
+  })
+
+  it('drops the pinned copy once the approval resolves', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      providers: [],
+      conversations: {
+        c1: {
+          ...baseConvo,
+          runState: 'running',
+          events: [
+            { type: 'user_message', id: 'u1', text: 'build it' },
+            {
+              type: 'tool_call',
+              id: 't1',
+              tool: 'run_command',
+              input: { command: 'open index.html' },
+              approvalState: 'approved'
+            }
+          ]
+        }
+      },
+      convoOrder: ['c1']
+    } as never)
+    const { container } = render(<ConversationView convoId="c1" />)
+    expect(container.querySelector('.pinned-approval')).toBeNull()
+    expect(screen.queryByText('Allow running this command?')).toBeNull()
+  })
+})

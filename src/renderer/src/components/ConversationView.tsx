@@ -5,6 +5,7 @@ import { Composer } from './Composer/Composer'
 import { RunStatusBar } from './RunStatusBar/RunStatusBar'
 import { WorktreeBar } from './Worktree/WorktreeBar'
 import { WorkedGroup } from './events/WorkedGroup'
+import { ToolStep, PinnedApprovalArea } from './events/ToolStep'
 import { AssistantText } from './events/AssistantText'
 import { ArtifactCard } from './events/ArtifactCard'
 import { DiffCard } from './events/DiffCard'
@@ -104,6 +105,15 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const items = transcript.items
   // The last *turn* is the live one; compaction markers never count as "last".
   const lastTurnIdx = items.reduce((acc, it, idx) => (it.kind === 'turn' ? idx : acc), -1)
+
+  // The first pending approval, pinned above the composer so the user never
+  // has to scroll up through a long streamed answer to find the card (a live
+  // complaint, twice). Renders the SAME ToolStep the transcript shows inline,
+  // wrapped in PinnedApprovalArea so hotkeys/anchor/number chips stay unique
+  // to the inline copy (see ToolStep.tsx).
+  const firstPendingCall = convo.events.find(
+    (e) => e.type === 'tool_call' && e.approvalState === 'pending'
+  )
 
   const jumpToApproval = (): void => {
     document
@@ -348,6 +358,15 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
           })}
         </div>
       </div>
+      {firstPendingCall?.type === 'tool_call' ? (
+        <div className="convo-status">
+          <div className="convo-status-inner pinned-approval">
+            <PinnedApprovalArea.Provider value={true}>
+              <ToolStep call={firstPendingCall} convoId={convoId} />
+            </PinnedApprovalArea.Provider>
+          </div>
+        </div>
+      ) : null}
       <div className="convo-status">
         <div className="convo-status-inner">
           <RunStatusBar convoId={convoId} onJumpToApproval={jumpToApproval} />

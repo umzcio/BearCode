@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import type { Event } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { IconChevronRightSmall } from '../icons'
@@ -214,6 +214,18 @@ function browserActionLabel(call: ToolCallEvent): string {
   }
 }
 
+// ConversationView renders a second, pinned copy of the first pending
+// approval's ToolStep directly above the composer (so the user never has to
+// scroll up to find it). That copy must NOT duplicate the inline card's
+// singletons -- the number-key hotkey listeners and the jump-to-approval
+// anchor id both belong to exactly one card. Wrapping the pinned copy in
+// this provider makes useFirstPendingCallId below return null inside it, so
+// the pinned card renders as a plain clickable card (no hotkeys, no anchor,
+// no number chips) while the inline card keeps all three. Clicks on either
+// copy are safe: graph.ts's resolveInterrupt no-ops a second resolve for an
+// already-answered callId.
+export const PinnedApprovalArea = createContext(false)
+
 // Parallel approvals can put several pending cards on screen at once (any
 // mix of run_command and write_file/edit_file); the number-key hotkeys and
 // the jump-to-approval anchor id belong only to the FIRST pending tool_call
@@ -222,7 +234,9 @@ function browserActionLabel(call: ToolCallEvent): string {
 // card, M-17) and passed down as an `isFirst` prop to whichever card is
 // rendered.
 function useFirstPendingCallId(convoId: string): string | null {
+  const pinnedCopy = useContext(PinnedApprovalArea)
   return useAppStore((s) => {
+    if (pinnedCopy) return null
     const events = s.conversations[convoId]?.events
     if (!events) return null
     for (const e of events) {
