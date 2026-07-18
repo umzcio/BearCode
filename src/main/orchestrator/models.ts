@@ -70,13 +70,30 @@ export function buildModelExtras(
       return thinking ? { thinkingConfig: { includeThoughts: true } } : {}
     case 'ollama':
       return { think: thinking }
-    default: {
-      // openai, openrouter: no separate thinking knob (folded into effort).
+    case 'openai': {
+      // No separate thinking knob (folded into effort).
       const caps = capabilitiesFor(`${provider}/${modelId}`)
       if (!caps?.reasoning) return {}
       const requestedEffort = opts.effort ?? caps.reasoning.effort
-      return { reasoning: { effort: mapEffortToOpenAIReasoning(requestedEffort) } }
+      // OpenAI's Chat Completions endpoint rejects reasoning_effort outright
+      // whenever function tools are present ("400 Function tools with
+      // reasoning_effort are not supported for <model> in /v1/chat/completions.
+      // To use function tools, use /v1/responses or set reasoning_effort to
+      // 'none'.") -- confirmed live. BearCode's agent always binds its full
+      // toolset, so reasoning + tools can only coexist via the Responses API;
+      // forcing it here is the only way GPT-5.6's reasoning is ever actually
+      // usable in this app, not an optional knob.
+      return {
+        reasoning: { effort: mapEffortToOpenAIReasoning(requestedEffort) },
+        useResponsesApi: true
+      }
     }
+    default:
+      // openrouter: no first-party reasoning-capable models curated today
+      // (capabilitiesFor returns null for every openrouter ref), and
+      // OpenRouter's OpenAI-compatible endpoint doesn't speak the Responses
+      // API -- never force it on here even if that changes.
+      return {}
   }
 }
 

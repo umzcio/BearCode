@@ -39,4 +39,14 @@ describe('buildModelExtras — OpenAI reasoning models', () => {
     const extras = buildModelExtras('openai', 'some-legacy-model', {})
     expect(extras).toEqual({})
   })
+
+  it('forces useResponsesApi so reasoning + function tools can coexist (Chat Completions rejects reasoning_effort with tools)', () => {
+    const extras = buildModelExtras('openai', 'gpt-5.6-luna', {})
+    expect(extras.useResponsesApi).toBe(true)
+  })
+
+  it('never forces useResponsesApi for openrouter, even though it shares the OpenAI-compatible client', () => {
+    const extras = buildModelExtras('openrouter', 'deepseek/deepseek-chat', {})
+    expect(extras).toEqual({})
+  })
 })
