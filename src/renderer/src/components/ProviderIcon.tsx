@@ -1,6 +1,7 @@
 // Monochrome provider logomarks, tinted via currentColor.
-// Anthropic/OpenAI/Google marks come from Zach's llm-compare ProviderLogo
-// component; Ollama, OpenRouter, Perplexity and xAI from simple-icons.
+// Anthropic/OpenAI/Google/xAI marks come from Zach's llm-compare ProviderLogo
+// component (github.com/umzcio/llm-compare); Ollama, OpenRouter and Perplexity
+// from simple-icons.
 import type { ProviderId } from '@shared/types'
 
 const PATHS: Record<ProviderId, string> = {
@@ -17,7 +18,13 @@ const PATHS: Record<ProviderId, string> = {
   perplexity:
     'M22.3977 7.0896h-2.3106V.0676l-7.5094 6.3542V.1577h-1.1554v6.1966L4.4904 0v7.0896H1.6023v10.3976h2.8882V24l6.932-6.3591v6.2005h1.1554v-6.0469l6.9318 6.1807v-6.4879h2.8882V7.0896zm-3.4657-4.531v4.531h-5.355l5.355-4.531zm-13.2862.0676 4.8691 4.4634H5.6458V2.6262zM2.7576 16.332V8.245h7.8476l-6.1149 6.1147v1.9723H2.7576zm2.8882 5.0404v-3.8852h.0001v-2.6488l5.7763-5.7764v7.0111l-5.7764 5.2993zm12.7086.0248-5.7766-5.1509V9.0618l5.7766 5.7766v6.5588zm2.8882-5.0652h-1.733v-1.9723L13.3948 8.245h7.8478v8.087z',
   xai:
-    'M6.469 8.776 16.061 22h-3.396L3.078 8.776zm-.005 5.505L8.16 22H5.36l-1.699-5.24zm5.303-9.263L20.106 22h3.469L14.85 4.244l-.006-.012zM17.216 2h3.221l-6.94 10.643-1.618-2.353z'
+    'M827.76 200.32L745.02 318.5l-.01 348.75L745 1016h166.002l-.251-466.93-.251-466.93-82.74 118.18M3.167 365.816c.183.449 102.641 146.926 227.684 325.505l227.35 324.689 100.486-.255 100.485-.255-227.675-325.25L203.822 365H103.328c-55.272 0-100.345.367-100.161.816M801 8.787l-93.5.286-174 248.569c-95.7 136.713-174.388 249.381-174.863 250.374-.686 1.436 9.177 16.156 48.345 72.144 27.065 38.687 49.728 70.88 50.363 71.54 1.033 1.073 37.65-50.44 128.994-181.471 2.112-3.029 54.285-77.557 115.941-165.618C763.937 216.55 815.619 142.7 817.13 140.5c1.51-2.2 22.768-32.575 47.238-67.5L908.86 9.5l-7.18-.5c-3.949-.275-49.255-.371-100.68-.213M103.273 872.277L3.047 1015.5l100.726.21 100.727.21 45.206-64.71c24.864-35.591 47.462-67.909 50.219-71.819l5.013-7.109-49.972-71.391c-27.484-39.265-50.308-71.491-50.719-71.614-.411-.122-45.849 64.228-100.974 143'
+}
+
+// The default logomark grid is 24x24 (simple-icons convention); marks sourced
+// from llm-compare keep their original coordinate space via an override here.
+const VIEWBOXES: Partial<Record<ProviderId, string>> = {
+  xai: '2.983 8.629 908.019 1007.381'
 }
 
 export function ProviderIcon({
@@ -29,7 +36,7 @@ export function ProviderIcon({
 }): React.JSX.Element {
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox={VIEWBOXES[provider] ?? '0 0 24 24'}
       fill="currentColor"
       style={{ width: size, height: size, flexShrink: 0 }}
       aria-hidden="true"
