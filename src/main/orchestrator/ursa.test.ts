@@ -162,6 +162,35 @@ describe('resolveUrsaModelRef', () => {
     )
   })
 
+  it('includes the recent-conversation block and previous-role hysteresis line in the classifier prompt when provided', async () => {
+    invokeSpy.mockResolvedValue({ role: 'coder' })
+    await resolveUrsaModelRef({
+      userText: 'now fix that bug',
+      recentContext: 'User: build me a todo app\nAssistant: Here is the app.',
+      previousRole: 'coder'
+    })
+    const systemMessage = invokeSpy.mock.calls[0][0][0]
+    expect(systemMessage.content).toContain(
+      'Recent conversation:\nUser: build me a todo app\nAssistant: Here is the app.'
+    )
+    expect(systemMessage.content).toContain(
+      "The previous turn in this conversation was handled by role 'coder'."
+    )
+    expect(systemMessage.content).toContain('prefer the same role')
+    // Advisory context precedes the role list, hysteresis stays a prompt bias.
+    expect(systemMessage.content.indexOf('Recent conversation:')).toBeLessThan(
+      systemMessage.content.indexOf('Available roles:')
+    )
+  })
+
+  it('omits the recent-conversation block and hysteresis line when neither is provided', async () => {
+    invokeSpy.mockResolvedValue({ role: 'coder' })
+    await resolveUrsaModelRef({ userText: 'build me a script' })
+    const systemMessage = invokeSpy.mock.calls[0][0][0]
+    expect(systemMessage.content).not.toContain('Recent conversation:')
+    expect(systemMessage.content).not.toContain('The previous turn in this conversation')
+  })
+
   it('renders a role without the strengths/cost-tier suffix when capabilitiesFor returns null for its modelRef', async () => {
     const coderModelRef = CURATED_ROLES.find((r) => r.name === 'coder')!.modelRef
     const actual = await vi.importActual<typeof import('../providers/registry')>('../providers/registry')

@@ -113,6 +113,14 @@ function classifierProviderId(roles: UrsaRole[]): ProviderId | null {
 
 export async function resolveUrsaModelRef(opts: {
   userText: string
+  // Task 4 (#2): a plain transcript of the conversation's recent PRIOR turns,
+  // so mid-conversation messages ("now fix that bug") route by the ongoing
+  // task, not just the isolated current message. Advisory context, not a rule.
+  recentContext?: string
+  // Task 4 (#2): the role that handled the previous turn, for hysteresis --
+  // biases the classifier to stay on the same role while the task continues.
+  // Advisory (prompt-only); never forces the choice in code.
+  previousRole?: string
 }): Promise<{ modelRef: string; roleName: string }> {
   if (!getSettings().ursaEnabled) {
     throw new Error('Ursa is disabled. Enable it in Settings > Ursa.')
@@ -149,6 +157,19 @@ export async function resolveUrsaModelRef(opts: {
       const classifier = makeModel(`${providerId}/${cheapId}`).withStructuredOutput(
         ClassifierOutput
       )
+      // Advisory prompt additions (Task 4): a recent-conversation block before
+      // the role list, and a previous-role hysteresis line -- both bias the
+      // choice without being hard rules (the chosen name still validates
+      // against the curated set below).
+      const contextBlock =
+        opts.recentContext && opts.recentContext.trim()
+          ? `Recent conversation:\n${opts.recentContext.trim()}\n`
+          : ''
+      const hysteresis = opts.previousRole
+        ? `The previous turn in this conversation was handled by role ` +
+          `'${opts.previousRole}'. If the new message continues that same task, ` +
+          `prefer the same role; switch only when the deliverable clearly changed.\n`
+        : ''
       const result = await classifier.invoke([
         new SystemMessage(
           'You are a routing classifier. Given the user message and a list of ' +
@@ -157,6 +178,8 @@ export async function resolveUrsaModelRef(opts: {
             'a request to build or create something concrete is coder work no matter ' +
             'how large or complex; pick architect only when the user is explicitly ' +
             'asking to plan, decide, or design BEFORE building.\n' +
+            contextBlock +
+            hysteresis +
             `Available roles:\n${roleList}`
         ),
         new HumanMessage(opts.userText.slice(0, 2000))

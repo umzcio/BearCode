@@ -557,6 +557,80 @@ export function getLastCompactionEvent(conversationId: string): { summarizedCoun
   }
 }
 
+// Ursa Phase 1 (Task 4): a compact transcript of the conversation's recent
+// PRIOR turns, for the classifier's context window. Returns up to the last 3
+// user messages and the last 1 assistant text that PRECEDE the current turn,
+// each trimmed and truncated to ~300 chars, formatted as a plain
+// "User: … / Assistant: …" block ordered oldest-first. runGraph persists the
+// current turn's user_message immediately before routing, so the newest
+// user_message (highest seq) is that current message and is excluded here --
+// which makes turn 1 (nothing prior) return ''. Empty string when there is no
+// prior context. Advisory only; never a hard routing input.
+export function getRecentUrsaContext(conversationId: string): string {
+  const rows = getDb()
+    .prepare(
+      `SELECT seq, type, payload FROM events
+       WHERE conversation_id = ? AND type IN ('user_message', 'assistant_text')
+       ORDER BY seq DESC`
+    )
+    .all(conversationId) as { seq: number; type: string; payload: string }[]
+  let skippedCurrent = false
+  let userCount = 0
+  let assistantCount = 0
+  const picked: { seq: number; label: 'User' | 'Assistant'; text: string }[] = []
+  for (const row of rows) {
+    // Drop the current turn's user_message (the newest one, appended by
+    // runGraph just before this runs) so it isn't duplicated as "context".
+    if (row.type === 'user_message' && !skippedCurrent) {
+      skippedCurrent = true
+      continue
+    }
+    let text: string
+    try {
+      text = (JSON.parse(row.payload) as { text?: string }).text ?? ''
+    } catch {
+      continue
+    }
+    text = text.trim()
+    if (!text) continue
+    if (text.length > 300) text = text.slice(0, 300) + '…'
+    if (row.type === 'user_message') {
+      if (userCount >= 3) continue
+      userCount++
+      picked.push({ seq: row.seq, label: 'User', text })
+    } else {
+      if (assistantCount >= 1) continue
+      assistantCount++
+      picked.push({ seq: row.seq, label: 'Assistant', text })
+    }
+    if (userCount >= 3 && assistantCount >= 1) break
+  }
+  if (picked.length === 0) return ''
+  picked.sort((a, b) => a.seq - b.seq)
+  return picked.map((p) => `${p.label}: ${p.text}`).join('\n')
+}
+
+// Ursa Phase 1 (Task 4): the ursaRole recorded on the conversation's most
+// recent completed turn (turn_meta), for the classifier's previous-role
+// hysteresis bias. undefined when there is no prior turn_meta or it carried no
+// ursaRole (e.g. the conversation wasn't Ursa-routed on that turn).
+export function getLastUrsaRole(conversationId: string): string | undefined {
+  const row = getDb()
+    .prepare(
+      `SELECT payload FROM events
+       WHERE conversation_id = ? AND type = 'turn_meta'
+       ORDER BY seq DESC LIMIT 1`
+    )
+    .get(conversationId) as { payload: string } | undefined
+  if (!row) return undefined
+  try {
+    const ev = JSON.parse(row.payload) as { ursaRole?: string }
+    return typeof ev.ursaRole === 'string' && ev.ursaRole ? ev.ursaRole : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function appendEvent(conversationId: string, event: Event): void {
   const database = getDb()
   const next = database

@@ -41,6 +41,8 @@ import {
   getEvents,
   getLastCompactionEvent,
   getLastResolvedModelRef,
+  getLastUrsaRole,
+  getRecentUrsaContext,
   getOutsidePolicy,
   getProjectSettings,
   isProjectTrusted,
@@ -2633,7 +2635,17 @@ export async function resolveTurnModelRef(
   userText: string
 ): Promise<{ modelRef: string; ursaRole?: string }> {
   if (!isUrsaModelRef(modelRef)) return { modelRef }
-  const resolved = await resolveUrsaModelRef({ userText })
+  // Task 4 (#2): give the classifier the conversation's recent context and the
+  // role that handled the previous turn, so mid-conversation messages route by
+  // the ongoing task rather than the isolated current message. Both are
+  // advisory prompt inputs; empty/undefined on turn 1 (nothing prior).
+  const recentContext = getRecentUrsaContext(conversationId)
+  const previousRole = getLastUrsaRole(conversationId)
+  const resolved = await resolveUrsaModelRef({
+    userText,
+    ...(recentContext ? { recentContext } : {}),
+    ...(previousRole ? { previousRole } : {})
+  })
   setLastResolvedModelRef(conversationId, resolved.modelRef)
   return { modelRef: resolved.modelRef, ursaRole: resolved.roleName }
 }

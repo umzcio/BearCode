@@ -11,6 +11,8 @@ vi.mock('../db', () => ({
   getConversationMeta: vi.fn(() => null),
   getEvents: vi.fn(() => []),
   getLastResolvedModelRef: vi.fn(() => null),
+  getLastUrsaRole: vi.fn(() => undefined),
+  getRecentUrsaContext: vi.fn(() => ''),
   listArtifactComments: vi.fn(() => []),
   markArtifactCommentsSent: vi.fn(),
   setActiveRules: vi.fn(),
@@ -63,7 +65,12 @@ import {
   type ApprovalItem
 } from './graph'
 import { resolveUrsaModelRef } from './ursa'
-import { getLastResolvedModelRef, setLastResolvedModelRef } from '../db'
+import {
+  getLastResolvedModelRef,
+  getLastUrsaRole,
+  getRecentUrsaContext,
+  setLastResolvedModelRef
+} from '../db'
 import type { PlanReviewResolution, SkillProposalResolution } from './tools'
 import { browserManager } from '../browser/manager'
 import type { RunSink } from '../sink'
@@ -1675,6 +1682,32 @@ describe('runGraph — Ursa resolution', () => {
     expect(result).toEqual({ modelRef: 'anthropic/claude-haiku-4-5', ursaRole: 'grunt' })
     expect(resolveUrsaModelRef).toHaveBeenCalledWith({ userText: 'refactor this module' })
     expect(setLastResolvedModelRef).toHaveBeenCalledWith('c1', 'anthropic/claude-haiku-4-5')
+  })
+
+  it('threads recentContext and previousRole from the db accessors into resolveUrsaModelRef', async () => {
+    vi.mocked(getRecentUrsaContext).mockReturnValue('User: build a site\nAssistant: done')
+    vi.mocked(getLastUrsaRole).mockReturnValue('coder')
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'openai/gpt-5.6-sol',
+      roleName: 'coder'
+    })
+    await resolveTurnModelRef('c1', 'ursa/auto', 'now fix that bug')
+    expect(resolveUrsaModelRef).toHaveBeenCalledWith({
+      userText: 'now fix that bug',
+      recentContext: 'User: build a site\nAssistant: done',
+      previousRole: 'coder'
+    })
+  })
+
+  it('omits recentContext/previousRole when the accessors are empty (turn 1)', async () => {
+    vi.mocked(getRecentUrsaContext).mockReturnValue('')
+    vi.mocked(getLastUrsaRole).mockReturnValue(undefined)
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'anthropic/claude-haiku-4-5',
+      roleName: 'grunt'
+    })
+    await resolveTurnModelRef('c1', 'ursa/auto', 'hi')
+    expect(resolveUrsaModelRef).toHaveBeenCalledWith({ userText: 'hi' })
   })
 
   it('passes a concrete modelRef through untouched (no classifier call)', async () => {
