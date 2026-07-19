@@ -10,14 +10,15 @@ import { EmptyState } from '../../ui/EmptyState'
 import { ErrorCard } from '../../ui/ErrorCard'
 import { ProviderIcon } from '../../ProviderIcon'
 
-// The five first-party providers a custom model can be added under (Ollama is
+// The six first-party providers a custom model can be added under (Ollama is
 // dynamic/local and manages its own catalog).
 const ADDABLE_PROVIDERS: { value: ProviderId; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openai', label: 'OpenAI' },
   { value: 'google', label: 'Google' },
   { value: 'openrouter', label: 'OpenRouter' },
-  { value: 'perplexity', label: 'Perplexity' }
+  { value: 'perplexity', label: 'Perplexity' },
+  { value: 'xai', label: 'xAI' }
 ]
 
 export function ModelsPage(): JSX.Element | null {

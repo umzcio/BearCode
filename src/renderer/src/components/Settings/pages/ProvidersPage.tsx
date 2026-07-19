@@ -9,7 +9,8 @@ const KEY_PROVIDERS: { id: ProviderId; label: string; placeholder: string }[] = 
   { id: 'openai', label: 'OpenAI', placeholder: 'sk-…' },
   { id: 'google', label: 'Google', placeholder: 'AIza…' },
   { id: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-…' },
-  { id: 'perplexity', label: 'Perplexity', placeholder: 'pplx-…' }
+  { id: 'perplexity', label: 'Perplexity', placeholder: 'pplx-…' },
+  { id: 'xai', label: 'xAI', placeholder: 'xai-…' }
 ]
 
 export function ProvidersPage(): JSX.Element | null {

@@ -68,6 +68,11 @@ describe('effortCapabilities', () => {
       effortEnabled: false, thinkingEnabled: false
     })
   })
+  it('xai: both greyed (hits the default -- no reasoning.effort support)', () => {
+    expect(effortCapabilities('xai/grok-4.5')).toEqual({
+      effortEnabled: false, thinkingEnabled: false
+    })
+  })
   it('null / malformed ref: both greyed', () => {
     expect(effortCapabilities(null)).toEqual({ effortEnabled: false, thinkingEnabled: false })
     expect(effortCapabilities('bogus')).toEqual({ effortEnabled: false, thinkingEnabled: false })

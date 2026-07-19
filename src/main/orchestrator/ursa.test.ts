@@ -31,7 +31,8 @@ vi.mock('../keys', () => ({
     openai: true,
     google: true,
     openrouter: true,
-    perplexity: true
+    perplexity: true,
+    xai: true
   }))
 }))
 vi.mock('../title', () => ({
@@ -88,7 +89,8 @@ describe('resolveUrsaModelRef', () => {
       openai: true,
       google: true,
       openrouter: true,
-      perplexity: true
+      perplexity: true,
+      xai: true
     } as never)
   })
 
@@ -103,7 +105,8 @@ describe('resolveUrsaModelRef', () => {
       openai: false,
       google: false,
       openrouter: false,
-      perplexity: false
+      perplexity: false,
+      xai: false
     } as never)
     await expect(resolveUrsaModelRef({ userText: 'hi' })).rejects.toThrow(/api key/i)
   })
@@ -139,6 +142,7 @@ describe('resolveUrsaModelRef', () => {
       google: true,
       openrouter: true,
       perplexity: true,
+      xai: true,
       [coderProvider]: false
     } as never)
     invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
@@ -152,7 +156,8 @@ describe('resolveUrsaModelRef', () => {
       openai: true,
       google: true,
       openrouter: true,
-      perplexity: false
+      perplexity: false,
+      xai: false
     } as never)
     invokeSpy.mockResolvedValue({ parsed: { role: 'verifier' }, raw: {} })
     const result = await resolveUrsaModelRef({ userText: 'what is the latest release of X' })
@@ -171,7 +176,8 @@ describe('resolveUrsaModelRef', () => {
       openai: false,
       google: false,
       openrouter: false,
-      perplexity: false
+      perplexity: false,
+      xai: false
     } as never)
     const savedAnthropic = CHEAP_MODEL.anthropic
     delete (CHEAP_MODEL as Record<string, string | undefined>).anthropic
@@ -312,7 +318,8 @@ describe('resolveUrsaModelRef', () => {
       openai: false,
       google: false,
       openrouter: false,
-      perplexity: false
+      perplexity: false,
+      xai: false
     } as never)
     const savedAnthropic = CHEAP_MODEL.anthropic
     delete (CHEAP_MODEL as Record<string, string | undefined>).anthropic
@@ -375,7 +382,8 @@ describe('resolveUrsaModelRef', () => {
       openai: true,
       google: true,
       openrouter: true,
-      perplexity: false
+      perplexity: false,
+      xai: false
     } as never)
     invokeSpy.mockResolvedValue({
       parsed: {
@@ -487,7 +495,8 @@ describe('resolveSubagentModelRefs', () => {
       openai: true,
       google: true,
       openrouter: true,
-      perplexity: true
+      perplexity: true,
+      xai: true
     } as never)
   })
 
@@ -507,7 +516,8 @@ describe('resolveSubagentModelRefs', () => {
       openai: false,
       google: true,
       openrouter: true,
-      perplexity: true
+      perplexity: true,
+      xai: true
     } as never)
     const reviewer = CURATED_ROLES.find((r) => r.name === 'reviewer')!
     expect(resolveSubagentModelRefs()).toEqual({ researcher: reviewer.modelRef })
@@ -519,7 +529,8 @@ describe('resolveSubagentModelRefs', () => {
       openai: false,
       google: false,
       openrouter: false,
-      perplexity: false
+      perplexity: false,
+      xai: false
     } as never)
     expect(resolveSubagentModelRefs()).toEqual({})
   })
