@@ -14,6 +14,7 @@ import { randomUUID } from 'crypto'
 import { relative } from 'path'
 import { existsSync } from 'fs'
 import { createDeepAgent } from 'deepagents'
+import type { SubAgent } from 'deepagents'
 import { Command } from '@langchain/langgraph'
 import type { AIMessageChunk, BaseMessageChunk, ToolMessageChunk } from '@langchain/core/messages'
 import { isToolMessageChunk } from '@langchain/core/messages'
@@ -89,7 +90,7 @@ import { parseModelRef, supportsNativePdf } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
 import { makeModel } from './models'
-import { isUrsaModelRef, resolveUrsaModelRef } from './ursa'
+import { isUrsaModelRef, resolveUrsaModelRef, resolveSubagentModelRefs } from './ursa'
 import { compactionAdvanced } from './compaction'
 import {
   COMPACT_ACK_DIRECTIVE,
@@ -192,6 +193,41 @@ const BROWSER_SUBAGENT = {
 // its own attributed pill rather than silently merging into the main
 // agent's stream.
 export const SUBAGENT_NAMES = new Set([RESEARCHER_SUBAGENT.name, BROWSER_SUBAGENT.name, 'general-purpose'])
+
+// Ursa Arc 2 (Task 2): the subagents array handed to createDeepAgent. When this
+// turn runs under Ursa (ursaRole set), each named subagent whose deepagents name
+// maps to a key-eligible role (resolveSubagentModelRefs) gets an explicit
+// `model` built from that role's ref -- the researcher rides the reviewer's
+// Sonnet, the browser subagent rides the grunt's cheap fast model -- but ONLY
+// while Ursa drives the turn. When ursaRole is undefined (a manually selected
+// model is the user's explicit choice, and the crash-resume rehydration path
+// calls buildAgentAndContext with ursaRole undefined by design) NO model field
+// is added at all -- resolveSubagentModelRefs is not even consulted -- so every
+// subagent inherits the turn's main model, byte-identical to before this change.
+// A mapped role whose provider lacks a key is simply absent from
+// resolveSubagentModelRefs(), so that subagent also falls back to inheriting;
+// a subagent is never routed to a model BearCode can't actually run.
+// BROWSER_SUBAGENT's existing tools injection (F4 -- the browser_* toolset,
+// wrapped through hooks by the caller) is preserved untouched; only the optional
+// model field is added on top.
+//
+// COST ATTRIBUTION -- known, documented limitation: a routed subagent's tokens
+// still aggregate into the turn's single usage total, attributed to the MAIN
+// model on turn_meta. Partitioning usage by model identity is future work; this
+// override changes which model actually runs the subagent, not how its usage is
+// booked. Exported for tests.
+export function buildSubagents(ursaRole: string | undefined, browserTools: SubAgent['tools']): SubAgent[] {
+  const researcher: SubAgent = { ...RESEARCHER_SUBAGENT }
+  const browser: SubAgent = { ...BROWSER_SUBAGENT, tools: browserTools }
+  if (ursaRole) {
+    const refs = resolveSubagentModelRefs()
+    const researcherRef = refs[RESEARCHER_SUBAGENT.name]
+    if (researcherRef) researcher.model = makeModel(researcherRef)
+    const browserRef = refs[BROWSER_SUBAGENT.name]
+    if (browserRef) browser.model = makeModel(browserRef)
+  }
+  return [researcher, browser]
+}
 
 // Derive the producing agent's id from a streamed chunk's metadata (and, as
 // documentation, its namespace). VERIFIED LIVE (BEARCODE_DEBUG_NS, Task 8):
@@ -2589,13 +2625,15 @@ function buildAgentAndContext(
     // any browser_*-matching PreToolUse/PostToolUse hook (a deny/ask policy
     // on navigation, say) is silently bypassed whenever the model delegates
     // via task(subagent_type="browser") instead of calling browser_* directly.
-    subagents: [
-      RESEARCHER_SUBAGENT,
-      {
-        ...BROWSER_SUBAGENT,
-        tools: wrapToolsWithHooks(browserTools, hookCtx) as typeof browserTools
-      }
-    ],
+    // Ursa Arc 2 (Task 2): buildSubagents adds a per-role `model` override to
+    // each subagent entry ONLY when this turn runs under Ursa (ursaRole set);
+    // with ursaRole undefined it returns the exact same entries as before (no
+    // model field), so the manual-model and crash-resume paths are unchanged.
+    // The browser subagent's wrapped browser_* tools ride along untouched.
+    subagents: buildSubagents(
+      ursaRole,
+      wrapToolsWithHooks(browserTools, hookCtx) as typeof browserTools
+    ),
     ...(backendFactory ? { backend: backendFactory } : {}),
     // F4 decoupling: browser_* tools (buildBrowserTools) are ALWAYS present —
     // browsing has no project-folder dependency (session data keys off

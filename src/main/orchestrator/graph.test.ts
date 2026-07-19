@@ -30,7 +30,19 @@ vi.mock('./checkpointer', () => ({
 vi.mock('./ursa', () => ({
   URSA_MODEL_REF: 'ursa/auto',
   isUrsaModelRef: (ref: string) => ref === 'ursa/auto',
-  resolveUrsaModelRef: vi.fn()
+  resolveUrsaModelRef: vi.fn(),
+  // Ursa Arc 2 (Task 2): buildSubagents consults this to route the researcher/
+  // browser subagents while Ursa drives a turn. Default empty (no overrides);
+  // per-test overridden below.
+  resolveSubagentModelRefs: vi.fn(() => ({}))
+}))
+
+// makeModel is mocked so buildSubagents can build distinguishable per-role
+// subagent models without constructing a real provider client. Returns a
+// tagged sentinel so a test can assert exactly which ref produced which
+// subagent's model.
+vi.mock('./models', () => ({
+  makeModel: vi.fn((ref: string) => ({ __fakeModel: ref }))
 }))
 
 import {
@@ -61,10 +73,12 @@ import {
   persistRuleMentions,
   resolveTurnModelRef,
   rehydrateModelRef,
+  buildSubagents,
   __parkForTest,
   type ApprovalItem
 } from './graph'
-import { resolveUrsaModelRef } from './ursa'
+import { resolveUrsaModelRef, resolveSubagentModelRefs } from './ursa'
+import { makeModel } from './models'
 import {
   getLastResolvedModelRef,
   getLastUrsaRole,
@@ -1770,5 +1784,67 @@ describe('runGraph — Ursa resolution', () => {
   it('rehydrateModelRef returns a concrete ref unchanged', () => {
     expect(rehydrateModelRef('c1', 'anthropic/claude-sonnet-5')).toBe('anthropic/claude-sonnet-5')
     expect(getLastResolvedModelRef).not.toHaveBeenCalled()
+  })
+})
+
+describe('buildSubagents (Ursa Arc 2 subagent-level routing)', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  // A distinct sentinel so the browser subagent's injected tools can be asserted
+  // to ride through untouched regardless of the model override.
+  const browserTools = [{ name: 'browser_navigate' }] as never
+
+  it('routes researcher and browser to their mapped roles when ursaRole is set', () => {
+    vi.mocked(resolveSubagentModelRefs).mockReturnValue({
+      researcher: 'anthropic/claude-sonnet-5',
+      browser: 'openai/gpt-5.6-luna'
+    })
+    const [researcher, browser] = buildSubagents('coder', browserTools)
+
+    expect(researcher.name).toBe('researcher')
+    expect(researcher.model).toEqual({ __fakeModel: 'anthropic/claude-sonnet-5' })
+    expect(browser.name).toBe('browser')
+    expect(browser.model).toEqual({ __fakeModel: 'openai/gpt-5.6-luna' })
+    // The browser subagent's injected tools survive the model override.
+    expect(browser.tools).toBe(browserTools)
+    expect(makeModel).toHaveBeenCalledWith('anthropic/claude-sonnet-5')
+    expect(makeModel).toHaveBeenCalledWith('openai/gpt-5.6-luna')
+  })
+
+  it('adds no model field and never consults the resolver when ursaRole is undefined', () => {
+    // Even if the resolver WOULD return refs, the undefined path must never call
+    // it (byte-identical to the pre-Arc-2 manual-model / crash-resume behavior).
+    vi.mocked(resolveSubagentModelRefs).mockReturnValue({
+      researcher: 'anthropic/claude-sonnet-5',
+      browser: 'openai/gpt-5.6-luna'
+    })
+    const [researcher, browser] = buildSubagents(undefined, browserTools)
+
+    expect(researcher).not.toHaveProperty('model')
+    expect(browser).not.toHaveProperty('model')
+    expect(browser.tools).toBe(browserTools)
+    expect(resolveSubagentModelRefs).not.toHaveBeenCalled()
+    expect(makeModel).not.toHaveBeenCalled()
+  })
+
+  it('adds no model field when the resolver returns an empty map (no keyed roles)', () => {
+    vi.mocked(resolveSubagentModelRefs).mockReturnValue({})
+    const [researcher, browser] = buildSubagents('reviewer', browserTools)
+
+    expect(researcher).not.toHaveProperty('model')
+    expect(browser).not.toHaveProperty('model')
+    expect(makeModel).not.toHaveBeenCalled()
+  })
+
+  it('routes only the subagents present in a partial resolver result', () => {
+    // grunt's provider unkeyed -> browser absent; researcher still routed.
+    vi.mocked(resolveSubagentModelRefs).mockReturnValue({
+      researcher: 'anthropic/claude-sonnet-5'
+    })
+    const [researcher, browser] = buildSubagents('architect', browserTools)
+
+    expect(researcher.model).toEqual({ __fakeModel: 'anthropic/claude-sonnet-5' })
+    expect(browser).not.toHaveProperty('model')
+    expect(browser.tools).toBe(browserTools)
   })
 })
