@@ -63,7 +63,9 @@ export class ToollessChatOpenAI extends ChatOpenAICompletions {
 // gated on the per-conversation Web Search toggle. Like Perplexity, results
 // arrive as a top-level `citations` field -- the conversion hooks feed
 // turn_meta.citations / the Sources UI.
-const XAI_SEARCH_TOOLS = [{ type: 'live_search' }]
+// `sources` is REQUIRED (second live 422: "tools[23]: missing field
+// `sources`"). Web + X, matching the search surface Grok's own app uses.
+const XAI_SEARCH_TOOLS = [{ type: 'live_search', sources: [{ type: 'web' }, { type: 'x' }] }]
 export class XaiChatOpenAI extends ChatOpenAICompletions {
   // Set by makeModel from the per-conversation Web Search toggle; live_search
   // rides only when it is on.
