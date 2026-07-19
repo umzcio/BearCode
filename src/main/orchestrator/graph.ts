@@ -191,7 +191,7 @@ const BROWSER_SUBAGENT = {
 // instead of trying to disable it, so a "general-purpose" delegation gets
 // its own attributed pill rather than silently merging into the main
 // agent's stream.
-const SUBAGENT_NAMES = new Set([RESEARCHER_SUBAGENT.name, BROWSER_SUBAGENT.name, 'general-purpose'])
+export const SUBAGENT_NAMES = new Set([RESEARCHER_SUBAGENT.name, BROWSER_SUBAGENT.name, 'general-purpose'])
 
 // Derive the producing agent's id from a streamed chunk's metadata (and, as
 // documentation, its namespace). VERIFIED LIVE (BEARCODE_DEBUG_NS, Task 8):

@@ -83,6 +83,35 @@ export const CURATED_ROLES: readonly UrsaRole[] = [
   }
 ]
 
+// Subagent-level routing (Ursa Arc 2, Task 1): applies ONLY while a turn runs
+// under Ursa (ursaRole set) -- see graph.ts buildAgentAndContext. Fixed,
+// code-curated, NOT user-configurable, same philosophy as CURATED_ROLES above.
+// Keys are deepagents subagent names from graph.ts's SUBAGENT_NAMES; values
+// are CURATED_ROLES role names. 'general-purpose' (deepagents' own built-in
+// subagent) is deliberately absent -- createDeepAgent gives it no model hook
+// to override in this version (see graph.ts:173-193), so it always inherits
+// the turn's main model regardless of this map.
+export const SUBAGENT_ROLE_MAP: Readonly<Record<string, string>> = {
+  researcher: 'reviewer', // read-heavy synthesis rides the mid-tier Sonnet
+  browser: 'grunt' // mechanical DOM driving rides the cheap fast model
+}
+
+// For each SUBAGENT_ROLE_MAP entry, resolve the mapped role to its concrete
+// modelRef -- but only when that role's provider currently has a configured
+// key (reuses eligibleRoles' keyStatus/parseModelRef check, so a subagent
+// never gets routed to a role BearCode can't actually run; it silently
+// falls back to inheriting the turn's main model instead, same as when
+// ursaRole is unset). Returns a partial map -- possibly empty.
+export function resolveSubagentModelRefs(): Record<string, string> {
+  const eligible = eligibleRoles(CURATED_ROLES)
+  const result: Record<string, string> = {}
+  for (const [subagentName, roleName] of Object.entries(SUBAGENT_ROLE_MAP)) {
+    const role = eligible.find((r) => r.name === roleName)
+    if (role) result[subagentName] = role.modelRef
+  }
+  return result
+}
+
 const ClassifierOutput = z.object({
   role: z.string().describe('The name of the role best suited to handle this message')
 })

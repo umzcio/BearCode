@@ -1,5 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { URSA_MODEL_REF, isUrsaModelRef, resolveUrsaModelRef, CURATED_ROLES, ursaRequiredProviders } from './ursa'
+import {
+  URSA_MODEL_REF,
+  isUrsaModelRef,
+  resolveUrsaModelRef,
+  CURATED_ROLES,
+  ursaRequiredProviders,
+  SUBAGENT_ROLE_MAP,
+  resolveSubagentModelRefs
+} from './ursa'
+
+// graph.ts (imported below only to assert SUBAGENT_ROLE_MAP's keys against its
+// SUBAGENT_NAMES) touches electron/sqlite at call time via these two modules --
+// mock them (same pattern as graph.test.ts) so the import is side-effect free.
+vi.mock('../db', () => ({}))
+vi.mock('./checkpointer', () => ({}))
 
 const invokeSpy = vi.hoisted(() => vi.fn())
 vi.mock('./models', () => ({
@@ -308,5 +322,66 @@ describe('resolveUrsaModelRef', () => {
     } finally {
       ;(CHEAP_MODEL as Record<string, string | undefined>).anthropic = savedAnthropic
     }
+  })
+})
+
+describe('SUBAGENT_ROLE_MAP', () => {
+  it('only maps names that exist in graph.ts SUBAGENT_NAMES', async () => {
+    const { SUBAGENT_NAMES } = await import('./graph')
+    for (const subagentName of Object.keys(SUBAGENT_ROLE_MAP)) {
+      expect(SUBAGENT_NAMES.has(subagentName)).toBe(true)
+    }
+  })
+
+  it('only maps to role names that exist in CURATED_ROLES', () => {
+    const roleNames = new Set(CURATED_ROLES.map((r) => r.name))
+    for (const roleName of Object.values(SUBAGENT_ROLE_MAP)) {
+      expect(roleNames.has(roleName)).toBe(true)
+    }
+  })
+})
+
+describe('resolveSubagentModelRefs', () => {
+  beforeEach(() => {
+    vi.mocked(keyStatus).mockReturnValue({
+      anthropic: true,
+      openai: true,
+      google: true,
+      openrouter: true,
+      perplexity: true
+    } as never)
+  })
+
+  it('returns both mapped roles resolved to their curated modelRefs when all providers are keyed', () => {
+    const reviewer = CURATED_ROLES.find((r) => r.name === 'reviewer')!
+    const grunt = CURATED_ROLES.find((r) => r.name === 'grunt')!
+    expect(resolveSubagentModelRefs()).toEqual({
+      researcher: reviewer.modelRef,
+      browser: grunt.modelRef
+    })
+  })
+
+  it('drops an entry whose mapped role provider has no configured key', () => {
+    // grunt -> openai; researcher -> reviewer -> anthropic. Un-key openai only.
+    vi.mocked(keyStatus).mockReturnValue({
+      anthropic: true,
+      openai: false,
+      google: true,
+      openrouter: true,
+      perplexity: true
+    } as never)
+    const reviewer = CURATED_ROLES.find((r) => r.name === 'reviewer')!
+    expect(resolveSubagentModelRefs()).toEqual({ researcher: reviewer.modelRef })
+  })
+
+  it('returns an empty object when no eligible role covers the map', () => {
+    vi.mocked(keyStatus).mockReturnValue({
+      anthropic: false,
+      openai: false,
+      google: false,
+      openrouter: false,
+      perplexity: false
+    } as never)
+    expect(resolveSubagentModelRefs()).toEqual({})
   })
 })
