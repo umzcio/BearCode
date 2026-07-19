@@ -51,39 +51,14 @@ export class ToollessChatOpenAI extends ChatOpenAICompletions {
   }
 }
 
-// xAI server-side Live Search: Grok searches the web AND X on xAI's own
-// servers. VERIFIED LIVE (422 from api.x.ai, 2026-07-19): the OpenAI-compatible
-// Chat Completions endpoint accepts ONLY tool type variants 'function' and
-// 'live_search' -- the 'web_search'/'x_search'/'code_execution' tool shapes
-// from xAI's docs belong to their newer agentic/Responses-style API and 422
-// here ("unknown variant `code_execution`, expected `function` or
-// `live_search`"). One live_search tool covers both web and X sources.
-// It is appended at the invocationParams chokepoint so it rides both agent
-// turns (after LangChain's tool conversion) and bare invokes (council seats),
-// gated on the per-conversation Web Search toggle. Like Perplexity, results
-// arrive as a top-level `citations` field -- the conversion hooks feed
-// turn_meta.citations / the Sources UI.
-// `sources` is REQUIRED (second live 422: "tools[23]: missing field
-// `sources`"). Web + X, matching the search surface Grok's own app uses.
-const XAI_SEARCH_TOOLS = [{ type: 'live_search', sources: [{ type: 'web' }, { type: 'x' }] }]
+// xAI's plain Chat Completions path (Web Search toggle OFF). Server-side
+// search lives on xAI's Agent Tools API (/v1/responses, OpenAI-Responses-
+// compatible) -- their completions-side live_search returned a live 410
+// "deprecated, switch to the Agent Tools API" on 2026-07-19, so the search-on
+// path constructs OpenAISearchChat with useResponsesApi instead (makeModel).
+// This class only keeps the Live Search citation capture hooks for responses
+// that carry a top-level `citations` field.
 export class XaiChatOpenAI extends ChatOpenAICompletions {
-  // Set by makeModel from the per-conversation Web Search toggle; live_search
-  // rides only when it is on.
-  bearcodeWebSearch = false
-  override invocationParams(
-    ...args: Parameters<ChatOpenAICompletions['invocationParams']>
-  ): ReturnType<ChatOpenAICompletions['invocationParams']> {
-    const params = super.invocationParams(...args)
-    const existing = Array.isArray(params.tools) ? params.tools : []
-    const present = new Set(
-      existing.map((t) => (t && typeof t === 'object' ? (t as { type?: string }).type : undefined))
-    )
-    const server = this.bearcodeWebSearch ? XAI_SEARCH_TOOLS : []
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    params.tools = [...existing, ...server.filter((t) => !present.has(t.type))] as any
-    return params
-  }
-
   override _convertCompletionsDeltaToBaseMessageChunk(
     ...args: Parameters<ChatOpenAICompletions['_convertCompletionsDeltaToBaseMessageChunk']>
   ): ReturnType<ChatOpenAICompletions['_convertCompletionsDeltaToBaseMessageChunk']> {
@@ -142,11 +117,14 @@ export class AnthropicSearchChat extends ChatAnthropic {
   }
 }
 
-// OpenAI's Responses-API built-in web_search, same toggle + chokepoint
-// pattern. Only ever constructed for reasoning models (which BearCode forces
-// onto the Responses API), so the built-in tool type is always understood.
+// Responses-API built-in server tools, same toggle + chokepoint pattern.
+// Used for OpenAI reasoning models (web_search) AND for xAI's Agent Tools API
+// (web_search + x_search -- xAI's /v1/responses is OpenAI-Responses-compatible;
+// their completions-side live_search was deprecated with a live 410 on
+// 2026-07-19 pointing at docs.x.ai/docs/guides/tools/overview).
 export class OpenAISearchChat extends ChatOpenAI {
   bearcodeWebSearch = false
+  bearcodeSearchTools: { type: string }[] = [{ type: 'web_search' }]
   override invocationParams(
     ...args: Parameters<ChatOpenAI['invocationParams']>
   ): ReturnType<ChatOpenAI['invocationParams']> {
@@ -155,9 +133,11 @@ export class OpenAISearchChat extends ChatOpenAI {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const p = params as any
     const existing = Array.isArray(p.tools) ? p.tools : []
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const has = existing.some((t: any) => t && t.type === 'web_search')
-    if (!has) p.tools = [...existing, { type: 'web_search' }]
+    const present = new Set(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      existing.map((t: any) => (t && typeof t === 'object' ? t.type : undefined))
+    )
+    p.tools = [...existing, ...this.bearcodeSearchTools.filter((t) => !present.has(t.type))]
     return params
   }
 }
@@ -307,23 +287,32 @@ export function makeModel(
         configuration: { baseURL: 'https://api.perplexity.ai' },
         ...extras
       })
-    case 'xai':
-      // Grok has real function calling (unlike Perplexity's Sonar models), so
-      // client tools stay bound. XaiChatOpenAI additionally appends xAI's
-      // server-side web_search/x_search tools to every request (see the class
-      // doc) and captures Live Search citations. Same OpenAI-compatible Chat
-      // Completions pattern otherwise: baseURL override, NEVER useResponsesApi
-      // (buildModelExtras returns {} for it via the default branch).
-      return (() => {
-        const m = new XaiChatOpenAI({
+    case 'xai': {
+      // Grok has real function calling, so client tools stay bound. Two paths:
+      // - Web Search ON: xAI's Agent Tools API (/v1/responses, OpenAI-
+      //   Responses-compatible) with the web_search + x_search built-ins --
+      //   the ONLY place server-side search still lives (completions
+      //   live_search 410'd as deprecated, verified live 2026-07-19).
+      // - OFF: plain Chat Completions (XaiChatOpenAI keeps the citation hooks).
+      if (search) {
+        const m = new OpenAISearchChat({
           apiKey: requireKey('xai'),
           model: modelId,
           configuration: { baseURL: 'https://api.x.ai/v1' },
+          useResponsesApi: true,
           ...extras
         })
-        m.bearcodeWebSearch = search
+        m.bearcodeWebSearch = true
+        m.bearcodeSearchTools = [{ type: 'web_search' }, { type: 'x_search' }]
         return m
-      })()
+      }
+      return new XaiChatOpenAI({
+        apiKey: requireKey('xai'),
+        model: modelId,
+        configuration: { baseURL: 'https://api.x.ai/v1' },
+        ...extras
+      })
+    }
     case 'ollama':
       // BearcodeChatOllama stringifies non-string tool-message content that
       // upstream ChatOllama rejects (see ollamaCompat.ts).

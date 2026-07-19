@@ -69,21 +69,25 @@ describe('makeModel', () => {
     expect((m as any).bindTools([fakeTool])).not.toBe(m)
   })
 
-  it("xAI's ONLY valid server tool variant is live_search, gated on the toggle (422-verified)", () => {
-    // With the toggle off, NO server tools ride -- and never code_execution/
-    // web_search/x_search in any state: api.x.ai's completions endpoint 422s
-    // on any tools[].type other than 'function' or 'live_search'.
+  it('xAI search-off is plain completions with NO server tools (410/422-verified)', () => {
     const off = makeModel('xai/grok-4.5')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((off as any).useResponsesApi).toBeFalsy()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const offTypes = ((off as any).invocationParams({}).tools ?? []).map((t: any) => t.type)
     expect(offTypes).toEqual([])
+  })
+
+  it('xAI search-on rides the Agent Tools API: Responses + web_search/x_search built-ins', () => {
     const on = makeModel('xai/grok-4.5', { webSearch: true })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const onTypes = ((on as any).invocationParams({}).tools ?? []).map((t: any) => t.type)
-    expect(onTypes).toEqual(['live_search'])
-    for (const bad of ['web_search', 'x_search', 'code_execution']) {
-      expect(onTypes).not.toContain(bad)
-    }
+    expect((on as any).useResponsesApi).toBe(true)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const types = ((on as any).invocationParams({}).tools ?? []).map((t: any) => t.type)
+    expect(types).toContain('web_search')
+    expect(types).toContain('x_search')
+    expect(types).not.toContain('live_search')
+    expect(types).not.toContain('code_execution')
   })
 
   it('Anthropic appends its server web_search tool only when the toggle is on', () => {
@@ -107,15 +111,14 @@ describe('makeModel', () => {
     expect(params.agent_count).toBe(16)
   })
 
-  it('xAI merges live_search with bound client tools without duplicating', () => {
+  it('xAI search-on merges server tools with bound client tools without duplicating', () => {
     const m = makeModel('xai/grok-4.5', { webSearch: true })
-    const fakeTool = { type: 'function', function: { name: 't', parameters: { type: 'object' } } }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const params = (m as any).invocationParams({ tools: [fakeTool, { type: 'live_search' }] })
+    const params = (m as any).invocationParams({ tools: [{ type: 'web_search' }] })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const types = (params.tools ?? []).map((t: any) => t.type)
-    expect(types.filter((t: string) => t === 'live_search')).toHaveLength(1)
-    expect(types).toContain('function')
+    expect(types.filter((t: string) => t === 'web_search')).toHaveLength(1)
+    expect(types).toContain('x_search')
   })
 
   it('xAI copies Live Search citations onto response_metadata like Perplexity', () => {
