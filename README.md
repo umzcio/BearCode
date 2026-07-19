@@ -99,6 +99,11 @@ verify with Sonar — without you touching the picker again.
 - **Subagents route too.** While Ursa drives the turn, the researcher subagent rides the Reviewer's
   model and the browser subagent rides the Grunt's — no separate picker, same key-availability
   fallback.
+- **Pipeline mode.** When your message is really several jobs in one ("plan it, then build it,
+  then have someone review it"), the classifier can propose a short sequential pipeline — 2 to 4
+  role-tagged steps, each running on its own role's model, one after another. Ursa always asks
+  first: you see the full plan before anything runs, and nothing executes until you approve. Say
+  no and the turn just falls back to the normal single-role path — no pipeline, no partial work.
 
 ---
 
