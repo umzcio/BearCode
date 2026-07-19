@@ -1,6 +1,6 @@
 {
   "name": "bearcode",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "description": "BearCode: a desktop agent manager",
   "main": "./out/main/index.js",
   "author": "Zach Rossmiller",
