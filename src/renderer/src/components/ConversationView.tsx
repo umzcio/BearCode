@@ -293,7 +293,12 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                   {turn.texts.map((t) =>
                     t.text.length > 0 ? (
                       <div key={t.id} data-event-id={t.id}>
-                        <AssistantText text={t.text} streaming={streaming} convoId={convoId} />
+                        <AssistantText
+                          text={t.text}
+                          streaming={streaming}
+                          convoId={convoId}
+                          citations={turn.turnMeta?.citations}
+                        />
                       </div>
                     ) : null
                   )}

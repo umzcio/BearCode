@@ -5,6 +5,30 @@ import { Markdown } from './markdown'
 
 afterEach(cleanup)
 
+describe('Markdown citation markers', () => {
+  const citations = [
+    { url: 'https://one.example', title: 'One' },
+    { url: 'https://two.example' }
+  ]
+
+  it('linkifies in-range [n] markers against the citations list (1-based)', () => {
+    render(<Markdown text="A fact.[2] Another **bold[1]** claim.[7]" citations={citations} />)
+    const refs = screen.getAllByRole('link')
+    // [2] and the [1] inside bold both linkify; [7] is out of range and stays text
+    expect(refs).toHaveLength(2)
+    expect(refs[0].getAttribute('href')).toBe('https://two.example')
+    expect(refs[0].textContent).toBe('2')
+    expect(refs[1].getAttribute('href')).toBe('https://one.example')
+    expect(document.body.textContent).toContain('[7]')
+  })
+
+  it('leaves [n] untouched when no citations are supplied', () => {
+    render(<Markdown text="Item one.[1]" />)
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(document.body.textContent).toContain('[1]')
+  })
+})
+
 describe('Markdown file chips', () => {
   it('renders a spaced absolute path in backticks as code.tok.file', () => {
     render(

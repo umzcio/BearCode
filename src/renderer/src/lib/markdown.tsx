@@ -10,18 +10,67 @@ import { Fragment, useMemo, type ReactNode } from 'react'
 // an absolute path with spaces. Still requires a trailing .ext so prose isn't matched.
 const FILE_RE = /^[\w ./-]+\.[A-Za-z0-9]{1,8}$/
 
+// A web source the enclosing turn cited (turn_meta.citations); [n] markers in
+// prose are 1-based indexes into this list. Kept structural (url+title) rather
+// than importing shared/types to keep this lib dependency-free.
+export interface CitationRef {
+  url: string
+  title?: string
+}
+
+// Turn a plain prose segment into nodes, linkifying [n] citation markers when
+// the turn carries a citations list: [3] becomes a small anchor to
+// citations[2] (1-based). Out-of-range or citation-less markers stay text --
+// models also write [1] in non-citation contexts (checklists, code refs).
+function pushProse(
+  out: ReactNode[],
+  text: string,
+  citations: CitationRef[] | undefined,
+  nextKey: () => number
+): void {
+  if (!citations || citations.length === 0) {
+    out.push(text)
+    return
+  }
+  const re = /\[(\d{1,2})\]/g
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    const idx = Number(m[1])
+    const cite = idx >= 1 && idx <= citations.length ? citations[idx - 1] : undefined
+    if (!cite) continue
+    if (m.index > last) out.push(text.slice(last, m.index))
+    out.push(
+      <a
+        key={nextKey()}
+        className="cite-ref"
+        href={cite.url}
+        target="_blank"
+        rel="noreferrer"
+        title={cite.title ?? cite.url}
+      >
+        {idx}
+      </a>
+    )
+    last = m.index + m[0].length
+  }
+  if (last < text.length) out.push(text.slice(last))
+}
+
 function renderInline(
   text: string,
   onFileClick?: (path: string) => void,
-  onFileOpen?: (path: string) => void
+  onFileOpen?: (path: string) => void,
+  citations?: CitationRef[]
 ): ReactNode[] {
   const out: ReactNode[] = []
   const re = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g
   let last = 0
   let m: RegExpExecArray | null
   let key = 0
+  const nextKey = (): number => key++
   while ((m = re.exec(text)) !== null) {
-    if (m.index > last) out.push(text.slice(last, m.index))
+    if (m.index > last) pushProse(out, text.slice(last, m.index), citations, nextKey)
     const tok = m[0]
     if (tok.startsWith('`')) {
       const inner = tok.slice(1, -1)
@@ -55,13 +104,17 @@ function renderInline(
         )
       }
     } else if (tok.startsWith('**')) {
-      out.push(<b key={key++}>{tok.slice(2, -2)}</b>)
+      const children: ReactNode[] = []
+      pushProse(children, tok.slice(2, -2), citations, nextKey)
+      out.push(<b key={nextKey()}>{children}</b>)
     } else {
-      out.push(<i key={key++}>{tok.slice(1, -1)}</i>)
+      const children: ReactNode[] = []
+      pushProse(children, tok.slice(1, -1), citations, nextKey)
+      out.push(<i key={nextKey()}>{children}</i>)
     }
     last = m.index + tok.length
   }
-  if (last < text.length) out.push(text.slice(last))
+  if (last < text.length) pushProse(out, text.slice(last), citations, nextKey)
   return out
 }
 
@@ -174,17 +227,19 @@ function List({
   items,
   tail,
   onFileClick,
-  onFileOpen
+  onFileOpen,
+  citations
 }: {
   ordered: boolean
   items: string[]
   tail: ReactNode
   onFileClick?: (path: string) => void
   onFileOpen?: (path: string) => void
+  citations?: CitationRef[]
 }): React.JSX.Element {
   const rows = items.map((item, j) => (
     <li key={j}>
-      {renderInline(item, onFileClick, onFileOpen)}
+      {renderInline(item, onFileClick, onFileOpen, citations)}
       {j === items.length - 1 ? tail : null}
     </li>
   ))
@@ -195,12 +250,14 @@ export function Markdown({
   text,
   trailing,
   onFileClick,
-  onFileOpen
+  onFileOpen,
+  citations
 }: {
   text: string
   trailing?: ReactNode
   onFileClick?: (path: string) => void
   onFileOpen?: (path: string) => void
+  citations?: CitationRef[]
 }): React.JSX.Element {
   const blocks = useMemo(() => parseBlocks(text), [text])
   const lastIndex = blocks.length - 1
@@ -209,7 +266,7 @@ export function Markdown({
       {blocks.map((block, i) => {
         const tail = trailing && i === lastIndex ? trailing : null
         if (block.kind === 'h5')
-          return <h5 key={i}>{renderInline(block.text, onFileClick, onFileOpen)}</h5>
+          return <h5 key={i}>{renderInline(block.text, onFileClick, onFileOpen, citations)}</h5>
         if (block.kind === 'ol')
           return (
             <List
@@ -219,6 +276,7 @@ export function Markdown({
               tail={tail}
               onFileClick={onFileClick}
               onFileOpen={onFileOpen}
+              citations={citations}
             />
           )
         if (block.kind === 'ul')
@@ -230,6 +288,7 @@ export function Markdown({
               tail={tail}
               onFileClick={onFileClick}
               onFileOpen={onFileOpen}
+              citations={citations}
             />
           )
         if (block.kind === 'code')
@@ -246,7 +305,7 @@ export function Markdown({
                 <thead>
                   <tr>
                     {block.headers.map((h, k) => (
-                      <th key={k}>{renderInline(h, onFileClick, onFileOpen)}</th>
+                      <th key={k}>{renderInline(h, onFileClick, onFileOpen, citations)}</th>
                     ))}
                   </tr>
                 </thead>
@@ -254,7 +313,7 @@ export function Markdown({
                   {block.rows.map((row, r) => (
                     <tr key={r}>
                       {block.headers.map((_, c) => (
-                        <td key={c}>{renderInline(row[c] ?? '', onFileClick, onFileOpen)}</td>
+                        <td key={c}>{renderInline(row[c] ?? '', onFileClick, onFileOpen, citations)}</td>
                       ))}
                     </tr>
                   ))}
@@ -268,7 +327,7 @@ export function Markdown({
             {block.lines.map((line, li) => (
               <Fragment key={li}>
                 {li > 0 ? <br /> : null}
-                {renderInline(line, onFileClick, onFileOpen)}
+                {renderInline(line, onFileClick, onFileOpen, citations)}
               </Fragment>
             ))}
             {tail}
