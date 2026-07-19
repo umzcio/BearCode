@@ -21,7 +21,8 @@ const ENV_TO_PROVIDER: Record<string, ProviderId> = {
   OPENAI_API_KEY: 'openai',
   GOOGLE_API_KEY: 'google',
   GEMINI_API_KEY: 'google',
-  OPENROUTER_API_KEY: 'openrouter'
+  OPENROUTER_API_KEY: 'openrouter',
+  PERPLEXITY_API_KEY: 'perplexity'
 }
 
 function importKeys(): void {

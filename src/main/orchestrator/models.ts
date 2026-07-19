@@ -117,6 +117,17 @@ export function makeModel(
         configuration: { baseURL: 'https://openrouter.ai/api/v1' },
         ...extras
       })
+    case 'perplexity':
+      // Perplexity is an OpenAI-compatible Chat Completions endpoint. Same
+      // pattern as openrouter: ChatOpenAI + a baseURL override. NEVER
+      // useResponsesApi -- the endpoint doesn't speak the Responses API
+      // (buildModelExtras returns {} for it via the default branch).
+      return new ChatOpenAI({
+        apiKey: requireKey('perplexity'),
+        model: modelId,
+        configuration: { baseURL: 'https://api.perplexity.ai' },
+        ...extras
+      })
     case 'ollama':
       // BearcodeChatOllama stringifies non-string tool-message content that
       // upstream ChatOllama rejects (see ollamaCompat.ts).

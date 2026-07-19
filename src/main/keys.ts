@@ -6,7 +6,14 @@ import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { ProviderId } from '../shared/types'
 
-const PROVIDERS: ProviderId[] = ['anthropic', 'openai', 'google', 'openrouter', 'ollama']
+const PROVIDERS: ProviderId[] = [
+  'anthropic',
+  'openai',
+  'google',
+  'openrouter',
+  'perplexity',
+  'ollama'
+]
 
 function vaultPath(): string {
   return join(app.getPath('userData'), 'keys.json')

@@ -48,6 +48,15 @@ export const OPENROUTER_MODELS: ModelInfo[] = [
   { id: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B' }
 ]
 
+// Perplexity's Sonar family (verified against docs.perplexity.ai, 2026-07).
+// Web-grounded chat models; deep-research is intentionally excluded (slow and
+// specialized, a poor fit for interactive routing).
+export const PERPLEXITY_MODELS: ModelInfo[] = [
+  { id: 'sonar', label: 'Sonar', contextWindow: 128_000 },
+  { id: 'sonar-pro', label: 'Sonar Pro', contextWindow: 200_000 },
+  { id: 'sonar-reasoning-pro', label: 'Sonar Reasoning Pro', contextWindow: 128_000 }
+]
+
 // Ursa Phase 1: static per-model metadata, keyed by "provider/modelId". Drives
 // both the GPT-5.6 reasoning.effort fix (models.ts's buildModelExtras) and the
 // Ursa classifier's model knowledge. Data only -- no LLM client code here.
@@ -152,6 +161,13 @@ export const REGISTRY: ProviderRegistryEntry[] = [
     listModels: async () => ({ models: OPENROUTER_MODELS, reachable: true })
   },
   {
+    id: 'perplexity',
+    displayName: 'Perplexity',
+    color: '#20B8CD',
+    requiresKey: true,
+    listModels: async () => ({ models: PERPLEXITY_MODELS, reachable: true })
+  },
+  {
     id: 'ollama',
     displayName: 'Ollama',
     color: '#3ecf8e',
@@ -187,7 +203,8 @@ const MANAGEABLE: { id: ProviderId; models: ModelInfo[] }[] = [
   { id: 'anthropic', models: ANTHROPIC_MODELS },
   { id: 'openai', models: OPENAI_MODELS },
   { id: 'google', models: GOOGLE_MODELS },
-  { id: 'openrouter', models: OPENROUTER_MODELS }
+  { id: 'openrouter', models: OPENROUTER_MODELS },
+  { id: 'perplexity', models: PERPLEXITY_MODELS }
 ]
 
 // Every "providerId/modelId" ref in the EFFECTIVE set (curated + custom minus
@@ -248,7 +265,8 @@ const STATIC_MODELS: Partial<Record<ProviderId, ModelInfo[]>> = {
   anthropic: ANTHROPIC_MODELS,
   openai: OPENAI_MODELS,
   google: GOOGLE_MODELS,
-  openrouter: OPENROUTER_MODELS
+  openrouter: OPENROUTER_MODELS,
+  perplexity: PERPLEXITY_MODELS
 }
 
 // The model's real context window (tokens) for a "provider/modelId" ref, or

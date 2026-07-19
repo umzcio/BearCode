@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 
-vi.mock('../keys', () => ({ getKey: (p: string) => (p === 'anthropic' ? 'sk-test' : undefined) }))
+vi.mock('../keys', () => ({
+  getKey: (p: string) => (p === 'anthropic' || p === 'perplexity' ? 'sk-test' : undefined)
+}))
 
 import { makeModel, buildModelExtras } from './models'
 
@@ -12,6 +14,13 @@ describe('makeModel', () => {
   })
   it('throws a clear error when the key is missing', () => {
     expect(() => makeModel('openai/gpt-5.1')).toThrow(/openai/i)
+  })
+
+  it('builds Perplexity as an OpenAI-compatible client pointed at the Perplexity baseURL', () => {
+    const m = makeModel('perplexity/sonar-pro')
+    expect(m._llmType()).toContain('openai')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).clientConfig.baseURL).toBe('https://api.perplexity.ai')
   })
 })
 
@@ -48,5 +57,11 @@ describe('buildModelExtras — OpenAI reasoning models', () => {
   it('never forces useResponsesApi for openrouter, even though it shares the OpenAI-compatible client', () => {
     const extras = buildModelExtras('openrouter', 'deepseek/deepseek-chat', {})
     expect(extras).toEqual({})
+  })
+
+  it('never forces useResponsesApi for perplexity (its endpoint does not speak the Responses API)', () => {
+    const extras = buildModelExtras('perplexity', 'sonar-pro', {})
+    expect(extras).toEqual({})
+    expect(extras.useResponsesApi).toBeUndefined()
   })
 })

@@ -13,7 +13,8 @@ import { getConversationMeta, setTitle } from './db'
 export const CHEAP_MODEL: Partial<Record<ProviderId, string>> = {
   anthropic: 'claude-haiku-4-5',
   openai: 'gpt-5.6-luna',
-  google: 'gemini-2.5-flash'
+  google: 'gemini-2.5-flash',
+  perplexity: 'sonar'
 }
 
 export async function maybeGenerateTitle(

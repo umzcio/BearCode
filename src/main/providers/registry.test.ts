@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { supportsNativePdf, capabilitiesFor } from './registry'
+import { supportsNativePdf, capabilitiesFor, getProvider, PERPLEXITY_MODELS } from './registry'
 
 describe('supportsNativePdf', () => {
   it('is true for the first-party providers', () => {
@@ -10,6 +10,23 @@ describe('supportsNativePdf', () => {
   it('is false for OpenAI-compatible endpoints and Ollama (fallback to text)', () => {
     expect(supportsNativePdf('openrouter')).toBe(false)
     expect(supportsNativePdf('ollama')).toBe(false)
+  })
+  it('is false for Perplexity (OpenAI-compatible endpoint, extract-to-text fallback)', () => {
+    expect(supportsNativePdf('perplexity')).toBe(false)
+  })
+})
+
+describe('Perplexity provider registry entry', () => {
+  it('lists the three curated Sonar models with their context windows', async () => {
+    const entry = getProvider('perplexity')
+    expect(entry.displayName).toBe('Perplexity')
+    expect(entry.color).toBe('#20B8CD')
+    expect(entry.requiresKey).toBe(true)
+    const { models, reachable } = await entry.listModels()
+    expect(reachable).toBe(true)
+    expect(models).toEqual(PERPLEXITY_MODELS)
+    expect(models.map((m) => m.id)).toEqual(['sonar', 'sonar-pro', 'sonar-reasoning-pro'])
+    expect(models.map((m) => m.contextWindow)).toEqual([128_000, 200_000, 128_000])
   })
 })
 

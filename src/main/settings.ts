@@ -92,7 +92,8 @@ const CUSTOM_MODEL_PROVIDER_IDS = new Set<ProviderId>([
   'anthropic',
   'openai',
   'google',
-  'openrouter'
+  'openrouter',
+  'perplexity'
 ])
 
 // Keep only well-formed custom models: a valid (non-Ollama) provider id, a

@@ -708,7 +708,13 @@ export type Event =
 
 // ---- Provider layer ----
 
-export type ProviderId = 'anthropic' | 'openai' | 'google' | 'openrouter' | 'ollama'
+export type ProviderId =
+  | 'anthropic'
+  | 'openai'
+  | 'google'
+  | 'openrouter'
+  | 'perplexity'
+  | 'ollama'
 
 // Ursa Phase 1: static per-model metadata (registry.ts's capabilitiesFor())
 // used both by the GPT-5.6 reasoning-effort fix and by the Ursa classifier's
