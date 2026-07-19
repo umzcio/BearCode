@@ -19,7 +19,7 @@ import { makeModel } from './models'
 import { CHEAP_MODEL } from '../title'
 import { getSettings } from '../settings'
 import { keyStatus } from '../keys'
-import { parseModelRef } from '../providers/registry'
+import { parseModelRef, capabilitiesFor } from '../providers/registry'
 
 // Re-exported (not redeclared) so main-process callers of ursa.ts and
 // renderer callers of shared/types.ts see the exact same sentinel string.
@@ -127,7 +127,15 @@ export async function resolveUrsaModelRef(opts: {
 
   const providerId = classifierProviderId(roles)
 
-  const roleList = roles.map((r) => `- ${r.name}: ${r.description}`).join('\n')
+  const roleList = roles
+    .map((r) => {
+      const caps = capabilitiesFor(r.modelRef)
+      const suffix = caps
+        ? ` (model strengths: ${caps.strengths.join(', ')}; cost tier: ${caps.costTier})`
+        : ''
+      return `- ${r.name}: ${r.description}${suffix}`
+    })
+    .join('\n')
   let chosenName: string
   if (providerId === null) {
     // No eligible role's provider has both a CHEAP_MODEL entry and a

@@ -16,11 +16,16 @@ vi.mock('../keys', () => ({
 vi.mock('../title', () => ({
   CHEAP_MODEL: { anthropic: 'claude-haiku-4-5', openai: 'gpt-5.6-luna', google: 'gemini-2.5-flash' }
 }))
+vi.mock('../providers/registry', async () => {
+  const actual = await vi.importActual<typeof import('../providers/registry')>('../providers/registry')
+  return { ...actual, capabilitiesFor: vi.fn(actual.capabilitiesFor) }
+})
 
 import { getSettings } from '../settings'
 import { keyStatus } from '../keys'
 import { makeModel } from './models'
 import { CHEAP_MODEL } from '../title'
+import { capabilitiesFor } from '../providers/registry'
 
 describe('isUrsaModelRef', () => {
   it('matches only the sentinel', () => {
@@ -45,9 +50,11 @@ describe('CURATED_ROLES', () => {
 })
 
 describe('resolveUrsaModelRef', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     invokeSpy.mockReset()
     vi.mocked(makeModel).mockClear()
+    const actual = await vi.importActual<typeof import('../providers/registry')>('../providers/registry')
+    vi.mocked(capabilitiesFor).mockImplementation(actual.capabilitiesFor)
     vi.mocked(getSettings).mockReturnValue({ ursaEnabled: true } as never)
     vi.mocked(keyStatus).mockReturnValue({
       anthropic: true,
@@ -142,5 +149,30 @@ describe('resolveUrsaModelRef', () => {
     const first = CURATED_ROLES[0]
     const result = await resolveUrsaModelRef({ userText: 'hi' })
     expect(result).toEqual({ modelRef: first.modelRef, roleName: first.name })
+  })
+
+  it("includes a role's strengths/cost tier in the classifier prompt when capabilitiesFor has an entry for its modelRef", async () => {
+    invokeSpy.mockResolvedValue({ role: 'coder' })
+    await resolveUrsaModelRef({ userText: 'build me a script' })
+    const coder = CURATED_ROLES.find((r) => r.name === 'coder')!
+    const caps = vi.mocked(capabilitiesFor)(coder.modelRef)!
+    const systemMessage = invokeSpy.mock.calls[0][0][0]
+    expect(systemMessage.content).toContain(
+      `(model strengths: ${caps.strengths.join(', ')}; cost tier: ${caps.costTier})`
+    )
+  })
+
+  it('renders a role without the strengths/cost-tier suffix when capabilitiesFor returns null for its modelRef', async () => {
+    const coderModelRef = CURATED_ROLES.find((r) => r.name === 'coder')!.modelRef
+    const actual = await vi.importActual<typeof import('../providers/registry')>('../providers/registry')
+    vi.mocked(capabilitiesFor).mockImplementation((ref: string) =>
+      ref === coderModelRef ? null : actual.capabilitiesFor(ref)
+    )
+    invokeSpy.mockResolvedValue({ role: 'coder' })
+    await resolveUrsaModelRef({ userText: 'build me a script' })
+    const coder = CURATED_ROLES.find((r) => r.name === 'coder')!
+    const systemMessage = invokeSpy.mock.calls[0][0][0]
+    expect(systemMessage.content).toContain(`- coder: ${coder.description}\n`)
+    expect(systemMessage.content).not.toMatch(new RegExp(`- coder: [^\\n]*model strengths`))
   })
 })
