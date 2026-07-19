@@ -1684,6 +1684,37 @@ describe('runGraph — Ursa resolution', () => {
     expect(setLastResolvedModelRef).toHaveBeenCalledWith('c1', 'anthropic/claude-haiku-4-5')
   })
 
+  it("passes the classifier's own token usage through when resolveUrsaModelRef reports it", async () => {
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'openai/gpt-5.6-sol',
+      roleName: 'coder',
+      classifierUsage: {
+        modelRef: 'anthropic/claude-haiku-4-5',
+        inputTokens: 120,
+        outputTokens: 6
+      }
+    })
+    const result = await resolveTurnModelRef('c1', 'ursa/auto', 'build a thing')
+    expect(result).toEqual({
+      modelRef: 'openai/gpt-5.6-sol',
+      ursaRole: 'coder',
+      classifierUsage: {
+        modelRef: 'anthropic/claude-haiku-4-5',
+        inputTokens: 120,
+        outputTokens: 6
+      }
+    })
+  })
+
+  it('omits classifierUsage from the result when resolveUrsaModelRef does not report it', async () => {
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'anthropic/claude-haiku-4-5',
+      roleName: 'grunt'
+    })
+    const result = await resolveTurnModelRef('c1', 'ursa/auto', 'hi')
+    expect(result).not.toHaveProperty('classifierUsage')
+  })
+
   it('threads recentContext and previousRole from the db accessors into resolveUrsaModelRef', async () => {
     vi.mocked(getRecentUrsaContext).mockReturnValue('User: build a site\nAssistant: done')
     vi.mocked(getLastUrsaRole).mockReturnValue('coder')

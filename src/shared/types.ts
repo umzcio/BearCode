@@ -692,6 +692,13 @@ export type Event =
       endedAt: number
       usage?: { inputTokens: number; outputTokens: number; lastInputTokens: number }
       ursaRole?: string
+      // Ursa Phase 1 (Task 5, #3): the token usage of THIS turn's routing
+      // classifier call, on the cheap model it ran on (its own modelRef, which
+      // usually differs from the resolved role's model). Present only on
+      // Ursa-routed turns whose classifier actually ran and reported usage;
+      // the renderer folds it into the per-model cost breakdown so the
+      // classifier's (real) spend is not invisible.
+      ursaClassifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
     }
   | { type: 'error'; id: string; message: string; recoverable: boolean }
   // Optional & additive marker emitted when the summarization middleware folds

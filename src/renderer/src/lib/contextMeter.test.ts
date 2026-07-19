@@ -14,9 +14,19 @@ function turnMeta(
   id: string,
   provider: string,
   model: string,
-  usage?: { inputTokens: number; outputTokens: number; lastInputTokens: number }
+  usage?: { inputTokens: number; outputTokens: number; lastInputTokens: number },
+  ursaClassifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
 ): Event {
-  return { type: 'turn_meta', id, provider, model, startedAt: 0, endedAt: 1, usage }
+  return {
+    type: 'turn_meta',
+    id,
+    provider,
+    model,
+    startedAt: 0,
+    endedAt: 1,
+    usage,
+    ...(ursaClassifierUsage ? { ursaClassifierUsage } : {})
+  }
 }
 
 describe('contextMeter', () => {
@@ -117,6 +127,52 @@ describe('contextMeter', () => {
         model: 'gpt-5',
         inputTokens: 100,
         outputTokens: 50
+      }
+    ])
+  })
+
+  it('usageByModel folds the Ursa classifier usage in under the classifier model', () => {
+    const events: Event[] = [
+      // An Ursa-routed turn: the role ran on openai/gpt-5.6-sol, but the
+      // classifier ran on anthropic/claude-haiku-4-5 and reported its own cost.
+      turnMeta(
+        't1',
+        'openai',
+        'gpt-5.6-sol',
+        { inputTokens: 200, outputTokens: 40, lastInputTokens: 200 },
+        { modelRef: 'anthropic/claude-haiku-4-5', inputTokens: 120, outputTokens: 6 }
+      ),
+      // A second turn whose classifier hit the same cheap model -- accumulates.
+      turnMeta(
+        't2',
+        'anthropic',
+        'claude-sonnet-5',
+        { inputTokens: 50, outputTokens: 10, lastInputTokens: 50 },
+        { modelRef: 'anthropic/claude-haiku-4-5', inputTokens: 30, outputTokens: 2 }
+      )
+    ]
+    const rows = usageByModel(events)
+    expect(rows).toEqual([
+      {
+        modelRef: 'openai/gpt-5.6-sol',
+        provider: 'openai',
+        model: 'gpt-5.6-sol',
+        inputTokens: 200,
+        outputTokens: 40
+      },
+      {
+        modelRef: 'anthropic/claude-haiku-4-5',
+        provider: 'anthropic',
+        model: 'claude-haiku-4-5',
+        inputTokens: 150,
+        outputTokens: 8
+      },
+      {
+        modelRef: 'anthropic/claude-sonnet-5',
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        inputTokens: 50,
+        outputTokens: 10
       }
     ])
   })

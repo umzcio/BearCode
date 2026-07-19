@@ -80,14 +80,14 @@ describe('resolveUrsaModelRef', () => {
   })
 
   it("resolves to the classifier-chosen curated role's modelRef", async () => {
-    invokeSpy.mockResolvedValue({ role: 'coder' })
+    invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
     const coder = CURATED_ROLES.find((r) => r.name === 'coder')!
     const result = await resolveUrsaModelRef({ userText: 'refactor this module' })
     expect(result).toEqual({ modelRef: coder.modelRef, roleName: 'coder' })
   })
 
   it('falls back to the first eligible role if the classifier names an unknown role', async () => {
-    invokeSpy.mockResolvedValue({ role: 'nonexistent-role' })
+    invokeSpy.mockResolvedValue({ parsed: { role: 'nonexistent-role' }, raw: {} })
     const first = CURATED_ROLES[0]
     const result = await resolveUrsaModelRef({ userText: 'hi' })
     expect(result).toEqual({ modelRef: first.modelRef, roleName: first.name })
@@ -111,7 +111,7 @@ describe('resolveUrsaModelRef', () => {
       openrouter: true,
       [coderProvider]: false
     } as never)
-    invokeSpy.mockResolvedValue({ role: 'coder' })
+    invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
     const result = await resolveUrsaModelRef({ userText: 'hi' })
     expect(result.roleName).not.toBe('coder')
   })
@@ -152,7 +152,7 @@ describe('resolveUrsaModelRef', () => {
   })
 
   it("includes a role's strengths/cost tier in the classifier prompt when capabilitiesFor has an entry for its modelRef", async () => {
-    invokeSpy.mockResolvedValue({ role: 'coder' })
+    invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
     await resolveUrsaModelRef({ userText: 'build me a script' })
     const coder = CURATED_ROLES.find((r) => r.name === 'coder')!
     const caps = vi.mocked(capabilitiesFor)(coder.modelRef)!
@@ -163,7 +163,7 @@ describe('resolveUrsaModelRef', () => {
   })
 
   it('includes the recent-conversation block and previous-role hysteresis line in the classifier prompt when provided', async () => {
-    invokeSpy.mockResolvedValue({ role: 'coder' })
+    invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
     await resolveUrsaModelRef({
       userText: 'now fix that bug',
       recentContext: 'User: build me a todo app\nAssistant: Here is the app.',
@@ -184,7 +184,7 @@ describe('resolveUrsaModelRef', () => {
   })
 
   it('omits the recent-conversation block and hysteresis line when neither is provided', async () => {
-    invokeSpy.mockResolvedValue({ role: 'coder' })
+    invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
     await resolveUrsaModelRef({ userText: 'build me a script' })
     const systemMessage = invokeSpy.mock.calls[0][0][0]
     expect(systemMessage.content).not.toContain('Recent conversation:')
@@ -197,11 +197,56 @@ describe('resolveUrsaModelRef', () => {
     vi.mocked(capabilitiesFor).mockImplementation((ref: string) =>
       ref === coderModelRef ? null : actual.capabilitiesFor(ref)
     )
-    invokeSpy.mockResolvedValue({ role: 'coder' })
+    invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
     await resolveUrsaModelRef({ userText: 'build me a script' })
     const coder = CURATED_ROLES.find((r) => r.name === 'coder')!
     const systemMessage = invokeSpy.mock.calls[0][0][0]
     expect(systemMessage.content).toContain(`- coder: ${coder.description}\n`)
     expect(systemMessage.content).not.toMatch(new RegExp(`- coder: [^\\n]*model strengths`))
+  })
+
+  it("captures the classifier's own token usage from the raw response, tagged with the cheap model it ran on", async () => {
+    invokeSpy.mockResolvedValue({
+      parsed: { role: 'coder' },
+      raw: { usage_metadata: { input_tokens: 123, output_tokens: 7 } }
+    })
+    const result = await resolveUrsaModelRef({ userText: 'build me a script' })
+    // The classifier runs on the first eligible role's provider's CHEAP_MODEL
+    // entry -- anthropic here (architect is CURATED_ROLES[0]).
+    expect(result.classifierUsage).toEqual({
+      modelRef: `anthropic/${CHEAP_MODEL.anthropic}`,
+      inputTokens: 123,
+      outputTokens: 7
+    })
+  })
+
+  it('omits classifierUsage when the raw response reports no usage_metadata', async () => {
+    invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
+    const result = await resolveUrsaModelRef({ userText: 'build me a script' })
+    expect(result.classifierUsage).toBeUndefined()
+  })
+
+  it('omits classifierUsage on the failure path (classifier call throws)', async () => {
+    invokeSpy.mockRejectedValue(new Error('rate limited'))
+    const result = await resolveUrsaModelRef({ userText: 'hi' })
+    expect(result.classifierUsage).toBeUndefined()
+  })
+
+  it('omits classifierUsage when classification is skipped (no eligible cheap provider)', async () => {
+    vi.mocked(keyStatus).mockReturnValue({
+      anthropic: true,
+      openai: false,
+      google: false,
+      openrouter: false
+    } as never)
+    const savedAnthropic = CHEAP_MODEL.anthropic
+    delete (CHEAP_MODEL as Record<string, string | undefined>).anthropic
+    try {
+      const result = await resolveUrsaModelRef({ userText: 'hi' })
+      expect(result.classifierUsage).toBeUndefined()
+      expect(invokeSpy).not.toHaveBeenCalled()
+    } finally {
+      ;(CHEAP_MODEL as Record<string, string | undefined>).anthropic = savedAnthropic
+    }
   })
 })

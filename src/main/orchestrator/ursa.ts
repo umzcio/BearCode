@@ -121,7 +121,15 @@ export async function resolveUrsaModelRef(opts: {
   // biases the classifier to stay on the same role while the task continues.
   // Advisory (prompt-only); never forces the choice in code.
   previousRole?: string
-}): Promise<{ modelRef: string; roleName: string }> {
+}): Promise<{
+  modelRef: string
+  roleName: string
+  // Task 5 (#3): the classifier call's OWN token usage, on the cheap model it
+  // ran on -- so its (real) cost is accounted for on turn_meta rather than
+  // vanishing. undefined when classification was skipped (no eligible cheap
+  // provider) or the classifier call failed/reported no usage.
+  classifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
+}> {
   if (!getSettings().ursaEnabled) {
     throw new Error('Ursa is disabled. Enable it in Settings > Ursa.')
   }
@@ -145,6 +153,7 @@ export async function resolveUrsaModelRef(opts: {
     })
     .join('\n')
   let chosenName: string
+  let classifierUsage: { modelRef: string; inputTokens: number; outputTokens: number } | undefined
   if (providerId === null) {
     // No eligible role's provider has both a CHEAP_MODEL entry and a
     // configured key -- skip classification entirely rather than risk
@@ -154,8 +163,12 @@ export async function resolveUrsaModelRef(opts: {
   } else {
     try {
       const cheapId = CHEAP_MODEL[providerId]
+      // includeRaw:true so we also get the underlying AIMessage and can read
+      // its usage_metadata (Task 5) -- withStructuredOutput otherwise hands
+      // back only the parsed object, discarding the token counts.
       const classifier = makeModel(`${providerId}/${cheapId}`).withStructuredOutput(
-        ClassifierOutput
+        ClassifierOutput,
+        { includeRaw: true }
       )
       // Advisory prompt additions (Task 4): a recent-conversation block before
       // the role list, and a previous-role hysteresis line -- both bias the
@@ -184,7 +197,18 @@ export async function resolveUrsaModelRef(opts: {
         ),
         new HumanMessage(opts.userText.slice(0, 2000))
       ])
-      chosenName = result.role
+      chosenName = result.parsed.role
+      // Same usage_metadata fields usage.ts reads for the main turn. Absent on
+      // providers that report nothing -- then classifierUsage stays undefined.
+      const um = (result.raw as { usage_metadata?: { input_tokens?: number; output_tokens?: number } })
+        .usage_metadata
+      if (um && (um.input_tokens != null || um.output_tokens != null)) {
+        classifierUsage = {
+          modelRef: `${providerId}/${cheapId}`,
+          inputTokens: um.input_tokens ?? 0,
+          outputTokens: um.output_tokens ?? 0
+        }
+      }
     } catch {
       // Classifier call failed (rate limit, network, malformed output after
       // retries, or makeModel itself throwing) -- degrade to the first
@@ -194,5 +218,9 @@ export async function resolveUrsaModelRef(opts: {
   }
 
   const chosen = roles.find((r) => r.name === chosenName) ?? roles[0]
-  return { modelRef: chosen.modelRef, roleName: chosen.name }
+  return {
+    modelRef: chosen.modelRef,
+    roleName: chosen.name,
+    ...(classifierUsage ? { classifierUsage } : {})
+  }
 }

@@ -297,6 +297,11 @@ interface DriveContext {
   // read by anything downstream (by the time ctx exists, modelRef is already
   // concrete).
   ursaRole?: string
+  // Ursa Phase 1 (Task 5, #3): the routing classifier's own token usage for
+  // this turn, on the cheap model it ran on. Threaded from resolveTurnModelRef
+  // so closeOutTurn can surface it on turn_meta.ursaClassifierUsage; undefined
+  // for a manually selected model or when classification was skipped/failed.
+  classifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
   startedAt: number
   userText: string
   projectPath: string
@@ -2335,7 +2340,11 @@ function buildAgentAndContext(
   // Ursa Phase 1: the resolved role name, threaded from runGraph so it lands on
   // turn_meta. Defaulted to undefined so rehydratePausedRun's call site (which
   // has only a concrete resolved ref, no live role) stays valid unchanged.
-  ursaRole?: string
+  ursaRole?: string,
+  // Ursa Phase 1 (Task 5, #3): the routing classifier's own token usage, also
+  // threaded from runGraph so it lands on turn_meta. Defaulted to undefined so
+  // the rehydration call site (concrete ref, no classifier ran) stays valid.
+  classifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
 ): BuildResult {
   const { provider: providerId, modelId } = parseModelRef(modelRef)
   const meta = getConversationMeta(conversationId)
@@ -2602,6 +2611,7 @@ function buildAgentAndContext(
     providerId,
     modelId,
     ...(ursaRole ? { ursaRole } : {}),
+    ...(classifierUsage ? { classifierUsage } : {}),
     startedAt: Date.now(),
     userText,
     projectPath: projectPath ?? '',
@@ -2633,7 +2643,11 @@ export async function resolveTurnModelRef(
   conversationId: string,
   modelRef: string,
   userText: string
-): Promise<{ modelRef: string; ursaRole?: string }> {
+): Promise<{
+  modelRef: string
+  ursaRole?: string
+  classifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
+}> {
   if (!isUrsaModelRef(modelRef)) return { modelRef }
   // Task 4 (#2): give the classifier the conversation's recent context and the
   // role that handled the previous turn, so mid-conversation messages route by
@@ -2647,7 +2661,11 @@ export async function resolveTurnModelRef(
     ...(previousRole ? { previousRole } : {})
   })
   setLastResolvedModelRef(conversationId, resolved.modelRef)
-  return { modelRef: resolved.modelRef, ursaRole: resolved.roleName }
+  return {
+    modelRef: resolved.modelRef,
+    ursaRole: resolved.roleName,
+    ...(resolved.classifierUsage ? { classifierUsage: resolved.classifierUsage } : {})
+  }
 }
 
 // Ursa Phase 1: on crash-resume, reuse the concrete model the paused turn's
@@ -2718,7 +2736,7 @@ export async function runGraph(opts: {
   // BEFORE buildAgentAndContext (which parseModelRefs it) ever sees it. A
   // manually selected model is returned untouched.
   const turnModel = await resolveTurnModelRef(conversationId, modelRef, userText)
-  const { modelRef: resolvedModelRef, ursaRole } = turnModel
+  const { modelRef: resolvedModelRef, ursaRole, classifierUsage } = turnModel
 
   const built = buildAgentAndContext(
     conversationId,
@@ -2728,7 +2746,8 @@ export async function runGraph(opts: {
     sink,
     signal,
     mentions,
-    ursaRole
+    ursaRole,
+    classifierUsage
   )
   if ('refusal' in built) {
     // REFUSAL PATH (design 5.3/11, Global Constraints, review finding): the
@@ -3084,7 +3103,8 @@ async function closeOutTurn(
     startedAt: ctx.startedAt,
     endedAt: Date.now(),
     ...(usageSnapshot ? { usage: usageSnapshot } : {}),
-    ...(ctx.ursaRole ? { ursaRole: ctx.ursaRole } : {})
+    ...(ctx.ursaRole ? { ursaRole: ctx.ursaRole } : {}),
+    ...(ctx.classifierUsage ? { ursaClassifierUsage: ctx.classifierUsage } : {})
   }
   appendEvent(ctx.conversationId, turnMeta)
   ctx.sink.emit(ctx.conversationId, turnMeta)

@@ -65,19 +65,32 @@ export function usageByModel(events: Event[]): {
     string,
     { modelRef: string; provider: string; model: string; inputTokens: number; outputTokens: number }
   >()
-  for (const e of events) {
-    if (e.type !== 'turn_meta' || !e.usage) continue
-    const modelRef = `${e.provider}/${e.model}`
+  const add = (modelRef: string, inputTokens: number, outputTokens: number): void => {
+    const slash = modelRef.indexOf('/')
+    const provider = slash === -1 ? modelRef : modelRef.slice(0, slash)
+    const model = slash === -1 ? modelRef : modelRef.slice(slash + 1)
     const cur = map.get(modelRef) ?? {
       modelRef,
-      provider: e.provider,
-      model: e.model,
+      provider,
+      model,
       inputTokens: 0,
       outputTokens: 0
     }
-    cur.inputTokens += e.usage.inputTokens
-    cur.outputTokens += e.usage.outputTokens
+    cur.inputTokens += inputTokens
+    cur.outputTokens += outputTokens
     map.set(modelRef, cur)
+  }
+  for (const e of events) {
+    if (e.type !== 'turn_meta') continue
+    if (e.usage) add(`${e.provider}/${e.model}`, e.usage.inputTokens, e.usage.outputTokens)
+    // Ursa Phase 1 (Task 5, #3): the routing classifier ran on its own cheap
+    // model (its own modelRef, often different from the resolved role's), and
+    // those tokens cost real money -- fold them into the same per-model rollup
+    // so the breakdown/cost accounts for them under the classifier's model.
+    if (e.ursaClassifierUsage) {
+      const cu = e.ursaClassifierUsage
+      add(cu.modelRef, cu.inputTokens, cu.outputTokens)
+    }
   }
   return [...map.values()]
 }
