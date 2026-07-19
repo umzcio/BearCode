@@ -3,7 +3,7 @@
 // each provider is instantiated directly with the user's own key.
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { ChatAnthropic } from '@langchain/anthropic'
-import { ChatOpenAI, ChatOpenAICompletions } from '@langchain/openai'
+import { ChatOpenAI, ChatOpenAICompletions, ChatOpenAIResponses } from '@langchain/openai'
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
 import { BearcodeChatOllama } from './ollamaCompat'
 import { getKey } from '../keys'
@@ -121,13 +121,17 @@ export class AnthropicSearchChat extends ChatAnthropic {
 // Used for OpenAI reasoning models (web_search) AND for xAI's Agent Tools API
 // (web_search + x_search -- xAI's /v1/responses is OpenAI-Responses-compatible;
 // their completions-side live_search was deprecated with a live 410 on
-// 2026-07-19 pointing at docs.x.ai/docs/guides/tools/overview).
-export class OpenAISearchChat extends ChatOpenAI {
+// 2026-07-19). Extends ChatOpenAIResponses DIRECTLY: ChatOpenAI generates
+// through an internal `this.responses` delegate whose invocationParams a
+// ChatOpenAI subclass override never intercepts (verified in the dist --
+// index.cjs:567,583) -- overriding on the Responses class itself is the only
+// seam that actually reaches the wire.
+export class OpenAISearchChat extends ChatOpenAIResponses {
   bearcodeWebSearch = false
   bearcodeSearchTools: { type: string }[] = [{ type: 'web_search' }]
   override invocationParams(
-    ...args: Parameters<ChatOpenAI['invocationParams']>
-  ): ReturnType<ChatOpenAI['invocationParams']> {
+    ...args: Parameters<ChatOpenAIResponses['invocationParams']>
+  ): ReturnType<ChatOpenAIResponses['invocationParams']> {
     const params = super.invocationParams(...args)
     if (!this.bearcodeWebSearch) return params
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -263,9 +267,16 @@ export function makeModel(
       return m
     }
     case 'openai': {
-      const m = new OpenAISearchChat({ apiKey: requireKey('openai'), model: modelId, ...extras })
-      m.bearcodeWebSearch = search
-      return m
+      if (search) {
+        // OpenAISearchChat IS the Responses implementation; the
+        // useResponsesApi flag in extras is meaningless to it (dropped).
+        const { useResponsesApi: _drop, ...rest } = extras
+        void _drop
+        const m = new OpenAISearchChat({ apiKey: requireKey('openai'), model: modelId, ...rest })
+        m.bearcodeWebSearch = true
+        return m
+      }
+      return new ChatOpenAI({ apiKey: requireKey('openai'), model: modelId, ...extras })
     }
     case 'google':
       return new ChatGoogleGenerativeAI({ apiKey: requireKey('google'), model: modelId, ...extras })
@@ -299,7 +310,6 @@ export function makeModel(
           apiKey: requireKey('xai'),
           model: modelId,
           configuration: { baseURL: 'https://api.x.ai/v1' },
-          useResponsesApi: true,
           ...extras
         })
         m.bearcodeWebSearch = true

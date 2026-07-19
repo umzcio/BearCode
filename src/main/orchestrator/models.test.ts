@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('../keys', () => ({
   getKey: (p: string) =>
-    p === 'anthropic' || p === 'perplexity' || p === 'xai' ? 'sk-test' : undefined
+    ['anthropic', 'perplexity', 'xai', 'openai'].includes(p) ? 'sk-test' : undefined
 }))
 
 import { makeModel, buildModelExtras } from './models'
@@ -14,7 +14,7 @@ describe('makeModel', () => {
     expect(m._llmType()).toContain('anthropic')
   })
   it('throws a clear error when the key is missing', () => {
-    expect(() => makeModel('openai/gpt-5.1')).toThrow(/openai/i)
+    expect(() => makeModel('google/gemini-2.5-pro')).toThrow(/google/i)
   })
 
   it('builds Perplexity as an OpenAI-compatible client pointed at the Perplexity baseURL', () => {
@@ -78,16 +78,29 @@ describe('makeModel', () => {
     expect(offTypes).toEqual([])
   })
 
-  it('xAI search-on rides the Agent Tools API: Responses + web_search/x_search built-ins', () => {
+  it('xAI search-on IS a ChatOpenAIResponses instance (no delegate) with the xAI built-ins', () => {
     const on = makeModel('xai/grok-4.5', { webSearch: true })
+    // ChatOpenAI delegates generation to an inner Responses object whose
+    // invocationParams a ChatOpenAI-subclass override never intercepts (the
+    // first live smoke proved it: no server search fired). The search model
+    // must BE the Responses class so this override is on the request path.
+    expect(on.constructor.name).toBe('OpenAISearchChat')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((on as any).useResponsesApi).toBe(true)
+    expect((on as any).responses).toBeUndefined()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const types = ((on as any).invocationParams({}).tools ?? []).map((t: any) => t.type)
     expect(types).toContain('web_search')
     expect(types).toContain('x_search')
     expect(types).not.toContain('live_search')
-    expect(types).not.toContain('code_execution')
+  })
+
+  it('OpenAI search-on is also the direct Responses class with web_search', () => {
+    const m = makeModel('openai/gpt-5.6-sol', { webSearch: true })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).responses).toBeUndefined()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const types = ((m as any).invocationParams({}).tools ?? []).map((t: any) => t.type)
+    expect(types).toContain('web_search')
   })
 
   it('Anthropic appends its server web_search tool only when the toggle is on', () => {
