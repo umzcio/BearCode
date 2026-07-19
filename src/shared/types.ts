@@ -919,6 +919,11 @@ export type PreviewPayload =
   | { kind: 'markdown'; text: string }
   | { kind: 'code'; text: string; language: string }
   | { kind: 'html'; html: string }
+  // An on-disk HTML file served through the bearcode-preview:// protocol so
+  // the preview iframe gets its own origin + CSP: page scripts run and
+  // relative css/js/image references resolve. 'html' (an HTML STRING with no
+  // file behind it, e.g. a rendered .docx) keeps the blob-URL lane.
+  | { kind: 'html-url'; url: string }
   | { kind: 'table'; rows: string[][] }
   | { kind: 'image'; dataUrl: string }
   | { kind: 'pdf'; dataUrl: string }

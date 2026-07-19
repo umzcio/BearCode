@@ -71,7 +71,7 @@ import { syncPricing } from './pricing/sync'
 import { filePathFor, getDiff, revertFile } from './diffs'
 import { transcribe } from './voice/transcribe'
 import { previewClassify } from './preview/classify'
-import { inlineHtmlAssets, injectPreviewNavGuard } from './preview/inlineHtml'
+import { previewUrlFor } from './preview/protocol'
 import { runOfficeHtml, runOfficeRows } from './attachments/office'
 import { parseCsv } from './preview/csv'
 import { extractTextLane } from './attachments/extract'
@@ -436,13 +436,11 @@ export function registerIpc(): void {
         return { kind: 'code', text: bytes.toString('utf8'), language: c.language ?? 'plaintext' }
       }
       if (c.kind === 'html') {
-        // Inline local sibling CSS/JS so the blob-URL preview iframe renders
-        // styled, then inject the (CSP-hash-allowed) anchor scroll guard so
-        // in-page "#" links scroll instead of doing nothing.
-        return {
-          kind: 'html',
-          html: injectPreviewNavGuard(inlineHtmlAssets(bytes.toString('utf8'), path))
-        }
+        // Served via bearcode-preview:// (src/main/preview/protocol.ts) so the
+        // preview iframe gets its own origin + per-response CSP: page scripts
+        // run there without loosening the app's CSP, and relative css/js/image
+        // references resolve naturally instead of needing inlining.
+        return { kind: 'html-url', url: previewUrlFor(fileId, path) }
       }
       const r = extractTextLane(bytes)
       return { kind: 'text', text: r.text, truncated: r.truncated }

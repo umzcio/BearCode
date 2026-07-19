@@ -2,6 +2,7 @@ import { app, shell, session, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { bootResumeInterruptedRuns, registerIpc } from './ipc'
+import { registerPreviewSchemePrivileges, registerPreviewProtocol } from './preview/protocol'
 import { initUpdater } from './updater'
 import { runDevSmoke } from './devSmoke'
 import { REMOTE_DEBUG_PORT, setMainWindow, setBrowserDebuggingEnabled } from './mainWindow'
@@ -30,6 +31,10 @@ function browserEnabledAtBoot(): boolean {
     return false
   }
 }
+// The bearcode-preview:// scheme must be registered as privileged BEFORE app
+// ready (Electron requirement); the handler itself registers in whenReady.
+registerPreviewSchemePrivileges()
+
 const cdpEnabled = browserEnabledAtBoot()
 setBrowserDebuggingEnabled(cdpEnabled)
 if (cdpEnabled) {
@@ -139,6 +144,7 @@ app.whenReady().then(() => {
   )
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media')
 
+  registerPreviewProtocol()
   registerIpc()
   createWindow()
 

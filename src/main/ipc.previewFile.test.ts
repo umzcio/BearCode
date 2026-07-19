@@ -171,18 +171,17 @@ describe('diffs:preview IPC', () => {
     expect(result).toEqual({ kind: 'code', text: '{\n  "a": 1\n}', language: 'json' })
   })
 
-  it('an .html file renders as html', async () => {
+  it('an .html file resolves to a bearcode-preview:// URL (own-origin iframe, scripts run)', async () => {
     filePathFor.mockReturnValue('/ws/page.html')
     statSync.mockReturnValue({ size: 10 })
     readFileSync.mockReturnValue(Buffer.from('<h1>hi</h1>'))
 
     const result = await handlers.get('bearcode:diffs:preview')!({}, 'f11')
 
-    // Asset inlining leaves this markup untouched (no <link>/<script src>), and
-    // the anchor-scroll guard is appended for the blob-URL preview iframe.
-    expect(result.kind).toBe('html')
-    expect((result as { html: string }).html).toContain('<h1>hi</h1>')
-    expect((result as { html: string }).html).toContain('scrollIntoView')
+    expect(result).toEqual({
+      kind: 'html-url',
+      url: 'bearcode-preview://preview/f11/page.html'
+    })
   })
 
   it('an unknown fileId (filePathFor -> null) is unsupported', async () => {

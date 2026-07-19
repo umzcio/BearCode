@@ -51,6 +51,20 @@ export function FilePreview({ fileId }: { fileId: string }): React.JSX.Element {
 
   if (!payload) return <div className="file-preview loading">Loading preview…</div>
   if (payload.kind === 'html') return <HtmlPreview html={payload.html} />
+  if (payload.kind === 'html-url')
+    // An on-disk HTML file, served via bearcode-preview:// so it gets its own
+    // origin + CSP: page scripts run and relative css/js/images resolve. Same
+    // sandbox as the blob lane -- scripts yes, same-origin/parent access no.
+    return (
+      <div className="file-preview html">
+        <iframe
+          className="file-preview-frame"
+          title="preview"
+          sandbox="allow-scripts"
+          src={payload.url}
+        />
+      </div>
+    )
   if (payload.kind === 'image')
     return (
       <div className="file-preview image">
