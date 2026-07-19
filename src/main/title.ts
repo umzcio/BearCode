@@ -44,10 +44,21 @@ export async function maybeGenerateTitle(
       // Generous ceiling: local thinking models reason before titling.
       { signal: AbortSignal.timeout(60000) }
     )
-    const title = textOfMessage(response.content)
-      .trim()
+    // Cheap models don't always follow "only the title": search-tuned ones
+    // (Perplexity sonar) may echo a whole markdown-formatted sentence with
+    // citation markers. Titles render as plain text in the sidebar, so strip
+    // to the first line and drop markdown/citation decoration outright.
+    const firstLine =
+      textOfMessage(response.content)
+        .split('\n')
+        .map((l) => l.trim())
+        .find((l) => l.length > 0) ?? ''
+    const title = firstLine
+      .replace(/\[\d+\]/g, '')
+      .replace(/[*_`#]/g, '')
       .replace(/^["']|["']$/g, '')
       .replace(/\s+/g, ' ')
+      .trim()
       .slice(0, 80)
     if (!title) return
     setTitle(conversationId, title)

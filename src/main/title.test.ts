@@ -73,6 +73,19 @@ describe('maybeGenerateTitle', () => {
     expect(title.startsWith('"')).toBe(false)
   })
 
+  it('strips markdown decoration and [n] citation markers from a sloppy title', async () => {
+    vi.mocked(getConversationMeta).mockReturnValue({ title: null } as never)
+    invokeSpy.mockResolvedValue({
+      content:
+        'Zach Rossmiller is the **Associate Vice President**.[2][3]\nSecond line to be dropped.'
+    })
+    await maybeGenerateTitle('c1', 'perplexity', 'sonar-pro', 'hi', 'hello', onTitle)
+    expect(setTitle).toHaveBeenCalledWith(
+      'c1',
+      'Zach Rossmiller is the Associate Vice President.'
+    )
+  })
+
   it('extracts text from a content-block-array response', async () => {
     vi.mocked(getConversationMeta).mockReturnValue({ title: null } as never)
     invokeSpy.mockResolvedValue({ content: [{ type: 'text', text: 'Block title' }] })
