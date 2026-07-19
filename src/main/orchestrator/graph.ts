@@ -1962,8 +1962,20 @@ const pendingApprovals = new Map<string, PendingApprovalSet>()
 // other signal to clear that entry -- so it registers this callback to prune
 // its map. Set via setOnResumeSettled; a plain module-level hook rather than a
 // direct import keeps index.ts -> graph.ts the only import direction.
-let onResumeSettled: ((conversationId: string) => void) | undefined
-export function setOnResumeSettled(fn: (conversationId: string) => void): void {
+//
+// Ursa Phase 2 (Task 4): the resumed run's own sink is threaded through so a
+// paused PIPELINE step that just settled can re-enter the step loop (index.ts's
+// callback advances the cursor + drives the next step on this same sink). The
+// sink is the run's parked ctx.sink -- the app's single broadcast sink. `failed`
+// is true when the resumed turn settled via failTurn (error/cancelled) rather
+// than cleanly, so a failed pipeline step halts the pipeline instead of
+// advancing into the next step.
+let onResumeSettled:
+  | ((conversationId: string, sink: RunSink, failed: boolean) => void)
+  | undefined
+export function setOnResumeSettled(
+  fn: (conversationId: string, sink: RunSink, failed: boolean) => void
+): void {
   onResumeSettled = fn
 }
 
@@ -2321,18 +2333,22 @@ async function continueAfterApproval(pending: PendingApprovalSet): Promise<void>
   // anything else); clear any leftovers on every exit path, including the
   // re-pause early return.
   pinDeniedReplays(ctx.conversationId, deniedReplayPinsOf(items))
+  let failed = false
   try {
     const result = await drive(agent, new Command({ resume: buildResumeMap(items) }), ctx)
     if (await settleTurn(agent, result, ctx)) return
   } catch (err) {
     await failTurn(ctx, err)
+    failed = true
   } finally {
     clearDeniedReplayPins(ctx.conversationId)
   }
   // Reached only on a terminal settle (closeOutTurn or failTurn), never on the
   // re-pause early return above -- so index.ts clears the AbortController it
-  // kept alive across the pause exactly once the resumed run is truly over.
-  onResumeSettled?.(ctx.conversationId)
+  // kept alive across the pause exactly once the resumed run is truly over (or,
+  // for a cleanly-settled paused pipeline step, advances the cursor and drives
+  // the next step; a failed one halts the pipeline).
+  onResumeSettled?.(ctx.conversationId, ctx.sink, failed)
 }
 
 async function failTurn(ctx: DriveContext, err: unknown): Promise<void> {
@@ -2765,7 +2781,34 @@ export async function runGraph(opts: {
   // ursaRole for turn_meta is recovered from the modelRef when omitted, so
   // per-role spend still attributes correctly. Undefined for every normal turn.
   ursaResolved?: { modelRef: string; ursaRole?: string }
-}): Promise<{ paused: boolean }> {
+  // Ursa Phase 2 (Task 4): drive ONE step of an approved pipeline. When set,
+  // runGraph:
+  //  - skips the user_message echo (+ rule-mention pin + force-compact): steps
+  //    are internal turns; the real user_message was persisted when the proposal
+  //    was created;
+  //  - skips classification entirely, using ursaStep.modelRef + role directly
+  //    (still setLastResolvedModelRef so a tool-approval pause INSIDE the step
+  //    resumes on the right model via the existing rehydrate path);
+  //  - emits+persists an `ursa_step` divider before the drive;
+  //  - drives with a synthesized step instruction as the human message (step 1
+  //    = the original user text + focus; steps 2+ = build-on-the-work-above).
+  // Each step's own turn_meta carries its role (ctx.ursaRole), so per-role spend
+  // attributes correctly with ZERO extra plumbing. Undefined for every non-step
+  // turn. Mutually exclusive with ursaResolved in practice.
+  ursaStep?: {
+    index: number
+    total: number
+    role: string
+    modelRef: string
+    subtask: string
+    originalUserText: string
+  }
+  // `failed` is true when the turn ended in a terminal error/cancelled state
+  // (refusal, or a drive that threw -> failTurn) rather than completing cleanly.
+  // Both share `paused: false`, so the Ursa pipeline runner (Task 4) needs this
+  // to know NOT to advance the cursor / start the next step. Existing callers
+  // read only `paused` and are unaffected.
+}): Promise<{ paused: boolean; failed?: boolean }> {
   const {
     conversationId,
     userText,
@@ -2775,7 +2818,8 @@ export async function runGraph(opts: {
     command = null,
     mentions = [],
     attachments = [],
-    ursaResolved
+    ursaResolved,
+    ursaStep
   } = opts
 
   sink.setState(conversationId, 'running')
@@ -2783,11 +2827,12 @@ export async function runGraph(opts: {
   // submissions; if the old interrupted task replays on this thread, it
   // re-enters its own artifactId slot (tools.ts tryEnterPlanReview).
   clearPlanReviewPending(conversationId)
-  if (!ursaResolved) {
+  if (!ursaResolved && !ursaStep) {
     // Pin any @-mentioned Manual rules into active_rules BEFORE building the
     // agent, so this turn's meta read already includes them (see
-    // persistRuleMentions). Skipped on the declined-pipeline re-run: the
-    // mentions were already pinned when the proposal was created.
+    // persistRuleMentions). Skipped on the declined-pipeline re-run and on
+    // pipeline steps: the mentions were already pinned when the proposal was
+    // created, and pipeline steps are internal turns (no user_message echo).
     persistRuleMentions(conversationId, mentions)
     const userEvent: Event = {
       type: 'user_message',
@@ -2818,7 +2863,28 @@ export async function runGraph(opts: {
   let resolvedModelRef: string
   let ursaRole: string | undefined
   let classifierUsage: { modelRef: string; inputTokens: number; outputTokens: number } | undefined
-  if (ursaResolved) {
+  if (ursaStep) {
+    // Ursa Phase 2 (Task 4): a pipeline step runs on its curated role's model,
+    // never re-classified. Persist it as the last-resolved ref so a tool-approval
+    // pause inside this step rehydrates on the right model (design §3.1).
+    resolvedModelRef = ursaStep.modelRef
+    ursaRole = ursaStep.role
+    setLastResolvedModelRef(conversationId, ursaStep.modelRef)
+    // The step divider, emitted+persisted BEFORE the drive (design §3.2): a
+    // slim presentational "Step i/N · role · model" system row. Emitted here,
+    // before buildAgentAndContext, so it is part of the transcript even if the
+    // build then fails (honest "step started, then errored" ordering).
+    emitAndPersist(conversationId, sink, {
+      type: 'ursa_step',
+      id: randomUUID(),
+      index: ursaStep.index,
+      total: ursaStep.total,
+      role: ursaStep.role,
+      modelRef: ursaStep.modelRef,
+      subtask: ursaStep.subtask,
+      createdAt: Date.now()
+    })
+  } else if (ursaResolved) {
     resolvedModelRef = ursaResolved.modelRef
     ursaRole = ursaResolved.ursaRole ?? roleNameForModelRef(ursaResolved.modelRef)
   } else {
@@ -2876,7 +2942,7 @@ export async function runGraph(opts: {
       recoverable: true
     })
     sink.setState(conversationId, 'error')
-    return { paused: false }
+    return { paused: false, failed: true }
   }
   const { agent, ctx } = built
 
@@ -2891,8 +2957,16 @@ export async function runGraph(opts: {
   // in context, so the acknowledgement is truthful whether or not there was
   // enough history to compact (see COMPACT_ACK_DIRECTIVE). Trailing prose after
   // /compact runs verbatim (compaction still attempted; flag set before build).
-  const modelText =
-    userText.trim() !== ''
+  // Ursa Phase 2 (Task 4): a pipeline step's human message is synthesized from
+  // the step, not the raw userText. Step 1 restates the user's original request
+  // plus its subtask focus; later steps reference the prior work, which the
+  // thread's checkpoint history carries in-context (no manual plumbing).
+  const modelText = ursaStep
+    ? ursaStep.index === 1
+      ? `${ursaStep.originalUserText}\n\n(Step 1/${ursaStep.total}, focus: ${ursaStep.subtask})`
+      : `Step ${ursaStep.index}/${ursaStep.total} (${ursaStep.role}): ${ursaStep.subtask}. ` +
+        'Build directly on the work above in this conversation.'
+    : userText.trim() !== ''
       ? userText
       : command?.kind === 'builtin' && command.name === 'compact'
         ? COMPACT_ACK_DIRECTIVE
@@ -2913,6 +2987,7 @@ export async function runGraph(opts: {
     if (await settleTurn(agent, result, ctx)) return { paused: true }
   } catch (err) {
     await failTurn(ctx, err)
+    return { paused: false, failed: true }
   }
   return { paused: false }
 }

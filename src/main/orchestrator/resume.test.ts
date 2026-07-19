@@ -14,6 +14,10 @@ const getZombieRunIds = vi.fn<() => string[]>()
 const getConversationMeta = vi.fn<(id: string) => ConversationMeta | null>()
 const getEvents = vi.fn(() => [] as unknown[])
 const appendEvent = vi.fn()
+// Ursa Phase 2: resumeInterruptedRuns marks a non-resumable 'running' pipeline
+// 'stopped'. Default: no pipeline row -> the branch is a no-op for these tests.
+const getUrsaPipeline = vi.fn<(id: string) => { status: string } | undefined>(() => undefined)
+const setUrsaPipelineStatus = vi.fn()
 
 vi.mock('../db', () => ({
   listConversations: (...args: unknown[]) => listConversations(...(args as [])),
@@ -21,6 +25,11 @@ vi.mock('../db', () => ({
   getConversationMeta: (...args: [string]) => getConversationMeta(...args),
   getEvents: (...args: unknown[]) => getEvents(...(args as [])),
   appendEvent: (...args: unknown[]) => appendEvent(...args),
+  appendOrReplaceEvent: vi.fn(),
+  getLastResolvedModelRef: vi.fn(() => null),
+  getUrsaPipeline: (...args: [string]) => getUrsaPipeline(...args),
+  advanceUrsaPipeline: vi.fn(),
+  setUrsaPipelineStatus: (...args: unknown[]) => setUrsaPipelineStatus(...(args as [string, string])),
   setModelRef: vi.fn()
 }))
 
@@ -95,6 +104,9 @@ describe('resumeInterruptedRuns', () => {
     getEvents.mockReturnValue([])
     appendEvent.mockReset()
     rehydratePausedRun.mockReset()
+    getUrsaPipeline.mockReset()
+    getUrsaPipeline.mockReturnValue(undefined)
+    setUrsaPipelineStatus.mockReset()
   })
 
   it('resumable approval-paused conversation: rehydrated, NOT marked cancelled', async () => {
@@ -122,6 +134,33 @@ describe('resumeInterruptedRuns', () => {
     expect(rehydratePausedRun).toHaveBeenCalledTimes(1)
     expect(sink.setState).toHaveBeenCalledTimes(1)
     expect(sink.setState).toHaveBeenCalledWith('convo-midstream', 'cancelled')
+  })
+
+  it('Ursa Phase 2: a non-resumable RUNNING pipeline is marked stopped (no zombie row)', async () => {
+    listConversations.mockReturnValue([meta('convo-pipeline')])
+    getZombieRunIds.mockReturnValue(['convo-pipeline'])
+    rehydratePausedRun.mockResolvedValue(false) // crash left no resumable checkpoint
+    getUrsaPipeline.mockReturnValue({ status: 'running' })
+    const sink = makeSink()
+
+    await resumeInterruptedRuns(sink)
+
+    expect(setUrsaPipelineStatus).toHaveBeenCalledWith('convo-pipeline', 'stopped')
+    expect(sink.setState).toHaveBeenCalledWith('convo-pipeline', 'cancelled')
+  })
+
+  it('Ursa Phase 2: a RESUMABLE pipeline is left running (advances via onResumeSettled later)', async () => {
+    listConversations.mockReturnValue([meta('convo-pipeline')])
+    getZombieRunIds.mockReturnValue(['convo-pipeline'])
+    rehydratePausedRun.mockResolvedValue(true) // the paused step re-parked cleanly
+    getUrsaPipeline.mockReturnValue({ status: 'running' })
+    const sink = makeSink()
+
+    await resumeInterruptedRuns(sink)
+
+    // Left 'running': the re-parked step will advance the pipeline once it settles.
+    expect(setUrsaPipelineStatus).not.toHaveBeenCalled()
+    expect(sink.setState).not.toHaveBeenCalledWith('convo-pipeline', 'cancelled')
   })
 
   it('dangling with no modelRef: cancelled without attempting rehydrate', async () => {

@@ -1882,6 +1882,58 @@ describe('runGraph — Ursa Phase 2 pipeline proposal (consent gate)', () => {
   })
 })
 
+describe('runGraph — Ursa Phase 2 pipeline step (ursaStep)', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
+
+  // A pipeline step's pre-build bookkeeping runs before buildAgentAndContext
+  // (which needs deeper mocks than this suite provides and so throws here). The
+  // assertions target exactly that bookkeeping, which is complete by then:
+  // classification is skipped, the step model is persisted for rehydration, an
+  // ursa_step divider is emitted, and NO user_message is echoed.
+  it('skips classification, persists the step model, emits an ursa_step divider, and echoes no user_message', async () => {
+    const sink = makeSink()
+    await runGraph({
+      conversationId: 'c1',
+      userText: '',
+      modelRef: 'openai/gpt-5.6-sol',
+      sink,
+      signal: new AbortController().signal,
+      ursaStep: {
+        index: 2,
+        total: 3,
+        role: 'reviewer',
+        modelRef: 'openai/gpt-5.6-sol',
+        subtask: 'review the parser',
+        originalUserText: 'build a parser, then review it'
+      }
+      // buildAgentAndContext throws with this suite's minimal mocks; the divider
+      // + model persistence already happened before it.
+    }).catch(() => {})
+
+    // The classifier is never consulted for a step.
+    expect(resolveUrsaModelRef).not.toHaveBeenCalled()
+    // The step's model is persisted so a tool-approval pause inside it rehydrates
+    // on the right model (design §3.1).
+    expect(setLastResolvedModelRef).toHaveBeenCalledWith('c1', 'openai/gpt-5.6-sol')
+
+    const emitted = vi.mocked(sink.emit).mock.calls.map((c) => c[1])
+    const stepDivider = emitted.find((e) => e.type === 'ursa_step')
+    expect(stepDivider).toMatchObject({
+      type: 'ursa_step',
+      index: 2,
+      total: 3,
+      role: 'reviewer',
+      modelRef: 'openai/gpt-5.6-sol',
+      subtask: 'review the parser'
+    })
+    // Steps are internal turns -- the real user_message was persisted when the
+    // proposal was created, never re-echoed here.
+    expect(emitted.some((e) => e.type === 'user_message')).toBe(false)
+  })
+})
+
 describe('buildSubagents (Ursa Arc 2 subagent-level routing)', () => {
   afterEach(() => vi.clearAllMocks())
 

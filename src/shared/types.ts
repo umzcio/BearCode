@@ -707,6 +707,21 @@ export type Event =
       ursaClassifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
     }
   | { type: 'error'; id: string; message: string; recoverable: boolean }
+  // Ursa Phase 2 (pipeline mode): a step divider emitted BEFORE each step of an
+  // approved multi-role pipeline drives, so the transcript shows which role/model
+  // is running which subtask ("Step 2/3 · reviewer · Claude Sonnet 5"). Purely
+  // presentational; `index` is 1-based, `total` is the step count. Older event
+  // streams simply lack it; renderers must handle its absence.
+  | {
+      type: 'ursa_step'
+      id: string
+      index: number
+      total: number
+      role: string
+      modelRef: string
+      subtask: string
+      createdAt?: number
+    }
   // Optional & additive marker emitted when the summarization middleware folds
   // the oldest `summarizedCount` messages into a summary (auto-compaction).
   // Older event streams simply lack it; renderers must handle its absence.

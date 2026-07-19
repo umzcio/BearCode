@@ -16,6 +16,7 @@ import {
 } from '../../shared/types'
 import type { RunSink } from '../sink'
 import {
+  advanceUrsaPipeline,
   appendEvent,
   appendOrReplaceEvent,
   getConversationMeta,
@@ -67,7 +68,30 @@ export function clearRunsOrchestrator(): void {
 // resumed run to its terminal state itself (closeOutTurn handles the final
 // state + title); this callback fires once that happens so the kept-alive
 // controller doesn't leak in the map for the life of the process.
-setOnResumeSettled((conversationId) => {
+//
+// Ursa Phase 2 (Task 4): if the run that just settled was a PAUSED PIPELINE
+// STEP (a tool-approval inside the step, now resolved and driven to done by
+// continueAfterApproval), the pipeline is NOT over -- advance the persisted
+// cursor and drive the next step on the SAME kept-alive AbortController. Only
+// then (or for any non-pipeline run) do we drop the controller.
+setOnResumeSettled((conversationId, sink, failed) => {
+  const pipeline = getUrsaPipeline(conversationId)
+  if (pipeline && pipeline.status === 'running') {
+    // The resumed step ended in error/cancelled: halt the pipeline honestly
+    // (mark 'stopped', no zombie 'running' row) rather than advancing into the
+    // next step on a failed thread. failTurn already surfaced the terminal
+    // state.
+    if (failed) {
+      setUrsaPipelineStatus(conversationId, 'stopped')
+    } else {
+      const controller = aborts.get(conversationId)
+      if (controller) {
+        advanceUrsaPipeline(conversationId)
+        void runUrsaPipeline(conversationId, sink, controller.signal)
+        return
+      }
+    }
+  }
   aborts.delete(conversationId)
 })
 
@@ -168,6 +192,19 @@ export function cancelRunOrchestrator(conversationId: string, sink?: RunSink): v
     if (meta) sink.metaChanged(meta)
     return
   }
+  // Ursa Phase 2 (Task 4): Stop while an approved pipeline is RUNNING. Two
+  // sub-cases share this mark:
+  //  - a step is actively driving: the abort() above cancels its drive signal;
+  //    runUrsaPipeline's own catch surfaces the terminal 'cancelled' state and
+  //    marks the row 'stopped' (so marking here is a harmless idempotent early
+  //    write) -- cancelPendingApproval finds nothing and this returns below.
+  //  - a step is PAUSED at a tool-approval interrupt: abort() is a no-op, and
+  //    the cancelPendingApproval path below emits 'cancelled' from the parked
+  //    sink, but runUrsaPipeline is NOT on the stack to mark the row -- so
+  //    marking it 'stopped' HERE is REQUIRED to avoid a zombie 'running' row.
+  if (pipeline && pipeline.status === 'running') {
+    setUrsaPipelineStatus(conversationId, 'stopped')
+  }
   const parkedSink = cancelPendingApproval(conversationId)
   if (!parkedSink) return
   aborts.delete(conversationId)
@@ -244,22 +281,102 @@ export function resolveUrsaPipelineOrchestrator(
   }
 }
 
-// Ursa Phase 2 (Task 4 PLACEHOLDER): the step-execution loop that runs an
-// approved pipeline's steps in order. Task 4 replaces this body with the real
-// runner (per-step runGraph({ ursaStep }) calls + advanceUrsaPipeline + the
-// onResumeSettled re-entry). Until then, an approved pipeline flips its card to
-// 'approved' and parks in status 'running' with a live AbortController, but no
-// step executes yet -- a known, isolated Task-3 gap, called out here so Task 4
-// wires the loop and its Stop/crash lifecycle in one place.
+// Ursa Phase 2 (Task 4): the step-execution loop for an approved pipeline. Each
+// step is its OWN runGraph({ ursaStep }) call driven on the concrete role model;
+// the thread's checkpoint history carries prior steps' work in-context, so no
+// manual context plumbing is needed. Entered on approve (from status 'running',
+// cursor 0) and re-entered from the onResumeSettled callback after a paused
+// step settles (cursor already advanced there). The loop:
+//  - drives step `current_step`; on UNPAUSED completion advances the cursor and
+//    continues to the next step in the same tick;
+//  - on a PAUSED step (a tool-approval interrupt inside it) STOPS looping and
+//    returns, leaving the kept-alive AbortController in `aborts` -- resumption
+//    flows back through onResumeSettled (which advances + re-enters);
+//  - after the last step marks the pipeline 'done' (each step's own closeOutTurn
+//    already set the conversation's terminal 'done' run state);
+//  - on Stop (signal aborted) or any drive throw marks the pipeline 'stopped'
+//    and surfaces the terminal error/cancelled state -- partial work stays in
+//    the transcript, honestly labeled, and no further step is started.
 export async function runUrsaPipeline(
   conversationId: string,
-  _sink: RunSink,
-  _signal: AbortSignal
+  sink: RunSink,
+  signal: AbortSignal
 ): Promise<void> {
-  console.warn(
-    `[bearcode] runUrsaPipeline placeholder: approved pipeline for ${conversationId} ` +
-      `will not execute until Ursa Phase 2 Task 4 lands.`
-  )
+  const pipeline = getUrsaPipeline(conversationId)
+  // Guard: only a 'running' pipeline is drivable. A stale re-entry (Stop flipped
+  // it to 'stopped', a crash marked it, etc.) just drops the controller.
+  if (!pipeline || pipeline.status !== 'running') {
+    aborts.delete(conversationId)
+    return
+  }
+  const steps = pipeline.steps
+  // The original request drives step 1's human message; re-read from the
+  // persisted user_message (crash-safe, single source of truth).
+  const originalUserText = lastUserMessageFull(conversationId).text
+  try {
+    let completedAll = true
+    // Resume from the persisted cursor: fresh approve => 0; a re-entry after a
+    // paused step => onResumeSettled already advanced it past the settled step.
+    for (let index = pipeline.currentStep; index < steps.length; index++) {
+      // Stop landed between steps: halt before starting another.
+      if (signal.aborted) {
+        setUrsaPipelineStatus(conversationId, 'stopped')
+        completedAll = false
+        break
+      }
+      const step = steps[index]
+      const { paused, failed } = await runGraph({
+        conversationId,
+        userText: '',
+        modelRef: step.modelRef,
+        sink,
+        signal,
+        ursaStep: {
+          index: index + 1,
+          total: steps.length,
+          role: step.role,
+          modelRef: step.modelRef,
+          subtask: step.subtask,
+          originalUserText
+        }
+      })
+      // Paused inside this step (tool approval): stop the loop. The kept-alive
+      // AbortController stays registered; onResumeSettled advances + re-enters
+      // once the approval resolves and the step settles.
+      if (paused) return
+      // A step that ended in error or was cancelled mid-drive shares
+      // `paused: false` with a clean completion, but runGraph's own failTurn
+      // already surfaced the terminal error/cancelled state. Do NOT advance the
+      // cursor or start the next step: mark the pipeline 'stopped' and halt
+      // (honest partial result, no zombie 'running' row, no cascade of aborted
+      // steps each re-emitting an error).
+      if (failed || signal.aborted) {
+        setUrsaPipelineStatus(conversationId, 'stopped')
+        completedAll = false
+        break
+      }
+      advanceUrsaPipeline(conversationId)
+    }
+    // Only a run that walked every step without pausing/failing gets here with
+    // completedAll still true; a break above already set 'stopped'.
+    if (completedAll) setUrsaPipelineStatus(conversationId, 'done')
+  } catch (err) {
+    // A step drive that threw (e.g. buildAgentAndContext refused a missing
+    // worktree) or a Stop mid-step. Either way the pipeline cannot continue:
+    // mark it 'stopped' (never leave a zombie 'running' row) and surface the
+    // terminal state, mirroring startRunOrchestrator's own catch.
+    const cancelled = signal.aborted
+    const message = cancelled ? 'Cancelled' : err instanceof Error ? err.message : String(err)
+    if (!cancelled) console.error(`[bearcode] ursa pipeline step failed (${conversationId}):`, message)
+    setUrsaPipelineStatus(conversationId, 'stopped')
+    const event: Event = { type: 'error', id: randomUUID(), message, recoverable: true }
+    sink.emit(conversationId, event)
+    appendEvent(conversationId, event)
+    sink.setState(conversationId, cancelled ? 'cancelled' : 'error')
+  }
+  aborts.delete(conversationId)
+  const meta = getConversationMeta(conversationId)
+  if (meta) sink.metaChanged(meta)
 }
 
 // The declined-pipeline single-role run (Task 3). Mirrors startRunOrchestrator's
@@ -632,6 +749,17 @@ export async function resumeInterruptedRuns(sink: RunSink): Promise<void> {
     }
     // Not resumable (no modelRef, no interrupt, or rehydrate failed): degrade
     // clean, exactly as before.
-    if (!resumed) sink.setState(meta.id, 'cancelled')
+    if (!resumed) {
+      // Ursa Phase 2 (Task 4): a pipeline caught mid-step by the crash with no
+      // resumable checkpoint cannot honestly re-run -- mark it 'stopped' so it is
+      // never left a zombie 'running' row (a resumable one is left 'running' and
+      // advances normally through onResumeSettled once its re-parked step
+      // settles). Silent no-op for conversations with no pipeline.
+      const pipeline = getUrsaPipeline(meta.id)
+      if (pipeline && pipeline.status === 'running') {
+        setUrsaPipelineStatus(meta.id, 'stopped')
+      }
+      sink.setState(meta.id, 'cancelled')
+    }
   }
 }

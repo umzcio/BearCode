@@ -15,6 +15,7 @@ vi.mock('./graph', () => ({
   setOnResumeSettled: vi.fn()
 }))
 vi.mock('../db', () => ({
+  advanceUrsaPipeline: vi.fn(),
   appendEvent: vi.fn(),
   appendOrReplaceEvent: vi.fn(),
   getConversationMeta: vi.fn(() => null),
@@ -32,17 +33,29 @@ import {
   assertValidCommand,
   assertValidMentions,
   cancelRunOrchestrator,
-  resolveUrsaPipelineOrchestrator
+  resolveUrsaPipelineOrchestrator,
+  runUrsaPipeline
 } from './index'
 import {
+  advanceUrsaPipeline,
   appendOrReplaceEvent,
   getLastResolvedModelRef,
   getUrsaPipeline,
   setUrsaPipelineStatus
 } from '../db'
-import { cancelPendingApproval, runGraph } from './graph'
+import { cancelPendingApproval, runGraph, setOnResumeSettled } from './graph'
+import type { UrsaPipelineRecord } from '../db'
 import type { RunSink } from '../sink'
 import type { Event } from '../../shared/types'
+
+// index.ts registers its onResumeSettled callback at module load; capture it
+// now (before any beforeEach clearAllMocks wipes the recorded call) so the
+// pause/resume test can simulate a paused pipeline step settling.
+const onResumeSettled = vi.mocked(setOnResumeSettled).mock.calls[0]?.[0] as (
+  conversationId: string,
+  sink: RunSink,
+  failed: boolean
+) => void
 
 const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
 const emittedEvents = (sink: RunSink): Event[] =>
@@ -239,5 +252,145 @@ describe('cancelRunOrchestrator — Stop while a pipeline is proposed', () => {
     cancelRunOrchestrator('c1', sink)
     expect(setUrsaPipelineStatus).not.toHaveBeenCalled()
     expect(cancelPendingApproval).toHaveBeenCalledWith('c1')
+  })
+
+  it('Stop while a pipeline is RUNNING marks it stopped and still runs the parked-approval path', () => {
+    // Sub-case: a step paused at a tool-approval interrupt. abort() is a no-op,
+    // cancelPendingApproval below cancels the parked card, and runUrsaPipeline is
+    // NOT on the stack -- so cancelRunOrchestrator must mark the row 'stopped'.
+    vi.mocked(getUrsaPipeline).mockReturnValue({ ...proposed, status: 'running' })
+    vi.mocked(cancelPendingApproval).mockReturnValue(undefined)
+    const sink = makeSink()
+    cancelRunOrchestrator('c1', sink)
+    expect(setUrsaPipelineStatus).toHaveBeenCalledWith('c1', 'stopped')
+    expect(cancelPendingApproval).toHaveBeenCalledWith('c1')
+  })
+})
+
+describe('runUrsaPipeline (Ursa Phase 2 step-execution loop)', () => {
+  const steps = [
+    { role: 'coder', modelRef: 'openai/gpt-5.6-sol', subtask: 'build it' },
+    { role: 'reviewer', modelRef: 'anthropic/claude-sonnet-5', subtask: 'review it' },
+    { role: 'grunt', modelRef: 'anthropic/claude-haiku-4-5', subtask: 'polish it' }
+  ]
+  const running = (currentStep = 0): UrsaPipelineRecord => ({
+    conversationId: 'c1',
+    steps,
+    status: 'running',
+    currentStep,
+    callId: 'card1'
+  })
+
+  beforeEach(() => vi.clearAllMocks())
+
+  it('drives every step in order on its own model, advances after each, then marks done', async () => {
+    vi.mocked(getUrsaPipeline).mockReturnValue(running(0))
+    vi.mocked(runGraph).mockResolvedValue({ paused: false })
+    const sink = makeSink()
+    await runUrsaPipeline('c1', sink, new AbortController().signal)
+
+    expect(runGraph).toHaveBeenCalledTimes(3)
+    const calls = vi.mocked(runGraph).mock.calls.map((c) => c[0])
+    expect(calls[0].modelRef).toBe('openai/gpt-5.6-sol')
+    expect(calls[0].ursaStep).toMatchObject({ index: 1, total: 3, role: 'coder', subtask: 'build it' })
+    expect(calls[1].modelRef).toBe('anthropic/claude-sonnet-5')
+    expect(calls[1].ursaStep).toMatchObject({ index: 2, total: 3, role: 'reviewer' })
+    expect(calls[2].ursaStep).toMatchObject({ index: 3, total: 3, role: 'grunt' })
+    // Advanced once per completed step; pipeline finalized 'done'.
+    expect(advanceUrsaPipeline).toHaveBeenCalledTimes(3)
+    expect(setUrsaPipelineStatus).toHaveBeenCalledWith('c1', 'done')
+  })
+
+  it('stops the loop when a step pauses (does not advance, does not mark done)', async () => {
+    vi.mocked(getUrsaPipeline).mockReturnValue(running(0))
+    vi.mocked(runGraph).mockResolvedValue({ paused: true })
+    const sink = makeSink()
+    await runUrsaPipeline('c1', sink, new AbortController().signal)
+
+    expect(runGraph).toHaveBeenCalledTimes(1)
+    expect(advanceUrsaPipeline).not.toHaveBeenCalled()
+    expect(setUrsaPipelineStatus).not.toHaveBeenCalled()
+  })
+
+  it('halts and marks stopped when a step fails, without starting the next step', async () => {
+    vi.mocked(getUrsaPipeline).mockReturnValue(running(0))
+    vi.mocked(runGraph)
+      .mockResolvedValueOnce({ paused: false })
+      .mockResolvedValueOnce({ paused: false, failed: true })
+    const sink = makeSink()
+    await runUrsaPipeline('c1', sink, new AbortController().signal)
+
+    // Step 1 completed (advanced); step 2 failed -> stop; step 3 never ran.
+    expect(runGraph).toHaveBeenCalledTimes(2)
+    expect(advanceUrsaPipeline).toHaveBeenCalledTimes(1)
+    expect(setUrsaPipelineStatus).toHaveBeenCalledWith('c1', 'stopped')
+    expect(setUrsaPipelineStatus).not.toHaveBeenCalledWith('c1', 'done')
+  })
+
+  it('Stop (already-aborted signal) halts before starting any step and marks stopped', async () => {
+    vi.mocked(getUrsaPipeline).mockReturnValue(running(0))
+    const controller = new AbortController()
+    controller.abort()
+    const sink = makeSink()
+    await runUrsaPipeline('c1', sink, controller.signal)
+
+    expect(runGraph).not.toHaveBeenCalled()
+    expect(setUrsaPipelineStatus).toHaveBeenCalledWith('c1', 'stopped')
+  })
+
+  it('is a no-op when the pipeline is not in status "running" (stale re-entry)', async () => {
+    vi.mocked(getUrsaPipeline).mockReturnValue({ ...running(0), status: 'stopped' })
+    const sink = makeSink()
+    await runUrsaPipeline('c1', sink, new AbortController().signal)
+    expect(runGraph).not.toHaveBeenCalled()
+  })
+
+  it('pauses mid-step, then re-enters via onResumeSettled to advance and finish', async () => {
+    // Faithfully simulate the persisted status/cursor mutating across the pause:
+    // approve -> 'running'@0; step 1 pauses; the tool-approval resolves and the
+    // step settles -> onResumeSettled advances to 1 and drives step 2 to done.
+    const steps2 = steps.slice(0, 2)
+    let status: UrsaPipelineRecord['status'] = 'proposed'
+    let currentStep = 0
+    vi.mocked(getUrsaPipeline).mockImplementation(() => ({
+      conversationId: 'c1',
+      steps: steps2,
+      status,
+      currentStep,
+      callId: 'card1'
+    }))
+    vi.mocked(setUrsaPipelineStatus).mockImplementation((_id, s) => {
+      status = s
+    })
+    vi.mocked(advanceUrsaPipeline).mockImplementation(() => {
+      currentStep += 1
+    })
+    vi.mocked(getLastResolvedModelRef).mockReturnValue('openai/gpt-5.6-sol')
+    vi.mocked(runGraph)
+      .mockResolvedValueOnce({ paused: true }) // step 1 parks on a tool approval
+      .mockResolvedValue({ paused: false }) // step 2 completes cleanly
+
+    const sink = makeSink()
+    // Approve seeds the AbortController into `aborts` and kicks the runner.
+    resolveUrsaPipelineOrchestrator('c1', 'card1', true, sink)
+    await vi.waitFor(() => expect(runGraph).toHaveBeenCalledTimes(1))
+    expect(advanceUrsaPipeline).not.toHaveBeenCalled()
+
+    // The parked step's approval resolves and it settles cleanly -> onResumeSettled.
+    onResumeSettled('c1', sink, false)
+    await vi.waitFor(() => expect(runGraph).toHaveBeenCalledTimes(2))
+    expect(advanceUrsaPipeline).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(runGraph).mock.calls[1][0].ursaStep).toMatchObject({ index: 2, total: 2 })
+    expect(status).toBe('done')
+  })
+
+  it('onResumeSettled halts the pipeline (marks stopped) when the resumed step failed', () => {
+    vi.mocked(getUrsaPipeline).mockReturnValue(running(0))
+    const sink = makeSink()
+    onResumeSettled('c1', sink, true)
+    // Failed resume: no advance, no next step -- pipeline honestly stopped.
+    expect(setUrsaPipelineStatus).toHaveBeenCalledWith('c1', 'stopped')
+    expect(advanceUrsaPipeline).not.toHaveBeenCalled()
+    expect(runGraph).not.toHaveBeenCalled()
   })
 })
