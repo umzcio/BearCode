@@ -43,6 +43,7 @@ import type {
 } from '../shared/types'
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
+import { isUrsaMode } from '../shared/ursaMode'
 import { keyStatus, setKey, setVaultSecret } from './keys'
 import { ursaRequiredProviders } from './orchestrator/ursa'
 import {
@@ -580,6 +581,12 @@ export function registerIpc(): void {
       throw new Error(`Invalid effort: ${String(effort)}`)
     }
     db.setEffort(id, effort)
+  })
+  ipcMain.handle('bearcode:conversations:set-ursa-mode', (_e, id: string, mode: unknown) => {
+    if (!isUrsaMode(mode)) {
+      throw new Error(`Invalid ursa mode: ${String(mode)}`)
+    }
+    db.setUrsaMode(id, mode)
   })
   ipcMain.handle('bearcode:conversations:set-thinking', (_e, id: string, thinking: unknown) => {
     if (typeof thinking !== 'boolean') {

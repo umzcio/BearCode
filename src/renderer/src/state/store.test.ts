@@ -128,7 +128,8 @@ const convoMeta: ConversationMeta = {
   pinned: false,
   archived: false,
   environment: 'local',
-  worktrees: []
+  worktrees: [],
+  ursaMode: 'auto'
 }
 
 const convo = (over: Partial<Convo> = {}): Convo => ({

@@ -13,6 +13,7 @@ import type {
   ConversationMeta,
   EffortLevel,
   Event,
+  UrsaMode,
   PermissionAction,
   PermissionMode,
   PermissionRule,
@@ -24,6 +25,7 @@ import type {
   OutsideAccessInfo
 } from '../../shared/types'
 import { isEffortLevel } from '../../shared/effort'
+import { isUrsaMode } from '../../shared/ursaMode'
 import { isSelectableDefaultMode } from '../../shared/permissionMode'
 import { getSettings } from '../settings'
 import { extractSearchText } from './searchText'
@@ -258,6 +260,16 @@ function getDb(): Database.Database {
   } catch {
     // column already exists
   }
+  // Ursa Modes (Arc 2, 2026-07-19 design): the composer's Mode picker,
+  // per-conversation. Same idempotent-guarded ALTER idiom as the columns
+  // above; old DBs upgrade in place. NULL/unrecognized values coerce to
+  // 'auto' in toMeta -- no settings-default fallback (unlike effort), the
+  // safe default IS 'auto'.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN ursa_mode TEXT`)
+  } catch {
+    // column already exists
+  }
   backfillEventFts(db)
   zombieRunIds = cancelZombieRuns(db)
   return db
@@ -387,6 +399,7 @@ interface ConversationRow {
   archived: number | null
   environment: string | null
   worktrees: string | null
+  ursa_mode: string | null
 }
 
 // A malformed active_rules value (hand-edited DB, partial write) must never
@@ -432,6 +445,7 @@ function toMeta(
     archived: row.archived === 1,
     environment: row.environment === 'worktree' ? 'worktree' : 'local',
     worktrees: parseWorktrees(row.worktrees),
+    ursaMode: isUrsaMode(row.ursa_mode) ? row.ursa_mode : 'auto',
     preview: preview ?? null
   }
 }
@@ -453,7 +467,8 @@ export function createConversation(projectPath: string | null, id?: string): Con
     pinned: null,
     archived: null,
     environment: null,
-    worktrees: null
+    worktrees: null,
+    ursa_mode: null
   }
   getDb()
     .prepare(
@@ -900,6 +915,12 @@ export function setEffort(conversationId: string, effort: EffortLevel): void {
   getDb()
     .prepare(`UPDATE conversations SET effort = ?, updated_at = ? WHERE id = ?`)
     .run(effort, Date.now(), conversationId)
+}
+
+export function setUrsaMode(conversationId: string, mode: UrsaMode): void {
+  getDb()
+    .prepare(`UPDATE conversations SET ursa_mode = ?, updated_at = ? WHERE id = ?`)
+    .run(mode, Date.now(), conversationId)
 }
 
 export function setThinking(conversationId: string, thinking: boolean): void {

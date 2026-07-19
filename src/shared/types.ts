@@ -893,6 +893,14 @@ export interface WorktreeInfo {
 
 // ---- Conversations ----
 
+// Ursa Modes (Arc 2, 2026-07-19 design): when the conversation's model is the
+// Ursa sentinel, the composer's Mode picker replaces the (meaningless-for-a-
+// router) Effort picker. 'auto' is exactly today's Ursa (classifier routing);
+// 'code'/'council'/'deep-research' are hard locks -- see
+// planning/2026-07-19-ursa-modes-design.md. Persisted per conversation
+// (ursa_mode column), same idiom as effort.
+export type UrsaMode = 'auto' | 'code' | 'council' | 'deep-research'
+
 export interface ConversationMeta {
   id: string
   projectPath: string | null
@@ -908,6 +916,10 @@ export interface ConversationMeta {
   // effort/thinking columns, falling back to the settings defaults (db toMeta).
   effort: EffortLevel
   thinking: boolean
+  // Ursa Modes (Arc 2): only meaningful when modelRef is the Ursa sentinel.
+  // Resolved from the ursa_mode column, coercing unknown/NULL to 'auto'
+  // (db toMeta) -- never falls back to a settings default like effort does.
+  ursaMode: UrsaMode
   // The project this conversation belongs to (E4), or null when unassigned.
   projectId: string | null
   // Pin/archive flags (E7). Pinned conversations float to the top of their
@@ -1282,6 +1294,7 @@ export interface BearcodeApi {
     clear(): Promise<void>
     setMode(id: string, mode: PermissionMode): Promise<void>
     setEffort(id: string, effort: EffortLevel): Promise<void>
+    setUrsaMode(id: string, mode: UrsaMode): Promise<void>
     setThinking(id: string, thinking: boolean): Promise<void>
     // F3: chosen at create, locked at first run. Worktrees are provisioned
     // main-side (the renderer never shells out), so this takes only the

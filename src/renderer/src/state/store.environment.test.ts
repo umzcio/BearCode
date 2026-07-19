@@ -18,7 +18,8 @@ const convoMeta: ConversationMeta = {
   pinned: false,
   archived: false,
   environment: 'local',
-  worktrees: []
+  worktrees: [],
+  ursaMode: 'auto'
 }
 
 const conversations = {

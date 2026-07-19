@@ -46,7 +46,8 @@ import type {
   SkillSaveResult,
   SmitheryHit,
   TranscribeMeta,
-  UpdaterStatus
+  UpdaterStatus,
+  UrsaMode
 } from '../shared/types'
 
 // The renderer talks to main only through this typed surface.
@@ -141,6 +142,8 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:conversations:set-mode', id, mode),
     setEffort: (id: string, effort: EffortLevel): Promise<void> =>
       ipcRenderer.invoke('bearcode:conversations:set-effort', id, effort),
+    setUrsaMode: (id: string, mode: UrsaMode): Promise<void> =>
+      ipcRenderer.invoke('bearcode:conversations:set-ursa-mode', id, mode),
     setThinking: (id: string, thinking: boolean): Promise<void> =>
       ipcRenderer.invoke('bearcode:conversations:set-thinking', id, thinking),
     // F3: worktree provisioning happens main-side, so this passes only the
