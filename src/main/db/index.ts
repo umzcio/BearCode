@@ -109,6 +109,13 @@ function getDb(): Database.Database {
       default_effort TEXT,
       default_permission_mode TEXT
     );
+    CREATE TABLE IF NOT EXISTS ursa_pipeline (
+      conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+      steps_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'proposed', -- 'proposed'|'running'|'done'|'declined'|'stopped'
+      current_step INTEGER NOT NULL DEFAULT 0,
+      call_id TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_artifacts_convo ON artifacts(conversation_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_events_convo ON events(conversation_id, seq);
     CREATE VIRTUAL TABLE IF NOT EXISTS event_fts USING fts5(text, event_id UNINDEXED, conversation_id UNINDEXED, kind UNINDEXED);
@@ -774,6 +781,94 @@ export function getLastResolvedModelRef(conversationId: string): string | null {
     .prepare(`SELECT last_resolved_model_ref FROM conversations WHERE id = ?`)
     .get(conversationId) as { last_resolved_model_ref: string | null } | undefined
   return row?.last_resolved_model_ref ?? null
+}
+
+// Ursa Phase 2 (pipeline mode, Task 1): persistence for a proposed/executing
+// multi-role pipeline, keyed one-per-conversation (a new proposal replaces any
+// prior row -- a conversation only ever has one pipeline in flight). Crash-safe
+// so a mid-pipeline restart can reconstruct position from `current_step` +
+// `last_resolved_model_ref` (set per-step, same as single-turn Ursa turns).
+export type UrsaPipelineStatus = 'proposed' | 'running' | 'done' | 'declined' | 'stopped'
+
+export interface UrsaPipelineStep {
+  role: string
+  modelRef: string
+  subtask: string
+}
+
+export interface UrsaPipelineRecord {
+  conversationId: string
+  steps: UrsaPipelineStep[]
+  status: UrsaPipelineStatus
+  currentStep: number
+  callId: string
+}
+
+// Persists a freshly-classified pipeline proposal. Always resets status to
+// 'proposed' and currentStep to 0 -- a new proposal fully replaces whatever
+// pipeline (if any) previously existed for this conversation.
+export function setUrsaPipeline(
+  conversationId: string,
+  steps: UrsaPipelineStep[],
+  callId: string
+): void {
+  getDb()
+    .prepare(
+      `INSERT INTO ursa_pipeline (conversation_id, steps_json, status, current_step, call_id)
+       VALUES (?, ?, 'proposed', 0, ?)
+       ON CONFLICT(conversation_id) DO UPDATE SET
+         steps_json = excluded.steps_json,
+         status = 'proposed',
+         current_step = 0,
+         call_id = excluded.call_id`
+    )
+    .run(conversationId, JSON.stringify(steps), callId)
+}
+
+export function getUrsaPipeline(conversationId: string): UrsaPipelineRecord | undefined {
+  const row = getDb()
+    .prepare(
+      `SELECT conversation_id, steps_json, status, current_step, call_id
+       FROM ursa_pipeline WHERE conversation_id = ?`
+    )
+    .get(conversationId) as
+    | {
+        conversation_id: string
+        steps_json: string
+        status: string
+        current_step: number
+        call_id: string
+      }
+    | undefined
+  if (!row) return undefined
+  let steps: UrsaPipelineStep[] = []
+  try {
+    const parsed: unknown = JSON.parse(row.steps_json)
+    if (Array.isArray(parsed)) steps = parsed as UrsaPipelineStep[]
+  } catch {
+    // malformed json -- treat as no steps rather than throwing
+  }
+  return {
+    conversationId: row.conversation_id,
+    steps,
+    status: row.status as UrsaPipelineStatus,
+    currentStep: row.current_step,
+    callId: row.call_id
+  }
+}
+
+// Advances current_step by one (called on each step's completion). No-op if
+// the conversation has no pipeline row.
+export function advanceUrsaPipeline(conversationId: string): void {
+  getDb()
+    .prepare(`UPDATE ursa_pipeline SET current_step = current_step + 1 WHERE conversation_id = ?`)
+    .run(conversationId)
+}
+
+export function setUrsaPipelineStatus(conversationId: string, status: UrsaPipelineStatus): void {
+  getDb()
+    .prepare(`UPDATE ursa_pipeline SET status = ? WHERE conversation_id = ?`)
+    .run(status, conversationId)
 }
 
 export function setPermissionMode(conversationId: string, mode: PermissionMode): void {
