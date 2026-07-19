@@ -743,6 +743,11 @@ export function dropDanglingApprovalRows(conversationId: string): void {
       break
     }
     if (ev.type !== 'tool_call') break
+    // ursa_pipeline consent cards never produce a tool_result (they gate a
+    // pre-graph proposal, not a command), so a resolved one is settled history
+    // -- the no-result heuristic below would wrongly delete the durable
+    // "Pipeline approved/declined" record after a crash in that window.
+    if (ev.tool === 'ursa_pipeline' && ev.approvalState !== 'pending') break
     const stale =
       ev.approvalState === 'pending' ||
       ((ev.approvalState === 'approved' || ev.approvalState === 'denied') &&
