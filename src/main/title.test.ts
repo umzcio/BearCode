@@ -21,7 +21,8 @@ describe('CHEAP_MODEL', () => {
       anthropic: 'claude-haiku-4-5',
       openai: 'gpt-5.6-luna',
       google: 'gemini-2.5-flash',
-      perplexity: 'sonar'
+      perplexity: 'sonar',
+      xai: 'grok-4-fast'
     })
   })
 })

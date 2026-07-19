@@ -12,6 +12,7 @@ const PROVIDERS: ProviderId[] = [
   'google',
   'openrouter',
   'perplexity',
+  'xai',
   'ollama'
 ]
 

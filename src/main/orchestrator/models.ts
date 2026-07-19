@@ -185,6 +185,18 @@ export function makeModel(
         configuration: { baseURL: 'https://api.perplexity.ai' },
         ...extras
       })
+    case 'xai':
+      // Grok has real function calling (unlike Perplexity's Sonar models), so
+      // xai gets plain ChatOpenAI -- tools stay bound, no ToollessChatOpenAI
+      // wrapper. Same OpenAI-compatible Chat Completions pattern otherwise:
+      // ChatOpenAI + a baseURL override, NEVER useResponsesApi
+      // (buildModelExtras returns {} for it via the default branch).
+      return new ChatOpenAI({
+        apiKey: requireKey('xai'),
+        model: modelId,
+        configuration: { baseURL: 'https://api.x.ai/v1' },
+        ...extras
+      })
     case 'ollama':
       // BearcodeChatOllama stringifies non-string tool-message content that
       // upstream ChatOllama rejects (see ollamaCompat.ts).

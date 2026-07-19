@@ -57,6 +57,15 @@ export const PERPLEXITY_MODELS: ModelInfo[] = [
   { id: 'sonar-reasoning-pro', label: 'Sonar Reasoning Pro', contextWindow: 128_000 }
 ]
 
+// xAI's Grok family (verified against docs.x.ai, 2026-07). Grok has real
+// function calling, unlike Perplexity's Sonar models -- makeModel uses plain
+// ChatOpenAI for xai, not ToollessChatOpenAI.
+export const XAI_MODELS: ModelInfo[] = [
+  { id: 'grok-4.5', label: 'Grok 4.5', contextWindow: 500_000 },
+  { id: 'grok-4.3', label: 'Grok 4.3', contextWindow: 1_000_000 },
+  { id: 'grok-4-fast', label: 'Grok 4 Fast', contextWindow: 2_000_000 }
+]
+
 // Ursa Phase 1: static per-model metadata, keyed by "provider/modelId". Drives
 // both the GPT-5.6 reasoning.effort fix (models.ts's buildModelExtras) and the
 // Ursa classifier's model knowledge. Data only -- no LLM client code here.
@@ -115,6 +124,18 @@ const CAPABILITIES: Record<string, ModelCapabilities> = {
   'perplexity/sonar-reasoning-pro': {
     strengths: ['research'],
     costTier: 'mid'
+  },
+  'xai/grok-4.5': {
+    strengths: ['code', 'general'],
+    costTier: 'high'
+  },
+  'xai/grok-4.3': {
+    strengths: ['general', 'long-context'],
+    costTier: 'mid'
+  },
+  'xai/grok-4-fast': {
+    strengths: ['general'],
+    costTier: 'low'
   }
 }
 
@@ -180,6 +201,13 @@ export const REGISTRY: ProviderRegistryEntry[] = [
     listModels: async () => ({ models: PERPLEXITY_MODELS, reachable: true })
   },
   {
+    id: 'xai',
+    displayName: 'xAI',
+    color: '#9aa0a6',
+    requiresKey: true,
+    listModels: async () => ({ models: XAI_MODELS, reachable: true })
+  },
+  {
     id: 'ollama',
     displayName: 'Ollama',
     color: '#3ecf8e',
@@ -216,7 +244,8 @@ const MANAGEABLE: { id: ProviderId; models: ModelInfo[] }[] = [
   { id: 'openai', models: OPENAI_MODELS },
   { id: 'google', models: GOOGLE_MODELS },
   { id: 'openrouter', models: OPENROUTER_MODELS },
-  { id: 'perplexity', models: PERPLEXITY_MODELS }
+  { id: 'perplexity', models: PERPLEXITY_MODELS },
+  { id: 'xai', models: XAI_MODELS }
 ]
 
 // Every "providerId/modelId" ref in the EFFECTIVE set (curated + custom minus
@@ -278,7 +307,8 @@ const STATIC_MODELS: Partial<Record<ProviderId, ModelInfo[]>> = {
   openai: OPENAI_MODELS,
   google: GOOGLE_MODELS,
   openrouter: OPENROUTER_MODELS,
-  perplexity: PERPLEXITY_MODELS
+  perplexity: PERPLEXITY_MODELS,
+  xai: XAI_MODELS
 }
 
 // The model's real context window (tokens) for a "provider/modelId" ref, or

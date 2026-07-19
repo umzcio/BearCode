@@ -751,6 +751,7 @@ export type ProviderId =
   | 'google'
   | 'openrouter'
   | 'perplexity'
+  | 'xai'
   | 'ollama'
 
 // Ursa Phase 1: static per-model metadata (registry.ts's capabilitiesFor())

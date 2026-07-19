@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('../keys', () => ({
-  getKey: (p: string) => (p === 'anthropic' || p === 'perplexity' ? 'sk-test' : undefined)
+  getKey: (p: string) =>
+    p === 'anthropic' || p === 'perplexity' || p === 'xai' ? 'sk-test' : undefined
 }))
 
 import { makeModel, buildModelExtras } from './models'
@@ -53,6 +54,20 @@ describe('makeModel', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((anthropic as any).bindTools([fakeTool])).not.toBe(anthropic)
   })
+
+  it('builds xAI as an OpenAI-compatible client pointed at the xAI baseURL', () => {
+    const m = makeModel('xai/grok-4.5')
+    expect(m._llmType()).toContain('openai')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).clientConfig.baseURL).toBe('https://api.x.ai/v1')
+  })
+
+  it('xAI keeps real tool binding (Grok has native function calling, unlike Perplexity)', () => {
+    const m = makeModel('xai/grok-4-fast')
+    const fakeTool = { name: 't', description: 'd', schema: { type: 'object' } }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).bindTools([fakeTool])).not.toBe(m)
+  })
 })
 
 describe('buildModelExtras — OpenAI reasoning models', () => {
@@ -92,6 +107,12 @@ describe('buildModelExtras — OpenAI reasoning models', () => {
 
   it('never forces useResponsesApi for perplexity (its endpoint does not speak the Responses API)', () => {
     const extras = buildModelExtras('perplexity', 'sonar-pro', {})
+    expect(extras).toEqual({})
+    expect(extras.useResponsesApi).toBeUndefined()
+  })
+
+  it('never forces useResponsesApi for xai (its endpoint does not speak the Responses API)', () => {
+    const extras = buildModelExtras('xai', 'grok-4.5', {})
     expect(extras).toEqual({})
     expect(extras.useResponsesApi).toBeUndefined()
   })
