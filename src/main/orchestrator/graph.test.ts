@@ -43,7 +43,12 @@ vi.mock('./ursa', () => ({
     ({
       'openai/gpt-5.6-sol': 'coder',
       'anthropic/claude-sonnet-5': 'reviewer'
-    })[ref]
+    })[ref],
+  // Ursa Modes (Task 3): resolveTurnModelRef's 'code' mode branch consults
+  // this instead of the classifier. Default undefined (unkeyed) so tests
+  // that don't override it exercise the fall-through-to-auto path; per-test
+  // overridden for the locked-coder path.
+  coderRoleIfEligible: vi.fn(() => undefined)
 }))
 
 // makeModel is mocked so buildSubagents can build distinguishable per-role
@@ -88,7 +93,7 @@ import {
   __parkForTest,
   type ApprovalItem
 } from './graph'
-import { resolveUrsaModelRef, resolveSubagentModelRefs } from './ursa'
+import { resolveUrsaModelRef, resolveSubagentModelRefs, coderRoleIfEligible } from './ursa'
 import { makeModel } from './models'
 import {
   getLastResolvedModelRef,
@@ -1825,6 +1830,97 @@ describe('runGraph — Ursa resolution', () => {
   it('rehydrateModelRef returns a concrete ref unchanged', () => {
     expect(rehydrateModelRef('c1', 'anthropic/claude-sonnet-5')).toBe('anthropic/claude-sonnet-5')
     expect(getLastResolvedModelRef).not.toHaveBeenCalled()
+  })
+})
+
+describe('runGraph — Ursa Modes: code mode lock (Task 3)', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  it("locks to the coder role with no classifier call when mode is 'code'", async () => {
+    vi.mocked(getConversationMeta).mockReturnValue({
+      id: 'c1',
+      projectPath: null,
+      title: null,
+      modelRef: 'ursa/auto',
+      createdAt: 0,
+      updatedAt: 0,
+      permissionMode: 'accept-edits',
+      activeRules: [],
+      effort: 'medium',
+      thinking: false,
+      ursaMode: 'code',
+      projectId: null,
+      pinned: false,
+      archived: false,
+      environment: 'local',
+      worktrees: []
+    })
+    vi.mocked(coderRoleIfEligible).mockReturnValue({
+      name: 'coder',
+      modelRef: 'openai/gpt-5.6-sol',
+      description: 'builds things'
+    })
+    const result = await resolveTurnModelRef('c1', 'ursa/auto', 'build a widget')
+    expect(result).toEqual({ modelRef: 'openai/gpt-5.6-sol', ursaRole: 'coder' })
+    expect(resolveUrsaModelRef).not.toHaveBeenCalled()
+    expect(setLastResolvedModelRef).toHaveBeenCalledWith('c1', 'openai/gpt-5.6-sol')
+  })
+
+  it("falls through to the normal auto (classifier) path when the coder role is unkeyed in 'code' mode", async () => {
+    vi.mocked(getConversationMeta).mockReturnValue({
+      id: 'c1',
+      projectPath: null,
+      title: null,
+      modelRef: 'ursa/auto',
+      createdAt: 0,
+      updatedAt: 0,
+      permissionMode: 'accept-edits',
+      activeRules: [],
+      effort: 'medium',
+      thinking: false,
+      ursaMode: 'code',
+      projectId: null,
+      pinned: false,
+      archived: false,
+      environment: 'local',
+      worktrees: []
+    })
+    vi.mocked(coderRoleIfEligible).mockReturnValue(undefined)
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'anthropic/claude-haiku-4-5',
+      roleName: 'grunt'
+    })
+    const result = await resolveTurnModelRef('c1', 'ursa/auto', 'build a widget')
+    expect(resolveUrsaModelRef).toHaveBeenCalledWith({ userText: 'build a widget' })
+    expect(result).toEqual({ modelRef: 'anthropic/claude-haiku-4-5', ursaRole: 'grunt' })
+  })
+
+  it("mode 'auto' (or unset) never consults coderRoleIfEligible and runs the classifier as before", async () => {
+    vi.mocked(getConversationMeta).mockReturnValue({
+      id: 'c1',
+      projectPath: null,
+      title: null,
+      modelRef: 'ursa/auto',
+      createdAt: 0,
+      updatedAt: 0,
+      permissionMode: 'accept-edits',
+      activeRules: [],
+      effort: 'medium',
+      thinking: false,
+      ursaMode: 'auto',
+      projectId: null,
+      pinned: false,
+      archived: false,
+      environment: 'local',
+      worktrees: []
+    })
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'anthropic/claude-haiku-4-5',
+      roleName: 'grunt'
+    })
+    const result = await resolveTurnModelRef('c1', 'ursa/auto', 'hi')
+    expect(coderRoleIfEligible).not.toHaveBeenCalled()
+    expect(result).toEqual({ modelRef: 'anthropic/claude-haiku-4-5', ursaRole: 'grunt' })
   })
 })
 

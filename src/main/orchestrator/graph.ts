@@ -96,7 +96,8 @@ import {
   isUrsaModelRef,
   resolveUrsaModelRef,
   resolveSubagentModelRefs,
-  roleNameForModelRef
+  roleNameForModelRef,
+  coderRoleIfEligible
 } from './ursa'
 import { compactionAdvanced } from './compaction'
 import {
@@ -2771,6 +2772,20 @@ export async function resolveTurnModelRef(
   pipeline?: Array<{ role: string; modelRef: string; subtask: string }>
 }> {
   if (!isUrsaModelRef(modelRef)) return { modelRef }
+  // Ursa Modes (Task 3): 'code' mode hard-locks to the coder role with NO
+  // classifier call at all -- no classifierUsage, no pipeline. council /
+  // deep-research modes are handled by later tasks; for now they (and 'auto')
+  // fall straight through to the classifier path below, unchanged.
+  const ursaMode = getConversationMeta(conversationId)?.ursaMode
+  if (ursaMode === 'code') {
+    const coder = coderRoleIfEligible()
+    if (coder) {
+      setLastResolvedModelRef(conversationId, coder.modelRef)
+      return { modelRef: coder.modelRef, ursaRole: coder.name }
+    }
+    // Coder's provider is unkeyed -- fall through to the normal auto
+    // (classifier) path below rather than ever breaking the turn.
+  }
   // Task 4 (#2): give the classifier the conversation's recent context and the
   // role that handled the previous turn, so mid-conversation messages route by
   // the ongoing task rather than the isolated current message. Both are

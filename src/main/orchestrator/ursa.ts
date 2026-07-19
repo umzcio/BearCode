@@ -163,6 +163,19 @@ export function roleNameForModelRef(modelRef: string): string | undefined {
   return CURATED_ROLES.find((r) => r.modelRef === modelRef)?.name
 }
 
+// Ursa Modes (Task 3): the 'code' mode hard-locks to the coder role, skipping
+// the classifier entirely. Returns undefined when the coder role's provider
+// has no configured key, so the caller can fall through to the normal auto
+// (classifier) path instead of ever handing back a role the turn can't run --
+// same eligibility check eligibleRoles() applies to the whole curated set.
+export function coderRoleIfEligible(): UrsaRole | undefined {
+  const role = CURATED_ROLES.find((r) => r.name === 'coder')
+  if (!role) return undefined
+  const { provider } = parseModelRef(role.modelRef)
+  const status = keyStatus()
+  return provider === 'ollama' || status[provider] ? role : undefined
+}
+
 // A role is eligible only if its provider currently has a configured key
 // (mirrors ModelPicker.tsx's provider.reachable / requiresKey && !keyConfigured
 // dimming logic) -- Ursa must never select a role it cannot actually run.
