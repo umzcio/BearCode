@@ -28,3 +28,24 @@ describe('ursaEnabled', () => {
     expect(getSettings().ursaEnabled).toBe(false)
   })
 })
+
+describe('ursaInstructions', () => {
+  it("defaults to ''", () => {
+    expect(getSettings().ursaInstructions).toBe('')
+  })
+
+  it('round-trips a string through setSettings', () => {
+    setSettings({ ursaInstructions: 'prefer the coder role' })
+    expect(getSettings().ursaInstructions).toBe('prefer the coder role')
+  })
+
+  it("coerces a non-string write to '' rather than persisting garbage", () => {
+    setSettings({ ursaInstructions: 42 as never })
+    expect(getSettings().ursaInstructions).toBe('')
+  })
+
+  it('caps an oversized write at 2000 chars', () => {
+    setSettings({ ursaInstructions: 'x'.repeat(5000) })
+    expect(getSettings().ursaInstructions).toHaveLength(2000)
+  })
+})

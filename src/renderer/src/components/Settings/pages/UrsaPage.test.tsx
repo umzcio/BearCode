@@ -77,4 +77,33 @@ describe('UrsaPage', () => {
     expect(screen.getByText('API key configured')).toBeInTheDocument()
     expect(screen.getByText('No API key configured')).toBeInTheDocument()
   })
+
+  it('hides the custom-instructions textarea when Ursa is disabled', () => {
+    mount({ ursaEnabled: false })
+    expect(screen.queryByText('Custom Instructions')).not.toBeInTheDocument()
+    expect(document.querySelector('textarea')).toBeNull()
+  })
+
+  it('shows the custom-instructions textarea when Ursa is enabled, seeded from settings', () => {
+    mount({ ursaEnabled: true, ursaInstructions: 'route quick questions to the fast model' })
+    expect(screen.getByText('Custom Instructions')).toBeInTheDocument()
+    const textarea = document.querySelector('textarea') as HTMLTextAreaElement
+    expect(textarea).not.toBeNull()
+    expect(textarea.value).toBe('route quick questions to the fast model')
+  })
+
+  it('saves ursaInstructions on blur when the value changed', () => {
+    mount({ ursaEnabled: true, ursaInstructions: '' })
+    const textarea = document.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'prefer the coder' } })
+    fireEvent.blur(textarea)
+    expect(saveSettings).toHaveBeenCalledWith({ ursaInstructions: 'prefer the coder' })
+  })
+
+  it('does not save on blur when the textarea value is unchanged', () => {
+    mount({ ursaEnabled: true, ursaInstructions: 'keep me' })
+    const textarea = document.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.blur(textarea)
+    expect(saveSettings).not.toHaveBeenCalled()
+  })
 })

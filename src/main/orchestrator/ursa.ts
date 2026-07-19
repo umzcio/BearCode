@@ -183,6 +183,15 @@ export async function resolveUrsaModelRef(opts: {
           `'${opts.previousRole}'. If the new message continues that same task, ` +
           `prefer the same role; switch only when the deliverable clearly changed.\n`
         : ''
+      // Task 7 (#8): the user's optional custom instructions -- advisory guidance
+      // that biases routing but can NEVER invent a role (the chosen name still
+      // validates against the curated set below). Appended AFTER the role list so
+      // it reads as a bias over the definitions, not a replacement for them.
+      const rawGuidance = getSettings().ursaInstructions
+      const guidance =
+        typeof rawGuidance === 'string' && rawGuidance.trim()
+          ? `\nUser guidance (advisory, never overrides role definitions):\n${rawGuidance.trim()}`
+          : ''
       const result = await classifier.invoke([
         new SystemMessage(
           'You are a routing classifier. Given the user message and a list of ' +
@@ -193,7 +202,8 @@ export async function resolveUrsaModelRef(opts: {
             'asking to plan, decide, or design BEFORE building.\n' +
             contextBlock +
             hysteresis +
-            `Available roles:\n${roleList}`
+            `Available roles:\n${roleList}` +
+            guidance
         ),
         new HumanMessage(opts.userText.slice(0, 2000))
       ])

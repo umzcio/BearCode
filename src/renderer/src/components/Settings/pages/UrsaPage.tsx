@@ -1,4 +1,8 @@
 import { useEffect, useState } from 'react'
+// Cap kept in sync with the main-process coercion (settings.ts
+// URSA_INSTRUCTIONS_MAX). The write path enforces it regardless; maxLength is a
+// UI courtesy so the field can't grow past what will actually be persisted.
+const URSA_INSTRUCTIONS_MAX = 2000
 import type { JSX } from 'react'
 import type { ProviderId } from '@shared/types'
 import { useAppStore } from '../../../state/store'
@@ -17,6 +21,7 @@ export function UrsaPage(): JSX.Element | null {
   const providers = useAppStore((s) => s.providers)
   const saveSettings = useAppStore((s) => s.saveSettings)
   const [requiredProviders, setRequiredProviders] = useState<ProviderId[] | null>(null)
+  const [instructions, setInstructions] = useState(settings?.ursaInstructions ?? '')
 
   useEffect(() => {
     let alive = true
@@ -30,6 +35,13 @@ export function UrsaPage(): JSX.Element | null {
 
   if (!settings) return null
   const enabled = settings.ursaEnabled === true
+
+  // Persist on blur only when the value actually changed (matches the
+  // draft-then-save pattern GeneralPage's custom-instructions field uses).
+  const saveInstructions = (): void => {
+    if (instructions !== (settings.ursaInstructions ?? ''))
+      void saveSettings({ ursaInstructions: instructions })
+  }
 
   return (
     <>
@@ -80,6 +92,27 @@ export function UrsaPage(): JSX.Element | null {
           })
         )}
       </div>
+
+      {enabled && (
+        <>
+          <div className="set-group-title">Custom Instructions</div>
+          <div className="set-card pad">
+            <div className="set-row-desc" style={{ marginBottom: 8 }}>
+              Optional guidance Ursa&apos;s router reads every turn. Advisory only — it biases which
+              model handles a turn but can never override the built-in roles.
+            </div>
+            <textarea
+              className="set-textarea"
+              rows={4}
+              maxLength={URSA_INSTRUCTIONS_MAX}
+              placeholder="e.g. Prefer the coder for anything touching this repo. Route quick questions to the fast model."
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              onBlur={saveInstructions}
+            />
+          </div>
+        </>
+      )}
     </>
   )
 }

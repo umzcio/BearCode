@@ -1038,6 +1038,11 @@ export interface AppSettings {
   // (main/orchestrator/ursa.ts's CURATED_ROLES), never user-configurable.
   // Optional & additive: settings persisted before this feature coerce to false.
   ursaEnabled?: boolean
+  // Ursa custom instructions: a single advisory text field the classifier reads
+  // every turn to bias routing. NOT routing config -- it can never invent roles
+  // (the chosen name still validates against the curated set). Optional &
+  // additive: coerced to '' on read, capped at 2000 chars.
+  ursaInstructions?: string
   // F8 Agent Settings (global defaults; per-project overrides = F9). Optional &
   // additive: absent → behavior-preserving defaults (custom / deny / auto).
   securityPreset?: SecurityPreset

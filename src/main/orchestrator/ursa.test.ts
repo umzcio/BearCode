@@ -191,6 +191,35 @@ describe('resolveUrsaModelRef', () => {
     expect(systemMessage.content).not.toContain('The previous turn in this conversation')
   })
 
+  it('appends the user custom-instructions guidance to the classifier prompt when set', async () => {
+    vi.mocked(getSettings).mockReturnValue({
+      ursaEnabled: true,
+      ursaInstructions: '  Prefer the coder for anything in this repo.  '
+    } as never)
+    invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
+    await resolveUrsaModelRef({ userText: 'build me a script' })
+    const systemMessage = invokeSpy.mock.calls[0][0][0]
+    expect(systemMessage.content).toContain(
+      'User guidance (advisory, never overrides role definitions):\n' +
+        'Prefer the coder for anything in this repo.'
+    )
+    // Guidance follows the role list, so it reads as a bias over the definitions.
+    expect(systemMessage.content.indexOf('User guidance')).toBeGreaterThan(
+      systemMessage.content.indexOf('Available roles:')
+    )
+  })
+
+  it("omits the guidance block when ursaInstructions is empty or whitespace", async () => {
+    vi.mocked(getSettings).mockReturnValue({
+      ursaEnabled: true,
+      ursaInstructions: '   '
+    } as never)
+    invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
+    await resolveUrsaModelRef({ userText: 'build me a script' })
+    const systemMessage = invokeSpy.mock.calls[0][0][0]
+    expect(systemMessage.content).not.toContain('User guidance')
+  })
+
   it('renders a role without the strengths/cost-tier suffix when capabilitiesFor returns null for its modelRef', async () => {
     const coderModelRef = CURATED_ROLES.find((r) => r.name === 'coder')!.modelRef
     const actual = await vi.importActual<typeof import('../providers/registry')>('../providers/registry')

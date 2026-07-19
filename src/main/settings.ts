@@ -77,8 +77,13 @@ const DEFAULTS: AppSettings = {
   marketplaces: [],
   hooksDisabledGlobal: [],
   hooksConsented: [],
-  ursaEnabled: false
+  ursaEnabled: false,
+  ursaInstructions: ''
 }
+
+// Ursa custom instructions are capped so a hand-edited settings.json can't bloat
+// every classifier prompt. Single source of truth for the read and write paths.
+export const URSA_INSTRUCTIONS_MAX = 2000
 
 // Custom models may only target the four first-party curated providers. Ollama
 // is fully dynamic/local and manages its own catalog, so a hand-edited
@@ -286,6 +291,14 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   merged.hooksConsented = coerceStringArray(s['hooksConsented'])
   // Ursa Phase 1: on/off switch only. Optional & additive.
   merged.ursaEnabled = s['ursaEnabled'] === true
+  // Ursa custom instructions: an advisory string coerced to '' when non-string
+  // (including missing) and capped at URSA_INSTRUCTIONS_MAX chars, so a malformed
+  // or oversized settings.json can never leak a non-string / unbounded value into
+  // the classifier prompt.
+  merged.ursaInstructions =
+    typeof s['ursaInstructions'] === 'string'
+      ? (s['ursaInstructions'] as string).slice(0, URSA_INSTRUCTIONS_MAX)
+      : ''
   return merged
 }
 
@@ -432,6 +445,17 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.ursaEnabled !== undefined) {
     patch = { ...patch, ursaEnabled: patch.ursaEnabled === true }
+  }
+  // Never persist a non-string or oversized Ursa instruction: coerce to '' /
+  // cap on write, same guarantee as the read path in migrateSettings.
+  if (patch.ursaInstructions !== undefined) {
+    patch = {
+      ...patch,
+      ursaInstructions:
+        typeof patch.ursaInstructions === 'string'
+          ? patch.ursaInstructions.slice(0, URSA_INSTRUCTIONS_MAX)
+          : ''
+    }
   }
   const next = { ...getSettings(), ...patch }
   cache = next
