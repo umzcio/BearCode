@@ -103,6 +103,18 @@ const CAPABILITIES: Record<string, ModelCapabilities> = {
   'google/gemini-2.5-flash': {
     strengths: ['general'],
     costTier: 'low'
+  },
+  'perplexity/sonar': {
+    strengths: ['research', 'general'],
+    costTier: 'low'
+  },
+  'perplexity/sonar-pro': {
+    strengths: ['research', 'general'],
+    costTier: 'mid'
+  },
+  'perplexity/sonar-reasoning-pro': {
+    strengths: ['research'],
+    costTier: 'mid'
   }
 }
 

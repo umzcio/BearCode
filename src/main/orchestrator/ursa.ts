@@ -67,6 +67,15 @@ export const CURATED_ROLES: readonly UrsaRole[] = [
       'questions, and everyday conversational tasks that produce no files.'
   },
   {
+    name: 'verifier',
+    modelRef: 'perplexity/sonar-pro',
+    description:
+      'Fact-checking and verification against the live web: confirming claims, looking up ' +
+      'current events, prices, versions, release dates, or anything whose answer depends on ' +
+      'up-to-date external information, with sources. NOT for writing code, building things, ' +
+      "or reviewing the user's own files -- only for checking facts out in the world."
+  },
+  {
     name: 'grunt',
     modelRef: 'openai/gpt-5.6-luna',
     description:

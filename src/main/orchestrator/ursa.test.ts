@@ -47,6 +47,12 @@ describe('CURATED_ROLES', () => {
     expect(providers.size).toBeGreaterThan(1)
   })
 
+  it('contains a verifier role backed by a perplexity model', () => {
+    const verifier = CURATED_ROLES.find((r) => r.name === 'verifier')
+    expect(verifier).toBeDefined()
+    expect(verifier!.modelRef.split('/')[0]).toBe('perplexity')
+  })
+
   it('ursaRequiredProviders lists every provider a curated role depends on', () => {
     const providers = ursaRequiredProviders()
     for (const role of CURATED_ROLES) {
@@ -123,6 +129,20 @@ describe('resolveUrsaModelRef', () => {
     invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
     const result = await resolveUrsaModelRef({ userText: 'hi' })
     expect(result.roleName).not.toBe('coder')
+  })
+
+  it('excludes the verifier role when perplexity has no configured key, and resolution still succeeds', async () => {
+    vi.mocked(keyStatus).mockReturnValue({
+      anthropic: true,
+      openai: true,
+      google: true,
+      openrouter: true,
+      perplexity: false
+    } as never)
+    invokeSpy.mockResolvedValue({ parsed: { role: 'verifier' }, raw: {} })
+    const result = await resolveUrsaModelRef({ userText: 'what is the latest release of X' })
+    expect(result.roleName).not.toBe('verifier')
+    expect(CURATED_ROLES.some((r) => r.name === result.roleName)).toBe(true)
   })
 
   it('skips classification and resolves to the first eligible role, without throwing, when every eligible role\'s provider has a configured key but no CHEAP_MODEL entry', async () => {

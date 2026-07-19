@@ -15,7 +15,7 @@
 
 <p align="center">
   <strong>An open-source, self-hosted agent manager, inspired by Google Antigravity.</strong><br/>
-  Point an agent (Claude, GPT, Gemini, OpenRouter, or local Ollama — or let <strong>Ursa</strong>
+  Point an agent (Claude, GPT, Gemini, Perplexity, OpenRouter, or local Ollama — or let <strong>Ursa</strong>
   route each turn to the best of them) at a folder and watch it plan, run tools, and produce
   reviewable diffs — with a full agent-loop spine: rules, skills, workflows, hooks, plugins,
   memory, and sandboxing, all on your machine.<br/><br/>
@@ -78,10 +78,11 @@ job, *across providers*:
 | 🏛️ **Architect** | planning, deciding, or designing *before* building | Claude Opus 4.8 |
 | 🔨 **Coder** | anything whose deliverable is code or files — any size | GPT-5.6 Sol |
 | 🔍 **Reviewer** | review, critique, or verification of existing work | Claude Sonnet 5 |
+| 🔎 **Verifier** | fact-checks and current-info lookups against the live web | Sonar Pro |
 | ⚡ **Grunt** | quick, routine, mechanical asks | GPT-5.6 Luna |
 
-One conversation can flow through all four — plan with Opus, build with GPT, review with Sonnet —
-without you touching the picker again.
+One conversation can flow through all five — plan with Opus, build with GPT, review with Sonnet,
+verify with Sonar — without you touching the picker again.
 
 **How it's built:**
 
@@ -116,8 +117,8 @@ without you touching the picker again.
 - **Ursa dynamic model routing**: a cross-provider orchestrator entry in the model picker that
   classifies each turn and routes it to the right model for the job — see
   [Meet Ursa](#meet-ursa)
-- **Multi-provider model support**: Anthropic, OpenAI, Google, OpenRouter, and local Ollama —
-  switch mid-conversation, set per-project defaults, add custom models and context windows
+- **Multi-provider model support**: Anthropic, OpenAI, Google, Perplexity, OpenRouter, and local
+  Ollama — switch mid-conversation, set per-project defaults, add custom models and context windows
 - **LangGraph.js + Deep Agents orchestrator** running alongside the legacy `ursa` engine behind a
   feature flag, so the runtime can evolve without breaking existing conversations
 - **Live diffs and a review panel** for every file the agent touches, plus Monaco-powered code and
@@ -178,7 +179,7 @@ without you touching the picker again.
 | **Shell** | Electron 39 · electron-vite · electron-builder (macOS-first) |
 | **UI** | React 19 · TypeScript strict · Zustand · Monaco Editor |
 | **Agent runtime** | LangChain.js · LangGraph.js · `deepagents` (sole engine — the earlier Vercel AI SDK-based loop was retired) |
-| **Model providers** | `@langchain/anthropic` · `@langchain/openai` · `@langchain/google-genai` · `@langchain/ollama` · OpenRouter |
+| **Model providers** | `@langchain/anthropic` · `@langchain/openai` · `@langchain/google-genai` · `@langchain/ollama` · OpenRouter · Perplexity |
 | **Browser tool** | Playwright · Electron `WebContentsView` + CDP |
 | **Storage** | better-sqlite3 (conversations, settings, trust) |
 | **Documents** | pdf-lib · unpdf · mammoth · docx · exceljs |
