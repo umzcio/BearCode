@@ -17,11 +17,15 @@ import {
 import type { RunSink } from '../sink'
 import {
   appendEvent,
+  appendOrReplaceEvent,
   getConversationMeta,
   getEvents,
+  getLastResolvedModelRef,
+  getUrsaPipeline,
   getZombieRunIds,
   listConversations,
-  setModelRef
+  setModelRef,
+  setUrsaPipelineStatus
 } from '../db'
 import {
   cancelPendingApproval,
@@ -127,17 +131,52 @@ export async function startRunOrchestrator(
 // resolveInterrupt's `pending.signal.aborted` guard too) and drive this
 // conversation to the same terminal 'cancelled' state startRunOrchestrator's
 // own catch block produces for a plain mid-stream Stop.
-export function cancelRunOrchestrator(conversationId: string): void {
+export function cancelRunOrchestrator(conversationId: string, sink?: RunSink): void {
   aborts.get(conversationId)?.abort()
-  const sink = cancelPendingApproval(conversationId)
-  if (!sink) return
+  // Ursa Phase 2 (Task 3): Stop while a pipeline PROPOSAL is still awaiting
+  // consent. This pause is pre-graph -- no agent, nothing in pendingApprovals,
+  // and the AbortController kept alive by startRunOrchestrator's `paused` branch
+  // has nothing awaiting it (the abort above is a no-op) -- so the normal
+  // cancelPendingApproval path below finds nothing and would leave the run stuck
+  // in 'awaiting-approval' forever. Mark the proposal 'stopped', flip its
+  // synthetic card to denied, and drive the conversation to 'cancelled', exactly
+  // as a real Deny-then-Stop would. A 'running' pipeline (Task 4) is NOT handled
+  // here -- its live step drive cancels via the abort signal above.
+  const pipeline = getUrsaPipeline(conversationId)
+  if (sink && pipeline && pipeline.status === 'proposed') {
+    setUrsaPipelineStatus(conversationId, 'stopped')
+    const card: Event = {
+      type: 'tool_call',
+      id: pipeline.callId,
+      tool: 'ursa_pipeline',
+      input: { steps: pipeline.steps },
+      approvalState: 'denied'
+    }
+    sink.emit(conversationId, card)
+    appendOrReplaceEvent(conversationId, card)
+    aborts.delete(conversationId)
+    const event: Event = {
+      type: 'error',
+      id: randomUUID(),
+      message: 'Cancelled',
+      recoverable: true
+    }
+    sink.emit(conversationId, event)
+    appendEvent(conversationId, event)
+    sink.setState(conversationId, 'cancelled')
+    const meta = getConversationMeta(conversationId)
+    if (meta) sink.metaChanged(meta)
+    return
+  }
+  const parkedSink = cancelPendingApproval(conversationId)
+  if (!parkedSink) return
   aborts.delete(conversationId)
   const event: Event = { type: 'error', id: randomUUID(), message: 'Cancelled', recoverable: true }
-  sink.emit(conversationId, event)
+  parkedSink.emit(conversationId, event)
   appendEvent(conversationId, event)
-  sink.setState(conversationId, 'cancelled')
+  parkedSink.setState(conversationId, 'cancelled')
   const meta = getConversationMeta(conversationId)
-  if (meta) sink.metaChanged(meta)
+  if (meta) parkedSink.metaChanged(meta)
 }
 
 // Resolves ONE command-approval card raised by the run_command tool
@@ -157,6 +196,156 @@ export function resolveApprovalOrchestrator(callId: string, approved: boolean): 
   for (const conversationId of aborts.keys()) {
     if (resolveInterrupt(conversationId, callId, approved)) return
   }
+}
+
+// Ursa Phase 2 (Task 3): resolve a pipeline PROPOSAL (the synthetic
+// 'ursa_pipeline' consent card), wired from bearcode:ursa:resolve-pipeline.
+// This is entirely self-contained: the card never entered graph.ts's
+// pendingApprovals (it is pre-graph, not a LangGraph interrupt), so resolution
+// flows ONLY through here -- never through resolveApprovalOrchestrator. The IPC
+// carries a conversationId (unlike the callId-only approval scans above),
+// because there is no pendingApprovals map to look the conversation up in.
+//   - Validates against the persisted proposal: the row must exist, still be
+//     'proposed', and its call_id must match the clicked card (a stale click on
+//     an already-resolved/stopped proposal, or a mismatched id, is a no-op).
+//   - Flips + persists the synthetic card (mirrors finalizeDecision's
+//     emit-then-persist, but appendOrReplaceEvent since the pending row is
+//     already on disk, and WITHOUT touching pendingApprovals).
+//   - Approve  -> status 'running', start the step-execution loop (Task 4).
+//   - Deny     -> status 'declined', run the turn single-role on the
+//     classifier's fallback model WITHOUT re-classifying (declining is the
+//     normal Phase 1 path, never an error).
+export function resolveUrsaPipelineOrchestrator(
+  conversationId: string,
+  callId: string,
+  approved: boolean,
+  sink: RunSink
+): void {
+  const pipeline = getUrsaPipeline(conversationId)
+  if (!pipeline || pipeline.status !== 'proposed' || pipeline.callId !== callId) return
+  const card: Event = {
+    type: 'tool_call',
+    id: callId,
+    tool: 'ursa_pipeline',
+    input: { steps: pipeline.steps },
+    approvalState: approved ? 'approved' : 'denied'
+  }
+  sink.emit(conversationId, card)
+  appendOrReplaceEvent(conversationId, card)
+  if (approved) {
+    setUrsaPipelineStatus(conversationId, 'running')
+    sink.setState(conversationId, 'running')
+    const controller = new AbortController()
+    aborts.set(conversationId, controller)
+    void runUrsaPipeline(conversationId, sink, controller.signal)
+  } else {
+    setUrsaPipelineStatus(conversationId, 'declined')
+    void runDeclinedPipelineSingleRole(conversationId, sink)
+  }
+}
+
+// Ursa Phase 2 (Task 4 PLACEHOLDER): the step-execution loop that runs an
+// approved pipeline's steps in order. Task 4 replaces this body with the real
+// runner (per-step runGraph({ ursaStep }) calls + advanceUrsaPipeline + the
+// onResumeSettled re-entry). Until then, an approved pipeline flips its card to
+// 'approved' and parks in status 'running' with a live AbortController, but no
+// step executes yet -- a known, isolated Task-3 gap, called out here so Task 4
+// wires the loop and its Stop/crash lifecycle in one place.
+export async function runUrsaPipeline(
+  conversationId: string,
+  _sink: RunSink,
+  _signal: AbortSignal
+): Promise<void> {
+  console.warn(
+    `[bearcode] runUrsaPipeline placeholder: approved pipeline for ${conversationId} ` +
+      `will not execute until Ursa Phase 2 Task 4 lands.`
+  )
+}
+
+// The declined-pipeline single-role run (Task 3). Mirrors startRunOrchestrator's
+// AbortController + terminal-state bookkeeping, but drives runGraph with
+// `ursaResolved` so the turn runs on the classifier's already-persisted fallback
+// model WITHOUT re-emitting the user_message and WITHOUT re-classifying (which
+// could re-propose the pipeline the user just declined).
+async function runDeclinedPipelineSingleRole(
+  conversationId: string,
+  sink: RunSink
+): Promise<void> {
+  const resolvedModelRef = getLastResolvedModelRef(conversationId)
+  const last = lastUserMessageFull(conversationId)
+  if (!resolvedModelRef) {
+    // Invariant: resolveTurnModelRef always persists the single-role fallback
+    // (setLastResolvedModelRef) BEFORE it can return a pipeline, so this is
+    // unreachable in practice. If it somehow is missing, fail honestly rather
+    // than re-classify (which risks re-proposing the declined pipeline).
+    const event: Event = {
+      type: 'error',
+      id: randomUUID(),
+      message: 'Could not recover the model for the declined pipeline. Try sending the message again.',
+      recoverable: true
+    }
+    sink.emit(conversationId, event)
+    appendEvent(conversationId, event)
+    sink.setState(conversationId, 'error')
+    return
+  }
+  const controller = new AbortController()
+  aborts.set(conversationId, controller)
+  try {
+    const { paused } = await runGraph({
+      conversationId,
+      userText: last.text,
+      modelRef: resolvedModelRef,
+      sink,
+      signal: controller.signal,
+      command: last.command,
+      mentions: last.mentions,
+      attachments: last.attachments,
+      ursaResolved: { modelRef: resolvedModelRef }
+    })
+    // A tool-approval interrupt inside the declined turn parks it exactly like
+    // any single-role turn; keep the controller alive (Stop + the approval
+    // lookup still need it) until it truly settles.
+    if (paused) return
+  } catch (err) {
+    const cancelled = controller.signal.aborted
+    const message = cancelled ? 'Cancelled' : err instanceof Error ? err.message : String(err)
+    if (!cancelled) {
+      console.error(`[bearcode] declined-pipeline single-role run failed (${conversationId}):`, message)
+    }
+    const event: Event = { type: 'error', id: randomUUID(), message, recoverable: true }
+    sink.emit(conversationId, event)
+    appendEvent(conversationId, event)
+    sink.setState(conversationId, cancelled ? 'cancelled' : 'error')
+  }
+  aborts.delete(conversationId)
+  const meta = getConversationMeta(conversationId)
+  if (meta) sink.metaChanged(meta)
+}
+
+// The most recent user_message in full (text + command + mentions +
+// attachments), used to faithfully re-drive the declined-pipeline turn. The
+// proposal path already emitted+persisted this event, so re-reading it (rather
+// than re-passing from the IPC) is both crash-safe and avoids a second echo.
+function lastUserMessageFull(conversationId: string): {
+  text: string
+  command: CommandRef | null
+  mentions: MentionRef[]
+  attachments: AttachmentRef[]
+} {
+  const events = getEvents(conversationId)
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]
+    if (e.type === 'user_message') {
+      return {
+        text: e.text,
+        command: e.command ?? null,
+        mentions: e.mentions ?? [],
+        attachments: e.attachments ?? []
+      }
+    }
+  }
+  return { text: '', command: null, mentions: [], attachments: [] }
 }
 
 // Wire-boundary guard for bearcode:artifacts:resolve-plan-review (src/main

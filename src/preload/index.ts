@@ -119,7 +119,9 @@ const bearcode: BearcodeApi = {
     status: () => ipcRenderer.invoke('bearcode:keys:status')
   },
   ursa: {
-    requiredProviders: () => ipcRenderer.invoke('bearcode:ursa:required-providers')
+    requiredProviders: () => ipcRenderer.invoke('bearcode:ursa:required-providers'),
+    resolvePipeline: (conversationId: string, callId: string, approved: boolean) =>
+      ipcRenderer.invoke('bearcode:ursa:resolve-pipeline', conversationId, callId, approved)
   },
   settings: {
     get: () => ipcRenderer.invoke('bearcode:settings:get'),

@@ -53,6 +53,7 @@ import {
   setActiveRules,
   setLastResolvedModelRef,
   setPermissionMode,
+  setUrsaPipeline,
   touchedFilesFor
 } from '../db'
 import { readAttachmentBase64, readAttachmentSidecar } from '../attachments/ingest'
@@ -90,7 +91,12 @@ import { parseModelRef, supportsNativePdf } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
 import { makeModel } from './models'
-import { isUrsaModelRef, resolveUrsaModelRef, resolveSubagentModelRefs } from './ursa'
+import {
+  isUrsaModelRef,
+  resolveUrsaModelRef,
+  resolveSubagentModelRefs,
+  roleNameForModelRef
+} from './ursa'
 import { compactionAdvanced } from './compaction'
 import {
   COMPACT_ACK_DIRECTIVE,
@@ -2748,6 +2754,17 @@ export async function runGraph(opts: {
   command?: CommandRef | null
   mentions?: MentionRef[]
   attachments?: AttachmentRef[]
+  // Ursa Phase 2 (Task 3): a PRE-RESOLVED single-role run for a DECLINED
+  // pipeline proposal. When set, runGraph:
+  //  - skips classification (uses this modelRef directly and NEVER re-runs the
+  //    classifier, which could re-propose the very pipeline the user declined);
+  //  - skips the user_message echo + rule-mention pinning + force-compact
+  //    marking, because all of those already ran when the proposal was created
+  //    (the persisted user_message is kept, transcript honesty).
+  // The turn otherwise runs exactly like a normal single-role Ursa turn. The
+  // ursaRole for turn_meta is recovered from the modelRef when omitted, so
+  // per-role spend still attributes correctly. Undefined for every normal turn.
+  ursaResolved?: { modelRef: string; ursaRole?: string }
 }): Promise<{ paused: boolean }> {
   const {
     conversationId,
@@ -2757,7 +2774,8 @@ export async function runGraph(opts: {
     signal,
     command = null,
     mentions = [],
-    attachments = []
+    attachments = [],
+    ursaResolved
   } = opts
 
   sink.setState(conversationId, 'running')
@@ -2765,36 +2783,72 @@ export async function runGraph(opts: {
   // submissions; if the old interrupted task replays on this thread, it
   // re-enters its own artifactId slot (tools.ts tryEnterPlanReview).
   clearPlanReviewPending(conversationId)
-  // Pin any @-mentioned Manual rules into active_rules BEFORE building the
-  // agent, so this turn's meta read already includes them (see
-  // persistRuleMentions).
-  persistRuleMentions(conversationId, mentions)
-  const userEvent: Event = {
-    type: 'user_message',
-    id: randomUUID(),
-    text: userText,
-    createdAt: Date.now(),
-    ...(command ? { command } : {}),
-    ...(mentions.length > 0 ? { mentions } : {}),
-    ...(attachments.length > 0 ? { attachments } : {})
-  }
-  sink.emit(conversationId, userEvent)
-  appendEvent(conversationId, userEvent)
+  if (!ursaResolved) {
+    // Pin any @-mentioned Manual rules into active_rules BEFORE building the
+    // agent, so this turn's meta read already includes them (see
+    // persistRuleMentions). Skipped on the declined-pipeline re-run: the
+    // mentions were already pinned when the proposal was created.
+    persistRuleMentions(conversationId, mentions)
+    const userEvent: Event = {
+      type: 'user_message',
+      id: randomUUID(),
+      text: userText,
+      createdAt: Date.now(),
+      ...(command ? { command } : {}),
+      ...(mentions.length > 0 ? { mentions } : {}),
+      ...(attachments.length > 0 ? { attachments } : {})
+    }
+    sink.emit(conversationId, userEvent)
+    appendEvent(conversationId, userEvent)
 
-  // /compact (D2 builtin): force the summarizer to fold the backlog on THIS
-  // turn. markForceCompact sets the one-shot flag that buildAgentAndContext
-  // consumes below (consumeForceCompact) to build an aggressive
-  // trigger+keep, so compaction fires on this model call — before the agent
-  // acks — rather than lowering the trigger for some later turn.
-  if (commandForcesCompact(command)) {
-    markForceCompact(conversationId)
+    // /compact (D2 builtin): force the summarizer to fold the backlog on THIS
+    // turn. markForceCompact sets the one-shot flag that buildAgentAndContext
+    // consumes below (consumeForceCompact) to build an aggressive
+    // trigger+keep, so compaction fires on this model call — before the agent
+    // acks — rather than lowering the trigger for some later turn.
+    if (commandForcesCompact(command)) {
+      markForceCompact(conversationId)
+    }
   }
 
   // Ursa Phase 1: resolve the sentinel to a concrete "provider/modelId" ref
   // BEFORE buildAgentAndContext (which parseModelRefs it) ever sees it. A
-  // manually selected model is returned untouched.
-  const turnModel = await resolveTurnModelRef(conversationId, modelRef, userText)
-  const { modelRef: resolvedModelRef, ursaRole, classifierUsage } = turnModel
+  // manually selected model is returned untouched. The declined-pipeline path
+  // supplies the already-resolved single-role model and skips classification.
+  let resolvedModelRef: string
+  let ursaRole: string | undefined
+  let classifierUsage: { modelRef: string; inputTokens: number; outputTokens: number } | undefined
+  if (ursaResolved) {
+    resolvedModelRef = ursaResolved.modelRef
+    ursaRole = ursaResolved.ursaRole ?? roleNameForModelRef(ursaResolved.modelRef)
+  } else {
+    const turnModel = await resolveTurnModelRef(conversationId, modelRef, userText)
+    resolvedModelRef = turnModel.modelRef
+    ursaRole = turnModel.ursaRole
+    classifierUsage = turnModel.classifierUsage
+    // Ursa Phase 2 (Task 3): the classifier proposed a genuinely multi-part
+    // pipeline. This is a PRE-GRAPH consent gate -- no agent exists yet, so it
+    // is NOT a LangGraph interrupt and must NEVER enter pendingApprovals or the
+    // interrupt-resume machinery. Persist the proposal (crash-safe), emit a
+    // synthetic pending tool_call card the existing pinned-approval UI renders
+    // generically, park the run in 'awaiting-approval', and return WITHOUT
+    // building the agent. resolveUrsaPipelineOrchestrator (approve/deny, via the
+    // dedicated bearcode:ursa:resolve-pipeline IPC) drives it from here. The
+    // user_message emitted above is correct and kept.
+    if (turnModel.pipeline && turnModel.pipeline.length >= 2) {
+      const callId = randomUUID()
+      setUrsaPipeline(conversationId, turnModel.pipeline, callId)
+      emitAndPersist(conversationId, sink, {
+        type: 'tool_call',
+        id: callId,
+        tool: 'ursa_pipeline',
+        input: { steps: turnModel.pipeline },
+        approvalState: 'pending'
+      })
+      sink.setState(conversationId, 'awaiting-approval')
+      return { paused: true }
+    }
+  }
 
   const built = buildAgentAndContext(
     conversationId,

@@ -290,6 +290,12 @@ export type ToolName =
   | 'bitbucket_create_pr'
   | 'propose_skill'
   | 'remember'
+  // Ursa Phase 2 (pipeline mode): a SYNTHETIC tool_call, never a real agent
+  // tool. runGraph emits one pending 'ursa_pipeline' card to consent-gate a
+  // proposed multi-step pipeline BEFORE any agent is built; it is resolved
+  // through the dedicated bearcode:ursa:resolve-pipeline IPC, never through the
+  // command/edit approval machinery (it never enters graph.ts pendingApprovals).
+  | 'ursa_pipeline'
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
@@ -1223,6 +1229,11 @@ export interface BearcodeApi {
   }
   ursa: {
     requiredProviders(): Promise<ProviderId[]>
+    // Ursa Phase 2: approve/deny a proposed pipeline (the synthetic
+    // 'ursa_pipeline' consent card). Approve runs the steps in order; deny runs
+    // the turn single-role, exactly as Phase 1. Fire-and-forget: progress flows
+    // back over bearcode:event, like run:start.
+    resolvePipeline(conversationId: string, callId: string, approved: boolean): Promise<void>
   }
   settings: {
     get(): Promise<SettingsInfo>

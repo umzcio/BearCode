@@ -17,7 +17,8 @@ vi.mock('../db', () => ({
   markArtifactCommentsSent: vi.fn(),
   setActiveRules: vi.fn(),
   setLastResolvedModelRef: vi.fn(),
-  setPermissionMode: vi.fn()
+  setPermissionMode: vi.fn(),
+  setUrsaPipeline: vi.fn()
 }))
 
 vi.mock('./checkpointer', () => ({
@@ -34,7 +35,15 @@ vi.mock('./ursa', () => ({
   // Ursa Arc 2 (Task 2): buildSubagents consults this to route the researcher/
   // browser subagents while Ursa drives a turn. Default empty (no overrides);
   // per-test overridden below.
-  resolveSubagentModelRefs: vi.fn(() => ({}))
+  resolveSubagentModelRefs: vi.fn(() => ({})),
+  // Ursa Phase 2 (Task 3): the declined-pipeline path recovers a role name from
+  // the resolved modelRef. Real reverse-lookup here (it is pure) so the mock
+  // stays honest for any test that exercises the ursaResolved branch.
+  roleNameForModelRef: (ref: string) =>
+    ({
+      'openai/gpt-5.6-sol': 'coder',
+      'anthropic/claude-sonnet-5': 'reviewer'
+    })[ref]
 }))
 
 // makeModel is mocked so buildSubagents can build distinguishable per-role
@@ -73,6 +82,7 @@ import {
   persistRuleMentions,
   resolveTurnModelRef,
   rehydrateModelRef,
+  runGraph,
   buildSubagents,
   __parkForTest,
   type ApprovalItem
@@ -83,7 +93,8 @@ import {
   getLastResolvedModelRef,
   getLastUrsaRole,
   getRecentUrsaContext,
-  setLastResolvedModelRef
+  setLastResolvedModelRef,
+  setUrsaPipeline
 } from '../db'
 import type { PlanReviewResolution, SkillProposalResolution } from './tools'
 import { browserManager } from '../browser/manager'
@@ -1784,6 +1795,90 @@ describe('runGraph — Ursa resolution', () => {
   it('rehydrateModelRef returns a concrete ref unchanged', () => {
     expect(rehydrateModelRef('c1', 'anthropic/claude-sonnet-5')).toBe('anthropic/claude-sonnet-5')
     expect(getLastResolvedModelRef).not.toHaveBeenCalled()
+  })
+})
+
+describe('runGraph — Ursa Phase 2 pipeline proposal (consent gate)', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
+
+  it('parks a proposed pipeline with a pending synthetic card + persisted row, and builds NO agent', async () => {
+    const steps = [
+      { role: 'coder', modelRef: 'openai/gpt-5.6-sol', subtask: 'build the parser' },
+      { role: 'reviewer', modelRef: 'anthropic/claude-sonnet-5', subtask: 'review it' }
+    ]
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'openai/gpt-5.6-sol',
+      roleName: 'coder',
+      pipeline: steps
+    })
+    const sink = makeSink()
+    const controller = new AbortController()
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'build a parser, then review it',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: controller.signal
+    })
+
+    expect(result).toEqual({ paused: true })
+    // Proposal persisted (a fresh uuid callId threaded into both the row and card).
+    expect(setUrsaPipeline).toHaveBeenCalledTimes(1)
+    const [convId, persistedSteps, callId] = vi.mocked(setUrsaPipeline).mock.calls[0]
+    expect(convId).toBe('c1')
+    expect(persistedSteps).toEqual(steps)
+    expect(typeof callId).toBe('string')
+
+    // A pending synthetic ursa_pipeline tool_call was emitted with the same id.
+    const toolCall = vi
+      .mocked(sink.emit)
+      .mock.calls.map((c) => c[1])
+      .find((e) => e.type === 'tool_call')
+    expect(toolCall).toMatchObject({
+      type: 'tool_call',
+      id: callId,
+      tool: 'ursa_pipeline',
+      input: { steps },
+      approvalState: 'pending'
+    })
+    // Run parked awaiting consent; NO agent (makeModel) was ever constructed.
+    expect(sink.setState).toHaveBeenLastCalledWith('c1', 'awaiting-approval')
+    expect(makeModel).not.toHaveBeenCalled()
+    // The user_message emitted before resolution is kept (transcript honesty).
+    expect(
+      vi
+        .mocked(sink.emit)
+        .mock.calls.map((c) => c[1])
+        .some((e) => e.type === 'user_message')
+    ).toBe(true)
+  })
+
+  it('does NOT propose (single-role path) when the classifier returns no pipeline', async () => {
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'anthropic/claude-sonnet-5',
+      roleName: 'reviewer'
+    })
+    const sink = makeSink()
+    // No pipeline -> falls through to buildAgentAndContext. We don't drive a real
+    // model here; assert only that the pipeline seam was NOT taken.
+    await runGraph({
+      conversationId: 'c1',
+      userText: 'explain this code',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal
+    }).catch(() => {
+      /* buildAgentAndContext/drive may throw with mocked models — irrelevant here */
+    })
+    expect(setUrsaPipeline).not.toHaveBeenCalled()
+    expect(
+      vi
+        .mocked(sink.emit)
+        .mock.calls.map((c) => c[1])
+        .some((e) => e.type === 'tool_call' && e.tool === 'ursa_pipeline')
+    ).toBe(false)
   })
 })
 

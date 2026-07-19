@@ -138,6 +138,7 @@ import {
   resolveApprovalOrchestrator,
   resolvePlanReviewOrchestrator,
   resolveSkillProposalOrchestrator,
+  resolveUrsaPipelineOrchestrator,
   resumeInterruptedRuns,
   startRunOrchestrator
 } from './orchestrator'
@@ -230,7 +231,7 @@ export function registerIpc(): void {
   )
 
   ipcMain.handle('bearcode:run:cancel', (_e, conversationId: string) => {
-    cancelRunOrchestrator(conversationId)
+    cancelRunOrchestrator(conversationId, sink)
   })
 
   ipcMain.handle('bearcode:models:list', () => listAllModels())
@@ -506,6 +507,24 @@ export function registerIpc(): void {
   // providers it depends on, so the page can render a read-only key-status
   // check without duplicating the role table in the renderer.
   ipcMain.handle('bearcode:ursa:required-providers', () => ursaRequiredProviders())
+
+  // Ursa Phase 2: approve/deny a proposed pipeline (the synthetic 'ursa_pipeline'
+  // consent card). Thin wire-boundary guard (the assertValid* posture): IPC args
+  // cross a JS-only bridge with no runtime type enforcement, so shape-check
+  // before delegating. Fire-and-forget like run:start -- progress flows back
+  // over bearcode:event.
+  ipcMain.handle(
+    'bearcode:ursa:resolve-pipeline',
+    (_e, conversationId: unknown, callId: unknown, approved: unknown) => {
+      if (typeof conversationId !== 'string' || typeof callId !== 'string') {
+        throw new Error('resolve-pipeline: conversationId and callId must be strings')
+      }
+      if (typeof approved !== 'boolean') {
+        throw new Error('resolve-pipeline: approved must be a boolean')
+      }
+      resolveUrsaPipelineOrchestrator(conversationId, callId, approved, sink)
+    }
+  )
 
   ipcMain.handle('bearcode:settings:get', () => settingsInfo())
   ipcMain.handle('bearcode:settings:set', (_e, patch: Partial<AppSettings>) => {

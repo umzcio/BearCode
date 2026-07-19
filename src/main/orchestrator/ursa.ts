@@ -151,6 +151,18 @@ export function resolvePipelineSteps(
   return resolved
 }
 
+// Reverse-lookup a resolved concrete modelRef back to its curated role name.
+// Used by the DECLINED-pipeline path (Phase 2 Task 3): when the user declines a
+// proposal, the turn runs single-role on the classifier's fallback modelRef --
+// which is persisted (last_resolved_model_ref) -- but its role NAME is not, so
+// the declined turn recovers the role for turn_meta from the curated table.
+// undefined when no curated role maps to that ref (e.g. the table's modelRefs
+// changed across an app update between proposal and decline) -- an honest
+// degradation to a role-less turn_meta, never a wrong role.
+export function roleNameForModelRef(modelRef: string): string | undefined {
+  return CURATED_ROLES.find((r) => r.modelRef === modelRef)?.name
+}
+
 // A role is eligible only if its provider currently has a configured key
 // (mirrors ModelPicker.tsx's provider.reachable / requiresKey && !keyConfigured
 // dimming logic) -- Ursa must never select a role it cannot actually run.
