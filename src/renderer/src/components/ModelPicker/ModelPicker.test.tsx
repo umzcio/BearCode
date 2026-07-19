@@ -58,4 +58,38 @@ describe('ModelPicker — Ursa entry', () => {
     fireEvent.click(screen.getByText('Ursa'))
     expect(selectModel).toHaveBeenCalledWith('ursa/auto')
   })
+
+  it('seeds the roving highlight on the Ursa row (not a fallback-0 match) when modelRef is the sentinel', () => {
+    useAppStore.setState({
+      providers: [usableProvider] as never,
+      modelRef: 'ursa/auto',
+      settings: { ursaEnabled: true } as never
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    const listbox = screen.getByRole('listbox')
+    expect(listbox.getAttribute('aria-activedescendant')).toBe('opt-model-ursa')
+    const ursaRow = listbox.querySelector('#opt-model-ursa')
+    expect(ursaRow?.className).toContain('active')
+  })
+
+  it('still seeds the highlight on a concrete model row (not index 0) when modelRef is a real model', () => {
+    const secondProvider = {
+      ...usableProvider,
+      id: 'openai',
+      displayName: 'OpenAI',
+      models: [{ id: 'gpt-5', label: 'GPT-5' }]
+    }
+    useAppStore.setState({
+      providers: [usableProvider, secondProvider] as never,
+      modelRef: 'openai/gpt-5',
+      settings: { ursaEnabled: false } as never
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    const listbox = screen.getByRole('listbox')
+    expect(listbox.getAttribute('aria-activedescendant')).toBe('opt-model-openai/gpt-5')
+    const modelRow = listbox.querySelector('#opt-model-openai\\/gpt-5')
+    expect(modelRow?.className).toContain('active')
+  })
 })

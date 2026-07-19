@@ -93,7 +93,8 @@ export function ModelPicker(): React.JSX.Element {
   // (Chromium silently no-ops focus on a hidden element). See Popover.tsx.
   useLayoutEffect(() => {
     if (!open) return
-    const i = flatOptions.findIndex((o) => o.id === `model-${modelRef}`)
+    const targetId = modelRef === URSA_MODEL_REF ? 'model-ursa' : `model-${modelRef}`
+    const i = flatOptions.findIndex((o) => o.id === targetId)
     setActiveIndex(i >= 0 ? i : 0)
     menuRef.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
