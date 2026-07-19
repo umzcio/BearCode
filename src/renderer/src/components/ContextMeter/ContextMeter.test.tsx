@@ -124,6 +124,67 @@ describe('ContextMeter', () => {
     expect(screen.getByText(/measured/i)).toBeTruthy()
   })
 
+  it('shows a "By role" breakdown when turns carry an ursaRole', () => {
+    useAppStore.setState({
+      settings: null,
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: {
+        c1: convo([
+          {
+            type: 'turn_meta',
+            id: 't1',
+            provider: 'anthropic',
+            model: 'claude-opus-4-8',
+            startedAt: 1,
+            endedAt: 2,
+            usage: { inputTokens: 18200, outputTokens: 3100, lastInputTokens: 18200 },
+            ursaRole: 'coder'
+          },
+          {
+            type: 'turn_meta',
+            id: 't2',
+            provider: 'anthropic',
+            model: 'claude-sonnet-5',
+            startedAt: 3,
+            endedAt: 4,
+            usage: { inputTokens: 4000, outputTokens: 800, lastInputTokens: 4000 },
+            ursaRole: 'writer'
+          }
+        ]) as never
+      }
+    })
+    render(<ContextMeter />)
+    fireEvent.click(screen.getByLabelText(/context/i))
+    expect(screen.getByText(/by role/i)).toBeTruthy()
+    expect(screen.getByText('coder')).toBeTruthy()
+    expect(screen.getByText('writer')).toBeTruthy()
+  })
+
+  it('hides the "By role" section when no turn carries an ursaRole', () => {
+    useAppStore.setState({
+      settings: null,
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: {
+        c1: convo([
+          {
+            type: 'turn_meta',
+            id: 't1',
+            provider: 'anthropic',
+            model: 'claude-opus-4-8',
+            startedAt: 1,
+            endedAt: 2,
+            usage: { inputTokens: 18200, outputTokens: 3100, lastInputTokens: 18200 }
+          }
+        ]) as never
+      }
+    })
+    render(<ContextMeter />)
+    fireEvent.click(screen.getByLabelText(/context/i))
+    // By-model breakdown is present, but the role section is not.
+    expect(screen.getByText(/by model/i)).toBeTruthy()
+    expect(screen.queryByText(/by role/i)).toBeNull()
+  })
+
   it('shows only the estimated ring line when no usage exists', () => {
     useAppStore.setState({
       settings: null,

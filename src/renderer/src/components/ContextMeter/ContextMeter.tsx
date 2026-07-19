@@ -7,7 +7,8 @@ import {
   contextWindowFor,
   latestUsage,
   usageByModel,
-  conversationCost
+  conversationCost,
+  costByRole
 } from '../../lib/contextMeter'
 import type { ProviderModels } from '@shared/types'
 import { Popover } from '../ui/Popover'
@@ -63,6 +64,8 @@ export function ContextMeter(): React.JSX.Element | null {
   // measured usage (mirrors how the ring gates on a known context window).
   const byModel = usageByModel(convo.events)
   const cost = conversationCost(byModel, modelPricing)
+  // Per-role spend (Ursa-routed conversations only) — empty otherwise.
+  const byRole = costByRole(convo.events, modelPricing)
 
   return (
     <div className="context-meter-wrap">
@@ -130,6 +133,22 @@ export function ContextMeter(): React.JSX.Element | null {
                   )
                 })}
               </div>
+              {byRole.length > 0 ? (
+                <>
+                  <div className="context-pop-divider" />
+                  <div className="context-pop-models context-pop-roles">
+                    <div className="context-pop-models-head">By role</div>
+                    {byRole.map((r) => (
+                      <div className="context-pop-role-row" key={r.role}>
+                        <span className="context-pop-role-name">{r.role}</span>
+                        <span className="context-pop-role-cost">
+                          {r.hasUnknown && r.cost === 0 ? '—' : `$${r.cost.toFixed(2)}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
               <div className="context-pop-divider" />
               <div className="context-pop-total">
                 <span className="context-pop-label">Total cost</span>

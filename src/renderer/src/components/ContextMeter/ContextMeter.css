@@ -155,6 +155,29 @@
   text-align: right;
 }
 
+/* Per-role spend (Ursa-routed turns), accented with the Ursa blue used by the
+   model badge (store.ts modelDisplay, #4c8dff). */
+.context-pop-role-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.context-pop-role-name {
+  color: #4c8dff;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-pop-role-cost {
+  color: var(--text-mid);
+  min-width: 44px;
+  text-align: right;
+}
+
 .context-pop-total {
   display: flex;
   align-items: baseline;

@@ -6,7 +6,8 @@ import {
   contextWindowFor,
   latestUsage,
   usageByModel,
-  conversationCost
+  conversationCost,
+  costByRole
 } from './contextMeter'
 import type { Event, ProviderModels } from '@shared/types'
 
@@ -15,7 +16,8 @@ function turnMeta(
   provider: string,
   model: string,
   usage?: { inputTokens: number; outputTokens: number; lastInputTokens: number },
-  ursaClassifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
+  ursaClassifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number },
+  ursaRole?: string
 ): Event {
   return {
     type: 'turn_meta',
@@ -25,7 +27,8 @@ function turnMeta(
     startedAt: 0,
     endedAt: 1,
     usage,
-    ...(ursaClassifierUsage ? { ursaClassifierUsage } : {})
+    ...(ursaClassifierUsage ? { ursaClassifierUsage } : {}),
+    ...(ursaRole ? { ursaRole } : {})
   }
 }
 
@@ -175,6 +178,69 @@ describe('contextMeter', () => {
         outputTokens: 10
       }
     ])
+  })
+
+  it('costByRole is empty when no turn carries an ursaRole', () => {
+    const events: Event[] = [
+      turnMeta('t1', 'anthropic', 'claude-opus-4-8', {
+        inputTokens: 1_000_000,
+        outputTokens: 0,
+        lastInputTokens: 1_000_000
+      })
+    ]
+    expect(costByRole(events)).toEqual([])
+  })
+
+  it('costByRole sums per role, folding in the turn model + its classifier cost', () => {
+    const events: Event[] = [
+      // coder: opus main (in 1M @ $5 = 5) + haiku classifier (in 1M @ $1 = 1) = 6
+      turnMeta(
+        't1',
+        'anthropic',
+        'claude-opus-4-8',
+        { inputTokens: 1_000_000, outputTokens: 0, lastInputTokens: 1_000_000 },
+        { modelRef: 'anthropic/claude-haiku-4-5', inputTokens: 1_000_000, outputTokens: 0 },
+        'coder'
+      ),
+      // writer: sonnet main (in 1M @ $3 = 3), no classifier reported = 3
+      turnMeta(
+        't2',
+        'anthropic',
+        'claude-sonnet-5',
+        { inputTokens: 1_000_000, outputTokens: 0, lastInputTokens: 1_000_000 },
+        undefined,
+        'writer'
+      ),
+      // a second coder turn accumulates: sonnet main (in 1M @ $3 = 3) => coder now 9
+      turnMeta(
+        't3',
+        'anthropic',
+        'claude-sonnet-5',
+        { inputTokens: 1_000_000, outputTokens: 0, lastInputTokens: 1_000_000 },
+        undefined,
+        'coder'
+      )
+    ]
+    const rows = costByRole(events)
+    expect(rows.map((r) => r.role)).toEqual(['coder', 'writer']) // first-seen order
+    expect(rows[0].cost).toBeCloseTo(9, 6)
+    expect(rows[0].hasUnknown).toBe(false)
+    expect(rows[1].cost).toBeCloseTo(3, 6)
+  })
+
+  it('costByRole flags an unpriced model without crediting cost', () => {
+    const events: Event[] = [
+      turnMeta(
+        't1',
+        'ollama',
+        'llama3',
+        { inputTokens: 1_000_000, outputTokens: 1_000_000, lastInputTokens: 1_000_000 },
+        undefined,
+        'local'
+      )
+    ]
+    const rows = costByRole(events)
+    expect(rows).toEqual([{ role: 'local', cost: 0, hasUnknown: true }])
   })
 
   it('conversationCost multiplies tokens x per-1M price, sums total, flags unknown', () => {

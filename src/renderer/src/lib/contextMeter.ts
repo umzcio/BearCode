@@ -95,6 +95,40 @@ export function usageByModel(events: Event[]): {
   return [...map.values()]
 }
 
+// Ursa Phase 1 (Task 6, #4): per-role spend. Aggregate the cost of every turn
+// Ursa routed, grouped by the role that handled it (turn_meta.ursaRole). A
+// role's cost folds in both the turn's main-model usage AND the routing
+// classifier's own usage for that turn (both cost real money to serve that
+// turn), using the same price resolution as the per-model breakdown. Turns
+// without an ursaRole (non-Ursa conversations) contribute nothing, so the
+// returned list is empty and the UI hides the section entirely. Insertion
+// order follows first-seen role.
+export function costByRole(
+  events: Event[],
+  synced?: PricingMap
+): { role: string; cost: number; hasUnknown: boolean }[] {
+  const map = new Map<string, { role: string; cost: number; hasUnknown: boolean }>()
+  for (const e of events) {
+    if (e.type !== 'turn_meta' || !e.ursaRole) continue
+    const cur = map.get(e.ursaRole) ?? { role: e.ursaRole, cost: 0, hasUnknown: false }
+    const addCost = (modelRef: string, inputTokens: number, outputTokens: number): void => {
+      const price = resolvePrice(modelRef, synced)
+      if (!price) {
+        cur.hasUnknown = true
+        return
+      }
+      cur.cost += (inputTokens * price.inputPer1M + outputTokens * price.outputPer1M) / 1_000_000
+    }
+    if (e.usage) addCost(`${e.provider}/${e.model}`, e.usage.inputTokens, e.usage.outputTokens)
+    if (e.ursaClassifierUsage) {
+      const cu = e.ursaClassifierUsage
+      addCost(cu.modelRef, cu.inputTokens, cu.outputTokens)
+    }
+    map.set(e.ursaRole, cur)
+  }
+  return [...map.values()]
+}
+
 // Estimated USD cost from per-model usage. Models with no resolvable price
 // (e.g. local Ollama) are excluded from the total and flip `hasUnknown` so the
 // UI can mark the figure as partial.
