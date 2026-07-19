@@ -20,3 +20,19 @@ describe('Composer — Ursa glow', () => {
     expect(container.querySelector('.composer')?.className).not.toContain('composer--ursa')
   })
 })
+
+describe('Composer — picker swap (Ursa vs concrete model)', () => {
+  it('renders the Ursa ModePicker (not EffortPicker) when the model is Ursa', () => {
+    useAppStore.setState({ modelRef: URSA_MODEL_REF, providers: [] } as never)
+    const { container } = render(<Composer onSend={() => {}} />)
+    expect(container.querySelector('.ursa-mode-picker')).toBeTruthy()
+    expect(container.querySelector('.effort-picker')).toBeNull()
+  })
+
+  it('renders EffortPicker (not the Ursa ModePicker) for a concrete model', () => {
+    useAppStore.setState({ modelRef: 'anthropic/claude-sonnet-5', providers: [] } as never)
+    const { container } = render(<Composer onSend={() => {}} />)
+    expect(container.querySelector('.effort-picker')).toBeTruthy()
+    expect(container.querySelector('.ursa-mode-picker')).toBeNull()
+  })
+})

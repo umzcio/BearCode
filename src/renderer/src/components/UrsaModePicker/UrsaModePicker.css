@@ -1,0 +1,35 @@
+.ursa-mode-picker {
+  position: relative;
+}
+/* The dropdown itself is portaled + positioned + animated by Popover (see
+   Popover.tsx / shared.css `.menu`/`.menu--in-popover`); no dropdown
+   positioning lives here. */
+.ursa-mode-menu {
+  min-width: 264px;
+}
+.ursa-mode-menu .ursa-mode-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.ursa-mode-text {
+  display: flex;
+  flex-direction: column;
+}
+.ursa-mode-title {
+  font-size: 13px;
+}
+.ursa-mode-default {
+  color: var(--text-dim);
+}
+.ursa-mode-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.ursa-mode-menu .check {
+  flex: none;
+  color: var(--accent);
+  font-size: 12px;
+}

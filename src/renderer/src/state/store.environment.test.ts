@@ -27,6 +27,7 @@ const conversations = {
   setMode: vi.fn(() => Promise.resolve()),
   setEffort: vi.fn(() => Promise.resolve()),
   setThinking: vi.fn(() => Promise.resolve()),
+  setUrsaMode: vi.fn(() => Promise.resolve()),
   setEnvironment: vi.fn(() =>
     Promise.resolve({ ...convoMeta, environment: 'worktree' as const, worktrees: [] })
   )
