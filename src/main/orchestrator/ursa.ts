@@ -68,7 +68,7 @@ export const CURATED_ROLES: readonly UrsaRole[] = [
   },
   {
     name: 'grunt',
-    modelRef: 'anthropic/claude-haiku-4-5',
+    modelRef: 'openai/gpt-5.6-luna',
     description:
       'Trivial, low-stakes requests: greetings, one-liners, quick lookups, tiny text edits.'
   }

@@ -23,6 +23,7 @@ interface ProviderRegistryEntry {
 }
 
 export const ANTHROPIC_MODELS: ModelInfo[] = [
+  { id: 'claude-fable-5', label: 'Claude Fable 5', contextWindow: 1_000_000 },
   { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', contextWindow: 1_000_000 },
   { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', contextWindow: 1_000_000 },
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', contextWindow: 200_000 }
@@ -51,6 +52,10 @@ export const OPENROUTER_MODELS: ModelInfo[] = [
 // both the GPT-5.6 reasoning.effort fix (models.ts's buildModelExtras) and the
 // Ursa classifier's model knowledge. Data only -- no LLM client code here.
 const CAPABILITIES: Record<string, ModelCapabilities> = {
+  'anthropic/claude-fable-5': {
+    strengths: ['code', 'research', 'writing', 'general'],
+    costTier: 'high'
+  },
   'anthropic/claude-opus-4-8': {
     strengths: ['code', 'research', 'writing', 'general'],
     costTier: 'high'

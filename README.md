@@ -78,7 +78,7 @@ job, *across providers*:
 | 🏛️ **Architect** | planning, deciding, or designing *before* building | Claude Opus 4.8 |
 | 🔨 **Coder** | anything whose deliverable is code or files — any size | GPT-5.6 Sol |
 | 🔍 **Reviewer** | review, critique, or verification of existing work | Claude Sonnet 5 |
-| ⚡ **Grunt** | quick, routine, mechanical asks | Claude Haiku 4.5 |
+| ⚡ **Grunt** | quick, routine, mechanical asks | GPT-5.6 Luna |
 
 One conversation can flow through all four — plan with Opus, build with GPT, review with Sonnet —
 without you touching the picker again.
