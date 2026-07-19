@@ -22,6 +22,19 @@ describe('makeModel', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((m as any).clientConfig.baseURL).toBe('https://api.perplexity.ai')
   })
+
+  it('Perplexity models refuse tool binding (endpoint 400s on any `tools` array)', () => {
+    const m = makeModel('perplexity/sonar')
+    // The agent loop bindTools()s every main model; for Perplexity the bind
+    // must be a no-op returning the same instance so no request ever carries
+    // tools. A regular provider (anthropic) returns a NEW bound runnable.
+    const fakeTool = { name: 't', description: 'd', schema: { type: 'object' } }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).bindTools([fakeTool])).toBe(m)
+    const anthropic = makeModel('anthropic/claude-haiku-4-5')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((anthropic as any).bindTools([fakeTool])).not.toBe(anthropic)
+  })
 })
 
 describe('buildModelExtras — OpenAI reasoning models', () => {

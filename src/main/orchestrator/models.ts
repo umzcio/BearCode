@@ -11,6 +11,20 @@ import { getSettings } from '../settings'
 import { parseModelRef, capabilitiesFor } from '../providers/registry'
 import type { EffortLevel, ProviderId } from '../../shared/types'
 
+// Perplexity's Chat Completions endpoint rejects any request that carries a
+// `tools` array ("400 Tool calling is not supported for this model") -- its
+// sonar models do their web search server-side instead of calling client
+// tools. The agent loop (deepagents) unconditionally bindTools()s the main
+// model, so a plain ChatOpenAI pointed at Perplexity 400s on every turn.
+// No-op the bind: the model never sees the tools, the loop runs it as a
+// plain answer-with-built-in-search model, and everything downstream
+// (streaming, usage, checkpoints) is unchanged. Exported for tests.
+export class ToollessChatOpenAI extends ChatOpenAI {
+  override bindTools(): this {
+    return this
+  }
+}
+
 function requireKey(provider: ProviderId): string {
   const key = getKey(provider)
   if (!key) throw new Error(`No API key for ${provider}. Add it in Settings.`)
@@ -122,7 +136,7 @@ export function makeModel(
       // pattern as openrouter: ChatOpenAI + a baseURL override. NEVER
       // useResponsesApi -- the endpoint doesn't speak the Responses API
       // (buildModelExtras returns {} for it via the default branch).
-      return new ChatOpenAI({
+      return new ToollessChatOpenAI({
         apiKey: requireKey('perplexity'),
         model: modelId,
         configuration: { baseURL: 'https://api.perplexity.ai' },
