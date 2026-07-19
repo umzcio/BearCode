@@ -715,6 +715,12 @@ export type Event =
       // the renderer folds it into the per-model cost breakdown so the
       // classifier's (real) spend is not invisible.
       ursaClassifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
+      // Ursa Modes (Task 4): the per-call token usage of every COUNCIL seat call
+      // (each seat's initial answer AND its peer review) on a council-mode turn.
+      // One entry per call, on the seat's own modelRef. The chair's own usage
+      // rides the normal `usage` slot above; this array lets the cost popover
+      // book all ~7 deliberation calls too. Absent on non-council turns.
+      ursaCouncilUsage?: Array<{ modelRef: string; inputTokens: number; outputTokens: number }>
       // Web sources the answering model itself cited (Perplexity sonar models
       // return `citations`/`search_results` with every response; the [n]
       // markers in the answer text are 1-based indexes into this list). The
@@ -742,6 +748,24 @@ export type Event =
   // the oldest `summarizedCount` messages into a summary (auto-compaction).
   // Older event streams simply lack it; renderers must handle its absence.
   | { type: 'compaction'; id: string; summarizedCount: number; createdAt?: number }
+  // Ursa Modes (Task 4, council): one member's contribution to a council-mode
+  // turn -- either its initial answer (`stage: 'answer'`) or its anonymized peer
+  // review of the others (`stage: 'review'`). Emitted collapsed and labeled
+  // (renderer, Task 5); the chair's synthesis is the turn's normal
+  // assistant_text, not a council_seat. `seat` is the member's short model
+  // label; `status: 'failed'` marks a seat whose answer call errored (dropped
+  // from later stages). Older event streams lack it; renderers must handle its
+  // absence.
+  | {
+      type: 'council_seat'
+      id: string
+      seat: string
+      modelRef: string
+      stage: 'answer' | 'review'
+      text: string
+      status: 'done' | 'failed'
+      createdAt?: number
+    }
 
 // ---- Provider layer ----
 

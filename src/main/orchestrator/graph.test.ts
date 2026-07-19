@@ -59,6 +59,13 @@ vi.mock('./models', () => ({
   makeModel: vi.fn((ref: string) => ({ __fakeModel: ref }))
 }))
 
+// Ursa Modes (Task 4): the council runner is a self-contained module tested in
+// council.test.ts; mock it here so runGraph's council-dispatch seam can be
+// asserted without driving three model calls + a chair stream.
+vi.mock('./council', () => ({
+  runCouncil: vi.fn(async () => ({ paused: false }))
+}))
+
 import {
   textOfMessage,
   buildUserMessageContent,
@@ -95,6 +102,7 @@ import {
 } from './graph'
 import { resolveUrsaModelRef, resolveSubagentModelRefs, coderRoleIfEligible } from './ursa'
 import { makeModel } from './models'
+import { runCouncil } from './council'
 import {
   getLastResolvedModelRef,
   getLastUrsaRole,
@@ -1921,6 +1929,95 @@ describe('runGraph — Ursa Modes: code mode lock (Task 3)', () => {
     const result = await resolveTurnModelRef('c1', 'ursa/auto', 'hi')
     expect(coderRoleIfEligible).not.toHaveBeenCalled()
     expect(result).toEqual({ modelRef: 'anthropic/claude-haiku-4-5', ursaRole: 'grunt' })
+  })
+})
+
+describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {
+  // getConversationMeta is set per-test via mockReturnValue, which vi.clearAllMocks
+  // does NOT reset -- so restore the module-mock default (null) after each test,
+  // or a leaked ursaMode:'council' would make runGraph's new council branch fire
+  // in unrelated later suites (e.g. the pipeline proposal test).
+  afterEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(getConversationMeta).mockReturnValue(null)
+  })
+
+  const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
+  const metaWith = (ursaMode: 'auto' | 'code' | 'council' | 'deep-research') => ({
+    id: 'c1',
+    projectPath: null,
+    title: null,
+    modelRef: 'ursa/auto',
+    createdAt: 0,
+    updatedAt: 0,
+    permissionMode: 'accept-edits' as const,
+    activeRules: [],
+    effort: 'medium' as const,
+    thinking: false,
+    ursaMode,
+    projectId: null,
+    pinned: false,
+    archived: false,
+    environment: 'local' as const,
+    worktrees: []
+  })
+
+  it("routes an Ursa turn to runCouncil (no classifier, no agent) when mode is 'council'", async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('council'))
+    vi.mocked(runCouncil).mockResolvedValue({ paused: false })
+    const sink = makeSink()
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'weigh X vs Y',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    expect(result).toEqual({ paused: false })
+    expect(runCouncil).toHaveBeenCalledWith('c1', 'weigh X vs Y', sink, expect.anything())
+    // Council never classifies and never builds an agent.
+    expect(resolveUrsaModelRef).not.toHaveBeenCalled()
+    expect(makeModel).not.toHaveBeenCalled()
+    // The user_message is still emitted before dispatch (transcript honesty).
+    expect(
+      vi
+        .mocked(sink.emit)
+        .mock.calls.map((c) => c[1])
+        .some((e) => e.type === 'user_message')
+    ).toBe(true)
+  })
+
+  it("does NOT route to runCouncil for mode 'auto' (classifier path unchanged)", async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('auto'))
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'anthropic/claude-sonnet-5',
+      roleName: 'reviewer'
+    })
+    const sink = makeSink()
+    // buildAgentAndContext/drive may throw with the fake model — irrelevant; we
+    // only assert the council seam was not taken and the classifier still ran.
+    await runGraph({
+      conversationId: 'c1',
+      userText: 'explain this',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal
+    }).catch(() => {})
+    expect(runCouncil).not.toHaveBeenCalled()
+    expect(resolveUrsaModelRef).toHaveBeenCalled()
+  })
+
+  it('does NOT route a concrete (non-Ursa) model to runCouncil even if meta says council', async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('council'))
+    const sink = makeSink()
+    await runGraph({
+      conversationId: 'c1',
+      userText: 'hi',
+      modelRef: 'anthropic/claude-sonnet-5',
+      sink,
+      signal: new AbortController().signal
+    }).catch(() => {})
+    expect(runCouncil).not.toHaveBeenCalled()
   })
 })
 

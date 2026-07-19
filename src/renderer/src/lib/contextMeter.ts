@@ -91,6 +91,13 @@ export function usageByModel(events: Event[]): {
       const cu = e.ursaClassifierUsage
       add(cu.modelRef, cu.inputTokens, cu.outputTokens)
     }
+    // Ursa Modes (Task 4): every council seat + review call ran on its own seat
+    // model (often different from the chair booked under `usage` above) and cost
+    // real money -- fold each entry into the same per-model rollup so the
+    // breakdown/cost accounts for all the deliberation calls too.
+    if (e.ursaCouncilUsage) {
+      for (const cu of e.ursaCouncilUsage) add(cu.modelRef, cu.inputTokens, cu.outputTokens)
+    }
   }
   return [...map.values()]
 }
@@ -123,6 +130,11 @@ export function costByRole(
     if (e.ursaClassifierUsage) {
       const cu = e.ursaClassifierUsage
       addCost(cu.modelRef, cu.inputTokens, cu.outputTokens)
+    }
+    // Ursa Modes (Task 4): a council turn's ursaRole is 'council', so every seat
+    // + review call's spend folds into that role alongside the chair's usage.
+    if (e.ursaCouncilUsage) {
+      for (const cu of e.ursaCouncilUsage) addCost(cu.modelRef, cu.inputTokens, cu.outputTokens)
     }
     map.set(e.ursaRole, cur)
   }

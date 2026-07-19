@@ -17,7 +17,8 @@ function turnMeta(
   model: string,
   usage?: { inputTokens: number; outputTokens: number; lastInputTokens: number },
   ursaClassifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number },
-  ursaRole?: string
+  ursaRole?: string,
+  ursaCouncilUsage?: Array<{ modelRef: string; inputTokens: number; outputTokens: number }>
 ): Event {
   return {
     type: 'turn_meta',
@@ -28,7 +29,8 @@ function turnMeta(
     endedAt: 1,
     usage,
     ...(ursaClassifierUsage ? { ursaClassifierUsage } : {}),
-    ...(ursaRole ? { ursaRole } : {})
+    ...(ursaRole ? { ursaRole } : {}),
+    ...(ursaCouncilUsage ? { ursaCouncilUsage } : {})
   }
 }
 
@@ -178,6 +180,70 @@ describe('contextMeter', () => {
         outputTokens: 10
       }
     ])
+  })
+
+  it('usageByModel folds each council seat/review call in under its own seat model', () => {
+    const events: Event[] = [
+      turnMeta(
+        't1',
+        'anthropic',
+        'claude-fable-5', // the chair's own usage rides the normal slot
+        { inputTokens: 300, outputTokens: 80, lastInputTokens: 300 },
+        undefined,
+        'council',
+        [
+          { modelRef: 'openai/gpt-5.6-sol', inputTokens: 10, outputTokens: 5 },
+          { modelRef: 'openai/gpt-5.6-sol', inputTokens: 12, outputTokens: 6 }, // its review
+          { modelRef: 'xai/grok-4.5', inputTokens: 20, outputTokens: 8 }
+        ]
+      )
+    ]
+    const rows = usageByModel(events)
+    expect(rows).toEqual([
+      {
+        modelRef: 'anthropic/claude-fable-5',
+        provider: 'anthropic',
+        model: 'claude-fable-5',
+        inputTokens: 300,
+        outputTokens: 80
+      },
+      {
+        modelRef: 'openai/gpt-5.6-sol',
+        provider: 'openai',
+        model: 'gpt-5.6-sol',
+        inputTokens: 22,
+        outputTokens: 11
+      },
+      {
+        modelRef: 'xai/grok-4.5',
+        provider: 'xai',
+        model: 'grok-4.5',
+        inputTokens: 20,
+        outputTokens: 8
+      }
+    ])
+  })
+
+  it('costByRole books every council seat call under the council role', () => {
+    const events: Event[] = [
+      // council: fable chair (in 1M @ its price) + one seat call (in 1M) all
+      // attributed to the 'council' role. Assert accumulation + that seats fold in.
+      turnMeta(
+        't1',
+        'anthropic',
+        'claude-sonnet-5',
+        { inputTokens: 1_000_000, outputTokens: 0, lastInputTokens: 1_000_000 },
+        undefined,
+        'council',
+        [{ modelRef: 'anthropic/claude-sonnet-5', inputTokens: 1_000_000, outputTokens: 0 }]
+      )
+    ]
+    const rows = costByRole(events)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].role).toBe('council')
+    // sonnet in @ $3/1M twice = 6
+    expect(rows[0].cost).toBeCloseTo(6, 6)
+    expect(rows[0].hasUnknown).toBe(false)
   })
 
   it('costByRole is empty when no turn carries an ursaRole', () => {

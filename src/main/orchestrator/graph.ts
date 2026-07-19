@@ -99,6 +99,7 @@ import {
   roleNameForModelRef,
   coderRoleIfEligible
 } from './ursa'
+import { runCouncil } from './council'
 import { compactionAdvanced } from './compaction'
 import {
   COMPACT_ACK_DIRECTIVE,
@@ -2911,6 +2912,19 @@ export async function runGraph(opts: {
     // acks — rather than lowering the trigger for some later turn.
     if (commandForcesCompact(command)) {
       markForceCompact(conversationId)
+    }
+  }
+
+  // Ursa Modes (Task 4): council mode runs a dedicated multi-seat deliberation
+  // runner INSTEAD of the single-agent graph -- the same structural seam as the
+  // pipeline branch below, but decided BEFORE classification (council never
+  // classifies, and never builds an agent or acquires tools). Only for a fresh
+  // Ursa turn: pipeline steps and declined-pipeline re-runs (ursaStep /
+  // ursaResolved) are always auto-mode internals. runCouncil drives the turn to
+  // its own terminal state and never pauses. (deep-research is Task 6.)
+  if (!ursaResolved && !ursaStep && isUrsaModelRef(modelRef)) {
+    if (getConversationMeta(conversationId)?.ursaMode === 'council') {
+      return runCouncil(conversationId, userText, sink, signal)
     }
   }
 
