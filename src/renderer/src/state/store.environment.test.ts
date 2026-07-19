@@ -14,6 +14,7 @@ const convoMeta: ConversationMeta = {
   activeRules: [],
   effort: 'adaptive',
   thinking: true,
+  webSearch: false,
   projectId: null,
   pinned: false,
   archived: false,
@@ -27,6 +28,7 @@ const conversations = {
   setMode: vi.fn(() => Promise.resolve()),
   setEffort: vi.fn(() => Promise.resolve()),
   setThinking: vi.fn(() => Promise.resolve()),
+  setWebSearch: vi.fn(() => Promise.resolve()),
   setUrsaMode: vi.fn(() => Promise.resolve()),
   setEnvironment: vi.fn(() =>
     Promise.resolve({ ...convoMeta, environment: 'worktree' as const, worktrees: [] })

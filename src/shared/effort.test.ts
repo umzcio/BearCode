@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { EFFORT_LEVELS, EFFORT_LABELS, isEffortLevel, effortCapabilities } from './effort'
+import { EFFORT_LEVELS, EFFORT_LABELS, isEffortLevel, effortCapabilities, webSearchCapability } from './effort'
 
 describe('effort constants + guard', () => {
   it('lists all six levels, adaptive first', () => {
@@ -76,5 +76,21 @@ describe('effortCapabilities', () => {
   it('null / malformed ref: both greyed', () => {
     expect(effortCapabilities(null)).toEqual({ effortEnabled: false, thinkingEnabled: false })
     expect(effortCapabilities('bogus')).toEqual({ effortEnabled: false, thinkingEnabled: false })
+  })
+})
+
+describe('webSearchCapability', () => {
+  it('is a toggle for anthropic, xai, and OpenAI reasoning models', () => {
+    expect(webSearchCapability('anthropic/claude-sonnet-5')).toBe('toggle')
+    expect(webSearchCapability('xai/grok-4.5')).toBe('toggle')
+    expect(webSearchCapability('openai/gpt-5.6-sol')).toBe('toggle')
+  })
+
+  it('is always-on for perplexity and unavailable elsewhere', () => {
+    expect(webSearchCapability('perplexity/sonar-pro')).toBe('always')
+    expect(webSearchCapability('openai/gpt-5-chat-latest')).toBe('none')
+    expect(webSearchCapability('google/gemini-2.5-pro')).toBe('none')
+    expect(webSearchCapability('openrouter/deepseek/deepseek-chat')).toBe('none')
+    expect(webSearchCapability(null)).toBe('none')
   })
 })

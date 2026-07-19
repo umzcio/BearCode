@@ -940,6 +940,11 @@ export interface ConversationMeta {
   // effort/thinking columns, falling back to the settings defaults (db toMeta).
   effort: EffortLevel
   thinking: boolean
+  // Per-conversation server-side Web Search toggle (effort-popover row).
+  // Governs provider-executed search (Anthropic web_search, OpenAI Responses
+  // built-in, xAI Live Search); Perplexity searches regardless. Default OFF --
+  // searches bill per use, so it is an explicit opt-in per conversation.
+  webSearch: boolean
   // Ursa Modes (Arc 2): only meaningful when modelRef is the Ursa sentinel.
   // Resolved from the ursa_mode column, coercing unknown/NULL to 'auto'
   // (db toMeta) -- never falls back to a settings default like effort does.
@@ -1320,6 +1325,7 @@ export interface BearcodeApi {
     setEffort(id: string, effort: EffortLevel): Promise<void>
     setUrsaMode(id: string, mode: UrsaMode): Promise<void>
     setThinking(id: string, thinking: boolean): Promise<void>
+    setWebSearch(id: string, webSearch: boolean): Promise<void>
     // F3: chosen at create, locked at first run. Worktrees are provisioned
     // main-side (the renderer never shells out), so this takes only the
     // environment and returns the updated meta with the resolved worktrees.

@@ -69,8 +69,8 @@ describe('makeModel', () => {
     expect((m as any).bindTools([fakeTool])).not.toBe(m)
   })
 
-  it('xAI appends server-side web_search/x_search/code_execution to every request, even with no bound tools', () => {
-    const m = makeModel('xai/grok-4.5')
+  it('xAI appends server-side web_search/x_search/code_execution when the toggle is on, even with no bound tools', () => {
+    const m = makeModel('xai/grok-4.5', { webSearch: true })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params = (m as any).invocationParams({})
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -78,6 +78,34 @@ describe('makeModel', () => {
     expect(types).toContain('web_search')
     expect(types).toContain('x_search')
     expect(types).toContain('code_execution')
+  })
+
+  it('xAI search tools are gated on the Web Search toggle; code_execution always rides', () => {
+    const off = makeModel('xai/grok-4.5')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const offTypes = ((off as any).invocationParams({}).tools ?? []).map((t: any) => t.type)
+    expect(offTypes).toContain('code_execution')
+    expect(offTypes).not.toContain('web_search')
+    expect(offTypes).not.toContain('x_search')
+    const on = makeModel('xai/grok-4.5', { webSearch: true })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const onTypes = ((on as any).invocationParams({}).tools ?? []).map((t: any) => t.type)
+    expect(onTypes).toContain('web_search')
+    expect(onTypes).toContain('x_search')
+  })
+
+  it('Anthropic appends its server web_search tool only when the toggle is on', () => {
+    const off = makeModel('anthropic/claude-sonnet-5')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const offTools = (off as any).invocationParams({}).tools ?? []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(offTools.some((t: any) => t?.name === 'web_search')).toBe(false)
+    const on = makeModel('anthropic/claude-sonnet-5', { webSearch: true })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const onTools = (on as any).invocationParams({}).tools ?? []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ws = onTools.find((t: any) => t?.name === 'web_search')
+    expect(ws?.type).toBe('web_search_20250305')
   })
 
   it('grok-4.20-multi-agent carries agent_count in its request params', () => {
@@ -88,7 +116,7 @@ describe('makeModel', () => {
   })
 
   it('xAI merges server tools with bound client tools without duplicating', () => {
-    const m = makeModel('xai/grok-4.5')
+    const m = makeModel('xai/grok-4.5', { webSearch: true })
     const fakeTool = { type: 'function', function: { name: 't', parameters: { type: 'object' } } }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params = (m as any).invocationParams({ tools: [fakeTool, { type: 'web_search' }] })

@@ -594,6 +594,12 @@ export function registerIpc(): void {
     }
     db.setThinking(id, thinking)
   })
+  ipcMain.handle('bearcode:conversations:set-web-search', (_e, id: string, webSearch: unknown) => {
+    if (typeof webSearch !== 'boolean') {
+      throw new Error(`Invalid webSearch: ${String(webSearch)}`)
+    }
+    db.setWebSearch(id, webSearch)
+  })
   // F3: env is chosen at create and locked at first run. The renderer calls
   // set-environment on the just-created conversation BEFORE the first run.
   // Worktree provisioning (the `git worktree add`) happens here, main-side, so

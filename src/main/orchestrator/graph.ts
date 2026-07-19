@@ -2506,7 +2506,11 @@ function buildAgentAndContext(
       )
     }
   }
-  const model = makeModel(modelRef, { effort: meta?.effort, thinking: meta?.thinking })
+  const model = makeModel(modelRef, {
+    effort: meta?.effort,
+    thinking: meta?.thinking,
+    webSearch: meta?.webSearch
+  })
   const diffGroupId = randomUUID()
   const backend = projectPath
     ? new DiffFsBackend(conversationId, projectPath, diffGroupId, worktreeMappings)

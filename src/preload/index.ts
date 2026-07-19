@@ -146,6 +146,8 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:conversations:set-ursa-mode', id, mode),
     setThinking: (id: string, thinking: boolean): Promise<void> =>
       ipcRenderer.invoke('bearcode:conversations:set-thinking', id, thinking),
+    setWebSearch: (id: string, webSearch: boolean): Promise<void> =>
+      ipcRenderer.invoke('bearcode:conversations:set-web-search', id, webSearch),
     // F3: worktree provisioning happens main-side, so this passes only the
     // chosen environment and returns the updated meta.
     setEnvironment: (id: string, environment: 'local' | 'worktree'): Promise<ConversationMeta> =>

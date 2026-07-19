@@ -47,6 +47,7 @@ export interface Convo {
   permissionMode: PermissionMode
   effort: EffortLevel
   thinking: boolean
+  webSearch: boolean
   ursaMode: UrsaMode
   projectId: string | null
   pinned: boolean
@@ -210,6 +211,7 @@ function fromMeta(meta: ConversationMeta): Convo {
     permissionMode: meta.permissionMode,
     effort: meta.effort,
     thinking: meta.thinking,
+    webSearch: meta.webSearch,
     ursaMode: meta.ursaMode,
     projectId: meta.projectId,
     pinned: meta.pinned,
@@ -252,6 +254,9 @@ interface AppState {
   permissionMode: PermissionMode
   effort: EffortLevel
   thinking: boolean
+  // Per-conversation server-side Web Search toggle (effort-popover row);
+  // mirrors `thinking`'s composer-state idiom. Default OFF (searches bill).
+  webSearch: boolean
   // Ursa-only composer state: the per-conversation Mode that replaces the
   // (meaningless-for-a-router) effort control when the model is Ursa. Mirrors
   // `effort`'s persistence idiom; coerces to 'auto' with no settings default.
@@ -395,6 +400,7 @@ interface AppState {
   setPermissionMode(mode: PermissionMode): void
   setEffort(effort: EffortLevel): void
   setThinking(thinking: boolean): void
+  setWebSearch(webSearch: boolean): void
   setUrsaMode(mode: UrsaMode): void
   setComposerEnvironment(v: 'local' | 'worktree'): void
   // F3: merge one repo's worktree branch into its base branch. On a clean merge
@@ -591,6 +597,7 @@ export const useAppStore = create<AppState>((set, get) => {
     permissionMode: 'accept-edits',
     effort: 'adaptive',
     thinking: true,
+    webSearch: false,
     ursaMode: 'auto',
     folderSettings: [],
     projectSettingsPath: null,
@@ -838,7 +845,7 @@ export const useAppStore = create<AppState>((set, get) => {
         set({ modelRef: convo.modelRef })
       }
       set({ permissionMode: convo.permissionMode })
-      set({ effort: convo.effort, thinking: convo.thinking })
+      set({ effort: convo.effort, thinking: convo.thinking, webSearch: convo.webSearch })
       set({ ursaMode: convo.ursaMode })
       // Load history from the DB the first time a conversation is opened. A
       // live running conversation is already `loaded` (it was open when it
@@ -899,6 +906,7 @@ export const useAppStore = create<AppState>((set, get) => {
         const permissionMode = folder?.defaultPermissionMode ?? get().permissionMode
         const effort = folder?.defaultEffort ?? get().effort
         const thinking = get().thinking
+        const webSearch = get().webSearch
         // Ursa Mode has no folder/global default -- carry the composer's pick.
         const ursaMode = get().ursaMode
         const wantModel = folder?.defaultModelRef ?? null
@@ -913,6 +921,7 @@ export const useAppStore = create<AppState>((set, get) => {
           permissionMode,
           effort,
           thinking,
+          webSearch,
           ursaMode
         }
         set((s) => {
@@ -936,6 +945,7 @@ export const useAppStore = create<AppState>((set, get) => {
         await window.bearcode.conversations.setMode(meta.id, permissionMode)
         await window.bearcode.conversations.setEffort(meta.id, effort)
         await window.bearcode.conversations.setThinking(meta.id, thinking)
+        await window.bearcode.conversations.setWebSearch(meta.id, webSearch)
         await window.bearcode.conversations.setUrsaMode(meta.id, ursaMode)
         // F3: lock the chosen environment before the first run. Worktree
         // provisioning happens main-side; a non-git folder degrades to local.
@@ -981,6 +991,7 @@ export const useAppStore = create<AppState>((set, get) => {
                 : s.permissionMode,
             effort: view.kind === 'home' ? (s.settings?.defaultEffort ?? 'adaptive') : s.effort,
             thinking: view.kind === 'home' ? (s.settings?.defaultThinking ?? true) : s.thinking,
+            webSearch: view.kind === 'home' ? false : s.webSearch,
             ursaMode: view.kind === 'home' ? 'auto' : s.ursaMode,
             auxSelection: view.kind === 'home' ? null : s.auxSelection,
             reviewFocusPath: view.kind === 'home' ? null : s.reviewFocusPath
@@ -1133,6 +1144,15 @@ export const useAppStore = create<AppState>((set, get) => {
       if (id) {
         patchConvo(id, { thinking })
         void window.bearcode.conversations.setThinking(id, thinking).catch(() => {})
+      }
+    },
+    setWebSearch: (webSearch) => {
+      set({ webSearch })
+      const view = get().view
+      const id = view.kind === 'conversation' ? view.id : null
+      if (id) {
+        patchConvo(id, { webSearch })
+        void window.bearcode.conversations.setWebSearch(id, webSearch).catch(() => {})
       }
     },
     // F3: pure draft state for the Home composer's env picker. The environment

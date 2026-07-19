@@ -238,7 +238,7 @@ export async function runCouncil(
       seats.map(async (seatRef): Promise<CouncilSeatAnswer | null> => {
         const id = randomUUID()
         try {
-          const res = await makeModel(seatRef).invoke(
+          const res = await makeModel(seatRef, { webSearch: true }).invoke(
             [new SystemMessage(withContext(ANSWER_SYSTEM, contextBlock)), new HumanMessage(userText)],
             { signal }
           )

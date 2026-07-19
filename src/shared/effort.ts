@@ -75,3 +75,30 @@ export function effortCapabilities(
       return { effortEnabled: false, thinkingEnabled: false }
   }
 }
+
+// Whether a model supports the per-conversation Web Search toggle (server-side
+// search executed by the PROVIDER -- Anthropic's web_search tool, OpenAI's
+// Responses built-in, xAI's Live Search). 'toggle' = user-controllable;
+// 'always' = search is intrinsic to the model and cannot be turned off
+// (Perplexity sonar); 'none' = no server-side search available. Pure; the
+// main-side enforcement lives in orchestrator/models.ts makeModel.
+export function webSearchCapability(modelRef: string | null): 'toggle' | 'always' | 'none' {
+  if (!modelRef) return 'none'
+  const slash = modelRef.indexOf('/')
+  const provider = slash === -1 ? modelRef : modelRef.slice(0, slash)
+  const modelId = slash === -1 ? '' : modelRef.slice(slash + 1)
+  switch (provider) {
+    case 'anthropic':
+      return 'toggle'
+    case 'openai':
+      // web_search is a Responses API built-in; BearCode only forces the
+      // Responses API for reasoning models, so only those can search.
+      return isOpenAIReasoningModel(modelId) ? 'toggle' : 'none'
+    case 'xai':
+      return 'toggle'
+    case 'perplexity':
+      return 'always'
+    default:
+      return 'none'
+  }
+}

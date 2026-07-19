@@ -162,6 +162,13 @@ function getDb(): Database.Database {
   } catch {
     // column already exists
   }
+  // Web Search toggle (effort-popover row). Same guarded ALTER idiom; NULL
+  // (older rows) coerces to false in toMeta -- search is explicit opt-in.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN web_search INTEGER`)
+  } catch {
+    // column already exists
+  }
   // E4: the project a conversation belongs to (NULL = unassigned). Same
   // idempotent-guarded ALTER idiom as effort/thinking above.
   try {
@@ -394,6 +401,7 @@ interface ConversationRow {
   active_rules: string | null
   effort: string | null
   thinking: number | null
+  web_search: number | null
   project_id: string | null
   pinned: number | null
   archived: number | null
@@ -440,6 +448,7 @@ function toMeta(
     activeRules: parseActiveRules(row.active_rules),
     effort: (row.effort as EffortLevel) ?? getSettings().defaultEffort,
     thinking: row.thinking == null ? getSettings().defaultThinking : row.thinking === 1,
+    webSearch: row.web_search === 1,
     projectId: row.project_id ?? null,
     pinned: row.pinned === 1,
     archived: row.archived === 1,
@@ -463,6 +472,7 @@ export function createConversation(projectPath: string | null, id?: string): Con
     active_rules: null,
     effort: null,
     thinking: null,
+    web_search: null,
     project_id: null,
     pinned: null,
     archived: null,
@@ -927,6 +937,12 @@ export function setThinking(conversationId: string, thinking: boolean): void {
   getDb()
     .prepare(`UPDATE conversations SET thinking = ?, updated_at = ? WHERE id = ?`)
     .run(thinking ? 1 : 0, Date.now(), conversationId)
+}
+
+export function setWebSearch(conversationId: string, webSearch: boolean): void {
+  getDb()
+    .prepare(`UPDATE conversations SET web_search = ?, updated_at = ? WHERE id = ?`)
+    .run(webSearch ? 1 : 0, Date.now(), conversationId)
 }
 
 // Persist the conversation's pinned Manual rules (D1 Task 5). Same dumb

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { EffortLevel } from '@shared/types'
-import { EFFORT_LEVELS, EFFORT_LABELS, effortCapabilities } from '@shared/effort'
+import { EFFORT_LEVELS, EFFORT_LABELS, effortCapabilities, webSearchCapability } from '@shared/effort'
 import { useAppStore } from '../../state/store'
 import { Hint } from '../Hint'
 import { IconChevronDown } from '../icons'
@@ -10,14 +10,19 @@ import './EffortPicker.css'
 export function EffortPicker(): React.JSX.Element {
   const effort = useAppStore((s) => s.effort)
   const thinking = useAppStore((s) => s.thinking)
+  const webSearch = useAppStore((s) => s.webSearch)
   const setEffort = useAppStore((s) => s.setEffort)
   const setThinking = useAppStore((s) => s.setThinking)
+  const setWebSearch = useAppStore((s) => s.setWebSearch)
   const modelRef = useAppStore((s) => s.modelRef)
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const { effortEnabled, thinkingEnabled } = effortCapabilities(modelRef)
+  // 'toggle' = user-controllable server-side search; 'always' = intrinsic
+  // (Perplexity -- shown on and locked); 'none' = row disabled.
+  const searchCap = webSearchCapability(modelRef)
 
   const pickEffort = (level: EffortLevel): void => {
     if (!effortEnabled) return
@@ -27,6 +32,10 @@ export function EffortPicker(): React.JSX.Element {
 
   const toggleThinking = (): void => {
     if (thinkingEnabled) setThinking(!thinking)
+  }
+
+  const toggleWebSearch = (): void => {
+    if (searchCap === 'toggle') setWebSearch(!webSearch)
   }
 
   // Flatten the navigable rows (effort levels + the thinking toggle) in
@@ -39,6 +48,9 @@ export function EffortPicker(): React.JSX.Element {
   }
   if (thinkingEnabled) {
     flatOptions.push({ id: 'thinking', commit: toggleThinking })
+  }
+  if (searchCap === 'toggle') {
+    flatOptions.push({ id: 'websearch', commit: toggleWebSearch })
   }
 
   // Popover owns click-outside/Esc/scroll dismissal + positioning. This
@@ -173,6 +185,38 @@ export function EffortPicker(): React.JSX.Element {
               <span className="effort-thinking-sub">Can think for more complex tasks</span>
             </span>
             <span className={'effort-switch' + (thinking && thinkingEnabled ? ' on' : '')} />
+          </div>
+          <div
+            id="opt-websearch"
+            role="option"
+            aria-selected={searchCap === 'always' || (webSearch && searchCap === 'toggle')}
+            className={
+              'menu-item effort-thinking' +
+              (searchCap === 'none' ? ' disabled' : '') +
+              (flatOptions[activeIndex]?.id === 'websearch' ? ' active' : '')
+            }
+            onClick={toggleWebSearch}
+            onMouseEnter={() => {
+              const idx = flatOptions.findIndex((o) => o.id === 'websearch')
+              if (idx >= 0) setActiveIndex(idx)
+            }}
+          >
+            <span className="effort-thinking-text">
+              <span className="effort-thinking-title">Web Search</span>
+              <span className="effort-thinking-sub">
+                {searchCap === 'always'
+                  ? 'Always on for this model'
+                  : searchCap === 'none'
+                    ? 'Not available for this model'
+                    : 'Search the live web (billed per search)'}
+              </span>
+            </span>
+            <span
+              className={
+                'effort-switch' +
+                (searchCap === 'always' || (webSearch && searchCap === 'toggle') ? ' on' : '')
+              }
+            />
           </div>
         </div>
       </Popover>

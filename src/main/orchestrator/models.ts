@@ -9,6 +9,7 @@ import { BearcodeChatOllama } from './ollamaCompat'
 import { getKey } from '../keys'
 import { getSettings } from '../settings'
 import { parseModelRef, capabilitiesFor } from '../providers/registry'
+import { webSearchCapability } from '../../shared/effort'
 import type { EffortLevel, ProviderId } from '../../shared/types'
 
 // Perplexity's Chat Completions endpoint rejects any request that carries a
@@ -61,8 +62,13 @@ export class ToollessChatOpenAI extends ChatOpenAICompletions {
 // Like Perplexity, xAI's Live Search reports its sources as a top-level
 // `citations` field -- the same conversion hooks copy them onto
 // response_metadata so turn_meta.citations / the Sources UI work for Grok.
-const XAI_SERVER_TOOLS = [{ type: 'web_search' }, { type: 'x_search' }, { type: 'code_execution' }]
+const XAI_SEARCH_TOOLS = [{ type: 'web_search' }, { type: 'x_search' }]
+const XAI_ALWAYS_TOOLS = [{ type: 'code_execution' }]
 export class XaiChatOpenAI extends ChatOpenAICompletions {
+  // Set by makeModel from the per-conversation Web Search toggle; the search
+  // tools ride only when it is on. code_execution is not search and stays
+  // always-on (runs in xAI's sandbox, no per-search billing).
+  bearcodeWebSearch = false
   override invocationParams(
     ...args: Parameters<ChatOpenAICompletions['invocationParams']>
   ): ReturnType<ChatOpenAICompletions['invocationParams']> {
@@ -71,8 +77,9 @@ export class XaiChatOpenAI extends ChatOpenAICompletions {
     const present = new Set(
       existing.map((t) => (t && typeof t === 'object' ? (t as { type?: string }).type : undefined))
     )
+    const server = [...XAI_ALWAYS_TOOLS, ...(this.bearcodeWebSearch ? XAI_SEARCH_TOOLS : [])]
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    params.tools = [...existing, ...XAI_SERVER_TOOLS.filter((t) => !present.has(t.type))] as any
+    params.tools = [...existing, ...server.filter((t) => !present.has(t.type))] as any
     return params
   }
 
@@ -108,6 +115,49 @@ function attachSearchCitations(target: any, rawResponse: unknown): void {
     ...(msg.response_metadata ?? {}),
     ...(Array.isArray(citations) ? { citations } : {}),
     ...(Array.isArray(searchResults) ? { search_results: searchResults } : {})
+  }
+}
+
+// Anthropic's server-side web_search tool (executed by Anthropic, billed per
+// search). Appended at the invocationParams chokepoint like xAI's server
+// tools, so it rides both agent turns (alongside deepagents' bound client
+// tools) and bare invokes. Gated on the per-conversation Web Search toggle
+// (makeModel sets bearcodeWebSearch only when the toggle is on).
+const ANTHROPIC_WEB_SEARCH = { type: 'web_search_20250305', name: 'web_search', max_uses: 8 }
+export class AnthropicSearchChat extends ChatAnthropic {
+  bearcodeWebSearch = false
+  override invocationParams(
+    ...args: Parameters<ChatAnthropic['invocationParams']>
+  ): ReturnType<ChatAnthropic['invocationParams']> {
+    const params = super.invocationParams(...args)
+    if (!this.bearcodeWebSearch) return params
+    const existing = Array.isArray(params.tools) ? params.tools : []
+    const has = existing.some(
+      (t) => t && typeof t === 'object' && (t as { name?: string }).name === 'web_search'
+    )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (!has) params.tools = [...existing, ANTHROPIC_WEB_SEARCH as any]
+    return params
+  }
+}
+
+// OpenAI's Responses-API built-in web_search, same toggle + chokepoint
+// pattern. Only ever constructed for reasoning models (which BearCode forces
+// onto the Responses API), so the built-in tool type is always understood.
+export class OpenAISearchChat extends ChatOpenAI {
+  bearcodeWebSearch = false
+  override invocationParams(
+    ...args: Parameters<ChatOpenAI['invocationParams']>
+  ): ReturnType<ChatOpenAI['invocationParams']> {
+    const params = super.invocationParams(...args)
+    if (!this.bearcodeWebSearch) return params
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const p = params as any
+    const existing = Array.isArray(p.tools) ? p.tools : []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const has = existing.some((t: any) => t && t.type === 'web_search')
+    if (!has) p.tools = [...existing, { type: 'web_search' }]
+    return params
   }
 }
 
@@ -213,15 +263,29 @@ export function buildModelExtras(
 
 export function makeModel(
   modelRef: string,
-  opts: { effort?: EffortLevel; thinking?: boolean } = {}
+  opts: { effort?: EffortLevel; thinking?: boolean; webSearch?: boolean } = {}
 ): BaseChatModel {
   const { provider, modelId } = parseModelRef(modelRef)
   const extras = buildModelExtras(provider, modelId, opts)
+  // Per-conversation Web Search toggle, enforced main-side regardless of what
+  // the renderer claims: only providers whose capability is 'toggle' honor it
+  // (shared/effort.ts webSearchCapability is the single source of truth).
+  const search = opts.webSearch === true && webSearchCapability(modelRef) === 'toggle'
   switch (provider) {
-    case 'anthropic':
-      return new ChatAnthropic({ apiKey: requireKey('anthropic'), model: modelId, ...extras })
-    case 'openai':
-      return new ChatOpenAI({ apiKey: requireKey('openai'), model: modelId, ...extras })
+    case 'anthropic': {
+      const m = new AnthropicSearchChat({
+        apiKey: requireKey('anthropic'),
+        model: modelId,
+        ...extras
+      })
+      m.bearcodeWebSearch = search
+      return m
+    }
+    case 'openai': {
+      const m = new OpenAISearchChat({ apiKey: requireKey('openai'), model: modelId, ...extras })
+      m.bearcodeWebSearch = search
+      return m
+    }
     case 'google':
       return new ChatGoogleGenerativeAI({ apiKey: requireKey('google'), model: modelId, ...extras })
     case 'openrouter':
@@ -249,12 +313,16 @@ export function makeModel(
       // doc) and captures Live Search citations. Same OpenAI-compatible Chat
       // Completions pattern otherwise: baseURL override, NEVER useResponsesApi
       // (buildModelExtras returns {} for it via the default branch).
-      return new XaiChatOpenAI({
-        apiKey: requireKey('xai'),
-        model: modelId,
-        configuration: { baseURL: 'https://api.x.ai/v1' },
-        ...extras
-      })
+      return (() => {
+        const m = new XaiChatOpenAI({
+          apiKey: requireKey('xai'),
+          model: modelId,
+          configuration: { baseURL: 'https://api.x.ai/v1' },
+          ...extras
+        })
+        m.bearcodeWebSearch = search
+        return m
+      })()
     case 'ollama':
       // BearcodeChatOllama stringifies non-string tool-message content that
       // upstream ChatOllama rejects (see ollamaCompat.ts).
