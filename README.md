@@ -96,6 +96,9 @@ verify with Sonar — without you touching the picker again.
 - **Transparent.** Every assistant turn records which role ran it (hover an assistant message for
   the badge), and the composer picks up a slow-rotating aura in BearCode blue so you always know
   Ursa is at the wheel.
+- **Subagents route too.** While Ursa drives the turn, the researcher subagent rides the Reviewer's
+  model and the browser subagent rides the Grunt's — no separate picker, same key-availability
+  fallback.
 
 ---
 
