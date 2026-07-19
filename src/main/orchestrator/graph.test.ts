@@ -88,7 +88,10 @@ import {
   textOfMessage,
   buildUserMessageContent,
   citationsFromMetadata,
+  citationsFromContentAnnotations,
+  citationsFromInlineLinks,
   shouldEmitBridgedText,
+  shouldEmitBridgedThinking,
   shouldRetryEmptyFinal,
   interruptBelongsToToolCall,
   findDanglingRunCommandCalls,
@@ -166,6 +169,65 @@ describe('citationsFromMetadata (Perplexity web sources)', () => {
     expect(citationsFromMetadata(undefined)).toEqual([])
     expect(citationsFromMetadata({ usage: { total_tokens: 5 } })).toEqual([])
     expect(citationsFromMetadata({ citations: [42, null], search_results: 'nope' })).toEqual([])
+  })
+})
+
+describe('citationsFromContentAnnotations (Responses-path web sources)', () => {
+  it('extracts url citations from text-block annotations', () => {
+    expect(
+      citationsFromContentAnnotations([
+        { type: 'text', text: 'answer', annotations: [] },
+        {
+          type: 'text',
+          text: '',
+          annotations: [
+            { type: 'citation', source: 'url_citation', url: 'https://a.com', title: 'A' },
+            { type: 'citation', source: 'url_citation', url: 'https://b.com' }
+          ]
+        }
+      ])
+    ).toEqual([{ url: 'https://a.com', title: 'A' }, { url: 'https://b.com' }])
+  })
+
+  it('ignores non-url citation shapes and malformed blocks', () => {
+    expect(
+      citationsFromContentAnnotations([
+        'plain string block',
+        { type: 'text', text: 'x' },
+        {
+          type: 'text',
+          text: '',
+          annotations: [
+            { type: 'citation', source: 'file_citation', title: 'notes.txt', file_id: 'f1' },
+            { type: 'non_standard', value: {} },
+            null
+          ]
+        }
+      ])
+    ).toEqual([])
+    expect(citationsFromContentAnnotations('not an array')).toEqual([])
+    expect(citationsFromContentAnnotations(undefined)).toEqual([])
+  })
+})
+
+describe('citationsFromInlineLinks (Grok inline [[n]](url) fallback)', () => {
+  it('extracts urls ordered by citation number, collapsing duplicates', () => {
+    const text =
+      'He is the CIO at UM.[[2]](https://umt.edu/it) See also his site.[[1]](https://zachrossmiller.com) More UM.[[2]](https://umt.edu/it)'
+    expect(citationsFromInlineLinks(text)).toEqual([
+      { url: 'https://zachrossmiller.com' },
+      { url: 'https://umt.edu/it' }
+    ])
+  })
+
+  it('ignores plain [text](url) links and bare [n] markers', () => {
+    expect(
+      citationsFromInlineLinks('See [my site](https://a.com) and a fact.[3] No cites here.')
+    ).toEqual([])
+  })
+
+  it('returns [] for empty text', () => {
+    expect(citationsFromInlineLinks('')).toEqual([])
   })
 })
 
@@ -359,6 +421,37 @@ describe('shouldEmitBridgedText (containment guard)', () => {
 
   it('emits when the streamed answer differs from the bridged text', () => {
     expect(shouldEmitBridgedText('Full final answer.', 'partial intro only')).toBe(true)
+  })
+})
+
+describe('shouldEmitBridgedThinking (thinking containment guard)', () => {
+  it('emits when the token stream carried no reasoning (Gemini/Anthropic-via-deepagents)', () => {
+    // phaseA1 diagnosis: for these providers handleLLMNewToken carries 0
+    // thinking, so the bridge is the ONLY path and must keep emitting.
+    expect(shouldEmitBridgedThinking('I should search for this person.', '')).toBe(true)
+  })
+
+  it('does NOT emit when the stream already delivered the same reasoning (xai Responses)', () => {
+    const thinking = 'The user is asking who Zach Rossmiller is. I should search.'
+    expect(shouldEmitBridgedThinking(thinking, thinking)).toBe(false)
+  })
+
+  it('does NOT emit when the call reasoning is contained in the accumulated multi-call stream', () => {
+    // drive() accumulates all calls' reasoning; the bridge sees one call's.
+    expect(
+      shouldEmitBridgedThinking(
+        'Second call thoughts.',
+        'First call thoughts.\n\nSecond call thoughts.'
+      )
+    ).toBe(false)
+  })
+
+  it('never emits empty thinking', () => {
+    expect(shouldEmitBridgedThinking('', '')).toBe(false)
+  })
+
+  it('emits when the streamed reasoning differs from the completed-call thinking', () => {
+    expect(shouldEmitBridgedThinking('Full call reasoning.', 'unrelated partial')).toBe(true)
   })
 })
 

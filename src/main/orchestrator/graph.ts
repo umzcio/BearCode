@@ -19,6 +19,10 @@ import { Command } from '@langchain/langgraph'
 import type { AIMessageChunk, BaseMessageChunk, ToolMessageChunk } from '@langchain/core/messages'
 import { isToolMessageChunk } from '@langchain/core/messages'
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base'
+import type {
+  HandleLLMNewTokenCallbackFields,
+  NewTokenIndices
+} from '@langchain/core/callbacks/base'
 import type { LLMResult } from '@langchain/core/outputs'
 import type {
   AttachmentRef,
@@ -92,7 +96,7 @@ import {
 import { parseModelRef, supportsNativePdf } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
-import { makeModel } from './models'
+import { makeModel, serverSearchActive } from './models'
 import {
   isUrsaModelRef,
   resolveUrsaModelRef,
@@ -115,7 +119,7 @@ import {
   excludeDefaultSummarization,
   tunesSummarization
 } from './summarizer'
-import { orchestratorSystemPrompt } from './systemPrompt'
+import { orchestratorSystemPrompt, webSearchPromptBlock } from './systemPrompt'
 import { textDeltaEvent, thinkingDeltaEvent } from './bridge'
 import { makeTurnUsage, readUsage, type TurnUsageAccumulator } from './usage'
 import { getCheckpointer } from './checkpointer'
@@ -278,6 +282,52 @@ export function citationsFromMetadata(meta: Record<string, unknown> | undefined)
     return urls.filter((u): u is string => typeof u === 'string').map((url) => ({ url }))
   }
   return []
+}
+
+// Extract url citations from a streamed chunk's CONTENT-block annotations --
+// the Responses-API shape (OpenAI web_search, and xai when it sends
+// annotations): response.output_text.annotation.added events become text
+// blocks carrying annotations:[{type:'citation', source:'url_citation', url,
+// title}] (see @langchain/openai convertOpenAIAnnotationToLangChain). These
+// never touch response_metadata, which is why citationsFromMetadata alone
+// left the Sources list empty on the Responses path. Exported for tests.
+export function citationsFromContentAnnotations(content: unknown): SourceCitation[] {
+  if (!Array.isArray(content)) return []
+  const out: SourceCitation[] = []
+  for (const raw of content) {
+    const block = raw as { annotations?: unknown }
+    if (!block || !Array.isArray(block.annotations)) continue
+    for (const a of block.annotations) {
+      const c = a as { type?: string; url?: unknown; title?: unknown }
+      if (c?.type === 'citation' && typeof c.url === 'string') {
+        out.push({ url: c.url, ...(typeof c.title === 'string' ? { title: c.title } : {}) })
+      }
+    }
+  }
+  return out
+}
+
+// Fallback source extraction from the ANSWER TEXT itself: Grok's server-side
+// search writes citations inline as [[n]](url) markdown links (the renderer
+// turns them into cite-ref chips) but was observed live sending NO structured
+// citations, so without this the Sources list stays empty. Ordered by n,
+// first url per n wins, duplicate urls collapsed. Exported for tests.
+export function citationsFromInlineLinks(text: string): SourceCitation[] {
+  const re = /\[\[(\d{1,2})\]\]\((https?:\/\/[^\s)]+)\)/g
+  const byIndex = new Map<number, string>()
+  for (const m of text.matchAll(re)) {
+    const n = Number(m[1])
+    if (!byIndex.has(n)) byIndex.set(n, m[2])
+  }
+  const out: SourceCitation[] = []
+  const seen = new Set<string>()
+  for (const n of [...byIndex.keys()].sort((a, b) => a - b)) {
+    const url = byIndex.get(n) as string
+    if (seen.has(url)) continue
+    seen.add(url)
+    out.push({ url })
+  }
+  return out
 }
 
 // Derive the producing agent's id from a streamed chunk's metadata (and, as
@@ -628,6 +678,17 @@ export function buildUserMessageContent(
 // silent -- this guard is what prevents a double-emit. Exported for tests.
 export function shouldEmitBridgedText(bridged: string, streamedAnswer: string): boolean {
   return bridged !== '' && !streamedAnswer.includes(bridged)
+}
+
+// Same containment decision for the THINKING bridge (the answer guard's
+// missing twin -- diagnosed live on xai/grok-4.5: the Responses API streams
+// reasoning deltas that drive()'s contentBlocks path emits, and then
+// handleLLMEnd re-emitted the identical text as a second thinking block).
+// `streamedReasoning` is what the bridge itself observed via
+// handleLLMNewToken, so ordering is guaranteed: for any run, every token
+// callback fires before that run's handleLLMEnd. Exported for tests.
+export function shouldEmitBridgedThinking(thinking: string, streamedReasoning: string): boolean {
+  return thinking !== '' && !streamedReasoning.includes(thinking)
 }
 
 // Attribution guard for a pending interrupt: a run_command interrupt carries
@@ -1390,6 +1451,12 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
   name = 'bearcode-reasoning-bridge'
   private readonly startedAt = new Map<string, number>()
   private readonly seen = new Set<string>()
+  // Everything the token stream already delivered as reasoning this turn,
+  // accumulated across ALL runs (parent/child both fire token callbacks, and
+  // exact-duplicate text across runs is harmless to containment). Feeds
+  // shouldEmitBridgedThinking so a provider whose stream carries reasoning
+  // (xai Responses) doesn't get the same text re-emitted by handleLLMEnd.
+  private streamedReasoning = ''
   constructor(
     private readonly conversationId: string,
     private readonly sink: RunSink,
@@ -1405,6 +1472,22 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
     // A new model call: forget the previous call's answer-start so this call's
     // thinking time is measured against its own first answer token.
     this.answerStartedAt.t = null
+  }
+  handleLLMNewToken(
+    _token: string,
+    _idx: NewTokenIndices,
+    _runId: string,
+    _parentRunId?: string,
+    _tags?: string[],
+    fields?: HandleLLMNewTokenCallbackFields
+  ): void {
+    // Record reasoning the stream carries so handleLLMEnd can stay silent for
+    // text drive() already emitted live (see shouldEmitBridgedThinking).
+    // GenerationChunk (the non-chat member of the fields union) has no
+    // `message`, so widen through a structural cast; thinkingTextOfMessage
+    // returns '' for anything that isn't a content array.
+    const chunk = fields?.chunk as { message?: { content?: unknown } } | undefined
+    this.streamedReasoning += thinkingTextOfMessage(chunk?.message?.content)
   }
   handleLLMEnd(output: LLMResult, runId: string, parentRunId?: string): void {
     const started = this.startedAt.get(runId) ?? Date.now()
@@ -1453,6 +1536,10 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
     }
     if (!thinking || this.seen.has(thinking)) return
     this.seen.add(thinking)
+    // Containment guard (the answer bridge's twin): the stream already
+    // delivered this call's reasoning, so drive()'s contentBlocks path emitted
+    // it live -- a second block here is the "thinking repeated" bug.
+    if (!shouldEmitBridgedThinking(thinking, this.streamedReasoning)) return
     // Thinking wall-clock = call start until the answer began (falls back to the
     // whole call if this call never produced answer text, e.g. a pure tool step).
     const answerAt = this.answerStartedAt.t
@@ -1712,6 +1799,16 @@ async function drive(
     if (key === 'main') {
       const cited = citationsFromMetadata(aiChunk.response_metadata)
       if (cited.length > 0) ctx.citationsAccum.list = cited
+      // Responses-path citations arrive incrementally as content-block
+      // annotations (one event per annotation), so ACCUMULATE + dedupe by
+      // url, unlike the metadata shape above where every chunk carries the
+      // full list and replace is correct.
+      const annotated = citationsFromContentAnnotations(aiChunk.content)
+      if (annotated.length > 0) {
+        const known = new Set(ctx.citationsAccum.list.map((c) => c.url))
+        const fresh = annotated.filter((c) => !known.has(c.url))
+        if (fresh.length > 0) ctx.citationsAccum.list = [...ctx.citationsAccum.list, ...fresh]
+      }
     }
     if (process.env['BEARCODE_DEBUG_BLOCKS']) {
       const blocks = aiChunk.contentBlocks ?? []
@@ -1728,6 +1825,14 @@ async function drive(
         if (!s.thinkId) {
           s.thinkId = randomUUID()
           s.thinkStartedAt = Date.now()
+        } else if (s.thinkEndedAt) {
+          // A later model call's reasoning is joining a block that already
+          // "ended" (answer text arrived since). Separate the segments so a
+          // multi-call turn (xai streams reasoning per agent-loop round)
+          // doesn't run sentences together, and clear the end stamp so the
+          // next answer token re-marks where thinking stopped.
+          s.think += '\n\n'
+          s.thinkEndedAt = 0
         }
         s.think += reasoning
         ctx.sink.emit(
@@ -2719,6 +2824,10 @@ function buildAgentAndContext(
     // extra machinery.
     systemPrompt:
       orchestratorSystemPrompt(projectPath, meta?.permissionMode === 'plan') +
+      // Only when the request actually carries the server search tool (the
+      // same predicate makeModel used above), so the prompt never advertises
+      // a tool the model doesn't have this turn.
+      (serverSearchActive(modelRef, meta?.webSearch) ? webSearchPromptBlock() : '') +
       ruleAdditions +
       commandAdditions +
       mentionAdditions,
@@ -3411,6 +3520,13 @@ async function closeOutTurn(
         status: f.status
       }))
     })
+  }
+
+  // Grok fallback: no structured citations arrived this turn, but the answer
+  // carries inline [[n]](url) links -- surface those as the Sources list.
+  if (ctx.citationsAccum.list.length === 0 && ctx.answerAccum.text) {
+    const inline = citationsFromInlineLinks(ctx.answerAccum.text)
+    if (inline.length > 0) ctx.citationsAccum.list = inline
   }
 
   const usageSnapshot = ctx.turnUsage.snapshot()

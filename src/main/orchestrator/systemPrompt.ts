@@ -105,3 +105,25 @@ export function orchestratorSystemPrompt(projectPath: string | null, isPlan = fa
   lines.push('', 'Keep any visible reasoning concise. Do not use em dashes in your replies.')
   return lines.join('\n')
 }
+
+// Appended to the system prompt ONLY when this turn's request actually
+// carries a server-side web-search tool (serverSearchActive in models.ts).
+// Two live-diagnosed Grok behaviors this corrects:
+//   1. With server search available it still reached for browser_navigate
+//      to do plain lookups (slower, needs approval, often denied).
+//   2. After each tool round it restated its ENTIRE previous answer, so the
+//      final message contained the same answer two or three times.
+export function webSearchPromptBlock(): string {
+  return [
+    '',
+    'Web search is enabled for this conversation:',
+    '- Your requests carry a built-in server-side web search tool. For looking up',
+    '  information on the web, USE IT (just answer; the search runs server-side).',
+    '  Do not use browser_* tools or the browser subagent for plain lookups; reserve',
+    '  the browser for tasks that genuinely need page interaction (forms, logins,',
+    '  screenshots, dynamic apps).',
+    '- Write your final answer EXACTLY ONCE. When you continue after a tool result,',
+    '  do not restate or rewrite the answer you already produced; continue from where',
+    '  you left off, or state only what is new.'
+  ].join('\n')
+}

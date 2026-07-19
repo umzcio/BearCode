@@ -246,6 +246,16 @@ export function buildModelExtras(
   }
 }
 
+// Whether this turn actually runs with a server-side search tool attached:
+// the conversation toggle is on AND the model's capability is 'toggle'
+// (shared/effort.ts webSearchCapability is the single source of truth).
+// Shared by makeModel (which tools to attach) and the turn builder in
+// graph.ts (whether to add the prefer-server-search prompt block), so the
+// prompt can never claim a tool the request doesn't carry.
+export function serverSearchActive(modelRef: string, webSearch: boolean | undefined): boolean {
+  return webSearch === true && webSearchCapability(modelRef) === 'toggle'
+}
+
 export function makeModel(
   modelRef: string,
   opts: { effort?: EffortLevel; thinking?: boolean; webSearch?: boolean } = {}
@@ -253,9 +263,8 @@ export function makeModel(
   const { provider, modelId } = parseModelRef(modelRef)
   const extras = buildModelExtras(provider, modelId, opts)
   // Per-conversation Web Search toggle, enforced main-side regardless of what
-  // the renderer claims: only providers whose capability is 'toggle' honor it
-  // (shared/effort.ts webSearchCapability is the single source of truth).
-  const search = opts.webSearch === true && webSearchCapability(modelRef) === 'toggle'
+  // the renderer claims.
+  const search = serverSearchActive(modelRef, opts.webSearch)
   switch (provider) {
     case 'anthropic': {
       const m = new AnthropicSearchChat({
