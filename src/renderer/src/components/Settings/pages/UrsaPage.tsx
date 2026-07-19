@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
-// Cap kept in sync with the main-process coercion (settings.ts
-// URSA_INSTRUCTIONS_MAX). The write path enforces it regardless; maxLength is a
-// UI courtesy so the field can't grow past what will actually be persisted.
-const URSA_INSTRUCTIONS_MAX = 2000
 import type { JSX } from 'react'
 import type { ProviderId } from '@shared/types'
 import { useAppStore } from '../../../state/store'
 import { Toggle } from '../../Toggle'
 import { ProviderIcon } from '../../ProviderIcon'
 import { Loading } from '../../ui/Loading'
+import ursaTeddy from '../../../assets/ursa-teddy.svg'
+
+// Cap kept in sync with the main-process coercion (settings.ts
+// URSA_INSTRUCTIONS_MAX). The write path enforces it regardless; maxLength is a
+// UI courtesy so the field can't grow past what will actually be persisted.
+const URSA_INSTRUCTIONS_MAX = 2000
 
 // Settings > Ursa: on/off switch + a read-only check that the providers
 // Ursa's (code-curated, never user-editable) roles depend on have keys
@@ -45,7 +47,10 @@ export function UrsaPage(): JSX.Element | null {
 
   return (
     <>
-      <div className="page-title">Ursa</div>
+      <div className="page-title">
+        <img className="page-title-icon" src={ursaTeddy} alt="" />
+        Ursa
+      </div>
       <div className="page-sub">
         Dynamic model routing. When enabled, selecting "Ursa" in the model picker hands each turn
         to whichever model best fits it — the routing itself isn't something you configure here.

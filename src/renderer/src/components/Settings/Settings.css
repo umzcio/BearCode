@@ -197,6 +197,14 @@
   font-weight: 700;
   margin-bottom: 6px;
 }
+/* Pixel-art page icon (Ursa teddy) sitting beside a .page-title's text. */
+.page-title-icon {
+  width: 24px;
+  height: 24px;
+  margin-right: 8px;
+  vertical-align: -3px;
+  image-rendering: pixelated;
+}
 .page-sub {
   font-size: 13.5px;
   color: var(--text-mid);
