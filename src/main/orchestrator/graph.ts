@@ -221,10 +221,24 @@ export function buildSubagents(ursaRole: string | undefined, browserTools: SubAg
   const browser: SubAgent = { ...BROWSER_SUBAGENT, tools: browserTools }
   if (ursaRole) {
     const refs = resolveSubagentModelRefs()
+    // resolveSubagentModelRefs gates on keyStatus() (vault entry EXISTS), but
+    // makeModel -> requireKey -> getKey decrypts, and an entry that exists yet
+    // fails to decrypt (keychain reset, migrated userData) throws. A broken
+    // THIRD-party provider entry must never kill an Ursa turn whose own model
+    // is healthy -- fall back to inheriting the main model, same degrade
+    // pattern as resolveUrsaModelRef's classifier fallback.
     const researcherRef = refs[RESEARCHER_SUBAGENT.name]
-    if (researcherRef) researcher.model = makeModel(researcherRef)
     const browserRef = refs[BROWSER_SUBAGENT.name]
-    if (browserRef) browser.model = makeModel(browserRef)
+    try {
+      if (researcherRef) researcher.model = makeModel(researcherRef)
+    } catch {
+      delete researcher.model
+    }
+    try {
+      if (browserRef) browser.model = makeModel(browserRef)
+    } catch {
+      delete browser.model
+    }
   }
   return [researcher, browser]
 }
