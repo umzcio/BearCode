@@ -1,6 +1,11 @@
 {
   "name": "bearcode",
   "version": "1.1.0",
+  "overrides": {
+    "dompurify": "^3.4.11",
+    "protobufjs": "^7.6.3",
+    "uuid": "^11.1.1"
+  },
   "description": "BearCode: a desktop agent manager",
   "main": "./out/main/index.js",
   "author": "Zach Rossmiller",
