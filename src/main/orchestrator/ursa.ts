@@ -113,8 +113,43 @@ export function resolveSubagentModelRefs(): Record<string, string> {
 }
 
 const ClassifierOutput = z.object({
-  role: z.string().describe('The name of the role best suited to handle this message')
+  role: z.string().describe('The name of the role best suited to handle this message'),
+  // Ursa Phase 2: an OPTIONAL multi-step pipeline. Only for genuinely
+  // multi-part requests with an explicit ordering; validated in code against
+  // the eligible role set (see resolvePipelineSteps) and consent-gated before
+  // any step runs. Omitted for the common single-deliverable case, so a normal
+  // turn is byte-identical to Phase 1.
+  pipeline: z
+    .array(z.object({ role: z.string(), subtask: z.string().max(200) }))
+    .min(2)
+    .max(4)
+    .optional()
+    .describe(
+      'ONLY for genuinely multi-part requests with an explicit ordering: 2-4 sequential steps. Omit for a single deliverable.'
+    )
 })
+
+// Validate a classifier-proposed pipeline against the ELIGIBLE role set and
+// resolve each step to its curated concrete modelRef. Every step.role must be
+// an eligible role -- otherwise the WHOLE pipeline is discarded (returns
+// undefined) and the turn silently falls back to the single-role path (the
+// classifier's `role` field). Roles stay curated: the classifier can only name
+// roles it was shown, never invent one -- the same guarantee `chosenName`
+// already gives for the single-role choice. The 2-4 length is enforced by the
+// schema but re-checked here so a malformed payload degrades rather than throws.
+export function resolvePipelineSteps(
+  proposed: Array<{ role: string; subtask: string }> | undefined,
+  roles: readonly UrsaRole[]
+): Array<{ role: string; modelRef: string; subtask: string }> | undefined {
+  if (!proposed || proposed.length < 2 || proposed.length > 4) return undefined
+  const resolved: Array<{ role: string; modelRef: string; subtask: string }> = []
+  for (const step of proposed) {
+    const role = roles.find((r) => r.name === step.role)
+    if (!role) return undefined // ineligible/unknown role -> discard entire pipeline
+    resolved.push({ role: role.name, modelRef: role.modelRef, subtask: step.subtask })
+  }
+  return resolved
+}
 
 // A role is eligible only if its provider currently has a configured key
 // (mirrors ModelPicker.tsx's provider.reachable / requiresKey && !keyConfigured
@@ -167,6 +202,11 @@ export async function resolveUrsaModelRef(opts: {
   // vanishing. undefined when classification was skipped (no eligible cheap
   // provider) or the classifier call failed/reported no usage.
   classifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
+  // Ursa Phase 2: a consent-gated multi-step pipeline for a genuinely
+  // multi-part request. Present ONLY when the classifier proposed one AND every
+  // step's role is eligible (see resolvePipelineSteps); undefined for the common
+  // single-deliverable turn, and never set on the skip/failure/no-key paths.
+  pipeline?: Array<{ role: string; modelRef: string; subtask: string }>
 }> {
   if (!getSettings().ursaEnabled) {
     throw new Error('Ursa is disabled. Enable it in Settings > Ursa.')
@@ -192,6 +232,10 @@ export async function resolveUrsaModelRef(opts: {
     .join('\n')
   let chosenName: string
   let classifierUsage: { modelRef: string; inputTokens: number; outputTokens: number } | undefined
+  // Ursa Phase 2: filled in only when the classifier proposes a valid pipeline
+  // (successful classification path below). Stays undefined on the skip and
+  // failure paths, so those turns are byte-identical to Phase 1.
+  let pipeline: Array<{ role: string; modelRef: string; subtask: string }> | undefined
   if (providerId === null) {
     // No eligible role's provider has both a CHEAP_MODEL entry and a
     // configured key -- skip classification entirely rather than risk
@@ -238,6 +282,12 @@ export async function resolveUrsaModelRef(opts: {
             'a request to build or create something concrete is coder work no matter ' +
             'how large or complex; pick architect only when the user is explicitly ' +
             'asking to plan, decide, or design BEFORE building.\n' +
+            'Propose a pipeline (the optional field) ONLY when the message explicitly ' +
+            'contains multiple distinct deliverables with an ordering between them ' +
+            '("build X, then review it and fix what the review finds", "research A, ' +
+            'then implement B using it"). A single deliverable -- however large or ' +
+            'complex -- is NEVER a pipeline: it is one role. When you are unsure, do ' +
+            'not propose a pipeline; return just the single best role.\n' +
             contextBlock +
             hysteresis +
             `Available roles:\n${roleList}` +
@@ -246,6 +296,10 @@ export async function resolveUrsaModelRef(opts: {
         new HumanMessage(opts.userText.slice(0, 2000))
       ])
       chosenName = result.parsed.role
+      // Ursa Phase 2: validate/resolve any proposed pipeline against the eligible
+      // role set. An unknown/ineligible step role discards the WHOLE pipeline and
+      // the turn falls back to the single-role choice above (silently).
+      pipeline = resolvePipelineSteps(result.parsed.pipeline, roles)
       // Same usage_metadata fields usage.ts reads for the main turn. Absent on
       // providers that report nothing -- then classifierUsage stays undefined.
       const um = (result.raw as { usage_metadata?: { input_tokens?: number; output_tokens?: number } })
@@ -269,6 +323,7 @@ export async function resolveUrsaModelRef(opts: {
   return {
     modelRef: chosen.modelRef,
     roleName: chosen.name,
-    ...(classifierUsage ? { classifierUsage } : {})
+    ...(classifierUsage ? { classifierUsage } : {}),
+    ...(pipeline ? { pipeline } : {})
   }
 }

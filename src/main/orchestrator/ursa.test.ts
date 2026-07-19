@@ -6,7 +6,8 @@ import {
   CURATED_ROLES,
   ursaRequiredProviders,
   SUBAGENT_ROLE_MAP,
-  resolveSubagentModelRefs
+  resolveSubagentModelRefs,
+  resolvePipelineSteps
 } from './ursa'
 
 // graph.ts (imported below only to assert SUBAGENT_ROLE_MAP's keys against its
@@ -322,6 +323,144 @@ describe('resolveUrsaModelRef', () => {
     } finally {
       ;(CHEAP_MODEL as Record<string, string | undefined>).anthropic = savedAnthropic
     }
+  })
+
+  // --- Ursa Phase 2: pipeline proposal ---
+
+  it('resolves a classifier-proposed pipeline to each step\'s concrete curated modelRef', async () => {
+    invokeSpy.mockResolvedValue({
+      parsed: {
+        role: 'coder',
+        pipeline: [
+          { role: 'coder', subtask: 'build the app' },
+          { role: 'reviewer', subtask: 'review it and fix issues' }
+        ]
+      },
+      raw: {}
+    })
+    const coder = CURATED_ROLES.find((r) => r.name === 'coder')!
+    const reviewer = CURATED_ROLES.find((r) => r.name === 'reviewer')!
+    const result = await resolveUrsaModelRef({ userText: 'build an app then review it' })
+    // Single-role fallback still resolved alongside the pipeline.
+    expect(result.modelRef).toBe(coder.modelRef)
+    expect(result.roleName).toBe('coder')
+    expect(result.pipeline).toEqual([
+      { role: 'coder', modelRef: coder.modelRef, subtask: 'build the app' },
+      { role: 'reviewer', modelRef: reviewer.modelRef, subtask: 'review it and fix issues' }
+    ])
+  })
+
+  it('drops the whole pipeline when any step names an unknown role, keeping the single-role fallback intact', async () => {
+    invokeSpy.mockResolvedValue({
+      parsed: {
+        role: 'coder',
+        pipeline: [
+          { role: 'coder', subtask: 'build it' },
+          { role: 'nonexistent-role', subtask: 'do a thing' }
+        ]
+      },
+      raw: {}
+    })
+    const coder = CURATED_ROLES.find((r) => r.name === 'coder')!
+    const result = await resolveUrsaModelRef({ userText: 'build then frobnicate' })
+    expect(result.pipeline).toBeUndefined()
+    // Falls back to exactly the single-role shape (no pipeline key at all).
+    expect(result).toEqual({ modelRef: coder.modelRef, roleName: 'coder' })
+  })
+
+  it('drops the pipeline when a step names a role whose provider has no configured key (ineligible)', async () => {
+    // verifier -> perplexity; un-key perplexity so verifier is not eligible.
+    vi.mocked(keyStatus).mockReturnValue({
+      anthropic: true,
+      openai: true,
+      google: true,
+      openrouter: true,
+      perplexity: false
+    } as never)
+    invokeSpy.mockResolvedValue({
+      parsed: {
+        role: 'coder',
+        pipeline: [
+          { role: 'coder', subtask: 'build it' },
+          { role: 'verifier', subtask: 'fact-check the claims' }
+        ]
+      },
+      raw: {}
+    })
+    const result = await resolveUrsaModelRef({ userText: 'build then verify' })
+    expect(result.pipeline).toBeUndefined()
+    expect(result.roleName).toBe('coder')
+  })
+
+  it('omits pipeline when the classifier proposes none (today\'s single-role behavior)', async () => {
+    invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
+    const result = await resolveUrsaModelRef({ userText: 'refactor this module' })
+    expect(result.pipeline).toBeUndefined()
+    expect(result).not.toHaveProperty('pipeline')
+  })
+
+  it('omits pipeline on the classifier-failure path', async () => {
+    invokeSpy.mockRejectedValue(new Error('rate limited'))
+    const result = await resolveUrsaModelRef({ userText: 'build then review' })
+    expect(result.pipeline).toBeUndefined()
+  })
+
+  it('includes the pipeline-proposal instruction (single deliverable is never a pipeline) in the classifier prompt', async () => {
+    invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
+    await resolveUrsaModelRef({ userText: 'build me a script' })
+    const systemMessage = invokeSpy.mock.calls[0][0][0]
+    expect(systemMessage.content).toContain('A single deliverable')
+    expect(systemMessage.content).toContain('is NEVER a pipeline')
+  })
+})
+
+describe('resolvePipelineSteps', () => {
+  const roles = CURATED_ROLES
+
+  it('resolves each step to its curated modelRef when all roles are eligible', () => {
+    const coder = CURATED_ROLES.find((r) => r.name === 'coder')!
+    const reviewer = CURATED_ROLES.find((r) => r.name === 'reviewer')!
+    expect(
+      resolvePipelineSteps(
+        [
+          { role: 'coder', subtask: 'a' },
+          { role: 'reviewer', subtask: 'b' }
+        ],
+        roles
+      )
+    ).toEqual([
+      { role: 'coder', modelRef: coder.modelRef, subtask: 'a' },
+      { role: 'reviewer', modelRef: reviewer.modelRef, subtask: 'b' }
+    ])
+  })
+
+  it('returns undefined when a step names a role not in the given set', () => {
+    expect(
+      resolvePipelineSteps(
+        [
+          { role: 'coder', subtask: 'a' },
+          { role: 'ghost', subtask: 'b' }
+        ],
+        roles
+      )
+    ).toBeUndefined()
+  })
+
+  it('returns undefined for a missing, too-short, or too-long pipeline', () => {
+    expect(resolvePipelineSteps(undefined, roles)).toBeUndefined()
+    expect(resolvePipelineSteps([{ role: 'coder', subtask: 'a' }], roles)).toBeUndefined()
+    expect(
+      resolvePipelineSteps(
+        [
+          { role: 'coder', subtask: 'a' },
+          { role: 'reviewer', subtask: 'b' },
+          { role: 'coder', subtask: 'c' },
+          { role: 'reviewer', subtask: 'd' },
+          { role: 'coder', subtask: 'e' }
+        ],
+        roles
+      )
+    ).toBeUndefined()
   })
 })
 

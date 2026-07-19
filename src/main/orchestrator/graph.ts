@@ -2699,6 +2699,11 @@ export async function resolveTurnModelRef(
   modelRef: string
   ursaRole?: string
   classifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
+  // Ursa Phase 2: a consent-gated multi-step pipeline, passed through untouched
+  // from resolveUrsaModelRef. Present only when the classifier proposed a valid
+  // pipeline; runGraph gates it (Task 3). undefined for the single-role path, so
+  // non-pipeline turns behave exactly as before.
+  pipeline?: Array<{ role: string; modelRef: string; subtask: string }>
 }> {
   if (!isUrsaModelRef(modelRef)) return { modelRef }
   // Task 4 (#2): give the classifier the conversation's recent context and the
@@ -2716,7 +2721,8 @@ export async function resolveTurnModelRef(
   return {
     modelRef: resolved.modelRef,
     ursaRole: resolved.roleName,
-    ...(resolved.classifierUsage ? { classifierUsage: resolved.classifierUsage } : {})
+    ...(resolved.classifierUsage ? { classifierUsage: resolved.classifierUsage } : {}),
+    ...(resolved.pipeline ? { pipeline: resolved.pipeline } : {})
   }
 }
 
