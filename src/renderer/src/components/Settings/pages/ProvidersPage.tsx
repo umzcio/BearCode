@@ -8,7 +8,8 @@ const KEY_PROVIDERS: { id: ProviderId; label: string; placeholder: string }[] = 
   { id: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-…' },
   { id: 'openai', label: 'OpenAI', placeholder: 'sk-…' },
   { id: 'google', label: 'Google', placeholder: 'AIza…' },
-  { id: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-…' }
+  { id: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-…' },
+  { id: 'perplexity', label: 'Perplexity', placeholder: 'pplx-…' }
 ]
 
 export function ProvidersPage(): JSX.Element | null {

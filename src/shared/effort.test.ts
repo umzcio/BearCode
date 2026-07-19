@@ -63,6 +63,11 @@ describe('effortCapabilities', () => {
       effortEnabled: false, thinkingEnabled: false
     })
   })
+  it('perplexity: both greyed (hits the default -- no reasoning.effort support)', () => {
+    expect(effortCapabilities('perplexity/sonar-pro')).toEqual({
+      effortEnabled: false, thinkingEnabled: false
+    })
+  })
   it('null / malformed ref: both greyed', () => {
     expect(effortCapabilities(null)).toEqual({ effortEnabled: false, thinkingEnabled: false })
     expect(effortCapabilities('bogus')).toEqual({ effortEnabled: false, thinkingEnabled: false })

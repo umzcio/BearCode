@@ -11,7 +11,13 @@ vi.mock('../settings', () => ({
   getSettings: vi.fn()
 }))
 vi.mock('../keys', () => ({
-  keyStatus: vi.fn(() => ({ anthropic: true, openai: true, google: true, openrouter: true }))
+  keyStatus: vi.fn(() => ({
+    anthropic: true,
+    openai: true,
+    google: true,
+    openrouter: true,
+    perplexity: true
+  }))
 }))
 vi.mock('../title', () => ({
   CHEAP_MODEL: { anthropic: 'claude-haiku-4-5', openai: 'gpt-5.6-luna', google: 'gemini-2.5-flash' }
@@ -60,7 +66,8 @@ describe('resolveUrsaModelRef', () => {
       anthropic: true,
       openai: true,
       google: true,
-      openrouter: true
+      openrouter: true,
+      perplexity: true
     } as never)
   })
 
@@ -74,7 +81,8 @@ describe('resolveUrsaModelRef', () => {
       anthropic: false,
       openai: false,
       google: false,
-      openrouter: false
+      openrouter: false,
+      perplexity: false
     } as never)
     await expect(resolveUrsaModelRef({ userText: 'hi' })).rejects.toThrow(/api key/i)
   })
@@ -109,6 +117,7 @@ describe('resolveUrsaModelRef', () => {
       openai: true,
       google: true,
       openrouter: true,
+      perplexity: true,
       [coderProvider]: false
     } as never)
     invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
@@ -126,7 +135,8 @@ describe('resolveUrsaModelRef', () => {
       anthropic: true,
       openai: false,
       google: false,
-      openrouter: false
+      openrouter: false,
+      perplexity: false
     } as never)
     const savedAnthropic = CHEAP_MODEL.anthropic
     delete (CHEAP_MODEL as Record<string, string | undefined>).anthropic
@@ -266,7 +276,8 @@ describe('resolveUrsaModelRef', () => {
       anthropic: true,
       openai: false,
       google: false,
-      openrouter: false
+      openrouter: false,
+      perplexity: false
     } as never)
     const savedAnthropic = CHEAP_MODEL.anthropic
     delete (CHEAP_MODEL as Record<string, string | undefined>).anthropic
