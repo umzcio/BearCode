@@ -7,6 +7,13 @@ export interface Turn {
   diffs: Extract<Event, { type: 'file_diff' }>[]
   artifacts: Extract<Event, { type: 'artifact' }>[]
   errors: Extract<Event, { type: 'error' }>[]
+  // Ursa Modes (Task 5): council-mode deliberation. Each member's answer and
+  // its anonymized peer review arrive as `council_seat` events before the
+  // chair's synthesis (the turn's normal assistant_text). They get their own
+  // bucket rather than the step stream so the collapsed CouncilPanel can group
+  // them by stage, and so a toolless council turn (no tool_call/thinking steps)
+  // never renders an empty "Worked for Ns" group. Older turns carry none.
+  councilSeats: Extract<Event, { type: 'council_seat' }>[]
   done: boolean
   // The turn's closing turn_meta event (Ursa Phase 1 Task 11), if it has
   // completed. Carries provider/model/ursaRole for the hover badge -- not set
@@ -32,6 +39,7 @@ export function groupTurns(events: Event[]): TranscriptItem[] {
         diffs: [],
         artifacts: [],
         errors: [],
+        councilSeats: [],
         done: false
       }
       // Push the live object by reference so later events mutating `current`
@@ -57,6 +65,8 @@ export function groupTurns(events: Event[]): TranscriptItem[] {
         current.diffs.push(ev)
       } else if (ev.type === 'artifact') {
         current.artifacts.push(ev)
+      } else if (ev.type === 'council_seat') {
+        current.councilSeats.push(ev)
       } else if (ev.type === 'error') {
         current.errors.push(ev)
       } else if (ev.type === 'turn_meta') {
@@ -94,6 +104,7 @@ export function sameTranscriptItem(a: TranscriptItem, b: TranscriptItem): boolea
       arr(x.texts as Event[], y.texts as Event[]) &&
       arr(x.diffs as Event[], y.diffs as Event[]) &&
       arr(x.artifacts as Event[], y.artifacts as Event[]) &&
+      arr(x.councilSeats as Event[], y.councilSeats as Event[]) &&
       arr(x.errors as Event[], y.errors as Event[])
     )
   }

@@ -5,6 +5,7 @@ import { Composer } from './Composer/Composer'
 import { RunStatusBar } from './RunStatusBar/RunStatusBar'
 import { WorktreeBar } from './Worktree/WorktreeBar'
 import { WorkedGroup } from './events/WorkedGroup'
+import { CouncilPanel } from './events/CouncilPanel'
 import { ToolStep, PinnedApprovalArea } from './events/ToolStep'
 import { AssistantText } from './events/AssistantText'
 import { ArtifactCard } from './events/ArtifactCard'
@@ -298,6 +299,9 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                       workedSeconds={workedSecondsByTurn.get(turn.user.id)}
                       convoId={convoId}
                     />
+                  ) : null}
+                  {turn.councilSeats.length > 0 ? (
+                    <CouncilPanel seats={turn.councilSeats} />
                   ) : null}
                   {turn.artifacts.map((a) => (
                     <ArtifactCard key={a.id} event={a} />

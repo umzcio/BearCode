@@ -66,4 +66,38 @@ describe('groupTurnsIncremental', () => {
       'tool_call'
     ])
   })
+
+  it('buckets council_seat events into councilSeats, not the step stream', () => {
+    const councilSeat = (
+      id: string,
+      stage: 'answer' | 'review',
+      status: 'done' | 'failed' = 'done'
+    ): Event =>
+      ({
+        type: 'council_seat',
+        id,
+        seat: 'grok-4.5',
+        modelRef: 'xai/grok-4.5',
+        stage,
+        text: 'x',
+        status
+      }) as Event
+    const events: Event[] = [
+      user('u1', 'ask the council'),
+      councilSeat('a1', 'answer'),
+      councilSeat('a2', 'answer', 'failed'),
+      councilSeat('r1', 'review'),
+      text('chair1', 'synthesized answer'),
+      meta('m1')
+    ]
+    const { items } = groupTurnsIncremental(null, events)
+    const turn = items[0].kind === 'turn' ? items[0].turn : null
+    expect(turn).not.toBeNull()
+    // Council seats get their own bucket; the step stream stays empty (a
+    // toolless council turn must not render a "Worked for Ns" group).
+    expect(turn!.steps.length).toBe(0)
+    expect(turn!.councilSeats.map((e) => e.id)).toEqual(['a1', 'a2', 'r1'])
+    // The chair's synthesis is still the turn's normal assistant_text.
+    expect(turn!.texts.map((t) => t.text)).toEqual(['synthesized answer'])
+  })
 })
