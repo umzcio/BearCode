@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/status-v1.0-2544FB?style=flat-square" alt="v1.0" />
+  <img src="https://img.shields.io/badge/status-v1.1-2544FB?style=flat-square" alt="v1.1" />
   <img src="https://img.shields.io/badge/license-MIT-2544FB?style=flat-square" alt="MIT" />
   <img src="https://img.shields.io/badge/stack-Electron%20%7C%20React%2019%20%7C%20TypeScript-0A163F?style=flat-square" alt="Stack" />
   <img src="https://img.shields.io/badge/platform-macOS-34d399?style=flat-square" alt="macOS" />
@@ -15,10 +15,11 @@
 
 <p align="center">
   <strong>An open-source, self-hosted agent manager, inspired by Google Antigravity.</strong><br/>
-  Point an agent (Claude, GPT, Gemini, OpenRouter, or local Ollama) at a folder and watch it plan,
-  run tools, and produce reviewable diffs — with a full agent-loop spine: rules, skills, workflows,
-  hooks, plugins, memory, and sandboxing, all on your machine.<br/><br/>
-  <a href="#quick-start">Quick Start</a> · <a href="#features">Features</a> · <a href="#the-agents-spine">The .agents Spine</a> · <a href="#architecture">Architecture</a>
+  Point an agent (Claude, GPT, Gemini, OpenRouter, or local Ollama — or let <strong>Ursa</strong>
+  route each turn to the best of them) at a folder and watch it plan, run tools, and produce
+  reviewable diffs — with a full agent-loop spine: rules, skills, workflows, hooks, plugins,
+  memory, and sandboxing, all on your machine.<br/><br/>
+  <a href="#quick-start">Quick Start</a> · <a href="#meet-ursa">Meet Ursa</a> · <a href="#features">Features</a> · <a href="#the-agents-spine">The .agents Spine</a> · <a href="#architecture">Architecture</a>
 </p>
 
 ---
@@ -58,6 +59,45 @@ Open a folder --> Agent reads .agents/ --> You chat / it edits --> Hooks + Sandb
 
 ---
 
+## Meet Ursa
+
+<p align="center">
+  <img src="src/renderer/src/assets/ursa-teddy.svg" alt="Ursa" width="110" />
+</p>
+
+<p align="center">
+  <strong>Stop picking models. Pick Ursa.</strong>
+</p>
+
+**Ursa** is BearCode's cross-provider model router — the top entry in the model picker. Select it
+once, and every turn a fast classifier reads your message and routes it to the best model for the
+job, *across providers*:
+
+| Role | When your message is… | Ursa routes to |
+|------|------------------------|----------------|
+| 🏛️ **Architect** | planning, deciding, or designing *before* building | Claude Opus 4.8 |
+| 🔨 **Coder** | anything whose deliverable is code or files — any size | GPT-5.6 Sol |
+| 🔍 **Reviewer** | review, critique, or verification of existing work | Claude Sonnet 5 |
+| ⚡ **Grunt** | quick, routine, mechanical asks | Claude Haiku 4.5 |
+
+One conversation can flow through all four — plan with Opus, build with GPT, review with Sonnet —
+without you touching the picker again.
+
+**How it's built:**
+
+- **Curated, not configurable.** Like the orchestrators in Perplexity and Cursor, the role → model
+  assignments are product decisions maintained in code — Settings → Ursa is just an enable toggle
+  plus a live check that the required provider API keys are present.
+- **Degrades gracefully.** Roles whose provider has no key are skipped; if the classifier itself
+  fails, Ursa falls back to the first eligible role instead of erroring your turn.
+- **Crash-safe.** The resolved model is persisted per turn, so resuming a conversation never
+  re-rolls the routing mid-task.
+- **Transparent.** Every assistant turn records which role ran it (hover an assistant message for
+  the badge), and the composer picks up a slow-rotating aura in BearCode blue so you always know
+  Ursa is at the wheel.
+
+---
+
 ## See It In Action
 
 <p align="center">
@@ -73,6 +113,9 @@ Open a folder --> Agent reads .agents/ --> You chat / it edits --> Hooks + Sandb
 ## Features
 
 ### Agent Runtime
+- **Ursa dynamic model routing**: a cross-provider orchestrator entry in the model picker that
+  classifies each turn and routes it to the right model for the job — see
+  [Meet Ursa](#meet-ursa)
 - **Multi-provider model support**: Anthropic, OpenAI, Google, OpenRouter, and local Ollama —
   switch mid-conversation, set per-project defaults, add custom models and context windows
 - **LangGraph.js + Deep Agents orchestrator** running alongside the legacy `ursa` engine behind a
