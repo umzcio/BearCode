@@ -16,8 +16,11 @@ const getEvents = vi.fn(() => [] as unknown[])
 const appendEvent = vi.fn()
 // Ursa Phase 2: resumeInterruptedRuns marks a non-resumable 'running' pipeline
 // 'stopped'. Default: no pipeline row -> the branch is a no-op for these tests.
-const getUrsaPipeline = vi.fn<(id: string) => { status: string } | undefined>(() => undefined)
+const getUrsaPipeline = vi.fn<
+  (id: string) => { status: string; callId?: string; steps?: unknown[] } | undefined
+>(() => undefined)
 const setUrsaPipelineStatus = vi.fn()
+const appendOrReplaceEvent = vi.fn()
 
 vi.mock('../db', () => ({
   listConversations: (...args: unknown[]) => listConversations(...(args as [])),
@@ -25,7 +28,7 @@ vi.mock('../db', () => ({
   getConversationMeta: (...args: [string]) => getConversationMeta(...args),
   getEvents: (...args: unknown[]) => getEvents(...(args as [])),
   appendEvent: (...args: unknown[]) => appendEvent(...args),
-  appendOrReplaceEvent: vi.fn(),
+  appendOrReplaceEvent: (...args: unknown[]) => appendOrReplaceEvent(...args),
   getLastResolvedModelRef: vi.fn(() => null),
   getUrsaPipeline: (...args: [string]) => getUrsaPipeline(...args),
   advanceUrsaPipeline: vi.fn(),
@@ -107,6 +110,7 @@ describe('resumeInterruptedRuns', () => {
     getUrsaPipeline.mockReset()
     getUrsaPipeline.mockReturnValue(undefined)
     setUrsaPipelineStatus.mockReset()
+    appendOrReplaceEvent.mockReset()
   })
 
   it('resumable approval-paused conversation: rehydrated, NOT marked cancelled', async () => {
@@ -161,6 +165,39 @@ describe('resumeInterruptedRuns', () => {
     // Left 'running': the re-parked step will advance the pipeline once it settles.
     expect(setUrsaPipelineStatus).not.toHaveBeenCalled()
     expect(sink.setState).not.toHaveBeenCalledWith('convo-pipeline', 'cancelled')
+  })
+
+  it('Ursa Phase 2: a crashed PROPOSAL is neutralized (stopped + card flipped to denied)', async () => {
+    // A crash while a pipeline proposal was still awaiting consent. The proposal
+    // is pre-graph (never a resumable interrupt), so rehydrate returns false. If
+    // the row were left 'proposed', the conversation degrades to 'cancelled' (re-
+    // enabling the composer) yet resolveUrsaPipelineOrchestrator would still
+    // accept a stale Approve and overwrite a fresh run's AbortController. The scan
+    // must mark it 'stopped' and flip the persisted card to 'denied'.
+    listConversations.mockReturnValue([meta('convo-proposal')])
+    getZombieRunIds.mockReturnValue(['convo-proposal'])
+    rehydratePausedRun.mockResolvedValue(false)
+    getUrsaPipeline.mockReturnValue({
+      status: 'proposed',
+      callId: 'call-xyz',
+      steps: [{ role: 'planner', modelRef: 'anthropic/x', subtask: 'plan' }]
+    })
+    const sink = makeSink()
+
+    await resumeInterruptedRuns(sink)
+
+    expect(setUrsaPipelineStatus).toHaveBeenCalledWith('convo-proposal', 'stopped')
+    // The persisted synthetic card is flipped to denied (emit + durable replace).
+    const flipped = {
+      type: 'tool_call',
+      id: 'call-xyz',
+      tool: 'ursa_pipeline',
+      input: { steps: [{ role: 'planner', modelRef: 'anthropic/x', subtask: 'plan' }] },
+      approvalState: 'denied'
+    }
+    expect(sink.emit).toHaveBeenCalledWith('convo-proposal', flipped)
+    expect(appendOrReplaceEvent).toHaveBeenCalledWith('convo-proposal', flipped)
+    expect(sink.setState).toHaveBeenCalledWith('convo-proposal', 'cancelled')
   })
 
   it('dangling with no modelRef: cancelled without attempting rehydrate', async () => {

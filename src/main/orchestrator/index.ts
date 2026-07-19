@@ -758,6 +758,30 @@ export async function resumeInterruptedRuns(sink: RunSink): Promise<void> {
       const pipeline = getUrsaPipeline(meta.id)
       if (pipeline && pipeline.status === 'running') {
         setUrsaPipelineStatus(meta.id, 'stopped')
+      } else if (pipeline && pipeline.status === 'proposed') {
+        // Ursa Phase 2 (Task 3): a pipeline PROPOSAL caught mid-consent by the
+        // crash. The synthetic pending card is durable but the proposal never
+        // entered the interrupt machinery (it is pre-graph), so there is nothing
+        // to rehydrate -- and leaving the row 'proposed' is dangerous: this
+        // conversation is about to degrade to 'cancelled' (below), re-enabling
+        // the composer, and resolveUrsaPipelineOrchestrator still accepts an
+        // Approve on a 'proposed' row. Approving the stale pinned card AFTER a
+        // fresh run had started would overwrite the live run's AbortController
+        // (aborts.set) and drive a second pipeline concurrently on the same
+        // checkpointer thread. Neutralize it here exactly as a Stop-during-
+        // proposal does (cancelRunOrchestrator): mark 'stopped' and flip the
+        // persisted card to 'denied', so the resolve guard (status must be
+        // 'proposed') makes any later Approve a provable no-op.
+        setUrsaPipelineStatus(meta.id, 'stopped')
+        const card: Event = {
+          type: 'tool_call',
+          id: pipeline.callId,
+          tool: 'ursa_pipeline',
+          input: { steps: pipeline.steps },
+          approvalState: 'denied'
+        }
+        sink.emit(meta.id, card)
+        appendOrReplaceEvent(meta.id, card)
       }
       sink.setState(meta.id, 'cancelled')
     }
