@@ -51,23 +51,22 @@ export class ToollessChatOpenAI extends ChatOpenAICompletions {
   }
 }
 
-// xAI server-side "agentic" tools: Grok runs web_search / x_search /
-// code_execution on xAI's own servers (no client round-trip; code runs in
-// xAI's sandbox, never locally), enabled by including them in the request's
-// tools array. They must ride EVERY request -- agent turns (where
-// deepagents binds BearCode's client tools; the server tools are appended
-// after LangChain's tool conversion so the converter never sees them) AND
-// bare invokes (Ursa council seats, classifier), which never call bindTools.
-// invocationParams is the single chokepoint both paths flow through.
-// Like Perplexity, xAI's Live Search reports its sources as a top-level
-// `citations` field -- the same conversion hooks copy them onto
-// response_metadata so turn_meta.citations / the Sources UI work for Grok.
-const XAI_SEARCH_TOOLS = [{ type: 'web_search' }, { type: 'x_search' }]
-const XAI_ALWAYS_TOOLS = [{ type: 'code_execution' }]
+// xAI server-side Live Search: Grok searches the web AND X on xAI's own
+// servers. VERIFIED LIVE (422 from api.x.ai, 2026-07-19): the OpenAI-compatible
+// Chat Completions endpoint accepts ONLY tool type variants 'function' and
+// 'live_search' -- the 'web_search'/'x_search'/'code_execution' tool shapes
+// from xAI's docs belong to their newer agentic/Responses-style API and 422
+// here ("unknown variant `code_execution`, expected `function` or
+// `live_search`"). One live_search tool covers both web and X sources.
+// It is appended at the invocationParams chokepoint so it rides both agent
+// turns (after LangChain's tool conversion) and bare invokes (council seats),
+// gated on the per-conversation Web Search toggle. Like Perplexity, results
+// arrive as a top-level `citations` field -- the conversion hooks feed
+// turn_meta.citations / the Sources UI.
+const XAI_SEARCH_TOOLS = [{ type: 'live_search' }]
 export class XaiChatOpenAI extends ChatOpenAICompletions {
-  // Set by makeModel from the per-conversation Web Search toggle; the search
-  // tools ride only when it is on. code_execution is not search and stays
-  // always-on (runs in xAI's sandbox, no per-search billing).
+  // Set by makeModel from the per-conversation Web Search toggle; live_search
+  // rides only when it is on.
   bearcodeWebSearch = false
   override invocationParams(
     ...args: Parameters<ChatOpenAICompletions['invocationParams']>
@@ -77,7 +76,7 @@ export class XaiChatOpenAI extends ChatOpenAICompletions {
     const present = new Set(
       existing.map((t) => (t && typeof t === 'object' ? (t as { type?: string }).type : undefined))
     )
-    const server = [...XAI_ALWAYS_TOOLS, ...(this.bearcodeWebSearch ? XAI_SEARCH_TOOLS : [])]
+    const server = this.bearcodeWebSearch ? XAI_SEARCH_TOOLS : []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     params.tools = [...existing, ...server.filter((t) => !present.has(t.type))] as any
     return params
