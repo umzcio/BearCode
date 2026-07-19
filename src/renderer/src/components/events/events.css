@@ -1023,3 +1023,13 @@
   outline: none;
   box-shadow: var(--focus-ring);
 }
+
+/* Inline markdown links in agent prose ([text](url) -- Grok/GPT write these). */
+.agent-text a.md-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.agent-text a.md-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

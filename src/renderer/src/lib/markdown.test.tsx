@@ -93,3 +93,21 @@ describe('Markdown paragraph line breaks', () => {
     expect(p!.textContent).toBe('Before---After')
   })
 })
+
+describe('Markdown inline links', () => {
+  it('renders [text](url) as an external link and [[n]](url) as a cite chip', () => {
+    render(
+      <Markdown text="See [zachrossmiller.com](https://www.zachrossmiller.com/) and a fact.[[1]](https://umt.edu/it)" />
+    )
+    const links = screen.getAllByRole('link')
+    expect(links).toHaveLength(2)
+    expect(links[0].className).toBe('md-link')
+    expect(links[0].getAttribute('href')).toBe('https://www.zachrossmiller.com/')
+    expect(links[0].textContent).toBe('zachrossmiller.com')
+    expect(links[1].className).toBe('cite-ref')
+    expect(links[1].textContent).toBe('1')
+    expect(links[1].getAttribute('href')).toBe('https://umt.edu/it')
+    // No raw markdown syntax survives
+    expect(document.body.textContent).not.toContain('](')
+  })
+})

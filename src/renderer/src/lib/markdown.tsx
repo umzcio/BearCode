@@ -18,11 +18,10 @@ export interface CitationRef {
   title?: string
 }
 
-// Turn a plain prose segment into nodes, linkifying [n] citation markers when
-// the turn carries a citations list: [3] becomes a small anchor to
-// citations[2] (1-based). Out-of-range or citation-less markers stay text --
-// models also write [1] in non-citation contexts (checklists, code refs).
-function pushProse(
+// [n] citation markers against the turn's citations list: [3] becomes a small
+// anchor to citations[2] (1-based). Out-of-range or citation-less markers stay
+// text -- models also write [1] in non-citation contexts.
+function pushCiteMarkers(
   out: ReactNode[],
   text: string,
   citations: CitationRef[] | undefined,
@@ -56,6 +55,55 @@ function pushProse(
     last = m.index + m[0].length
   }
   if (last < text.length) out.push(text.slice(last))
+}
+
+// Prose pass: FIRST extract [text](url) markdown links (Grok/GPT write these
+// inline -- unsupported until 2026-07-19 they rendered as raw text), THEN run
+// the [n] citation-marker pass on the segments between links. A link whose
+// visible text is itself a bracketed number ("[[1]](url)") renders as the
+// same compact cite-ref chip the metadata-driven markers use.
+// Two alternations: [[n]](url) (Grok's citation style -- double brackets) and
+// plain [text](url). Groups: 1/2 = cite number + url, 3/4 = label + url.
+const LINK_RE = /\[\[(\d{1,2})\]\]\((https?:\/\/[^\s)]+)\)|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g
+function pushProse(
+  out: ReactNode[],
+  text: string,
+  citations: CitationRef[] | undefined,
+  nextKey: () => number,
+  citationNumbers?: Map<number, number>
+): void {
+  LINK_RE.lastIndex = 0
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = LINK_RE.exec(text)) !== null) {
+    if (m.index > last)
+      pushCiteMarkers(out, text.slice(last, m.index), citations, nextKey, citationNumbers)
+    if (m[1]) {
+      out.push(
+        <a key={nextKey()} className="cite-ref" href={m[2]} target="_blank" rel="noreferrer" title={m[2]}>
+          {m[1]}
+        </a>
+      )
+    } else {
+      const label = m[3]
+      const url = m[4]
+      const citeNum = /^(\d{1,2})$/.exec(label)
+      out.push(
+        citeNum ? (
+          <a key={nextKey()} className="cite-ref" href={url} target="_blank" rel="noreferrer" title={url}>
+            {citeNum[1]}
+          </a>
+        ) : (
+          <a key={nextKey()} className="md-link" href={url} target="_blank" rel="noreferrer">
+            {label}
+          </a>
+        )
+      )
+    }
+    last = m.index + m[0].length
+  }
+  if (last < text.length)
+    pushCiteMarkers(out, text.slice(last), citations, nextKey, citationNumbers)
 }
 
 function renderInline(
