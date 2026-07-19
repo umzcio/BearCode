@@ -20,8 +20,9 @@ import type { Event } from '../../shared/types'
 import type { RunSink } from '../sink'
 import { makeModel } from './models'
 import { textDeltaEvent } from './bridge'
-import { appendEvent, getRecentUrsaContext } from '../db'
+import { appendEvent, getConversationMeta, getRecentUrsaContext } from '../db'
 import { keyStatus } from '../keys'
+import { maybeGenerateTitle } from '../title'
 import { parseModelRef } from '../providers/registry'
 
 // The curated council. Provider diversity is the point (design §Council runner):
@@ -292,9 +293,14 @@ export async function runCouncil(
           if (mapping.length === 0) return null
           const id = randomUUID()
           try {
+            // NO conversation-context block here (unlike stage 1): on turn 2+
+            // the context contains the prior chair synthesis, which names the
+            // seat models -- feeding it to a reviewer would leak identities
+            // through history and break anonymization (final-review finding).
+            // Reviewers judge the labeled answers on their merits alone.
             const res = await makeModel(reviewer.seatRef).invoke(
               [
-                new SystemMessage(withContext(REVIEW_SYSTEM, contextBlock)),
+                new SystemMessage(REVIEW_SYSTEM),
                 new HumanMessage(buildReviewPrompt(mapping, userText))
               ],
               { signal }
@@ -367,6 +373,16 @@ export async function runCouncil(
       ...(councilUsage.length > 0 ? { ursaCouncilUsage: councilUsage } : {})
     }
     emit(turnMeta)
+    // Fire-and-forget title generation, mirroring graph.ts closeOutTurn --
+    // without this a conversation whose FIRST turn convenes a council never
+    // gets an auto title (final-review finding). Titles run on the chair's
+    // provider's cheap model.
+    if (!signal.aborted) {
+      void maybeGenerateTitle(conversationId, chairProvider, parseModelRef(COUNCIL_CHAIR).modelId, userText, answerText, (id) => {
+        const meta = getConversationMeta(id)
+        if (meta) sink.metaChanged(meta)
+      })
+    }
     sink.setState(conversationId, signal.aborted ? 'cancelled' : 'done')
     return { paused: false }
   } catch (err) {

@@ -1231,8 +1231,12 @@ export const useAppStore = create<AppState>((set, get) => {
       })
       await window.bearcode.conversations.setMode(meta.id, d.permissionMode)
       await window.bearcode.conversations.setEffort(meta.id, d.effort)
-      // Ursa Mode has no folder/global default -- carry the composer's pick.
-      const ursaMode = get().ursaMode
+      // Ursa Mode always starts at 'auto' for a NEW conversation -- carrying the
+      // previously open conversation's mode here would let a fresh "+"
+      // conversation silently auto-start a paid Deep Research pipeline or a
+      // ~7-call Council the user picked for a DIFFERENT conversation (final
+      // review finding). Matches sendFromHome's reset-to-auto behavior.
+      const ursaMode: UrsaMode = 'auto'
       await window.bearcode.conversations.setUrsaMode(meta.id, ursaMode)
       // F3: honor the composer's env pick on the sidebar "+" path too, locking
       // it before the first run (worktree provisioning is main-side; a non-git
