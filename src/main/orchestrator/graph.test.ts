@@ -18,7 +18,8 @@ vi.mock('../db', () => ({
   setActiveRules: vi.fn(),
   setLastResolvedModelRef: vi.fn(),
   setPermissionMode: vi.fn(),
-  setUrsaPipeline: vi.fn()
+  setUrsaPipeline: vi.fn(),
+  setUrsaPipelineStatus: vi.fn()
 }))
 
 vi.mock('./checkpointer', () => ({
@@ -48,7 +49,24 @@ vi.mock('./ursa', () => ({
   // this instead of the classifier. Default undefined (unkeyed) so tests
   // that don't override it exercise the fall-through-to-auto path; per-test
   // overridden for the locked-coder path.
-  coderRoleIfEligible: vi.fn(() => undefined)
+  coderRoleIfEligible: vi.fn(() => undefined),
+  // Ursa Modes (Task 6): runGraph's deep-research branch consults this to
+  // eligibility-map the preset. Default returns a 3-step pipeline; per-test
+  // overridden for the verifier-gate error path.
+  resolveDeepResearchPipeline: vi.fn(() => ({
+    steps: [
+      {
+        role: 'verifier',
+        modelRef: 'perplexity/sonar-pro',
+        subtask: 'search the web'
+      },
+      {
+        role: 'reviewer',
+        modelRef: 'anthropic/claude-sonnet-5',
+        subtask: 'write the report'
+      }
+    ]
+  }))
 }))
 
 // makeModel is mocked so buildSubagents can build distinguishable per-role
@@ -97,10 +115,16 @@ import {
   rehydrateModelRef,
   runGraph,
   buildSubagents,
+  setStartUrsaPipeline,
   __parkForTest,
   type ApprovalItem
 } from './graph'
-import { resolveUrsaModelRef, resolveSubagentModelRefs, coderRoleIfEligible } from './ursa'
+import {
+  resolveUrsaModelRef,
+  resolveSubagentModelRefs,
+  coderRoleIfEligible,
+  resolveDeepResearchPipeline
+} from './ursa'
 import { makeModel } from './models'
 import { runCouncil } from './council'
 import {
@@ -108,7 +132,8 @@ import {
   getLastUrsaRole,
   getRecentUrsaContext,
   setLastResolvedModelRef,
-  setUrsaPipeline
+  setUrsaPipeline,
+  setUrsaPipelineStatus
 } from '../db'
 import type { PlanReviewResolution, SkillProposalResolution } from './tools'
 import { browserManager } from '../browser/manager'
@@ -2018,6 +2043,137 @@ describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {
       signal: new AbortController().signal
     }).catch(() => {})
     expect(runCouncil).not.toHaveBeenCalled()
+  })
+})
+
+describe('runGraph — Ursa Modes: deep research (Task 6)', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(getConversationMeta).mockReturnValue(null)
+    setStartUrsaPipeline(() => {})
+  })
+
+  const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
+  const metaWith = (ursaMode: 'auto' | 'code' | 'council' | 'deep-research') => ({
+    id: 'c1',
+    projectPath: null,
+    title: null,
+    modelRef: 'ursa/auto',
+    createdAt: 0,
+    updatedAt: 0,
+    permissionMode: 'accept-edits' as const,
+    activeRules: [],
+    effort: 'medium' as const,
+    thinking: false,
+    ursaMode,
+    projectId: null,
+    pinned: false,
+    archived: false,
+    environment: 'local' as const,
+    worktrees: []
+  })
+
+  it('auto-starts the preset pipeline (running, no consent card) and parks paused:true', async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('deep-research'))
+    const started = vi.fn()
+    setStartUrsaPipeline(started)
+    const sink = makeSink()
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'research quantum error correction',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    // Parked so startRunOrchestrator keeps the AbortController alive; the engine
+    // owns the run from here.
+    expect(result).toEqual({ paused: true })
+    // Persisted as a RUNNING pipeline straight away with a sentinel call_id --
+    // never 'proposed', so resolveUrsaPipelineOrchestrator rejects it.
+    expect(setUrsaPipeline).toHaveBeenCalledTimes(1)
+    const [convId, steps, callId] = vi.mocked(setUrsaPipeline).mock.calls[0]
+    expect(convId).toBe('c1')
+    expect((steps as Array<{ role: string }>).map((s) => s.role)).toEqual(['verifier', 'reviewer'])
+    expect(typeof callId).toBe('string')
+    expect(setUrsaPipelineStatus).toHaveBeenCalledWith('c1', 'running')
+    // The engine was started on the turn's live signal.
+    expect(started).toHaveBeenCalledWith('c1', sink, expect.anything())
+    // NO classifier, NO agent, and crucially NO pending consent card.
+    expect(resolveUrsaModelRef).not.toHaveBeenCalled()
+    expect(makeModel).not.toHaveBeenCalled()
+    const emitted = vi.mocked(sink.emit).mock.calls.map((c) => c[1])
+    expect(emitted.some((e) => e.type === 'tool_call')).toBe(false)
+    // The user_message is still emitted before dispatch (transcript honesty).
+    expect(emitted.some((e) => e.type === 'user_message')).toBe(true)
+  })
+
+  it('fails honestly (recoverable error, no pipeline) when the verifier is unkeyed', async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('deep-research'))
+    vi.mocked(resolveDeepResearchPipeline).mockReturnValue({
+      error: 'Deep Research needs a Perplexity API key. Add one in Settings > Providers.'
+    })
+    const started = vi.fn()
+    setStartUrsaPipeline(started)
+    const sink = makeSink()
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'research something',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    expect(result).toEqual({ paused: false, failed: true })
+    expect(setUrsaPipeline).not.toHaveBeenCalled()
+    expect(started).not.toHaveBeenCalled()
+    expect(sink.setState).toHaveBeenCalledWith('c1', 'error')
+    const emitted = vi.mocked(sink.emit).mock.calls.map((c) => c[1])
+    const err = emitted.find((e) => e.type === 'error')
+    expect(err).toMatchObject({ recoverable: true })
+    expect((err as { message: string }).message).toMatch(/Perplexity/)
+  })
+
+  it('does NOT deep-research a concrete (non-Ursa) model even if meta says deep-research', async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('deep-research'))
+    const started = vi.fn()
+    setStartUrsaPipeline(started)
+    const sink = makeSink()
+    await runGraph({
+      conversationId: 'c1',
+      userText: 'hi',
+      modelRef: 'anthropic/claude-sonnet-5',
+      sink,
+      signal: new AbortController().signal
+    }).catch(() => {})
+    expect(started).not.toHaveBeenCalled()
+    expect(setUrsaPipeline).not.toHaveBeenCalled()
+  })
+
+  it('REGRESSION: Auto-mode classifier pipeline proposal still shows its consent card', async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('auto'))
+    const steps = [
+      { role: 'coder', modelRef: 'openai/gpt-5.6-sol', subtask: 'build' },
+      { role: 'reviewer', modelRef: 'anthropic/claude-sonnet-5', subtask: 'review' }
+    ]
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'openai/gpt-5.6-sol',
+      roleName: 'coder',
+      pipeline: steps
+    })
+    const sink = makeSink()
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'build then review',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    // Auto mode still parks on the consent card, NOT the deep-research auto-start.
+    expect(result).toEqual({ paused: true })
+    expect(resolveDeepResearchPipeline).not.toHaveBeenCalled()
+    const emitted = vi.mocked(sink.emit).mock.calls.map((c) => c[1])
+    const card = emitted.find((e) => e.type === 'tool_call')
+    expect(card).toMatchObject({ tool: 'ursa_pipeline', approvalState: 'pending' })
+    expect(sink.setState).toHaveBeenCalledWith('c1', 'awaiting-approval')
   })
 })
 

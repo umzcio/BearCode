@@ -55,6 +55,7 @@ import {
   setLastResolvedModelRef,
   setPermissionMode,
   setUrsaPipeline,
+  setUrsaPipelineStatus,
   touchedFilesFor
 } from '../db'
 import { readAttachmentBase64, readAttachmentSidecar } from '../attachments/ingest'
@@ -97,7 +98,8 @@ import {
   resolveUrsaModelRef,
   resolveSubagentModelRefs,
   roleNameForModelRef,
-  coderRoleIfEligible
+  coderRoleIfEligible,
+  resolveDeepResearchPipeline
 } from './ursa'
 import { runCouncil } from './council'
 import { compactionAdvanced } from './compaction'
@@ -2023,6 +2025,30 @@ export function setOnResumeSettled(
   onResumeSettled = fn
 }
 
+// Ursa Modes (Task 6): Deep Research mode auto-starts a preset pipeline directly
+// from runGraph, but the pipeline engine (runUrsaPipeline) lives in index.ts --
+// which already imports graph.ts, so a direct import back would be circular.
+// Same module-level injection idiom as onResumeSettled above keeps the single
+// index.ts -> graph.ts import direction. index.ts injects runUrsaPipeline here
+// at startup; runGraph's deep-research branch fires it (fire-and-forget on the
+// turn's live AbortController) after persisting the pipeline as 'running'.
+let startUrsaPipeline:
+  | ((conversationId: string, sink: RunSink, signal: AbortSignal) => void)
+  | undefined
+export function setStartUrsaPipeline(
+  fn: (conversationId: string, sink: RunSink, signal: AbortSignal) => void
+): void {
+  startUrsaPipeline = fn
+}
+
+// The sentinel call_id stamped on an auto-started Deep Research pipeline row.
+// Picking the mode IS the consent, so the row is persisted directly as 'running'
+// (never 'proposed') with NO synthetic consent card. resolveUrsaPipelineOrchestrator
+// rejects any resolve whose row is not 'proposed', so this row can never be
+// approved/denied through the proposal machinery -- the sentinel just makes that
+// intent explicit and un-uuid-like in the transcript/db.
+const DEEP_RESEARCH_CALL_ID = 'ursa-deep-research-auto'
+
 // Called from src/main/orchestrator/index.ts's resolveApprovalOrchestrator
 // (IPC bridge for bearcode:tools:approve). Records ONE card's decision:
 // flips that card's tool_call to approved/denied immediately (emit-only,
@@ -2921,10 +2947,40 @@ export async function runGraph(opts: {
   // classifies, and never builds an agent or acquires tools). Only for a fresh
   // Ursa turn: pipeline steps and declined-pipeline re-runs (ursaStep /
   // ursaResolved) are always auto-mode internals. runCouncil drives the turn to
-  // its own terminal state and never pauses. (deep-research is Task 6.)
+  // its own terminal state and never pauses. Deep-research (Task 6) auto-starts
+  // the Phase 2 pipeline engine from the same seam.
   if (!ursaResolved && !ursaStep && isUrsaModelRef(modelRef)) {
-    if (getConversationMeta(conversationId)?.ursaMode === 'council') {
+    const ursaMode = getConversationMeta(conversationId)?.ursaMode
+    if (ursaMode === 'council') {
       return runCouncil(conversationId, userText, sink, signal)
+    }
+    // Ursa Modes (Task 6): deep-research mode auto-starts a fixed research
+    // pipeline (design §Deep Research). Picking the mode IS the consent, so
+    // there is NO 'proposed' phase and NO consent card -- unlike an Auto-mode
+    // classifier-proposed pipeline. Eligibility-map the preset: if the verifier
+    // (the point of the mode) is unkeyed, fail honestly with a recoverable
+    // error; other unkeyed steps drop. Persist the row directly as 'running'
+    // with a sentinel call_id the resolver rejects, then hand the turn to the
+    // Phase 2 pipeline engine on this turn's live AbortController and return
+    // paused:true so startRunOrchestrator keeps that controller alive -- the
+    // engine owns the run's lifecycle from here (mirrors
+    // resolveUrsaPipelineOrchestrator's approve path).
+    if (ursaMode === 'deep-research') {
+      const resolved = resolveDeepResearchPipeline()
+      if ('error' in resolved) {
+        emitAndPersist(conversationId, sink, {
+          type: 'error',
+          id: randomUUID(),
+          message: resolved.error,
+          recoverable: true
+        })
+        sink.setState(conversationId, 'error')
+        return { paused: false, failed: true }
+      }
+      setUrsaPipeline(conversationId, resolved.steps, DEEP_RESEARCH_CALL_ID)
+      setUrsaPipelineStatus(conversationId, 'running')
+      startUrsaPipeline?.(conversationId, sink, signal)
+      return { paused: true }
     }
   }
 

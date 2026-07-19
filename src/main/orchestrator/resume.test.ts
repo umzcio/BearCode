@@ -45,7 +45,8 @@ vi.mock('./graph', () => ({
   cancelPendingApproval: vi.fn(),
   resolveInterrupt: vi.fn(),
   runGraph: vi.fn(),
-  setOnResumeSettled: vi.fn()
+  setOnResumeSettled: vi.fn(),
+  setStartUrsaPipeline: vi.fn()
 }))
 
 vi.mock('./checkpointer', () => ({

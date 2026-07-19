@@ -7,7 +7,9 @@ import {
   ursaRequiredProviders,
   SUBAGENT_ROLE_MAP,
   resolveSubagentModelRefs,
-  resolvePipelineSteps
+  resolvePipelineSteps,
+  resolveDeepResearchPipeline,
+  DEEP_RESEARCH_PIPELINE
 } from './ursa'
 
 // graph.ts (imported below only to assert SUBAGENT_ROLE_MAP's keys against its
@@ -470,6 +472,54 @@ describe('resolvePipelineSteps', () => {
       )
     ).toBeUndefined()
   })
+})
+
+describe('resolveDeepResearchPipeline (Ursa Modes Task 6)', () => {
+  const allKeyed = {
+    anthropic: true,
+    openai: true,
+    google: true,
+    openrouter: true,
+    perplexity: true,
+    xai: true,
+    ollama: false
+  }
+
+  it('resolves the 3-step preset to curated modelRefs when every provider is keyed', () => {
+    vi.mocked(keyStatus).mockReturnValue(allKeyed as never)
+    const verifier = CURATED_ROLES.find((r) => r.name === 'verifier')!
+    const architect = CURATED_ROLES.find((r) => r.name === 'architect')!
+    const reviewer = CURATED_ROLES.find((r) => r.name === 'reviewer')!
+    const result = resolveDeepResearchPipeline()
+    expect('steps' in result && result.steps).toEqual([
+      { role: 'verifier', modelRef: verifier.modelRef, subtask: DEEP_RESEARCH_PIPELINE[0].subtask },
+      {
+        role: 'architect',
+        modelRef: architect.modelRef,
+        subtask: DEEP_RESEARCH_PIPELINE[1].subtask
+      },
+      { role: 'reviewer', modelRef: reviewer.modelRef, subtask: DEEP_RESEARCH_PIPELINE[2].subtask }
+    ])
+  })
+
+  it('errors honestly when the verifier (Perplexity) provider is unkeyed', () => {
+    vi.mocked(keyStatus).mockReturnValue({ ...allKeyed, perplexity: false } as never)
+    const result = resolveDeepResearchPipeline()
+    expect('error' in result).toBe(true)
+    if ('error' in result) expect(result.error).toMatch(/Perplexity/)
+  })
+
+  it('drops an unkeyed NON-verifier step but keeps the rest (verifier + reviewer)', () => {
+    // architect is anthropic; drop anthropic keys entirely -> architect AND
+    // reviewer (both anthropic) drop, leaving just the verifier step.
+    vi.mocked(keyStatus).mockReturnValue({ ...allKeyed, anthropic: false } as never)
+    const result = resolveDeepResearchPipeline()
+    expect('steps' in result).toBe(true)
+    if ('steps' in result) {
+      expect(result.steps.map((s) => s.role)).toEqual(['verifier'])
+    }
+  })
+
 })
 
 describe('SUBAGENT_ROLE_MAP', () => {
