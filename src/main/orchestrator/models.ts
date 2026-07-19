@@ -37,7 +37,7 @@ export class ToollessChatOpenAI extends ChatOpenAICompletions {
     ...args: Parameters<ChatOpenAICompletions['_convertCompletionsDeltaToBaseMessageChunk']>
   ): ReturnType<ChatOpenAICompletions['_convertCompletionsDeltaToBaseMessageChunk']> {
     const chunk = super._convertCompletionsDeltaToBaseMessageChunk(...args)
-    attachPerplexityCitations(chunk, args[1])
+    attachSearchCitations(chunk, args[1])
     return chunk
   }
 
@@ -45,16 +45,58 @@ export class ToollessChatOpenAI extends ChatOpenAICompletions {
     ...args: Parameters<ChatOpenAICompletions['_convertCompletionsMessageToBaseMessage']>
   ): ReturnType<ChatOpenAICompletions['_convertCompletionsMessageToBaseMessage']> {
     const msg = super._convertCompletionsMessageToBaseMessage(...args)
-    attachPerplexityCitations(msg, args[1])
+    attachSearchCitations(msg, args[1])
+    return msg
+  }
+}
+
+// xAI server-side "agentic" tools: Grok runs web_search / x_search on xAI's
+// own servers (no client round-trip), enabled by including them in the
+// request's tools array. They must ride EVERY request -- agent turns (where
+// deepagents binds BearCode's client tools; the server tools are appended
+// after LangChain's tool conversion so the converter never sees them) AND
+// bare invokes (Ursa council seats, classifier), which never call bindTools.
+// invocationParams is the single chokepoint both paths flow through.
+// Like Perplexity, xAI's Live Search reports its sources as a top-level
+// `citations` field -- the same conversion hooks copy them onto
+// response_metadata so turn_meta.citations / the Sources UI work for Grok.
+const XAI_SERVER_TOOLS = [{ type: 'web_search' }, { type: 'x_search' }]
+export class XaiChatOpenAI extends ChatOpenAICompletions {
+  override invocationParams(
+    ...args: Parameters<ChatOpenAICompletions['invocationParams']>
+  ): ReturnType<ChatOpenAICompletions['invocationParams']> {
+    const params = super.invocationParams(...args)
+    const existing = Array.isArray(params.tools) ? params.tools : []
+    const present = new Set(
+      existing.map((t) => (t && typeof t === 'object' ? (t as { type?: string }).type : undefined))
+    )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    params.tools = [...existing, ...XAI_SERVER_TOOLS.filter((t) => !present.has(t.type))] as any
+    return params
+  }
+
+  override _convertCompletionsDeltaToBaseMessageChunk(
+    ...args: Parameters<ChatOpenAICompletions['_convertCompletionsDeltaToBaseMessageChunk']>
+  ): ReturnType<ChatOpenAICompletions['_convertCompletionsDeltaToBaseMessageChunk']> {
+    const chunk = super._convertCompletionsDeltaToBaseMessageChunk(...args)
+    attachSearchCitations(chunk, args[1])
+    return chunk
+  }
+
+  override _convertCompletionsMessageToBaseMessage(
+    ...args: Parameters<ChatOpenAICompletions['_convertCompletionsMessageToBaseMessage']>
+  ): ReturnType<ChatOpenAICompletions['_convertCompletionsMessageToBaseMessage']> {
+    const msg = super._convertCompletionsMessageToBaseMessage(...args)
+    attachSearchCitations(msg, args[1])
     return msg
   }
 }
 
 // The delta hook returns a message chunk; the non-streaming hook returns a
 // message. Both carry response_metadata. rawResponse is the full parsed API
-// payload (per-SSE-chunk when streaming), where Perplexity's fields live.
+// payload (per-SSE-chunk when streaming), where Perplexity's/xAI's fields live.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function attachPerplexityCitations(target: any, rawResponse: unknown): void {
+function attachSearchCitations(target: any, rawResponse: unknown): void {
   const raw = rawResponse as { citations?: unknown; search_results?: unknown } | undefined
   const msg = target && typeof target === 'object' && 'message' in target ? target.message : target
   if (!msg || !raw) return
@@ -187,11 +229,12 @@ export function makeModel(
       })
     case 'xai':
       // Grok has real function calling (unlike Perplexity's Sonar models), so
-      // xai gets plain ChatOpenAI -- tools stay bound, no ToollessChatOpenAI
-      // wrapper. Same OpenAI-compatible Chat Completions pattern otherwise:
-      // ChatOpenAI + a baseURL override, NEVER useResponsesApi
+      // client tools stay bound. XaiChatOpenAI additionally appends xAI's
+      // server-side web_search/x_search tools to every request (see the class
+      // doc) and captures Live Search citations. Same OpenAI-compatible Chat
+      // Completions pattern otherwise: baseURL override, NEVER useResponsesApi
       // (buildModelExtras returns {} for it via the default branch).
-      return new ChatOpenAI({
+      return new XaiChatOpenAI({
         apiKey: requireKey('xai'),
         model: modelId,
         configuration: { baseURL: 'https://api.x.ai/v1' },

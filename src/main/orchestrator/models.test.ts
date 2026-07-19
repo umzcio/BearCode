@@ -68,6 +68,39 @@ describe('makeModel', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((m as any).bindTools([fakeTool])).not.toBe(m)
   })
+
+  it('xAI appends server-side web_search/x_search to every request, even with no bound tools', () => {
+    const m = makeModel('xai/grok-4.5')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const params = (m as any).invocationParams({})
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const types = (params.tools ?? []).map((t: any) => t.type)
+    expect(types).toContain('web_search')
+    expect(types).toContain('x_search')
+  })
+
+  it('xAI merges server tools with bound client tools without duplicating', () => {
+    const m = makeModel('xai/grok-4.5')
+    const fakeTool = { type: 'function', function: { name: 't', parameters: { type: 'object' } } }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const params = (m as any).invocationParams({ tools: [fakeTool, { type: 'web_search' }] })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const types = (params.tools ?? []).map((t: any) => t.type)
+    expect(types.filter((t: string) => t === 'web_search')).toHaveLength(1)
+    expect(types).toContain('x_search')
+    expect(types).toContain('function')
+  })
+
+  it('xAI copies Live Search citations onto response_metadata like Perplexity', () => {
+    const m = makeModel('xai/grok-4.5')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chunk = (m as any)._convertCompletionsDeltaToBaseMessageChunk(
+      { role: 'assistant', content: 'hi' },
+      { id: 'x', choices: [], citations: ['https://x.com/some-post'] }
+    )
+    const msg = chunk?.message ?? chunk
+    expect(msg.response_metadata.citations).toEqual(['https://x.com/some-post'])
+  })
 })
 
 describe('buildModelExtras — OpenAI reasoning models', () => {
