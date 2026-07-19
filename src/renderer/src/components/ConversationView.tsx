@@ -9,6 +9,7 @@ import { ToolStep, PinnedApprovalArea } from './events/ToolStep'
 import { AssistantText } from './events/AssistantText'
 import { ArtifactCard } from './events/ArtifactCard'
 import { DiffCard } from './events/DiffCard'
+import { SourcesList } from './events/SourcesList'
 import { ErrorCard } from './events/ErrorCard'
 import { CompactionMarker } from './events/CompactionMarker'
 import { IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
@@ -299,6 +300,9 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                   {turn.diffs.map((d) => (
                     <DiffCard key={d.id} event={d} />
                   ))}
+                  {turn.turnMeta?.citations ? (
+                    <SourcesList citations={turn.turnMeta.citations} />
+                  ) : null}
                   {turn.errors.map((e) => (
                     <ErrorCard
                       key={e.id}

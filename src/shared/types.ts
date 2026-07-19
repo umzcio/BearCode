@@ -299,6 +299,16 @@ export type ToolName =
 
 export type ApprovalState = 'auto' | 'pending' | 'approved' | 'denied'
 
+// A web source cited by the answering model itself (Perplexity sonar models
+// return these with every response; other providers simply never set them).
+// url is required; title/date ride along when the provider's richer
+// search_results shape supplied them.
+export interface SourceCitation {
+  url: string
+  title?: string
+  date?: string
+}
+
 // The single per-conversation mode (unified-mode-picker design §3/§4.1). Ask
 // and Accept edits both prompt for commands; they differ only on the edit
 // fallback (prompt vs apply). Plan is read-only (both fallbacks block). Auto
@@ -705,6 +715,12 @@ export type Event =
       // the renderer folds it into the per-model cost breakdown so the
       // classifier's (real) spend is not invisible.
       ursaClassifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
+      // Web sources the answering model itself cited (Perplexity sonar models
+      // return `citations`/`search_results` with every response; the [n]
+      // markers in the answer text are 1-based indexes into this list). The
+      // renderer shows them as a Sources list under the turn's answer. Absent
+      // for models that don't report citations.
+      citations?: SourceCitation[]
     }
   | { type: 'error'; id: string; message: string; recoverable: boolean }
   // Ursa Phase 2 (pipeline mode): a step divider emitted BEFORE each step of an

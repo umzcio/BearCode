@@ -3,7 +3,7 @@
 // each provider is instantiated directly with the user's own key.
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { ChatAnthropic } from '@langchain/anthropic'
-import { ChatOpenAI } from '@langchain/openai'
+import { ChatOpenAI, ChatOpenAICompletions } from '@langchain/openai'
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
 import { BearcodeChatOllama } from './ollamaCompat'
 import { getKey } from '../keys'
@@ -18,10 +18,53 @@ import type { EffortLevel, ProviderId } from '../../shared/types'
 // model, so a plain ChatOpenAI pointed at Perplexity 400s on every turn.
 // No-op the bind: the model never sees the tools, the loop runs it as a
 // plain answer-with-built-in-search model, and everything downstream
-// (streaming, usage, checkpoints) is unchanged. Exported for tests.
-export class ToollessChatOpenAI extends ChatOpenAI {
+// (streaming, usage, checkpoints) is unchanged. Extends ChatOpenAICompletions
+// (not ChatOpenAI): Perplexity speaks ONLY the Chat Completions API, and only
+// the Completions class exposes the overridable raw-response conversion hooks
+// (they do not exist on ChatOpenAI's prototype at runtime -- verified).
+// Exported for tests.
+export class ToollessChatOpenAI extends ChatOpenAICompletions {
   override bindTools(): this {
     return this
+  }
+
+  // Perplexity returns its web sources as TOP-LEVEL response fields
+  // (`citations`: url strings; `search_results`: {title,url,date}) that the
+  // stock OpenAI converters drop. Copy them onto response_metadata so the
+  // stream loop (graph.ts citationsFromMetadata) can surface them on
+  // turn_meta.citations.
+  override _convertCompletionsDeltaToBaseMessageChunk(
+    ...args: Parameters<ChatOpenAICompletions['_convertCompletionsDeltaToBaseMessageChunk']>
+  ): ReturnType<ChatOpenAICompletions['_convertCompletionsDeltaToBaseMessageChunk']> {
+    const chunk = super._convertCompletionsDeltaToBaseMessageChunk(...args)
+    attachPerplexityCitations(chunk, args[1])
+    return chunk
+  }
+
+  override _convertCompletionsMessageToBaseMessage(
+    ...args: Parameters<ChatOpenAICompletions['_convertCompletionsMessageToBaseMessage']>
+  ): ReturnType<ChatOpenAICompletions['_convertCompletionsMessageToBaseMessage']> {
+    const msg = super._convertCompletionsMessageToBaseMessage(...args)
+    attachPerplexityCitations(msg, args[1])
+    return msg
+  }
+}
+
+// The delta hook returns a message chunk; the non-streaming hook returns a
+// message. Both carry response_metadata. rawResponse is the full parsed API
+// payload (per-SSE-chunk when streaming), where Perplexity's fields live.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function attachPerplexityCitations(target: any, rawResponse: unknown): void {
+  const raw = rawResponse as { citations?: unknown; search_results?: unknown } | undefined
+  const msg = target && typeof target === 'object' && 'message' in target ? target.message : target
+  if (!msg || !raw) return
+  const citations = raw.citations
+  const searchResults = raw.search_results
+  if (!Array.isArray(citations) && !Array.isArray(searchResults)) return
+  msg.response_metadata = {
+    ...(msg.response_metadata ?? {}),
+    ...(Array.isArray(citations) ? { citations } : {}),
+    ...(Array.isArray(searchResults) ? { search_results: searchResults } : {})
   }
 }
 

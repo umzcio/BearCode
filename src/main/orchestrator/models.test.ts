@@ -23,6 +23,24 @@ describe('makeModel', () => {
     expect((m as any).clientConfig.baseURL).toBe('https://api.perplexity.ai')
   })
 
+  it('Perplexity models copy top-level citations/search_results onto response_metadata', () => {
+    const m = makeModel('perplexity/sonar')
+    const raw = {
+      id: 'x',
+      choices: [],
+      citations: ['https://a.com'],
+      search_results: [{ title: 'A', url: 'https://a.com' }]
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chunk = (m as any)._convertCompletionsDeltaToBaseMessageChunk(
+      { role: 'assistant', content: 'hi' },
+      raw
+    )
+    const msg = chunk?.message ?? chunk
+    expect(msg.response_metadata.citations).toEqual(['https://a.com'])
+    expect(msg.response_metadata.search_results).toEqual([{ title: 'A', url: 'https://a.com' }])
+  })
+
   it('Perplexity models refuse tool binding (endpoint 400s on any `tools` array)', () => {
     const m = makeModel('perplexity/sonar')
     // The agent loop bindTools()s every main model; for Perplexity the bind

@@ -57,6 +57,7 @@ vi.mock('./models', () => ({
 import {
   textOfMessage,
   buildUserMessageContent,
+  citationsFromMetadata,
   shouldEmitBridgedText,
   shouldRetryEmptyFinal,
   interruptBelongsToToolCall,
@@ -100,6 +101,35 @@ import type { PlanReviewResolution, SkillProposalResolution } from './tools'
 import { browserManager } from '../browser/manager'
 import type { RunSink } from '../sink'
 import type { AttachmentRef } from '../../shared/types'
+
+describe('citationsFromMetadata (Perplexity web sources)', () => {
+  it('prefers rich search_results over bare citations urls', () => {
+    expect(
+      citationsFromMetadata({
+        citations: ['https://a.com', 'https://b.com'],
+        search_results: [
+          { title: 'A', url: 'https://a.com', date: '2026-01-01' },
+          { title: 'B', url: 'https://b.com' }
+        ]
+      })
+    ).toEqual([
+      { url: 'https://a.com', title: 'A', date: '2026-01-01' },
+      { url: 'https://b.com', title: 'B' }
+    ])
+  })
+
+  it('falls back to bare citation urls', () => {
+    expect(citationsFromMetadata({ citations: ['https://a.com'] })).toEqual([
+      { url: 'https://a.com' }
+    ])
+  })
+
+  it('returns [] for absent metadata, foreign providers, and malformed shapes', () => {
+    expect(citationsFromMetadata(undefined)).toEqual([])
+    expect(citationsFromMetadata({ usage: { total_tokens: 5 } })).toEqual([])
+    expect(citationsFromMetadata({ citations: [42, null], search_results: 'nope' })).toEqual([])
+  })
+})
 
 describe('textOfMessage', () => {
   it('returns a plain-string content as-is', () => {

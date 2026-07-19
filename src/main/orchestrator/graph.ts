@@ -29,6 +29,7 @@ import type {
   PlanReviewResolveResult,
   ProviderId,
   SkillSaveResult,
+  SourceCitation,
   ToolName
 } from '../../shared/types'
 import { PDF_MIME } from '../../shared/types'
@@ -249,6 +250,32 @@ export function buildSubagents(ursaRole: string | undefined, browserTools: SubAg
   return [researcher, browser]
 }
 
+// Extract web citations from a streamed chunk's response_metadata. Perplexity
+// sends BOTH shapes: `search_results` ({title,url,date}[], richer, preferred)
+// and legacy `citations` (bare url strings). Anything malformed is skipped --
+// this reads provider-controlled data. Exported for tests.
+export function citationsFromMetadata(meta: Record<string, unknown> | undefined): SourceCitation[] {
+  if (!meta) return []
+  const results = meta['search_results']
+  if (Array.isArray(results)) {
+    const rich = results
+      .filter((r): r is { url: string; title?: string; date?: string } =>
+        Boolean(r && typeof r === 'object' && typeof (r as { url?: unknown }).url === 'string')
+      )
+      .map((r) => ({
+        url: r.url,
+        ...(typeof r.title === 'string' ? { title: r.title } : {}),
+        ...(typeof r.date === 'string' ? { date: r.date } : {})
+      }))
+    if (rich.length > 0) return rich
+  }
+  const urls = meta['citations']
+  if (Array.isArray(urls)) {
+    return urls.filter((u): u is string => typeof u === 'string').map((url) => ({ url }))
+  }
+  return []
+}
+
 // Derive the producing agent's id from a streamed chunk's metadata (and, as
 // documentation, its namespace). VERIFIED LIVE (BEARCODE_DEBUG_NS, Task 8):
 //
@@ -388,6 +415,13 @@ interface DriveContext {
   // generation, which otherwise saw only the user's prompt (the running answer
   // accumulator is local to each drive() call and didn't survive the pause).
   answerAccum: { text: string }
+  // Web citations reported by the main agent's model (Perplexity sonar sends
+  // `citations`/`search_results` on every streamed chunk; ToollessChatOpenAI
+  // copies them onto response_metadata). Replaced wholesale per chunk (the
+  // endpoint resends the full list), boxed + shared across pause/resume like
+  // answerAccum; closeOutTurn surfaces it on turn_meta.citations so the
+  // renderer can list sources under the answer.
+  citationsAccum: { list: SourceCitation[] }
   // Timestamp of the first answer-text token of the current model call, boxed so
   // the ReasoningBridgeHandler (constructed alongside) can read it to time the
   // "Thought for Ns" step as call-start -> answer-start. Reset per call by the
@@ -1667,6 +1701,14 @@ async function drive(
     }
     const aiChunk = chunk as AIMessageChunk
     const s = stateFor(key)
+    // Perplexity resends the FULL citation list on every chunk (copied onto
+    // response_metadata by ToollessChatOpenAI), so replace rather than append.
+    // Main agent only: a subagent's citations have no [n] markers in the
+    // visible answer to anchor to.
+    if (key === 'main') {
+      const cited = citationsFromMetadata(aiChunk.response_metadata)
+      if (cited.length > 0) ctx.citationsAccum.list = cited
+    }
     if (process.env['BEARCODE_DEBUG_BLOCKS']) {
       const blocks = aiChunk.contentBlocks ?? []
       for (const b of blocks) {
@@ -2696,6 +2738,7 @@ function buildAgentAndContext(
     alreadyAnnounced: new Set(),
     callIdMap: new Map(),
     answerAccum: { text: '' },
+    citationsAccum: { list: [] },
     answerStartedAt: { t: null },
     bridgedToolCalls: new Map(),
     bridgedAnswerText: { text: '' },
@@ -3291,7 +3334,8 @@ async function closeOutTurn(
     endedAt: Date.now(),
     ...(usageSnapshot ? { usage: usageSnapshot } : {}),
     ...(ctx.ursaRole ? { ursaRole: ctx.ursaRole } : {}),
-    ...(ctx.classifierUsage ? { ursaClassifierUsage: ctx.classifierUsage } : {})
+    ...(ctx.classifierUsage ? { ursaClassifierUsage: ctx.classifierUsage } : {}),
+    ...(ctx.citationsAccum.list.length > 0 ? { citations: ctx.citationsAccum.list } : {})
   }
   appendEvent(ctx.conversationId, turnMeta)
   ctx.sink.emit(ctx.conversationId, turnMeta)
