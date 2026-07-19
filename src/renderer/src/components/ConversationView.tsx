@@ -10,6 +10,7 @@ import { AssistantText } from './events/AssistantText'
 import { ArtifactCard } from './events/ArtifactCard'
 import { DiffCard } from './events/DiffCard'
 import { SourcesList } from './events/SourcesList'
+import { remapCitations } from '../lib/citations'
 import { ErrorCard } from './events/ErrorCard'
 import { CompactionMarker } from './events/CompactionMarker'
 import { IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
@@ -277,6 +278,17 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                     </Hint>
                   </div>
                 </div>
+                {/* Perplexity-style source presentation: only cited sources,
+                    renumbered by first appearance; chip labels + Sources rows
+                    share the same remap so they always agree. */}
+                {(() => {
+                  const cite = turn.turnMeta?.citations
+                    ? remapCitations(
+                        turn.texts.map((t) => t.text),
+                        turn.turnMeta.citations
+                      )
+                    : null
+                  return (
                 <div className="agent-turn">
                   {turn.steps.length > 0 || live ? (
                     <WorkedGroup
@@ -298,6 +310,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                           streaming={streaming}
                           convoId={convoId}
                           citations={turn.turnMeta?.citations}
+                          citationNumbers={cite?.renumber}
                         />
                       </div>
                     ) : null
@@ -305,9 +318,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                   {turn.diffs.map((d) => (
                     <DiffCard key={d.id} event={d} />
                   ))}
-                  {turn.turnMeta?.citations ? (
-                    <SourcesList citations={turn.turnMeta.citations} />
-                  ) : null}
+                  {cite ? <SourcesList citations={cite.ordered} /> : null}
                   {turn.errors.map((e) => (
                     <ErrorCard
                       key={e.id}
@@ -362,6 +373,8 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                     </div>
                   ) : null}
                 </div>
+                  )
+                })()}
               </div>
             )
           })}

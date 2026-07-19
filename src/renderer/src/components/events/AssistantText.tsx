@@ -8,7 +8,8 @@ function AssistantTextImpl({
   text,
   streaming,
   convoId,
-  citations
+  citations,
+  citationNumbers
 }: {
   text: string
   streaming: boolean
@@ -17,6 +18,9 @@ function AssistantTextImpl({
   // the prose render as links to citations[n-1]. Arrives only once the turn
   // completes, so a streaming answer shows plain markers until it settles.
   citations?: SourceCitation[]
+  // First-use renumbering from lib/citations remapCitations, so the chip
+  // labels match the (filtered, reordered) Sources list below the answer.
+  citationNumbers?: Map<number, number>
 }): React.JSX.Element {
   const openReviewForFile = useAppStore((s) => s.openReviewForFile)
   const openFile = useAppStore((s) => s.openFile)
@@ -28,6 +32,7 @@ function AssistantTextImpl({
         onFileClick={(path) => openReviewForFile(convoId, path)}
         onFileOpen={(path) => openFile(path)}
         citations={citations}
+        citationNumbers={citationNumbers}
       />
     </div>
   )
