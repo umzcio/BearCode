@@ -366,6 +366,11 @@ interface AppState {
   ): void
   cancelRun(convoId: string): void
   approveTool(callId: string, approved: boolean): void
+  // Ursa Phase 2: approve/deny a proposed pipeline (the synthetic 'ursa_pipeline'
+  // consent card). Fire-and-forget like approveTool; progress flows back over
+  // bearcode:event. Approve runs the steps in order; deny runs the turn
+  // single-role, exactly as Phase 1.
+  resolvePipeline(convoId: string, callId: string, approved: boolean): void
   addPermissionRule(input: AddRuleInput): void
   refreshPermissionRules(): Promise<void>
   deletePermissionRule(id: string): Promise<void>
@@ -992,6 +997,10 @@ export const useAppStore = create<AppState>((set, get) => {
 
     approveTool: (callId, approved) => {
       void window.bearcode.tools.approve(callId, approved)
+    },
+
+    resolvePipeline: (convoId, callId, approved) => {
+      void window.bearcode.ursa.resolvePipeline(convoId, callId, approved)
     },
 
     addPermissionRule: (input) => {

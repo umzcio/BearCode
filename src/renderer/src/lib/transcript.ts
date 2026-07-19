@@ -41,7 +41,15 @@ export function groupTurns(events: Event[]): TranscriptItem[] {
       // Additive & optional: older streams never carry this, so nothing renders.
       items.push({ kind: 'compaction', id: ev.id, summarizedCount: ev.summarizedCount })
     } else if (current) {
-      if (ev.type === 'thinking' || ev.type === 'tool_call' || ev.type === 'tool_result') {
+      if (
+        ev.type === 'thinking' ||
+        ev.type === 'tool_call' ||
+        ev.type === 'tool_result' ||
+        // Ursa Phase 2: pipeline step dividers ride the step stream so they
+        // interleave in emit-order with the tool calls/thinking of the step
+        // they precede (WorkedGroup renders them as a slim divider row).
+        ev.type === 'ursa_step'
+      ) {
         current.steps.push(ev)
       } else if (ev.type === 'assistant_text') {
         current.texts.push(ev)

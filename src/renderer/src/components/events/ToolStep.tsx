@@ -1,10 +1,11 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { Event } from '@shared/types'
-import { useAppStore } from '../../state/store'
+import { useAppStore, modelDisplay } from '../../state/store'
 import { IconChevronRightSmall } from '../icons'
 import { Select } from '../Select'
 import { usePendingCardHotkeys } from './usePendingCardHotkeys'
 import { AllowGrid } from './AllowGrid'
+import ursaTeddy from '../../assets/ursa-teddy.svg'
 import './events.css'
 
 type ToolCallEvent = Extract<Event, { type: 'tool_call' }>
@@ -53,6 +54,32 @@ function mcpArgsText(input: unknown): string | null {
   } catch {
     return String(input)
   }
+}
+
+// Ursa Phase 2: the synthetic `ursa_pipeline` consent card's input carries
+// `{ steps: Array<{ role, modelRef, subtask }> }`. Parse defensively -- a
+// malformed/absent payload yields [] so the card degrades to an empty (but
+// non-throwing) proposal rather than crashing the transcript on replay.
+interface PipelineStep {
+  role: string
+  modelRef: string
+  subtask: string
+}
+function pipelineSteps(input: unknown): PipelineStep[] {
+  if (typeof input !== 'object' || input === null) return []
+  const raw = (input as { steps?: unknown }).steps
+  if (!Array.isArray(raw)) return []
+  const out: PipelineStep[] = []
+  for (const s of raw) {
+    if (typeof s !== 'object' || s === null) continue
+    const step = s as Record<string, unknown>
+    out.push({
+      role: typeof step.role === 'string' ? step.role : '',
+      modelRef: typeof step.modelRef === 'string' ? step.modelRef : '',
+      subtask: typeof step.subtask === 'string' ? step.subtask : ''
+    })
+  }
+  return out
 }
 
 function summaryFor(
@@ -411,6 +438,33 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
         </div>
       </div>
     )
+  }
+
+  // Ursa Phase 2: the pre-graph pipeline proposal card. Unlike every other
+  // pending card here it resolves through window.bearcode.ursa.resolvePipeline
+  // (NOT tools.approve) -- the pause is pre-graph and never enters graph.ts's
+  // pendingApprovals map. It still lives in the shared pinned-approval area and
+  // uses the same first-pending hotkey machinery as the rest.
+  if (call.tool === 'ursa_pipeline') {
+    if (call.approvalState === 'pending') {
+      return (
+        <PendingPipeline
+          callId={call.id}
+          convoId={convoId}
+          steps={pipelineSteps(call.input)}
+          isFirst={isFirst}
+        />
+      )
+    }
+    if (call.approvalState === 'approved' || call.approvalState === 'denied') {
+      return (
+        <div className="step">
+          <div className="step-row static">
+            <span>{call.approvalState === 'approved' ? 'Pipeline approved' : 'Pipeline declined'}</span>
+          </div>
+        </div>
+      )
+    }
   }
 
   // F4: browser_* tools. Mutations (click/type/evaluate) can interrupt for
@@ -1294,6 +1348,75 @@ function PendingPlan({
           {isFirstPending ? <span className="opt-num">3</span> : null}
           Send feedback
           <span className="opt-hint">opens the plan with the comment box focused</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Ursa Phase 2: the pipeline proposal card. Shows the full plan -- teddy +
+// "Ursa proposes a pipeline" + one numbered row per step (role chip + model +
+// subtask) -- so the user sees exactly what will run before any model does.
+// Resolves through resolvePipeline (window.bearcode.ursa.resolvePipeline), a
+// plain allow/deny like PendingRead: Approve runs the steps in order, Deny runs
+// the turn single-role (never an error). Reuses the shared first-pending hotkey
+// machinery (1 = approve, 2 = deny) and the pinned-approval-card anchor id.
+function PendingPipeline({
+  callId,
+  convoId,
+  steps,
+  isFirst
+}: {
+  callId: string
+  convoId: string
+  steps: PipelineStep[]
+  isFirst: boolean
+}): React.JSX.Element {
+  const resolvePipeline = useAppStore((s) => s.resolvePipeline)
+  const providers = useAppStore((s) => s.providers)
+  const isFirstPending = isFirst
+
+  const approve = (): void => resolvePipeline(convoId, callId, true)
+  const deny = (): void => resolvePipeline(convoId, callId, false)
+
+  usePendingCardHotkeys({ active: isFirstPending, onApprove: approve, onDeny: deny })
+
+  return (
+    <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
+      <div className="step-row static">
+        <span>Ursa proposes a pipeline</span>
+      </div>
+      <div className="waiting-note">Waiting for your input…</div>
+      <div className="approval-card pulse-once pipeline-card">
+        <div className="approval-title">
+          <img className="pipeline-teddy" src={ursaTeddy} alt="" />
+          Ursa proposes a pipeline
+        </div>
+        <ol className="pipeline-steps">
+          {steps.map((s, i) => (
+            <li className="pipeline-step" key={i}>
+              <span className="pipeline-step-num">{i + 1}</span>
+              <div className="pipeline-step-body">
+                <div className="pipeline-step-head">
+                  <span className="pipeline-step-role">{s.role}</span>
+                  <span className="pipeline-step-model">
+                    {modelDisplay(providers, s.modelRef).name}
+                  </span>
+                </div>
+                <div className="pipeline-step-task">{s.subtask}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <button className="approval-opt" onClick={approve}>
+          {isFirstPending ? <span className="opt-num">1</span> : null}
+          Yes, run this pipeline
+          <span className="opt-hint">each step runs on its role&apos;s model, in order</span>
+        </button>
+        <button className="approval-opt" onClick={deny}>
+          {isFirstPending ? <span className="opt-num">2</span> : null}
+          No, just answer normally
+          <span className="opt-hint">runs the turn single-role, as usual</span>
         </button>
       </div>
     </div>

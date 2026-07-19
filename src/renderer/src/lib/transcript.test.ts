@@ -32,4 +32,38 @@ describe('groupTurnsIncremental', () => {
     const second = groupTurnsIncremental(first, next)
     expect(second.items[0]).not.toBe(first.items[0]) // live turn rebuilt
   })
+
+  it('buckets ursa_step dividers into the turn step stream (in emit order)', () => {
+    const div = (id: string, index: number): Event =>
+      ({
+        type: 'ursa_step',
+        id,
+        index,
+        total: 2,
+        role: 'coder',
+        modelRef: 'anthropic/claude',
+        subtask: 'do a thing'
+      }) as Event
+    const toolCall = (id: string): Event =>
+      ({ type: 'tool_call', id, tool: 'run_command', input: { command: 'ls' } }) as Event
+    const events: Event[] = [
+      user('u1', 'build then review'),
+      div('s1', 1),
+      toolCall('t1'),
+      div('s2', 2),
+      toolCall('t2'),
+      meta('m1')
+    ]
+    const { items } = groupTurnsIncremental(null, events)
+    expect(items.length).toBe(1)
+    const turn = items[0].kind === 'turn' ? items[0].turn : null
+    expect(turn).not.toBeNull()
+    // Dividers ride the step stream, interleaved in emit order with tool calls.
+    expect(turn!.steps.map((e) => e.type)).toEqual([
+      'ursa_step',
+      'tool_call',
+      'ursa_step',
+      'tool_call'
+    ])
+  })
 })

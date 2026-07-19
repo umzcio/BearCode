@@ -5,6 +5,7 @@ import { ThinkingPaw } from '../brand/ThinkingPaw'
 import { IconChevronDown } from '../icons'
 import { ThinkingStep } from './ThinkingStep'
 import { ToolStep } from './ToolStep'
+import { UrsaStepDivider } from './UrsaStepDivider'
 import './events.css'
 
 interface WorkedGroupProps {
@@ -66,7 +67,9 @@ function WorkedGroupImpl({
   const rows: React.JSX.Element[] = []
   for (let i = 0; i < steps.length; i++) {
     const ev = steps[i]
-    if (ev.type === 'thinking') {
+    if (ev.type === 'ursa_step') {
+      rows.push(<UrsaStepDivider key={ev.id} event={ev} />)
+    } else if (ev.type === 'thinking') {
       rows.push(
         <AgentAttributed key={ev.id} event={ev}>
           <ThinkingStep text={ev.text} durationMs={ev.durationMs} />
