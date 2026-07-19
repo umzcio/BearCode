@@ -64,6 +64,11 @@ export function effortCapabilities(
       // live for models that are actually reasoning models; a non-reasoning
       // OpenAI model has nothing for effort to control.
       return { effortEnabled: isOpenAIReasoningModel(modelId), thinkingEnabled: false }
+    case 'xai':
+      // grok-4.20-multi-agent maps effort onto its server-side agent_count
+      // (low/medium = 4 agents, high+ = 16 -- buildModelExtras xai case);
+      // other Grok models have no effort knob.
+      return { effortEnabled: modelId === 'grok-4.20-multi-agent', thinkingEnabled: false }
     default:
       // openrouter, unknown: arbitrary third-party models, no guaranteed
       // reasoning.effort support on the other end -- stays off.

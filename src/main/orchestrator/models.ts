@@ -50,9 +50,10 @@ export class ToollessChatOpenAI extends ChatOpenAICompletions {
   }
 }
 
-// xAI server-side "agentic" tools: Grok runs web_search / x_search on xAI's
-// own servers (no client round-trip), enabled by including them in the
-// request's tools array. They must ride EVERY request -- agent turns (where
+// xAI server-side "agentic" tools: Grok runs web_search / x_search /
+// code_execution on xAI's own servers (no client round-trip; code runs in
+// xAI's sandbox, never locally), enabled by including them in the request's
+// tools array. They must ride EVERY request -- agent turns (where
 // deepagents binds BearCode's client tools; the server tools are appended
 // after LangChain's tool conversion so the converter never sees them) AND
 // bare invokes (Ursa council seats, classifier), which never call bindTools.
@@ -60,7 +61,7 @@ export class ToollessChatOpenAI extends ChatOpenAICompletions {
 // Like Perplexity, xAI's Live Search reports its sources as a top-level
 // `citations` field -- the same conversion hooks copy them onto
 // response_metadata so turn_meta.citations / the Sources UI work for Grok.
-const XAI_SERVER_TOOLS = [{ type: 'web_search' }, { type: 'x_search' }]
+const XAI_SERVER_TOOLS = [{ type: 'web_search' }, { type: 'x_search' }, { type: 'code_execution' }]
 export class XaiChatOpenAI extends ChatOpenAICompletions {
   override invocationParams(
     ...args: Parameters<ChatOpenAICompletions['invocationParams']>
@@ -186,6 +187,20 @@ export function buildModelExtras(
         reasoning: { effort: mapEffortToOpenAIReasoning(requestedEffort) },
         useResponsesApi: true
       }
+    }
+    case 'xai': {
+      // grok-4.20-multi-agent takes `agent_count` INSTEAD of reasoning_effort
+      // (docs.x.ai multi-agent): the effort picker controls how many parallel
+      // research agents xAI spins up server-side -- low/medium = 4, high and
+      // above = 16. Other Grok models take no effort knob (default {}).
+      const caps = capabilitiesFor(`${provider}/${modelId}`)
+      if (!caps?.reasoning) return {}
+      const requestedEffort = opts.effort ?? caps.reasoning.effort
+      const agentCount =
+        requestedEffort === 'high' || requestedEffort === 'xhigh' || requestedEffort === 'max'
+          ? 16
+          : 4
+      return { modelKwargs: { agent_count: agentCount } }
     }
     default:
       // openrouter: no first-party reasoning-capable models curated today

@@ -40,15 +40,22 @@ describe('Perplexity provider registry entry', () => {
 })
 
 describe('xAI provider registry entry', () => {
-  it('lists the three curated Grok models with their context windows', async () => {
+  it('lists the four curated Grok models with their context windows', async () => {
     const entry = getProvider('xai')
     expect(entry.displayName).toBe('xAI')
     expect(entry.requiresKey).toBe(true)
     const { models, reachable } = await entry.listModels()
     expect(reachable).toBe(true)
     expect(models).toEqual(XAI_MODELS)
-    expect(models.map((m) => m.id)).toEqual(['grok-4.5', 'grok-4.3', 'grok-4-fast'])
-    expect(models.map((m) => m.contextWindow)).toEqual([500_000, 1_000_000, 2_000_000])
+    expect(models.map((m) => m.id)).toEqual([
+      'grok-4.5',
+      'grok-4.20-multi-agent',
+      'grok-4.3',
+      'grok-4-fast'
+    ])
+    expect(models.map((m) => m.contextWindow)).toEqual([
+      500_000, 2_000_000, 1_000_000, 2_000_000
+    ])
   })
 })
 

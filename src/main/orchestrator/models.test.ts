@@ -69,7 +69,7 @@ describe('makeModel', () => {
     expect((m as any).bindTools([fakeTool])).not.toBe(m)
   })
 
-  it('xAI appends server-side web_search/x_search to every request, even with no bound tools', () => {
+  it('xAI appends server-side web_search/x_search/code_execution to every request, even with no bound tools', () => {
     const m = makeModel('xai/grok-4.5')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params = (m as any).invocationParams({})
@@ -77,6 +77,14 @@ describe('makeModel', () => {
     const types = (params.tools ?? []).map((t: any) => t.type)
     expect(types).toContain('web_search')
     expect(types).toContain('x_search')
+    expect(types).toContain('code_execution')
+  })
+
+  it('grok-4.20-multi-agent carries agent_count in its request params', () => {
+    const m = makeModel('xai/grok-4.20-multi-agent', { effort: 'high' })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const params = (m as any).invocationParams({})
+    expect(params.agent_count).toBe(16)
   })
 
   it('xAI merges server tools with bound client tools without duplicating', () => {
@@ -148,5 +156,23 @@ describe('buildModelExtras — OpenAI reasoning models', () => {
     const extras = buildModelExtras('xai', 'grok-4.5', {})
     expect(extras).toEqual({})
     expect(extras.useResponsesApi).toBeUndefined()
+  })
+
+  it('grok-4.20-multi-agent maps effort onto agent_count (low/medium=4, high+=16)', () => {
+    expect(buildModelExtras('xai', 'grok-4.20-multi-agent', {})).toEqual({
+      modelKwargs: { agent_count: 4 } // registry default effort 'medium'
+    })
+    expect(buildModelExtras('xai', 'grok-4.20-multi-agent', { effort: 'low' })).toEqual({
+      modelKwargs: { agent_count: 4 }
+    })
+    for (const effort of ['high', 'xhigh', 'max'] as const) {
+      expect(buildModelExtras('xai', 'grok-4.20-multi-agent', { effort })).toEqual({
+        modelKwargs: { agent_count: 16 }
+      })
+    }
+    // No useResponsesApi and no reasoning field -- agent_count IS the knob.
+    const extras = buildModelExtras('xai', 'grok-4.20-multi-agent', { effort: 'high' })
+    expect(extras.useResponsesApi).toBeUndefined()
+    expect(extras.reasoning).toBeUndefined()
   })
 })
