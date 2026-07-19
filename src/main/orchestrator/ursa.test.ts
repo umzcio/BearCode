@@ -13,9 +13,14 @@ vi.mock('../settings', () => ({
 vi.mock('../keys', () => ({
   keyStatus: vi.fn(() => ({ anthropic: true, openai: true, google: true, openrouter: true }))
 }))
+vi.mock('../title', () => ({
+  CHEAP_MODEL: { anthropic: 'claude-haiku-4-5', openai: 'gpt-5.6-luna', google: 'gemini-2.5-flash' }
+}))
 
 import { getSettings } from '../settings'
 import { keyStatus } from '../keys'
+import { makeModel } from './models'
+import { CHEAP_MODEL } from '../title'
 
 describe('isUrsaModelRef', () => {
   it('matches only the sentinel', () => {
@@ -42,6 +47,7 @@ describe('CURATED_ROLES', () => {
 describe('resolveUrsaModelRef', () => {
   beforeEach(() => {
     invokeSpy.mockReset()
+    vi.mocked(makeModel).mockClear()
     vi.mocked(getSettings).mockReturnValue({ ursaEnabled: true } as never)
     vi.mocked(keyStatus).mockReturnValue({
       anthropic: true,
@@ -101,5 +107,40 @@ describe('resolveUrsaModelRef', () => {
     invokeSpy.mockResolvedValue({ role: 'coder' })
     const result = await resolveUrsaModelRef({ userText: 'hi' })
     expect(result.roleName).not.toBe('coder')
+  })
+
+  it('skips classification and resolves to the first eligible role, without throwing, when every eligible role\'s provider has a configured key but no CHEAP_MODEL entry', async () => {
+    // Only anthropic-backed roles (architect, reviewer) are eligible; simulate
+    // anthropic having a key but no cheap-model table entry -- the
+    // classifier must never be constructed in this case (that used to be
+    // the throw-outside-try/catch bug), and no key/role is missing so
+    // eligibleRoles is non-empty (unlike the "no configured key" case).
+    vi.mocked(keyStatus).mockReturnValue({
+      anthropic: true,
+      openai: false,
+      google: false,
+      openrouter: false
+    } as never)
+    const savedAnthropic = CHEAP_MODEL.anthropic
+    delete (CHEAP_MODEL as Record<string, string | undefined>).anthropic
+
+    try {
+      const first = CURATED_ROLES.find((r) => r.modelRef.split('/')[0] === 'anthropic')!
+      const result = await resolveUrsaModelRef({ userText: 'hi' })
+      expect(result).toEqual({ modelRef: first.modelRef, roleName: first.name })
+      expect(makeModel).not.toHaveBeenCalled()
+      expect(invokeSpy).not.toHaveBeenCalled()
+    } finally {
+      ;(CHEAP_MODEL as Record<string, string | undefined>).anthropic = savedAnthropic
+    }
+  })
+
+  it('degrades to the first eligible role, without throwing, when makeModel itself throws', async () => {
+    vi.mocked(makeModel).mockImplementationOnce(() => {
+      throw new Error('no provider client configured')
+    })
+    const first = CURATED_ROLES[0]
+    const result = await resolveUrsaModelRef({ userText: 'hi' })
+    expect(result).toEqual({ modelRef: first.modelRef, roleName: first.name })
   })
 })

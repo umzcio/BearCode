@@ -99,12 +99,16 @@ export function ursaRequiredProviders(): ProviderId[] {
 
 // The classifier itself always runs on a cheap/fast model, same mechanism
 // title.ts's maybeGenerateTitle already uses -- never a role's own model.
-function classifierProviderId(roles: UrsaRole[]): ProviderId {
+// Only returns a provider that has BOTH a CHEAP_MODEL entry AND a configured
+// key; returns null when no eligible role's provider qualifies, so callers
+// can degrade gracefully instead of constructing a model that will throw.
+function classifierProviderId(roles: UrsaRole[]): ProviderId | null {
+  const status = keyStatus()
   for (const r of roles) {
     const { provider } = parseModelRef(r.modelRef)
-    if (CHEAP_MODEL[provider]) return provider
+    if (CHEAP_MODEL[provider] && status[provider]) return provider
   }
-  return 'anthropic'
+  return null
 }
 
 export async function resolveUrsaModelRef(opts: {
@@ -122,30 +126,40 @@ export async function resolveUrsaModelRef(opts: {
   }
 
   const providerId = classifierProviderId(roles)
-  const cheapId = CHEAP_MODEL[providerId]
-  const classifier = makeModel(`${providerId}/${cheapId}`).withStructuredOutput(ClassifierOutput)
 
   const roleList = roles.map((r) => `- ${r.name}: ${r.description}`).join('\n')
   let chosenName: string
-  try {
-    const result = await classifier.invoke([
-      new SystemMessage(
-        'You are a routing classifier. Given the user message and a list of ' +
-          'named roles with descriptions, choose the single best-fitting role.\n' +
-          'Classify by the PRIMARY DELIVERABLE of the message, not its difficulty: ' +
-          'a request to build or create something concrete is coder work no matter ' +
-          'how large or complex; pick architect only when the user is explicitly ' +
-          'asking to plan, decide, or design BEFORE building.\n' +
-          `Available roles:\n${roleList}`
-      ),
-      new HumanMessage(opts.userText.slice(0, 2000))
-    ])
-    chosenName = result.role
-  } catch {
-    // Classifier call failed (rate limit, network, malformed output after
-    // retries) -- degrade to the first eligible role rather than failing the
-    // whole turn.
+  if (providerId === null) {
+    // No eligible role's provider has both a CHEAP_MODEL entry and a
+    // configured key -- skip classification entirely rather than risk
+    // makeModel throwing outside this try/catch, and degrade to the first
+    // eligible role.
     chosenName = roles[0].name
+  } else {
+    try {
+      const cheapId = CHEAP_MODEL[providerId]
+      const classifier = makeModel(`${providerId}/${cheapId}`).withStructuredOutput(
+        ClassifierOutput
+      )
+      const result = await classifier.invoke([
+        new SystemMessage(
+          'You are a routing classifier. Given the user message and a list of ' +
+            'named roles with descriptions, choose the single best-fitting role.\n' +
+            'Classify by the PRIMARY DELIVERABLE of the message, not its difficulty: ' +
+            'a request to build or create something concrete is coder work no matter ' +
+            'how large or complex; pick architect only when the user is explicitly ' +
+            'asking to plan, decide, or design BEFORE building.\n' +
+            `Available roles:\n${roleList}`
+        ),
+        new HumanMessage(opts.userText.slice(0, 2000))
+      ])
+      chosenName = result.role
+    } catch {
+      // Classifier call failed (rate limit, network, malformed output after
+      // retries, or makeModel itself throwing) -- degrade to the first
+      // eligible role rather than failing the whole turn.
+      chosenName = roles[0].name
+    }
   }
 
   const chosen = roles.find((r) => r.name === chosenName) ?? roles[0]
