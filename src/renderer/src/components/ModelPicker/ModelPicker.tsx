@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ProviderId } from '@shared/types'
-import { URSA_MODEL_REF } from '@shared/types'
+import { URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 import { modelDisplay, useAppStore } from '../../state/store'
 import { ProviderIcon } from '../ProviderIcon'
 import { Hint } from '../Hint'
 import { IconChevronDown, IconSearch } from '../icons'
 import { Popover } from '../ui/Popover'
 import ursaTeddy from '../../assets/ursa-teddy.svg'
+import ursusBear from '../../assets/ursus-bear.svg'
 import { useCloseOnSettingsOpen } from '../../lib/useCloseOnSettingsOpen'
 import './ModelPicker.css'
 
@@ -25,6 +26,17 @@ export function ModelPicker(): React.JSX.Element {
   const ursaEnabled = settings?.ursaEnabled === true
   const anyProviderUsable = providers.some((p) => p.reachable && (!p.requiresKey || p.keyConfigured))
   const ursaSelectable = ursaEnabled && anyProviderUsable
+  // Ursus is restricted to openrouter/ollama -- unlike Ursa's "any provider at
+  // all" check, this must specifically check those two, not the whole list.
+  // Both reads come from the already-polled providers store state (never a
+  // fresh async probe inline in render -- see planning/2026-07-20-ursus-design.md
+  // "Where the async check runs").
+  const ursusEnabled = settings?.ursusEnabled === true
+  const openrouterUsable = providers.some(
+    (p) => p.id === 'openrouter' && p.reachable && p.keyConfigured
+  )
+  const ollamaUsable = providers.some((p) => p.id === 'ollama' && p.reachable)
+  const ursusSelectable = ursusEnabled && (openrouterUsable || ollamaUsable)
   const [open, setOpen] = useState(false)
   const settingsOpen = useAppStore((s) => s.settingsOpen)
   useCloseOnSettingsOpen(open, settingsOpen, () => setOpen(false))
@@ -45,6 +57,15 @@ export function ModelPicker(): React.JSX.Element {
       id: 'model-ursa',
       commit: () => {
         selectModel(URSA_MODEL_REF)
+        setOpen(false)
+      }
+    })
+  }
+  if (ursusSelectable) {
+    flatOptions.push({
+      id: 'model-ursus',
+      commit: () => {
+        selectModel(URSUS_MODEL_REF)
         setOpen(false)
       }
     })
@@ -96,7 +117,12 @@ export function ModelPicker(): React.JSX.Element {
   // (Chromium silently no-ops focus on a hidden element). See Popover.tsx.
   useLayoutEffect(() => {
     if (!open) return
-    const targetId = modelRef === URSA_MODEL_REF ? 'model-ursa' : `model-${modelRef}`
+    const targetId =
+      modelRef === URSA_MODEL_REF
+        ? 'model-ursa'
+        : modelRef === URSUS_MODEL_REF
+          ? 'model-ursus'
+          : `model-${modelRef}`
     const i = flatOptions.findIndex((o) => o.id === targetId)
     setActiveIndex(i >= 0 ? i : 0)
     menuRef.current?.focus()
@@ -130,6 +156,8 @@ export function ModelPicker(): React.JSX.Element {
         <button ref={triggerRef} className="pill-btn" onClick={() => setOpen((o) => !o)}>
           {modelRef === URSA_MODEL_REF ? (
             <img src={ursaTeddy} alt="" className="ursa-icon" />
+          ) : modelRef === URSUS_MODEL_REF ? (
+            <img src={ursusBear} alt="" className="ursa-icon" />
           ) : modelRef ? (
             <ProviderIcon provider={modelRef.slice(0, modelRef.indexOf('/')) as ProviderId} />
           ) : (
@@ -184,6 +212,38 @@ export function ModelPicker(): React.JSX.Element {
               <span className="ursa-hint">Enable Ursa in Settings first</span>
             ) : !anyProviderUsable ? (
               <span className="ursa-hint">Add an API key in Settings &gt; Providers first</span>
+            ) : null}
+            <span className="check">✓</span>
+          </div>
+          <div
+            id="opt-model-ursus"
+            role="option"
+            aria-selected={modelRef === URSUS_MODEL_REF}
+            aria-disabled={!ursusSelectable}
+            className={
+              'menu-item ursa-entry' +
+              (modelRef === URSUS_MODEL_REF ? ' selected' : '') +
+              (!ursusSelectable ? ' disabled' : '') +
+              (flatOptions[activeIndex]?.id === 'model-ursus' ? ' active' : '')
+            }
+            onClick={() => {
+              if (!ursusSelectable) return
+              const idx = flatOptions.findIndex((o) => o.id === 'model-ursus')
+              flatOptions[idx]?.commit()
+            }}
+            onMouseEnter={() => {
+              if (ursusSelectable) {
+                const idx = flatOptions.findIndex((o) => o.id === 'model-ursus')
+                setActiveIndex(idx)
+              }
+            }}
+          >
+            <img src={ursusBear} alt="" className="ursa-icon" />
+            <span>Ursus</span>
+            {!ursusEnabled ? (
+              <span className="ursa-hint">Enable Ursus in Settings first</span>
+            ) : !(openrouterUsable || ollamaUsable) ? (
+              <span className="ursa-hint">Add an OpenRouter key or run Ollama first</span>
             ) : null}
             <span className="check">✓</span>
           </div>

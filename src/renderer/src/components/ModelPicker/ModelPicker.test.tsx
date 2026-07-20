@@ -94,6 +94,110 @@ describe('ModelPicker — Ursa entry', () => {
   })
 })
 
+describe('ModelPicker — Ursus entry', () => {
+  it('shows a disabled Ursus row with an "enable" hint when ursusEnabled is false', () => {
+    useAppStore.setState({
+      providers: [usableProvider] as never,
+      modelRef: null,
+      settings: { ursusEnabled: false } as never
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    const ursusRow = screen.getByText('Ursus').closest('[role="option"]')
+    expect(ursusRow?.className).toContain('disabled')
+    expect(screen.getByText(/enable ursus in settings/i)).toBeInTheDocument()
+  })
+
+  it('shows a disabled Ursus row with an "add openrouter key or run ollama" hint when enabled but neither is usable', () => {
+    useAppStore.setState({
+      providers: [] as never,
+      modelRef: null,
+      settings: { ursusEnabled: true } as never
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    const ursusRow = screen.getByText('Ursus').closest('[role="option"]')
+    expect(ursusRow?.className).toContain('disabled')
+    expect(screen.getByText(/add an openrouter key or run ollama/i)).toBeInTheDocument()
+  })
+
+  it('is selectable when enabled and openrouter is usable, and selecting it sets modelRef to the sentinel', () => {
+    const selectModel = vi.fn()
+    const openrouterProvider = {
+      id: 'openrouter',
+      displayName: 'OpenRouter',
+      color: '#b58cff',
+      requiresKey: true,
+      keyConfigured: true,
+      reachable: true,
+      models: []
+    }
+    useAppStore.setState({
+      providers: [openrouterProvider] as never,
+      modelRef: null,
+      settings: { ursusEnabled: true } as never,
+      selectModel
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByText('Ursus'))
+    expect(selectModel).toHaveBeenCalledWith('ursus/auto')
+  })
+
+  it('is selectable when enabled and ollama alone is reachable (no openrouter key)', () => {
+    const selectModel = vi.fn()
+    const openrouterProvider = {
+      id: 'openrouter',
+      displayName: 'OpenRouter',
+      color: '#b58cff',
+      requiresKey: true,
+      keyConfigured: false,
+      reachable: true,
+      models: []
+    }
+    const ollamaProvider = {
+      id: 'ollama',
+      displayName: 'Ollama',
+      color: '#3ecf8e',
+      requiresKey: false,
+      keyConfigured: true,
+      reachable: true,
+      models: []
+    }
+    useAppStore.setState({
+      providers: [openrouterProvider, ollamaProvider] as never,
+      modelRef: null,
+      settings: { ursusEnabled: true } as never,
+      selectModel
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByText('Ursus'))
+    expect(selectModel).toHaveBeenCalledWith('ursus/auto')
+  })
+
+  it('seeds the roving highlight on the Ursus row when modelRef is the sentinel', () => {
+    const openrouterProvider = {
+      id: 'openrouter',
+      displayName: 'OpenRouter',
+      color: '#b58cff',
+      requiresKey: true,
+      keyConfigured: true,
+      reachable: true,
+      models: []
+    }
+    useAppStore.setState({
+      providers: [openrouterProvider] as never,
+      modelRef: 'ursus/auto',
+      settings: { ursusEnabled: true } as never
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    const listbox = screen.getByRole('listbox')
+    expect(listbox.getAttribute('aria-activedescendant')).toBe('opt-model-ursus')
+  })
+})
+
 describe('ModelPicker — closes on Settings open', () => {
   it('closes when Settings opens', () => {
     useAppStore.setState({
