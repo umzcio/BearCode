@@ -24,26 +24,35 @@ vi.mock('better-sqlite3', () => ({
 import { getConversationMeta, setUrsaMode } from './index'
 
 describe('db ursaMode', () => {
-  it('resolves a NULL column to auto', () => {
+  it('resolves a NULL column to code', () => {
     row = {
       id: 'c1', project_path: '', title: null, model_ref: null,
       created_at: 1, updated_at: 1, permission_mode: null, active_rules: null,
       effort: null, thinking: null, ursa_mode: null
     }
     const meta = getConversationMeta('c1')
-    expect(meta?.ursaMode).toBe('auto')
+    expect(meta?.ursaMode).toBe('code')
   })
-  it('coerces an unrecognized/garbage value to auto', () => {
+  it('coerces an unrecognized/garbage value to code', () => {
     row = {
       id: 'c1', project_path: '', title: null, model_ref: null,
       created_at: 1, updated_at: 1, permission_mode: null, active_rules: null,
       effort: null, thinking: null, ursa_mode: 'not-a-real-mode'
     }
     const meta = getConversationMeta('c1')
-    expect(meta?.ursaMode).toBe('auto')
+    expect(meta?.ursaMode).toBe('code')
+  })
+  it("coerces a legacy 'auto' value (retired mode) to code", () => {
+    row = {
+      id: 'c1', project_path: '', title: null, model_ref: null,
+      created_at: 1, updated_at: 1, permission_mode: null, active_rules: null,
+      effort: null, thinking: null, ursa_mode: 'auto'
+    }
+    const meta = getConversationMeta('c1')
+    expect(meta?.ursaMode).toBe('code')
   })
   it('reads each stored mode value back', () => {
-    for (const mode of ['auto', 'code', 'council', 'deep-research']) {
+    for (const mode of ['code', 'council', 'deep-research']) {
       row = {
         id: 'c1', project_path: '', title: null, model_ref: null,
         created_at: 1, updated_at: 1, permission_mode: null, active_rules: null,

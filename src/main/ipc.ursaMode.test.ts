@@ -75,7 +75,7 @@ beforeEach(() => {
 
 describe('set-ursa-mode IPC guard', () => {
   it('persists each valid mode', () => {
-    for (const mode of ['auto', 'code', 'council', 'deep-research']) {
+    for (const mode of ['code', 'council', 'deep-research']) {
       handlers.get('bearcode:conversations:set-ursa-mode')!({}, 'c1', mode)
       expect(db.setUrsaMode).toHaveBeenCalledWith('c1', mode)
     }

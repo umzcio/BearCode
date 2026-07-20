@@ -21,7 +21,7 @@ const convo: Convo = {
   effort: 'medium',
   thinking: false,
   webSearch: false,
-  ursaMode: 'auto',
+  ursaMode: 'code',
   projectId: null,
   pinned: false,
   archived: false,

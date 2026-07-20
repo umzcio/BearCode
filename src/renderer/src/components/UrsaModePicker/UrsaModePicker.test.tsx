@@ -7,40 +7,38 @@ import { UrsaModePicker } from './UrsaModePicker'
 beforeEach(() => {
   // Home view so setUrsaMode never reaches window.bearcode (id === null path),
   // unless a test opts into a conversation view below.
-  useAppStore.setState({ view: { kind: 'home' }, ursaMode: 'auto' })
+  useAppStore.setState({ view: { kind: 'home' }, ursaMode: 'code' })
 })
 afterEach(cleanup)
 
 describe('UrsaModePicker', () => {
   it('shows the current mode label on the pill', () => {
     render(<UrsaModePicker />)
-    // Only the pill renders "Auto" before the menu opens.
-    expect(screen.getByText('Auto')).toBeTruthy()
+    // Only the pill renders "Code" before the menu opens.
+    expect(screen.getByText('Code')).toBeTruthy()
   })
 
-  it('lists all four modes with their one-line descriptions', () => {
+  it('lists all three modes with their one-line descriptions', () => {
     render(<UrsaModePicker />)
-    fireEvent.click(screen.getByText('Auto'))
-    // Auto now appears twice (pill + option); the other three are unique.
-    expect(screen.getAllByText('Auto').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText('Code')).toBeTruthy()
+    fireEvent.click(screen.getByText('Code'))
+    // Code now appears twice (pill + option); the other two are unique.
+    expect(screen.getAllByText('Code').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('Council')).toBeTruthy()
     expect(screen.getByText('Deep Research')).toBeTruthy()
     expect(screen.getByText('Ursa routes each turn')).toBeTruthy()
-    expect(screen.getByText('Locked to the coder model')).toBeTruthy()
     expect(screen.getByText('Three models deliberate, Fable 5 synthesizes')).toBeTruthy()
     expect(screen.getByText('Multi-step web research with citations')).toBeTruthy()
   })
 
-  it('marks Auto as the default', () => {
+  it('marks Code as the default', () => {
     render(<UrsaModePicker />)
-    fireEvent.click(screen.getByText('Auto'))
+    fireEvent.click(screen.getByText('Code'))
     expect(screen.getByText('· Default')).toBeTruthy()
   })
 
   it('picking a mode updates the store', () => {
     render(<UrsaModePicker />)
-    fireEvent.click(screen.getByText('Auto'))
+    fireEvent.click(screen.getByText('Code'))
     fireEvent.click(screen.getByText('Council'))
     expect(useAppStore.getState().ursaMode).toBe('council')
   })
@@ -54,10 +52,10 @@ describe('UrsaModePicker', () => {
     }
     useAppStore.setState({
       view: { kind: 'conversation', id: 'c1' },
-      ursaMode: 'auto'
+      ursaMode: 'code'
     } as never)
     render(<UrsaModePicker />)
-    fireEvent.click(screen.getByText('Auto'))
+    fireEvent.click(screen.getByText('Code'))
     fireEvent.click(screen.getByText('Deep Research'))
     expect(useAppStore.getState().ursaMode).toBe('deep-research')
     expect(setUrsaMode).toHaveBeenCalledWith('c1', 'deep-research')

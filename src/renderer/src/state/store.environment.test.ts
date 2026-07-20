@@ -20,7 +20,7 @@ const convoMeta: ConversationMeta = {
   archived: false,
   environment: 'local',
   worktrees: [],
-  ursaMode: 'auto'
+  ursaMode: 'code'
 }
 
 const conversations = {

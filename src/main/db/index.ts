@@ -454,7 +454,7 @@ function toMeta(
     archived: row.archived === 1,
     environment: row.environment === 'worktree' ? 'worktree' : 'local',
     worktrees: parseWorktrees(row.worktrees),
-    ursaMode: isUrsaMode(row.ursa_mode) ? row.ursa_mode : 'auto',
+    ursaMode: isUrsaMode(row.ursa_mode) ? row.ursa_mode : 'code',
     preview: preview ?? null
   }
 }

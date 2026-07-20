@@ -919,11 +919,11 @@ export interface WorktreeInfo {
 
 // Ursa Modes (Arc 2, 2026-07-19 design): when the conversation's model is the
 // Ursa sentinel, the composer's Mode picker replaces the (meaningless-for-a-
-// router) Effort picker. 'auto' is exactly today's Ursa (classifier routing);
-// 'code'/'council'/'deep-research' are hard locks -- see
+// router) Effort picker. 'code' (the default) runs classifier routing, while
+// 'council'/'deep-research' are specialized pipelines -- see
 // planning/2026-07-19-ursa-modes-design.md. Persisted per conversation
 // (ursa_mode column), same idiom as effort.
-export type UrsaMode = 'auto' | 'code' | 'council' | 'deep-research'
+export type UrsaMode = 'code' | 'council' | 'deep-research'
 
 export interface ConversationMeta {
   id: string

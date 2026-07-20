@@ -598,7 +598,7 @@ export const useAppStore = create<AppState>((set, get) => {
     effort: 'adaptive',
     thinking: true,
     webSearch: false,
-    ursaMode: 'auto',
+    ursaMode: 'code',
     folderSettings: [],
     projectSettingsPath: null,
     settings: null,
@@ -793,8 +793,8 @@ export const useAppStore = create<AppState>((set, get) => {
         permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
         effort: s.settings?.defaultEffort ?? 'adaptive',
         thinking: s.settings?.defaultThinking ?? true,
-        // Ursa Mode has no settings default -- a fresh Home composer is Auto.
-        ursaMode: 'auto',
+        // Ursa Mode has no settings default -- a fresh Home composer is Code.
+        ursaMode: 'code',
         auxSelection: null,
         reviewFocusPath: null,
         // Abandoning Home drops any attachments already picked under the draft
@@ -992,7 +992,7 @@ export const useAppStore = create<AppState>((set, get) => {
             effort: view.kind === 'home' ? (s.settings?.defaultEffort ?? 'adaptive') : s.effort,
             thinking: view.kind === 'home' ? (s.settings?.defaultThinking ?? true) : s.thinking,
             webSearch: view.kind === 'home' ? false : s.webSearch,
-            ursaMode: view.kind === 'home' ? 'auto' : s.ursaMode,
+            ursaMode: view.kind === 'home' ? 'code' : s.ursaMode,
             auxSelection: view.kind === 'home' ? null : s.auxSelection,
             reviewFocusPath: view.kind === 'home' ? null : s.reviewFocusPath
           }
@@ -1251,12 +1251,12 @@ export const useAppStore = create<AppState>((set, get) => {
       })
       await window.bearcode.conversations.setMode(meta.id, d.permissionMode)
       await window.bearcode.conversations.setEffort(meta.id, d.effort)
-      // Ursa Mode always starts at 'auto' for a NEW conversation -- carrying the
+      // Ursa Mode always starts at 'code' for a NEW conversation -- carrying the
       // previously open conversation's mode here would let a fresh "+"
       // conversation silently auto-start a paid Deep Research pipeline or a
       // ~7-call Council the user picked for a DIFFERENT conversation (final
-      // review finding). Matches sendFromHome's reset-to-auto behavior.
-      const ursaMode: UrsaMode = 'auto'
+      // review finding). Matches sendFromHome's reset-to-code behavior.
+      const ursaMode: UrsaMode = 'code'
       await window.bearcode.conversations.setUrsaMode(meta.id, ursaMode)
       // F3: honor the composer's env pick on the sidebar "+" path too, locking
       // it before the first run (worktree provisioning is main-side; a non-git

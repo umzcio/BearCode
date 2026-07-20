@@ -7,13 +7,12 @@ import { IconChevronDown } from '../icons'
 import { Popover } from '../ui/Popover'
 import './UrsaModePicker.css'
 
-// Presentational copy for the four Ursa modes. Keyed by UrsaMode so TypeScript
+// Presentational copy for the three Ursa modes. Keyed by UrsaMode so TypeScript
 // enforces one entry per mode; the render order comes from URSA_MODES (the
 // canonical union in shared/ursaMode.ts) so the dropdown can never drift from
 // the type. `pillLabel` is the compact composer-button text.
 const MODE_COPY: Record<UrsaMode, { label: string; pillLabel: string; desc: string }> = {
-  auto: { label: 'Auto', pillLabel: 'Auto', desc: 'Ursa routes each turn' },
-  code: { label: 'Code', pillLabel: 'Code', desc: 'Locked to the coder model' },
+  code: { label: 'Code', pillLabel: 'Code', desc: 'Ursa routes each turn' },
   council: {
     label: 'Council',
     pillLabel: 'Council',
@@ -119,7 +118,7 @@ export function UrsaModePicker(): React.JSX.Element {
                 <span className="ursa-mode-text">
                   <span className="ursa-mode-title">
                     {copy.label}
-                    {m === 'auto' ? <span className="ursa-mode-default"> · Default</span> : null}
+                    {m === 'code' ? <span className="ursa-mode-default"> · Default</span> : null}
                   </span>
                   <span className="ursa-mode-sub">{copy.desc}</span>
                 </span>

@@ -132,7 +132,7 @@ const convoMeta: ConversationMeta = {
   archived: false,
   environment: 'local',
   worktrees: [],
-  ursaMode: 'auto'
+  ursaMode: 'code'
 }
 
 const convo = (over: Partial<Convo> = {}): Convo => ({
@@ -151,7 +151,7 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   effort: 'adaptive',
   thinking: true,
   webSearch: false,
-  ursaMode: 'auto',
+  ursaMode: 'code',
   projectId: null,
   pinned: false,
   archived: false,

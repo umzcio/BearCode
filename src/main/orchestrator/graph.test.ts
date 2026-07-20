@@ -2075,7 +2075,7 @@ describe('runGraph — Ursa Modes: code mode routes through the classifier', () 
       effort: 'medium',
       webSearch: false,
       thinking: false,
-      ursaMode: 'auto',
+      ursaMode: 'code',
       projectId: null,
       pinned: false,
       archived: false,
@@ -2102,7 +2102,7 @@ describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {
   })
 
   const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
-  const metaWith = (ursaMode: 'auto' | 'code' | 'council' | 'deep-research') => ({
+  const metaWith = (ursaMode: 'code' | 'council' | 'deep-research') => ({
     id: 'c1',
     projectPath: null,
     title: null,
@@ -2147,26 +2147,6 @@ describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {
     ).toBe(true)
   })
 
-  it("does NOT route to runCouncil for mode 'auto' (classifier path unchanged)", async () => {
-    vi.mocked(getConversationMeta).mockReturnValue(metaWith('auto'))
-    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
-      modelRef: 'anthropic/claude-sonnet-5',
-      roleName: 'reviewer'
-    })
-    const sink = makeSink()
-    // buildAgentAndContext/drive may throw with the fake model — irrelevant; we
-    // only assert the council seam was not taken and the classifier still ran.
-    await runGraph({
-      conversationId: 'c1',
-      userText: 'explain this',
-      modelRef: 'ursa/auto',
-      sink,
-      signal: new AbortController().signal
-    }).catch(() => {})
-    expect(runCouncil).not.toHaveBeenCalled()
-    expect(resolveUrsaModelRef).toHaveBeenCalled()
-  })
-
   it('does NOT route a concrete (non-Ursa) model to runCouncil even if meta says council', async () => {
     vi.mocked(getConversationMeta).mockReturnValue(metaWith('council'))
     const sink = makeSink()
@@ -2189,7 +2169,7 @@ describe('runGraph — Ursa Modes: deep research (Task 6)', () => {
   })
 
   const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
-  const metaWith = (ursaMode: 'auto' | 'code' | 'council' | 'deep-research') => ({
+  const metaWith = (ursaMode: 'code' | 'council' | 'deep-research') => ({
     id: 'c1',
     projectPath: null,
     title: null,
@@ -2284,33 +2264,6 @@ describe('runGraph — Ursa Modes: deep research (Task 6)', () => {
     expect(setUrsaPipeline).not.toHaveBeenCalled()
   })
 
-  it('REGRESSION: Auto-mode classifier pipeline proposal still shows its consent card', async () => {
-    vi.mocked(getConversationMeta).mockReturnValue(metaWith('auto'))
-    const steps = [
-      { role: 'coder', modelRef: 'openai/gpt-5.6-sol', subtask: 'build' },
-      { role: 'reviewer', modelRef: 'anthropic/claude-sonnet-5', subtask: 'review' }
-    ]
-    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
-      modelRef: 'openai/gpt-5.6-sol',
-      roleName: 'coder',
-      pipeline: steps
-    })
-    const sink = makeSink()
-    const result = await runGraph({
-      conversationId: 'c1',
-      userText: 'build then review',
-      modelRef: 'ursa/auto',
-      sink,
-      signal: new AbortController().signal
-    })
-    // Auto mode still parks on the consent card, NOT the deep-research auto-start.
-    expect(result).toEqual({ paused: true })
-    expect(resolveDeepResearchPipeline).not.toHaveBeenCalled()
-    const emitted = vi.mocked(sink.emit).mock.calls.map((c) => c[1])
-    const card = emitted.find((e) => e.type === 'tool_call')
-    expect(card).toMatchObject({ tool: 'ursa_pipeline', approvalState: 'pending' })
-    expect(sink.setState).toHaveBeenCalledWith('c1', 'awaiting-approval')
-  })
 })
 
 describe('runGraph — Ursa Phase 2 pipeline proposal (consent gate)', () => {

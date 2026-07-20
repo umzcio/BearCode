@@ -105,13 +105,11 @@ verify with Sonar — without you touching the picker again.
   first: you see the full plan before anything runs, and nothing executes until you approve. Say
   no and the turn just falls back to the normal single-role path — no pipeline, no partial work.
 
-**Modes.** Every Ursa conversation is also in one of four modes, picked per-conversation from the
+**Modes.** Every Ursa conversation is also in one of three modes, picked per-conversation from the
 composer (next to the model picker, where the effort selector lives for non-Ursa models):
 
-- **Auto** — the default. Every turn is classified fresh and routed to whichever role fits it best,
-  exactly as described above.
-- **Code** — locks the turn to the Coder role's model (GPT-5.6 Sol) with no classifier call at all,
-  for conversations that are wall-to-wall implementation work.
+- **Code** — the default. Every turn is classified fresh and routed to whichever role fits it best,
+  exactly as described above (the classifier can propose a pipeline here too).
 - **Council** — three models (GPT-5.6 Sol, Gemini 3.1 Pro, Grok 4.5) answer your question
   independently (no agent tools, but each with live server-side web search), anonymously
   peer-review each other's answers, and Fable 5 chairs the panel — reading every answer and review
