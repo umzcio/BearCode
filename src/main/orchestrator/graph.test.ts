@@ -2061,34 +2061,6 @@ describe('runGraph — Ursa Modes: code mode routes through the classifier', () 
     expect(result).toEqual({ modelRef: 'openai/gpt-5.6-sol', ursaRole: 'coder' })
     expect(setLastResolvedModelRef).toHaveBeenCalledWith('c1', 'openai/gpt-5.6-sol')
   })
-
-  it("mode 'auto' (or unset) never consults coderRoleIfEligible and runs the classifier as before", async () => {
-    vi.mocked(getConversationMeta).mockReturnValue({
-      id: 'c1',
-      projectPath: null,
-      title: null,
-      modelRef: 'ursa/auto',
-      createdAt: 0,
-      updatedAt: 0,
-      permissionMode: 'accept-edits',
-      activeRules: [],
-      effort: 'medium',
-      webSearch: false,
-      thinking: false,
-      ursaMode: 'code',
-      projectId: null,
-      pinned: false,
-      archived: false,
-      environment: 'local',
-      worktrees: []
-    })
-    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
-      modelRef: 'anthropic/claude-haiku-4-5',
-      roleName: 'grunt'
-    })
-    const result = await resolveTurnModelRef('c1', 'ursa/auto', 'hi')
-    expect(result).toEqual({ modelRef: 'anthropic/claude-haiku-4-5', ursaRole: 'grunt' })
-  })
 })
 
 describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {

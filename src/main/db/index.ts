@@ -270,8 +270,8 @@ function getDb(): Database.Database {
   // Ursa Modes (Arc 2, 2026-07-19 design): the composer's Mode picker,
   // per-conversation. Same idempotent-guarded ALTER idiom as the columns
   // above; old DBs upgrade in place. NULL/unrecognized values coerce to
-  // 'auto' in toMeta -- no settings-default fallback (unlike effort), the
-  // safe default IS 'auto'.
+  // 'code' in toMeta -- no settings-default fallback (unlike effort), the
+  // safe default IS 'code'.
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN ursa_mode TEXT`)
   } catch {

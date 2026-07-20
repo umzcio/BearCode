@@ -946,7 +946,7 @@ export interface ConversationMeta {
   // searches bill per use, so it is an explicit opt-in per conversation.
   webSearch: boolean
   // Ursa Modes (Arc 2): only meaningful when modelRef is the Ursa sentinel.
-  // Resolved from the ursa_mode column, coercing unknown/NULL to 'auto'
+  // Resolved from the ursa_mode column, coercing unknown/NULL to 'code'
   // (db toMeta) -- never falls back to a settings default like effort does.
   ursaMode: UrsaMode
   // The project this conversation belongs to (E4), or null when unassigned.
