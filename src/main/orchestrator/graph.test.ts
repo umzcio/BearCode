@@ -189,6 +189,26 @@ describe('citationsFromContentAnnotations (Responses-path web sources)', () => {
     ).toEqual([{ url: 'https://a.com', title: 'A' }, { url: 'https://b.com' }])
   })
 
+  it('drops digit-only titles (xai puts the inline [[n]] marker number there)', () => {
+    expect(
+      citationsFromContentAnnotations([
+        {
+          type: 'text',
+          text: '',
+          annotations: [
+            { type: 'citation', source: 'url_citation', url: 'https://a.com', title: '2' },
+            { type: 'citation', source: 'url_citation', url: 'https://b.com', title: '  ' },
+            { type: 'citation', source: 'url_citation', url: 'https://c.com', title: 'Real Title' }
+          ]
+        }
+      ])
+    ).toEqual([
+      { url: 'https://a.com' },
+      { url: 'https://b.com' },
+      { url: 'https://c.com', title: 'Real Title' }
+    ])
+  })
+
   it('ignores non-url citation shapes and malformed blocks', () => {
     expect(
       citationsFromContentAnnotations([

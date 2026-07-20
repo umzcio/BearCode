@@ -122,8 +122,13 @@ export function webSearchPromptBlock(): string {
     '  Do not use browser_* tools or the browser subagent for plain lookups; reserve',
     '  the browser for tasks that genuinely need page interaction (forms, logins,',
     '  screenshots, dynamic apps).',
+    '- NEVER emit a function/tool call named web_search, x_search, x_user_search,',
+    '  x_keyword_search, or x_semantic_search. Those run server-side automatically;',
+    '  they are not callable tools here and calling them only produces an error.',
     '- Write your final answer EXACTLY ONCE. When you continue after a tool result,',
     '  do not restate or rewrite the answer you already produced; continue from where',
-    '  you left off, or state only what is new.'
+    '  you left off, or state only what is new.',
+    '- If a tool call fails, is denied, or the tool does not exist, do NOT start',
+    '  your answer over. Add at most a short correction or the missing detail.'
   ].join('\n')
 }

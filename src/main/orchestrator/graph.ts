@@ -300,7 +300,14 @@ export function citationsFromContentAnnotations(content: unknown): SourceCitatio
     for (const a of block.annotations) {
       const c = a as { type?: string; url?: unknown; title?: unknown }
       if (c?.type === 'citation' && typeof c.url === 'string') {
-        out.push({ url: c.url, ...(typeof c.title === 'string' ? { title: c.title } : {}) })
+        // xai stuffs the inline [[n]] marker NUMBER into the annotation's
+        // title ("1", "2", ...) -- worse than no title (the Sources list
+        // rendered "5 2 members.educause.edu"). Keep only real titles.
+        const title =
+          typeof c.title === 'string' && c.title.trim() !== '' && !/^\d+$/.test(c.title.trim())
+            ? c.title
+            : undefined
+        out.push({ url: c.url, ...(title ? { title } : {}) })
       }
     }
   }
@@ -1844,7 +1851,15 @@ async function drive(
         // Mark when the main agent's answer began, so the reasoning handler can
         // time "Thought for Ns" as the pre-answer gap. Main agent only (key ===
         // 'main'), so a subagent's text can't skew the main thinking timer.
-        if (key === 'main' && ctx.answerStartedAt.t === null) ctx.answerStartedAt.t = Date.now()
+        // The reset (handleLLMStart) doubles as a call-boundary signal: a null
+        // stamp with text already accumulated means a NEW model call is adding
+        // to this turn's answer -- separate the segments so multi-round
+        // answers don't run sentences together ("...communities.Retrying
+        // lookups..." was live-observed on grok-4.5).
+        if (key === 'main' && ctx.answerStartedAt.t === null) {
+          ctx.answerStartedAt.t = Date.now()
+          if (s.answer) s.answer += '\n\n'
+        }
         s.answer += block.text
         ctx.sink.emit(ctx.conversationId, textDeltaEvent(s.answerId, s.answer, agentId))
       }
