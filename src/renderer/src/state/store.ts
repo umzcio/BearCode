@@ -30,7 +30,7 @@ import type {
   UrsaMode,
   WorktreeInfo
 } from '@shared/types'
-import { URSA_MODEL_REF } from '@shared/types'
+import { URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
 import { describeError } from '../lib/errors'
 import { mergeEvent } from '../lib/mergeEvent'
@@ -469,6 +469,7 @@ export function modelDisplay(
   ref: ModelRef | null
 ): { name: string; color: string } {
   if (ref === URSA_MODEL_REF) return { name: 'Ursa', color: '#4c8dff' }
+  if (ref === URSUS_MODEL_REF) return { name: 'Ursus', color: '#6b5842' }
   if (ref) {
     const slash = ref.indexOf('/')
     const providerId = ref.slice(0, slash)
@@ -489,7 +490,7 @@ export function refConfigured(providers: ProviderModels[], ref: ModelRef | null)
   // provider, so a conversation that has it selected is inherently ready.
   // Per-turn eligibility is re-checked server-side by resolveUrsaModelRef;
   // a failure there surfaces as its own error event, not this composer notice.
-  if (ref === URSA_MODEL_REF) return true
+  if (ref === URSA_MODEL_REF || ref === URSUS_MODEL_REF) return true
   const slash = ref.indexOf('/')
   const providerId = ref.slice(0, slash)
   const modelId = ref.slice(slash + 1)

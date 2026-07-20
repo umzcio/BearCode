@@ -17,7 +17,7 @@ import {
   type Convo
 } from './store'
 import type { ProviderModels } from '@shared/types'
-import { URSA_MODEL_REF } from '@shared/types'
+import { URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 
 const info: PermissionRulesInfo = {
   userRules: [
@@ -997,6 +997,16 @@ describe('refConfigured (F7 opt-out)', () => {
     expect(refConfigured(providers, URSA_MODEL_REF)).toBe(true)
     expect(refConfigured([], URSA_MODEL_REF)).toBe(true)
   })
+
+  it('is always true for the Ursus sentinel, even with no matching provider entry', () => {
+    // Same rationale as the Ursa sentinel above: the sentinel isn't a real
+    // "provider/modelId" ref, so without this special case the composer's
+    // "No API key for the selected model" notice showed even when Ursus was
+    // fully usable -- ModelPicker already gates its selectability, this must
+    // not re-derive a false negative.
+    expect(refConfigured(providers, URSUS_MODEL_REF)).toBe(true)
+    expect(refConfigured([], URSUS_MODEL_REF)).toBe(true)
+  })
 })
 
 describe('F9 folder = project: settings + inheritance', () => {
@@ -1113,5 +1123,13 @@ describe('modelDisplay — Ursa sentinel', () => {
     const result = modelDisplay([], URSA_MODEL_REF)
     expect(result.name).toBe('Ursa')
     expect(result.color).toBe('#4c8dff')
+  })
+})
+
+describe('modelDisplay — Ursus sentinel', () => {
+  it('returns "Ursus" instead of falling through to "Choose a model"', () => {
+    const result = modelDisplay([], URSUS_MODEL_REF)
+    expect(result.name).toBe('Ursus')
+    expect(result.color).toBe('#6b5842')
   })
 })
