@@ -1325,6 +1325,9 @@ export interface BearcodeApi {
     // back over bearcode:event, like run:start.
     resolvePipeline(conversationId: string, callId: string, approved: boolean): Promise<void>
   }
+  ursus: {
+    requiredProviders(): Promise<ProviderId[]>
+  }
   settings: {
     get(): Promise<SettingsInfo>
     set(patch: Partial<AppSettings>): Promise<SettingsInfo>

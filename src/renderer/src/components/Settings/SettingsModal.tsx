@@ -19,10 +19,12 @@ import {
   IconPackage,
   IconTerminal,
   IconPaw,
+  IconPawPrint,
   IconMic
 } from '../icons'
 import { GeneralPage } from './pages/GeneralPage'
 import { UrsaPage } from './pages/UrsaPage'
+import { UrsusPage } from './pages/UrsusPage'
 import { ProvidersPage } from './pages/ProvidersPage'
 import { ModelsPage } from './pages/ModelsPage'
 import { VoicePage } from './pages/VoicePage'
@@ -75,6 +77,7 @@ const NAV_ICONS: Record<string, (props: { size?: number }) => React.JSX.Element>
   IconPackage,
   IconTerminal,
   IconPaw,
+  IconPawPrint,
   IconMic
 }
 
@@ -338,6 +341,8 @@ function SettingsPanel({
           {page === 'voice' ? <VoicePage /> : null}
 
           {page === 'ursa' ? <UrsaPage /> : null}
+
+          {page === 'ursus' ? <UrsusPage /> : null}
 
           {page === 'browser' ? <BrowserPage /> : null}
 

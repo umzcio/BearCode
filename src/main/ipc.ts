@@ -46,6 +46,7 @@ import { isEffortLevel } from '../shared/effort'
 import { isUrsaMode } from '../shared/ursaMode'
 import { keyStatus, setKey, setVaultSecret } from './keys'
 import { ursaRequiredProviders } from './orchestrator/ursa'
+import { ursusRequiredProviders } from './orchestrator/ursus'
 import {
   loadServers as loadMcpServers,
   upsertServer as upsertMcpServer,
@@ -508,6 +509,11 @@ export function registerIpc(): void {
   // providers it depends on, so the page can render a read-only key-status
   // check without duplicating the role table in the renderer.
   ipcMain.handle('bearcode:ursa:required-providers', () => ursaRequiredProviders())
+
+  // Ursus: same rationale as the Ursa handler above -- tells Settings > Ursus
+  // which providers its curated role table depends on, without duplicating the
+  // role table in the renderer.
+  ipcMain.handle('bearcode:ursus:required-providers', () => ursusRequiredProviders())
 
   // Ursa Phase 2: approve/deny a proposed pipeline (the synthetic 'ursa_pipeline'
   // consent card). Thin wire-boundary guard (the assertValid* posture): IPC args

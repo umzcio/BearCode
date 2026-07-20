@@ -124,6 +124,9 @@ const bearcode: BearcodeApi = {
     resolvePipeline: (conversationId: string, callId: string, approved: boolean) =>
       ipcRenderer.invoke('bearcode:ursa:resolve-pipeline', conversationId, callId, approved)
   },
+  ursus: {
+    requiredProviders: () => ipcRenderer.invoke('bearcode:ursus:required-providers')
+  },
   settings: {
     get: () => ipcRenderer.invoke('bearcode:settings:get'),
     set: (patch: Partial<AppSettings>) => ipcRenderer.invoke('bearcode:settings:set', patch)

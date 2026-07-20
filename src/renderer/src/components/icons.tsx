@@ -211,6 +211,25 @@ export function IconPaw({ size }: IconProps): React.JSX.Element {
     </svg>
   )
 }
+
+// A leaner/smaller single paw print, distinct from IconPaw's larger rounded pad
+// cluster -- used for Ursus's Settings nav entry, visually echoing the
+// bear-family icon language without being confusable with Ursa's IconPaw.
+export function IconPawPrint({ size }: IconProps): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      style={size ? { width: size, height: size } : undefined}
+    >
+      <ellipse cx="12" cy="17" rx="3.4" ry="3" />
+      <circle cx="7.5" cy="12.5" r="1.4" />
+      <circle cx="10.3" cy="9" r="1.4" />
+      <circle cx="13.7" cy="9" r="1.4" />
+      <circle cx="16.5" cy="12.5" r="1.4" />
+    </svg>
+  )
+}
 export const IconGear = icon(
   <>
     <circle cx="12" cy="12" r="3" />
