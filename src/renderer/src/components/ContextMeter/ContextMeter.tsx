@@ -5,12 +5,14 @@ import {
   conversationTokens,
   contextUsage,
   contextWindowFor,
+  latestResolvedModelRef,
   latestUsage,
   usageByModel,
   conversationCost,
   costByRole
 } from '../../lib/contextMeter'
 import type { ProviderModels } from '@shared/types'
+import { URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 import { Popover } from '../ui/Popover'
 import './ContextMeter.css'
 
@@ -48,7 +50,15 @@ export function ContextMeter(): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
 
-  const ctxWindow = contextWindowFor(providers, modelRef)
+  // Router-driven conversations (Ursa/Ursus) keep the sentinel as the
+  // conversation's own modelRef forever -- it's the picker selection, not
+  // what actually ran a given turn -- so contextWindowFor can never resolve
+  // it directly. Fall back to the latest turn's actual concrete model.
+  const isRouterSentinel = modelRef === URSA_MODEL_REF || modelRef === URSUS_MODEL_REF
+  const effectiveModelRef = isRouterSentinel
+    ? (convo ? latestResolvedModelRef(convo.events) : null)
+    : modelRef
+  const ctxWindow = contextWindowFor(providers, effectiveModelRef)
   if (!convo || !convoId || !ctxWindow) return null
 
   // Prefer the provider's real last-turn prompt size; fall back to the char/4

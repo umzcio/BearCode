@@ -81,6 +81,30 @@ describe('ContextMeter', () => {
     expect(container.querySelector('.context-ring.near')).toBeTruthy()
   })
 
+  it('resolves the window via the latest turn_meta model when modelRef is a router sentinel', () => {
+    useAppStore.setState({
+      modelRef: 'ursa/auto',
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: {
+        c1: convo([
+          {
+            type: 'turn_meta',
+            id: 't1',
+            provider: 'anthropic',
+            model: 'claude-opus-4-8',
+            startedAt: 1,
+            endedAt: 2,
+            usage: { inputTokens: 100000, outputTokens: 0, lastInputTokens: 100000 }
+          }
+        ]) as never
+      }
+    })
+    render(<ContextMeter />)
+    // 100000 / 200000 (Opus 4.8's window) = 50% — proves the sentinel resolved
+    // to the turn's real model instead of hiding the meter entirely.
+    expect(screen.getByLabelText(/50% used/i)).toBeTruthy()
+  })
+
   it('shows the per-model breakdown and total cost when turn_meta usage exists', () => {
     useAppStore.setState({
       settings: null,

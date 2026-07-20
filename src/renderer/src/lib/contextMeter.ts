@@ -39,6 +39,20 @@ export function contextWindowFor(
   return provider?.models.find((m) => m.id === modelId)?.contextWindow
 }
 
+// The newest turn's concrete "provider/model" ref, straight from turn_meta —
+// null until any turn has run. Router-driven conversations (Ursa/Ursus) keep
+// the sentinel as the conversation's OWN modelRef forever (it's the picker
+// selection, not what actually ran), so contextWindowFor can never resolve it
+// directly; this gives the meter something concrete to fall back to instead
+// (see ContextMeter.tsx).
+export function latestResolvedModelRef(events: Event[]): string | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]
+    if (e.type === 'turn_meta') return `${e.provider}/${e.model}`
+  }
+  return null
+}
+
 // The newest turn's measured usage from the provider (null until any turn
 // reports usage_metadata). `lastInputTokens` is the real prompt size sent on
 // the last turn — the accurate substitute for the char/4 estimate.

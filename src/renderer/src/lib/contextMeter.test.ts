@@ -4,6 +4,7 @@ import {
   conversationTokens,
   contextUsage,
   contextWindowFor,
+  latestResolvedModelRef,
   latestUsage,
   usageByModel,
   conversationCost,
@@ -76,6 +77,16 @@ describe('contextMeter', () => {
     expect(contextWindowFor(providers, 'anthropic/claude-opus-4-8')).toBe(1_000_000)
     expect(contextWindowFor(providers, 'anthropic/unknown')).toBeUndefined()
     expect(contextWindowFor(providers, null)).toBeUndefined()
+  })
+
+  it('latestResolvedModelRef returns the newest turn_meta\'s concrete provider/model, null when none', () => {
+    expect(latestResolvedModelRef([{ type: 'user_message', id: 'u', text: 'hi' }])).toBeNull()
+    const events: Event[] = [
+      turnMeta('t1', 'openrouter', 'moonshotai/kimi-k3'),
+      { type: 'user_message', id: 'u', text: 'hi' },
+      turnMeta('t2', 'ollama', 'ornith:35b')
+    ]
+    expect(latestResolvedModelRef(events)).toBe('ollama/ornith:35b')
   })
 
   it('latestUsage returns the newest turn_meta usage, null when none', () => {
