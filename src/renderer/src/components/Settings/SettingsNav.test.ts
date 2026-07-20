@@ -10,6 +10,7 @@ describe('SETTINGS_NAV', () => {
       'appearance',
       'providers',
       'models',
+      'voice',
       'ursa'
     ])
     expect(SETTINGS_NAV[1].items.map((i) => i.id)).toEqual([

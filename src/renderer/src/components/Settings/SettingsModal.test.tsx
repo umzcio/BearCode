@@ -283,7 +283,7 @@ describe('SettingsModal General page', () => {
 describe('SettingsModal Voice input', () => {
   it('renders the STT backend picker and saves the pick', () => {
     render(<SettingsModal />)
-    fireEvent.click(screen.getByText('Models'))
+    fireEvent.click(screen.getByText('Voice'))
     fireEvent.click(screen.getByLabelText('Speech-to-text backend')) // open the custom dropdown
     const options = screen.getAllByRole('option').map((o) => o.textContent?.replace('✓', ''))
     expect(options).toEqual(['OpenAI Whisper (uses your OpenAI key)', 'Local (offline)'])

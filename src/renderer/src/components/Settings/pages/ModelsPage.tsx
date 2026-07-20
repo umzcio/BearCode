@@ -127,28 +127,6 @@ export function ModelsPage(): JSX.Element | null {
         </div>
       </div>
 
-      <div className="set-group-title">Voice input</div>
-      <div className="set-card">
-        <div className="set-row">
-          <div className="set-row-text">
-            <div className="set-row-title">Speech-to-text backend</div>
-            <div className="set-row-desc">
-              OpenAI Whisper transcribes in the cloud using your OpenAI key. Local runs on-device,
-              offline, with no key.
-            </div>
-          </div>
-          <Select
-            ariaLabel="Speech-to-text backend"
-            value={settings.sttBackend ?? 'openai'}
-            onChange={(v) => void saveSettings({ sttBackend: v })}
-            options={[
-              { value: 'openai', label: 'OpenAI Whisper (uses your OpenAI key)' },
-              { value: 'local', label: 'Local (offline)' }
-            ]}
-          />
-        </div>
-      </div>
-
       <div className="set-group-title">Manage Models</div>
       <div className="set-row-desc" style={{ marginBottom: 10 }}>
         Turn models off to hide them from the picker everywhere, or add a model your provider ships
