@@ -78,12 +78,18 @@ const DEFAULTS: AppSettings = {
   hooksDisabledGlobal: [],
   hooksConsented: [],
   ursaEnabled: false,
-  ursaInstructions: ''
+  ursaInstructions: '',
+  ursusEnabled: false,
+  ursusInstructions: ''
 }
 
 // Ursa custom instructions are capped so a hand-edited settings.json can't bloat
 // every classifier prompt. Single source of truth for the read and write paths.
 export const URSA_INSTRUCTIONS_MAX = 2000
+
+// Same cap/rationale as URSA_INSTRUCTIONS_MAX above, for Ursus's independent
+// instructions field.
+export const URSUS_INSTRUCTIONS_MAX = 2000
 
 // Custom models may only target the four first-party curated providers. Ollama
 // is fully dynamic/local and manages its own catalog, so a hand-edited
@@ -301,6 +307,13 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
     typeof s['ursaInstructions'] === 'string'
       ? (s['ursaInstructions'] as string).slice(0, URSA_INSTRUCTIONS_MAX)
       : ''
+  // Ursus: same on/off + advisory-instructions coercion as Ursa above, for the
+  // independent Ursus router.
+  merged.ursusEnabled = s['ursusEnabled'] === true
+  merged.ursusInstructions =
+    typeof s['ursusInstructions'] === 'string'
+      ? (s['ursusInstructions'] as string).slice(0, URSUS_INSTRUCTIONS_MAX)
+      : ''
   return merged
 }
 
@@ -456,6 +469,18 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
       ursaInstructions:
         typeof patch.ursaInstructions === 'string'
           ? patch.ursaInstructions.slice(0, URSA_INSTRUCTIONS_MAX)
+          : ''
+    }
+  }
+  if (patch.ursusEnabled !== undefined) {
+    patch = { ...patch, ursusEnabled: patch.ursusEnabled === true }
+  }
+  if (patch.ursusInstructions !== undefined) {
+    patch = {
+      ...patch,
+      ursusInstructions:
+        typeof patch.ursusInstructions === 'string'
+          ? patch.ursusInstructions.slice(0, URSUS_INSTRUCTIONS_MAX)
           : ''
     }
   }

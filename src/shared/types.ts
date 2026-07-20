@@ -793,6 +793,14 @@ export interface ModelCapabilities {
 // crossing the Electron process boundary.
 export const URSA_MODEL_REF = 'ursa/auto'
 
+// The sentinel modelRef that marks a conversation as Ursus-routed. Same
+// rationale as URSA_MODEL_REF above: lives here so the renderer can reference it
+// without crossing the Electron process boundary. Ursus is a fully independent
+// router (own curated role table in main/orchestrator/ursus.ts, restricted to
+// OpenRouter/Ollama) -- this sentinel is unrelated to URSA_MODEL_REF beyond
+// following the same 'provider/modelId'-shaped namespace convention.
+export const URSUS_MODEL_REF = 'ursus/auto'
+
 // A named model assignment Ursa's classifier can dispatch a turn to. The set
 // of roles is curated in code (main/orchestrator/ursa.ts's CURATED_ROLES),
 // never user-editable -- this type exists so the renderer's turn_meta badge
@@ -1128,6 +1136,15 @@ export interface AppSettings {
   // (the chosen name still validates against the curated set). Optional &
   // additive: coerced to '' on read, capped at 2000 chars.
   ursaInstructions?: string
+  // Ursus: on/off switch only -- role assignments are curated in code
+  // (main/orchestrator/ursus.ts's CURATED_URSUS_ROLES), never user-configurable.
+  // Same shape/philosophy as ursaEnabled above, for the independent Ursus router.
+  // Optional & additive: settings persisted before this feature coerce to false.
+  ursusEnabled?: boolean
+  // Ursus custom instructions: same advisory-only shape as ursaInstructions above,
+  // read by Ursus's own classifier. Optional & additive: coerced to '' on read,
+  // capped at 2000 chars.
+  ursusInstructions?: string
   // F8 Agent Settings (global defaults; per-project overrides = F9). Optional &
   // additive: absent → behavior-preserving defaults (custom / deny / auto).
   securityPreset?: SecurityPreset

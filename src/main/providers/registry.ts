@@ -157,7 +157,7 @@ export function capabilitiesFor(ref: string): ModelCapabilities | null {
   return CAPABILITIES[ref] ?? null
 }
 
-async function listOllamaModels(): Promise<{
+export async function listOllamaModels(): Promise<{
   models: ModelInfo[]
   reachable: boolean
   note?: string

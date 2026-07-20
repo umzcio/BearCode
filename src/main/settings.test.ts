@@ -1,4 +1,15 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+vi.mock('electron', () => ({ app: { getPath: vi.fn(() => '/nonexistent') } }))
+// Reads fail (falls back to DEFAULTS); writes are a no-op so setSettings return
+// values can be asserted without touching a real disk.
+vi.mock('fs', () => ({
+  readFileSync: vi.fn(() => {
+    throw new Error('no file')
+  }),
+  writeFileSync: vi.fn()
+}))
+
 import { migrateSettings, setSettings, SELECTABLE_PERMISSION_MODES } from './settings'
 
 describe('migrateSettings', () => {
@@ -107,5 +118,37 @@ describe('migrateSettings profile + custom instructions coercion', () => {
     expect(s.profileName).toBe('')
     expect(s.profileCallMe).toBe('')
     expect(s.customInstructions).toBe('')
+  })
+})
+
+describe('migrateSettings Ursus coercion', () => {
+  it('defaults ursusEnabled to false and ursusInstructions to empty string', () => {
+    const s = migrateSettings({})
+    expect(s.ursusEnabled).toBe(false)
+    expect(s.ursusInstructions).toBe('')
+  })
+  it('coerces a non-boolean ursusEnabled to false', () => {
+    expect(migrateSettings({ ursusEnabled: 'yes' }).ursusEnabled).toBe(false)
+  })
+  it('preserves ursusEnabled: true across load', () => {
+    expect(migrateSettings({ ursusEnabled: true }).ursusEnabled).toBe(true)
+  })
+  it('caps ursusInstructions at 2000 chars on migrate', () => {
+    const s = migrateSettings({ ursusInstructions: 'x'.repeat(3000) })
+    expect(s.ursusInstructions).toHaveLength(2000)
+  })
+  it('coerces a non-string ursusInstructions to empty string', () => {
+    expect(migrateSettings({ ursusInstructions: 12345 }).ursusInstructions).toBe('')
+  })
+})
+
+describe('setSettings Ursus validation', () => {
+  it('persists ursusEnabled as a coerced boolean', () => {
+    expect(setSettings({ ursusEnabled: true }).ursusEnabled).toBe(true)
+  })
+  it('caps ursusInstructions at write time too', () => {
+    expect(setSettings({ ursusInstructions: 'y'.repeat(3000) }).ursusInstructions).toHaveLength(
+      2000
+    )
   })
 })
