@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { useAppStore } from '../../state/store'
 import { EffortPicker } from './EffortPicker'
 
@@ -56,5 +56,17 @@ describe('EffortPicker', () => {
     fireEvent.click(screen.getByText('High'))
     expect(useAppStore.getState().effort).toBe('high')
     expect(screen.queryByText('Thinking')).toBeNull()
+  })
+  it('closes when Settings opens', () => {
+    render(<EffortPicker />)
+    fireEvent.click(screen.getByText('Adaptive'))
+    expect(screen.getByText('High')).toBeTruthy()
+    // useAppStore.setState alone doesn't synchronously flush the resulting
+    // re-render under React 19 + RTL's automatic batching outside act() --
+    // wrap it so the assertion below observes the post-close DOM.
+    act(() => {
+      useAppStore.setState({ settingsOpen: true })
+    })
+    expect(screen.queryByText('High')).toBeNull()
   })
 })

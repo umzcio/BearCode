@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { useAppStore } from '../../state/store'
 import { ModePicker } from './ModePicker'
 
@@ -139,5 +139,18 @@ describe('ModePicker', () => {
     fireEvent.click(screen.getByText('Accept edits')) // reopen
     expect(screen.getByText('Bypass permissions')).toBeTruthy() // mode list, not the confirm
     expect(screen.queryByText(/Disables ALL command and edit safety checks/)).toBeNull()
+  })
+
+  it('closes when Settings opens', () => {
+    render(<ModePicker />)
+    fireEvent.click(screen.getByText('Accept edits'))
+    expect(screen.getByText('Ask permissions')).toBeTruthy()
+    // useAppStore.setState alone doesn't synchronously flush the resulting
+    // re-render under React 19 + RTL's automatic batching outside act() --
+    // wrap it so the assertion below observes the post-close DOM.
+    act(() => {
+      useAppStore.setState({ settingsOpen: true })
+    })
+    expect(screen.queryByText('Ask permissions')).toBeNull()
   })
 })

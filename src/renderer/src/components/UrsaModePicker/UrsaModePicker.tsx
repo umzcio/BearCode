@@ -5,6 +5,7 @@ import { useAppStore } from '../../state/store'
 import { Hint } from '../Hint'
 import { IconChevronDown } from '../icons'
 import { Popover } from '../ui/Popover'
+import { useCloseOnSettingsOpen } from '../../lib/useCloseOnSettingsOpen'
 import './UrsaModePicker.css'
 
 // Presentational copy for the three Ursa modes. Keyed by UrsaMode so TypeScript
@@ -33,6 +34,8 @@ export function UrsaModePicker(): React.JSX.Element {
   const mode = useAppStore((s) => s.ursaMode)
   const setUrsaMode = useAppStore((s) => s.setUrsaMode)
   const [open, setOpen] = useState(false)
+  const settingsOpen = useAppStore((s) => s.settingsOpen)
+  useCloseOnSettingsOpen(open, settingsOpen, () => setOpen(false))
   const [activeIndex, setActiveIndex] = useState(0)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)

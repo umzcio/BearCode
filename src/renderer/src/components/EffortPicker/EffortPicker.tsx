@@ -5,6 +5,7 @@ import { useAppStore } from '../../state/store'
 import { Hint } from '../Hint'
 import { IconChevronDown } from '../icons'
 import { Popover } from '../ui/Popover'
+import { useCloseOnSettingsOpen } from '../../lib/useCloseOnSettingsOpen'
 import './EffortPicker.css'
 
 export function EffortPicker(): React.JSX.Element {
@@ -16,6 +17,8 @@ export function EffortPicker(): React.JSX.Element {
   const setWebSearch = useAppStore((s) => s.setWebSearch)
   const modelRef = useAppStore((s) => s.modelRef)
   const [open, setOpen] = useState(false)
+  const settingsOpen = useAppStore((s) => s.settingsOpen)
+  useCloseOnSettingsOpen(open, settingsOpen, () => setOpen(false))
   const [activeIndex, setActiveIndex] = useState(0)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)

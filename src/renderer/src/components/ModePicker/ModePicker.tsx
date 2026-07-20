@@ -4,6 +4,7 @@ import { useAppStore } from '../../state/store'
 import { Hint } from '../Hint'
 import { IconChevronDown } from '../icons'
 import { Popover } from '../ui/Popover'
+import { useCloseOnSettingsOpen } from '../../lib/useCloseOnSettingsOpen'
 import './ModePicker.css'
 
 type ModeOption = {
@@ -30,6 +31,8 @@ export function ModePicker(): React.JSX.Element {
   const permMenuTick = useAppStore((s) => s.permMenuTick)
   const defaultMode = useAppStore((s) => s.settings?.defaultPermissionMode ?? 'accept-edits')
   const [open, setOpen] = useState(false)
+  const settingsOpen = useAppStore((s) => s.settingsOpen)
+  useCloseOnSettingsOpen(open, settingsOpen, () => setOpen(false))
   const [confirmingBypass, setConfirmingBypass] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
   const triggerRef = useRef<HTMLButtonElement>(null)

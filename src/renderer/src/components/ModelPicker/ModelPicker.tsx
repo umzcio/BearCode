@@ -7,6 +7,7 @@ import { Hint } from '../Hint'
 import { IconChevronDown, IconSearch } from '../icons'
 import { Popover } from '../ui/Popover'
 import ursaTeddy from '../../assets/ursa-teddy.svg'
+import { useCloseOnSettingsOpen } from '../../lib/useCloseOnSettingsOpen'
 import './ModelPicker.css'
 
 export function ModelPicker(): React.JSX.Element {
@@ -25,6 +26,8 @@ export function ModelPicker(): React.JSX.Element {
   const anyProviderUsable = providers.some((p) => p.reachable && (!p.requiresKey || p.keyConfigured))
   const ursaSelectable = ursaEnabled && anyProviderUsable
   const [open, setOpen] = useState(false)
+  const settingsOpen = useAppStore((s) => s.settingsOpen)
+  useCloseOnSettingsOpen(open, settingsOpen, () => setOpen(false))
   const [search, setSearch] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const triggerRef = useRef<HTMLButtonElement>(null)

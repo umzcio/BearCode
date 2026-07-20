@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { ModelPicker } from './ModelPicker'
 import { useAppStore } from '../../state/store'
 
@@ -91,5 +91,25 @@ describe('ModelPicker — Ursa entry', () => {
     expect(listbox.getAttribute('aria-activedescendant')).toBe('opt-model-openai/gpt-5')
     const modelRow = listbox.querySelector('#opt-model-openai\\/gpt-5')
     expect(modelRow?.className).toContain('active')
+  })
+})
+
+describe('ModelPicker — closes on Settings open', () => {
+  it('closes when Settings opens', () => {
+    useAppStore.setState({
+      providers: [usableProvider] as never,
+      modelRef: null,
+      settings: { ursaEnabled: false } as never
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    expect(screen.getByText('Claude Sonnet 5')).toBeTruthy()
+    // useAppStore.setState alone doesn't synchronously flush the resulting
+    // re-render under React 19 + RTL's automatic batching outside act() --
+    // wrap it so the assertion below observes the post-close DOM.
+    act(() => {
+      useAppStore.setState({ settingsOpen: true })
+    })
+    expect(screen.queryByText('Claude Sonnet 5')).toBeNull()
   })
 })

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { useAppStore } from '../../state/store'
 import { UrsaModePicker } from './UrsaModePicker'
 
@@ -60,5 +60,18 @@ describe('UrsaModePicker', () => {
     expect(useAppStore.getState().ursaMode).toBe('deep-research')
     expect(setUrsaMode).toHaveBeenCalledWith('c1', 'deep-research')
     delete (window as unknown as { bearcode?: unknown }).bearcode
+  })
+
+  it('closes when Settings opens', () => {
+    render(<UrsaModePicker />)
+    fireEvent.click(screen.getByText('Code'))
+    expect(screen.getByText('Council')).toBeTruthy()
+    // useAppStore.setState alone doesn't synchronously flush the resulting
+    // re-render under React 19 + RTL's automatic batching outside act() --
+    // wrap it so the assertion below observes the post-close DOM.
+    act(() => {
+      useAppStore.setState({ settingsOpen: true })
+    })
+    expect(screen.queryByText('Council')).toBeNull()
   })
 })
