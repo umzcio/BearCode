@@ -44,8 +44,8 @@ export const GOOGLE_MODELS: ModelInfo[] = [
 // Curated popular subset; live discovery of the full catalog lands in Phase 6.
 export const OPENROUTER_MODELS: ModelInfo[] = [
   { id: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
-  { id: 'moonshotai/kimi-k2', label: 'Kimi K2' },
-  { id: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B' }
+  { id: 'moonshotai/kimi-k3', label: 'Kimi K3' },
+  { id: 'z-ai/glm-5.2', label: 'GLM 5.2' }
 ]
 
 // Perplexity's Sonar family (verified against docs.perplexity.ai, 2026-07).
@@ -62,6 +62,7 @@ export const PERPLEXITY_MODELS: ModelInfo[] = [
 // ChatOpenAI for xai, not ToollessChatOpenAI.
 export const XAI_MODELS: ModelInfo[] = [
   { id: 'grok-4.5', label: 'Grok 4.5', contextWindow: 500_000 },
+  { id: 'grok-4.20-multi-agent', label: 'Grok 4.20 Multi-Agent', contextWindow: 2_000_000 },
   { id: 'grok-4.3', label: 'Grok 4.3', contextWindow: 1_000_000 },
   { id: 'grok-4-fast', label: 'Grok 4 Fast', contextWindow: 2_000_000 }
 ]
@@ -127,6 +128,15 @@ const CAPABILITIES: Record<string, ModelCapabilities> = {
   },
   'xai/grok-4.5': {
     strengths: ['code', 'general'],
+    costTier: 'high'
+  },
+  // Realtime multi-agent research: xAI spins up parallel server-side agents
+  // that search, cross-reference, and synthesize with citations. The
+  // `reasoning` entry marks it effort-capable -- BearCode's effort picker maps
+  // onto agent_count (buildModelExtras xai case: low/medium=4, high+=16).
+  'xai/grok-4.20-multi-agent': {
+    reasoning: { effort: 'medium' },
+    strengths: ['research', 'general', 'long-context'],
     costTier: 'high'
   },
   'xai/grok-4.3': {

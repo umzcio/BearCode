@@ -37,7 +37,8 @@ import {
   resolvePlanInterrupt,
   resolveSkillProposalInterrupt,
   runGraph,
-  setOnResumeSettled
+  setOnResumeSettled,
+  setStartUrsaPipeline
 } from './graph'
 import { clearBrowserConsent, forgetBrowserConsent } from './tools'
 
@@ -93,6 +94,17 @@ setOnResumeSettled((conversationId, sink, failed) => {
     }
   }
   aborts.delete(conversationId)
+})
+
+// Ursa Modes (Task 6): let graph.ts's deep-research branch start the Phase 2
+// pipeline engine directly. runUrsaPipeline lives here (it owns the `aborts`
+// map + step loop), and index.ts already imports graph.ts, so this injection
+// keeps the single import direction (see setStartUrsaPipeline's doc in graph.ts).
+// The deep-research run reuses startRunOrchestrator's kept-alive AbortController
+// (graph.ts returns paused:true), so no new controller is registered here --
+// unlike resolveUrsaPipelineOrchestrator's approve path, which starts cold.
+setStartUrsaPipeline((conversationId, sink, signal) => {
+  void runUrsaPipeline(conversationId, sink, signal)
 })
 
 export async function startRunOrchestrator(

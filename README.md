@@ -15,7 +15,7 @@
 
 <p align="center">
   <strong>An open-source, self-hosted agent manager, inspired by Google Antigravity.</strong><br/>
-  Point an agent (Claude, GPT, Gemini, Perplexity, OpenRouter, or local Ollama — or let <strong>Ursa</strong>
+  Point an agent (Claude, GPT, Gemini, Grok, Perplexity, OpenRouter, or local Ollama — or let <strong>Ursa</strong>
   route each turn to the best of them) at a folder and watch it plan, run tools, and produce
   reviewable diffs — with a full agent-loop spine: rules, skills, workflows, hooks, plugins,
   memory, and sandboxing, all on your machine.<br/><br/>
@@ -105,6 +105,21 @@ verify with Sonar — without you touching the picker again.
   first: you see the full plan before anything runs, and nothing executes until you approve. Say
   no and the turn just falls back to the normal single-role path — no pipeline, no partial work.
 
+**Modes.** Every Ursa conversation is also in one of four modes, picked per-conversation from the
+composer (next to the model picker, where the effort selector lives for non-Ursa models):
+
+- **Auto** — the default. Every turn is classified fresh and routed to whichever role fits it best,
+  exactly as described above.
+- **Code** — locks the turn to the Coder role's model (GPT-5.6 Sol) with no classifier call at all,
+  for conversations that are wall-to-wall implementation work.
+- **Council** — three models (GPT-5.6 Sol, Gemini 3.1 Pro, Grok 4.5) answer your question
+  independently (no agent tools, but each with live server-side web search), anonymously
+  peer-review each other's answers, and Fable 5 chairs the panel — reading every answer and review
+  to synthesize the final response you see.
+- **Deep Research** — a three-step pipeline: Sonar Pro **searches** the live web for facts and
+  sources, Claude Opus 4.8 **analyzes** the findings for gaps and follow-ups, and Claude Sonnet 5
+  **writes** the final citation-backed report. Requires a Perplexity API key.
+
 ---
 
 ## See It In Action
@@ -125,8 +140,14 @@ verify with Sonar — without you touching the picker again.
 - **Ursa dynamic model routing**: a cross-provider orchestrator entry in the model picker that
   classifies each turn and routes it to the right model for the job — see
   [Meet Ursa](#meet-ursa)
-- **Multi-provider model support**: Anthropic, OpenAI, Google, Perplexity, OpenRouter, and local
-  Ollama — switch mid-conversation, set per-project defaults, add custom models and context windows
+- **Multi-provider model support**: Anthropic, OpenAI, Google, xAI, Perplexity, OpenRouter, and
+  local Ollama — switch mid-conversation, set per-project defaults, add custom models and context
+  windows. Includes Grok 4.20 Multi-Agent, where the effort picker maps to the model's parallel
+  agent count (up to 16)
+- **Web Search toggle**: per-conversation server-side web search (under the effort picker, next to
+  Thinking) for Anthropic, OpenAI, and xAI models — Grok gets both `web_search` and `x_search`.
+  Off by default (searches are billed per use); Perplexity models are always-on by nature. Results
+  land as inline citation chips plus a Sources list on the turn
 - **LangGraph.js + Deep Agents orchestrator** running alongside the legacy `ursa` engine behind a
   feature flag, so the runtime can evolve without breaking existing conversations
 - **Live diffs and a review panel** for every file the agent touches, plus Monaco-powered code and
@@ -167,7 +188,8 @@ verify with Sonar — without you touching the picker again.
 ### Workflow & History
 - **Worktree mode**: isolate risky agent work on its own git branch/worktree, with grouping and a
   built-in merge + conflict resolver
-- **Full conversation history**, pin/archive, rename, and per-conversation model/effort picking
+- **Full conversation history**, pin/archive, rename, and per-conversation model, effort/mode,
+  thinking, and web-search picking
 - **Appearance system**: Dark / Light / System / Custom themes, four bundled extras, all
   token-driven
 
@@ -187,7 +209,7 @@ verify with Sonar — without you touching the picker again.
 | **Shell** | Electron 39 · electron-vite · electron-builder (macOS-first) |
 | **UI** | React 19 · TypeScript strict · Zustand · Monaco Editor |
 | **Agent runtime** | LangChain.js · LangGraph.js · `deepagents` (sole engine — the earlier Vercel AI SDK-based loop was retired) |
-| **Model providers** | `@langchain/anthropic` · `@langchain/openai` · `@langchain/google-genai` · `@langchain/ollama` · OpenRouter · Perplexity |
+| **Model providers** | `@langchain/anthropic` · `@langchain/openai` · `@langchain/google-genai` · `@langchain/ollama` · xAI · OpenRouter · Perplexity |
 | **Browser tool** | Playwright · Electron `WebContentsView` + CDP |
 | **Storage** | better-sqlite3 (conversations, settings, trust) |
 | **Documents** | pdf-lib · unpdf · mammoth · docx · exceljs |
@@ -231,8 +253,8 @@ folder is path-jailed in the main process.
 **Prerequisites:**
 - macOS
 - Node.js 20+
-- API keys for whichever model providers you want (Anthropic, OpenAI, Google, OpenRouter) — or
-  Ollama running locally for a fully offline setup
+- API keys for whichever model providers you want (Anthropic, OpenAI, Google, xAI, Perplexity,
+  OpenRouter) — or Ollama running locally for a fully offline setup
 
 **Setup:**
 

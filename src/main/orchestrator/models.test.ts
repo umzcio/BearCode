@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('../keys', () => ({
   getKey: (p: string) =>
-    p === 'anthropic' || p === 'perplexity' || p === 'xai' ? 'sk-test' : undefined
+    ['anthropic', 'perplexity', 'xai', 'openai'].includes(p) ? 'sk-test' : undefined
 }))
 
 import { makeModel, buildModelExtras } from './models'
@@ -14,7 +14,7 @@ describe('makeModel', () => {
     expect(m._llmType()).toContain('anthropic')
   })
   it('throws a clear error when the key is missing', () => {
-    expect(() => makeModel('openai/gpt-5.1')).toThrow(/openai/i)
+    expect(() => makeModel('google/gemini-2.5-pro')).toThrow(/google/i)
   })
 
   it('builds Perplexity as an OpenAI-compatible client pointed at the Perplexity baseURL', () => {
@@ -68,6 +68,82 @@ describe('makeModel', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((m as any).bindTools([fakeTool])).not.toBe(m)
   })
+
+  it('xAI search-off is plain completions with NO server tools (410/422-verified)', () => {
+    const off = makeModel('xai/grok-4.5')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((off as any).useResponsesApi).toBeFalsy()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const offTypes = ((off as any).invocationParams({}).tools ?? []).map((t: any) => t.type)
+    expect(offTypes).toEqual([])
+  })
+
+  it('xAI search-on IS a ChatOpenAIResponses instance (no delegate) with the xAI built-ins', () => {
+    const on = makeModel('xai/grok-4.5', { webSearch: true })
+    // ChatOpenAI delegates generation to an inner Responses object whose
+    // invocationParams a ChatOpenAI-subclass override never intercepts (the
+    // first live smoke proved it: no server search fired). The search model
+    // must BE the Responses class so this override is on the request path.
+    expect(on.constructor.name).toBe('OpenAISearchChat')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((on as any).responses).toBeUndefined()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const types = ((on as any).invocationParams({}).tools ?? []).map((t: any) => t.type)
+    expect(types).toContain('web_search')
+    expect(types).toContain('x_search')
+    expect(types).not.toContain('live_search')
+  })
+
+  it('OpenAI search-on is also the direct Responses class with web_search', () => {
+    const m = makeModel('openai/gpt-5.6-sol', { webSearch: true })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).responses).toBeUndefined()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const types = ((m as any).invocationParams({}).tools ?? []).map((t: any) => t.type)
+    expect(types).toContain('web_search')
+  })
+
+  it('Anthropic appends its server web_search tool only when the toggle is on', () => {
+    const off = makeModel('anthropic/claude-sonnet-5')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const offTools = (off as any).invocationParams({}).tools ?? []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(offTools.some((t: any) => t?.name === 'web_search')).toBe(false)
+    const on = makeModel('anthropic/claude-sonnet-5', { webSearch: true })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const onTools = (on as any).invocationParams({}).tools ?? []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ws = onTools.find((t: any) => t?.name === 'web_search')
+    expect(ws?.type).toBe('web_search_20250305')
+  })
+
+  it('grok-4.20-multi-agent carries agent_count in its request params', () => {
+    const m = makeModel('xai/grok-4.20-multi-agent', { effort: 'high' })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const params = (m as any).invocationParams({})
+    expect(params.agent_count).toBe(16)
+  })
+
+  it('xAI search-on merges server tools with bound client tools without duplicating', () => {
+    const m = makeModel('xai/grok-4.5', { webSearch: true })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const params = (m as any).invocationParams({ tools: [{ type: 'web_search' }] })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const types = (params.tools ?? []).map((t: any) => t.type)
+    expect(types.filter((t: string) => t === 'web_search')).toHaveLength(1)
+    expect(types).toContain('x_search')
+  })
+
+  it('xAI copies Live Search citations onto response_metadata like Perplexity', () => {
+    const m = makeModel('xai/grok-4.5')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chunk = (m as any)._convertCompletionsDeltaToBaseMessageChunk(
+      { role: 'assistant', content: 'hi' },
+      { id: 'x', choices: [], citations: ['https://x.com/some-post'] }
+    )
+    const msg = chunk?.message ?? chunk
+    expect(msg.response_metadata.citations).toEqual(['https://x.com/some-post'])
+  })
 })
 
 describe('buildModelExtras — OpenAI reasoning models', () => {
@@ -115,5 +191,23 @@ describe('buildModelExtras — OpenAI reasoning models', () => {
     const extras = buildModelExtras('xai', 'grok-4.5', {})
     expect(extras).toEqual({})
     expect(extras.useResponsesApi).toBeUndefined()
+  })
+
+  it('grok-4.20-multi-agent maps effort onto agent_count (low/medium=4, high+=16)', () => {
+    expect(buildModelExtras('xai', 'grok-4.20-multi-agent', {})).toEqual({
+      modelKwargs: { agent_count: 4 } // registry default effort 'medium'
+    })
+    expect(buildModelExtras('xai', 'grok-4.20-multi-agent', { effort: 'low' })).toEqual({
+      modelKwargs: { agent_count: 4 }
+    })
+    for (const effort of ['high', 'xhigh', 'max'] as const) {
+      expect(buildModelExtras('xai', 'grok-4.20-multi-agent', { effort })).toEqual({
+        modelKwargs: { agent_count: 16 }
+      })
+    }
+    // No useResponsesApi and no reasoning field -- agent_count IS the knob.
+    const extras = buildModelExtras('xai', 'grok-4.20-multi-agent', { effort: 'high' })
+    expect(extras.useResponsesApi).toBeUndefined()
+    expect(extras.reasoning).toBeUndefined()
   })
 })

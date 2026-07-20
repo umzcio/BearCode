@@ -18,7 +18,8 @@ vi.mock('../db', () => ({
   setActiveRules: vi.fn(),
   setLastResolvedModelRef: vi.fn(),
   setPermissionMode: vi.fn(),
-  setUrsaPipeline: vi.fn()
+  setUrsaPipeline: vi.fn(),
+  setUrsaPipelineStatus: vi.fn()
 }))
 
 vi.mock('./checkpointer', () => ({
@@ -43,7 +44,29 @@ vi.mock('./ursa', () => ({
     ({
       'openai/gpt-5.6-sol': 'coder',
       'anthropic/claude-sonnet-5': 'reviewer'
-    })[ref]
+    })[ref],
+  // Ursa Modes (Task 3): resolveTurnModelRef's 'code' mode branch consults
+  // this instead of the classifier. Default undefined (unkeyed) so tests
+  // that don't override it exercise the fall-through-to-auto path; per-test
+  // overridden for the locked-coder path.
+  coderRoleIfEligible: vi.fn(() => undefined),
+  // Ursa Modes (Task 6): runGraph's deep-research branch consults this to
+  // eligibility-map the preset. Default returns a 3-step pipeline; per-test
+  // overridden for the verifier-gate error path.
+  resolveDeepResearchPipeline: vi.fn(() => ({
+    steps: [
+      {
+        role: 'verifier',
+        modelRef: 'perplexity/sonar-pro',
+        subtask: 'search the web'
+      },
+      {
+        role: 'reviewer',
+        modelRef: 'anthropic/claude-sonnet-5',
+        subtask: 'write the report'
+      }
+    ]
+  }))
 }))
 
 // makeModel is mocked so buildSubagents can build distinguishable per-role
@@ -54,11 +77,23 @@ vi.mock('./models', () => ({
   makeModel: vi.fn((ref: string) => ({ __fakeModel: ref }))
 }))
 
+// Ursa Modes (Task 4): the council runner is a self-contained module tested in
+// council.test.ts; mock it here so runGraph's council-dispatch seam can be
+// asserted without driving three model calls + a chair stream.
+vi.mock('./council', () => ({
+  runCouncil: vi.fn(async () => ({ paused: false }))
+}))
+
 import {
   textOfMessage,
   buildUserMessageContent,
   citationsFromMetadata,
+  citationsFromContentAnnotations,
+  citationsFromInlineLinks,
   shouldEmitBridgedText,
+  shouldEmitBridgedThinking,
+  supersedesSegment,
+  visibleAnswer,
   shouldRetryEmptyFinal,
   interruptBelongsToToolCall,
   findDanglingRunCommandCalls,
@@ -85,17 +120,25 @@ import {
   rehydrateModelRef,
   runGraph,
   buildSubagents,
+  setStartUrsaPipeline,
   __parkForTest,
   type ApprovalItem
 } from './graph'
-import { resolveUrsaModelRef, resolveSubagentModelRefs } from './ursa'
+import {
+  resolveUrsaModelRef,
+  resolveSubagentModelRefs,
+  coderRoleIfEligible,
+  resolveDeepResearchPipeline
+} from './ursa'
 import { makeModel } from './models'
+import { runCouncil } from './council'
 import {
   getLastResolvedModelRef,
   getLastUrsaRole,
   getRecentUrsaContext,
   setLastResolvedModelRef,
-  setUrsaPipeline
+  setUrsaPipeline,
+  setUrsaPipelineStatus
 } from '../db'
 import type { PlanReviewResolution, SkillProposalResolution } from './tools'
 import { browserManager } from '../browser/manager'
@@ -128,6 +171,85 @@ describe('citationsFromMetadata (Perplexity web sources)', () => {
     expect(citationsFromMetadata(undefined)).toEqual([])
     expect(citationsFromMetadata({ usage: { total_tokens: 5 } })).toEqual([])
     expect(citationsFromMetadata({ citations: [42, null], search_results: 'nope' })).toEqual([])
+  })
+})
+
+describe('citationsFromContentAnnotations (Responses-path web sources)', () => {
+  it('extracts url citations from text-block annotations', () => {
+    expect(
+      citationsFromContentAnnotations([
+        { type: 'text', text: 'answer', annotations: [] },
+        {
+          type: 'text',
+          text: '',
+          annotations: [
+            { type: 'citation', source: 'url_citation', url: 'https://a.com', title: 'A' },
+            { type: 'citation', source: 'url_citation', url: 'https://b.com' }
+          ]
+        }
+      ])
+    ).toEqual([{ url: 'https://a.com', title: 'A' }, { url: 'https://b.com' }])
+  })
+
+  it('drops digit-only titles (xai puts the inline [[n]] marker number there)', () => {
+    expect(
+      citationsFromContentAnnotations([
+        {
+          type: 'text',
+          text: '',
+          annotations: [
+            { type: 'citation', source: 'url_citation', url: 'https://a.com', title: '2' },
+            { type: 'citation', source: 'url_citation', url: 'https://b.com', title: '  ' },
+            { type: 'citation', source: 'url_citation', url: 'https://c.com', title: 'Real Title' }
+          ]
+        }
+      ])
+    ).toEqual([
+      { url: 'https://a.com' },
+      { url: 'https://b.com' },
+      { url: 'https://c.com', title: 'Real Title' }
+    ])
+  })
+
+  it('ignores non-url citation shapes and malformed blocks', () => {
+    expect(
+      citationsFromContentAnnotations([
+        'plain string block',
+        { type: 'text', text: 'x' },
+        {
+          type: 'text',
+          text: '',
+          annotations: [
+            { type: 'citation', source: 'file_citation', title: 'notes.txt', file_id: 'f1' },
+            { type: 'non_standard', value: {} },
+            null
+          ]
+        }
+      ])
+    ).toEqual([])
+    expect(citationsFromContentAnnotations('not an array')).toEqual([])
+    expect(citationsFromContentAnnotations(undefined)).toEqual([])
+  })
+})
+
+describe('citationsFromInlineLinks (Grok inline [[n]](url) fallback)', () => {
+  it('extracts urls ordered by citation number, collapsing duplicates', () => {
+    const text =
+      'He is the CIO at UM.[[2]](https://umt.edu/it) See also his site.[[1]](https://zachrossmiller.com) More UM.[[2]](https://umt.edu/it)'
+    expect(citationsFromInlineLinks(text)).toEqual([
+      { url: 'https://zachrossmiller.com' },
+      { url: 'https://umt.edu/it' }
+    ])
+  })
+
+  it('ignores plain [text](url) links and bare [n] markers', () => {
+    expect(
+      citationsFromInlineLinks('See [my site](https://a.com) and a fact.[3] No cites here.')
+    ).toEqual([])
+  })
+
+  it('returns [] for empty text', () => {
+    expect(citationsFromInlineLinks('')).toEqual([])
   })
 })
 
@@ -321,6 +443,91 @@ describe('shouldEmitBridgedText (containment guard)', () => {
 
   it('emits when the streamed answer differs from the bridged text', () => {
     expect(shouldEmitBridgedText('Full final answer.', 'partial intro only')).toBe(true)
+  })
+})
+
+describe('shouldEmitBridgedThinking (thinking containment guard)', () => {
+  it('emits when the token stream carried no reasoning (Gemini/Anthropic-via-deepagents)', () => {
+    // phaseA1 diagnosis: for these providers handleLLMNewToken carries 0
+    // thinking, so the bridge is the ONLY path and must keep emitting.
+    expect(shouldEmitBridgedThinking('I should search for this person.', '')).toBe(true)
+  })
+
+  it('does NOT emit when the stream already delivered the same reasoning (xai Responses)', () => {
+    const thinking = 'The user is asking who Zach Rossmiller is. I should search.'
+    expect(shouldEmitBridgedThinking(thinking, thinking)).toBe(false)
+  })
+
+  it('does NOT emit when the call reasoning is contained in the accumulated multi-call stream', () => {
+    // drive() accumulates all calls' reasoning; the bridge sees one call's.
+    expect(
+      shouldEmitBridgedThinking(
+        'Second call thoughts.',
+        'First call thoughts.\n\nSecond call thoughts.'
+      )
+    ).toBe(false)
+  })
+
+  it('never emits empty thinking', () => {
+    expect(shouldEmitBridgedThinking('', '')).toBe(false)
+  })
+
+  it('emits when the streamed reasoning differs from the completed-call thinking', () => {
+    expect(shouldEmitBridgedThinking('Full call reasoning.', 'unrelated partial')).toBe(true)
+  })
+})
+
+describe('supersedesSegment / visibleAnswer (Grok full-rewrite dedup)', () => {
+  // Two paraphrased rewrites of the same bio, mimicking the live grok-4.5
+  // repro: same vocabulary and structure, but diverging within the first
+  // 30 chars (so prefix comparison would NOT catch it).
+  const bioV1 =
+    '**Zach Rossmiller** (also referred to as Zachary L. Rossmiller) is the Associate Vice President ' +
+    'for Information Technology and Chief Information Officer (CIO) at the University of Montana in Missoula. ' +
+    'He is originally from Dutton, a small farming town in north-central Montana. He has spent roughly ' +
+    'fifteen years at the university, starting as a work-study student and rising through technical and ' +
+    'leadership roles. He holds an MBA, a BS in Management Information Systems, and an AAS in Computer ' +
+    'Networking, all from the University of Montana. He also serves as an Affiliate Associate Professor.'
+  const bioV2 =
+    '**Zach Rossmiller** (also **Zachary Rossmiller**) is the Associate Vice President for Information ' +
+    'Technology and Chief Information Officer (CIO) at the **University of Montana** in Missoula. ' +
+    'He grew up in Dutton, a small farming town in north-central Montana, and has spent about fifteen ' +
+    'years at the university, starting as a work-study student and rising through technical and ' +
+    'leadership roles into executive IT leadership. His degrees are all from the University of Montana: ' +
+    'an MBA, a BS in Management Information Systems, and an AAS in Computer Networking. He is also an ' +
+    'Affiliate Associate Professor and adjunct instructor.'
+
+  it('a paraphrased full rewrite supersedes the earlier segment', () => {
+    expect(supersedesSegment(bioV1, bioV2)).toBe(true)
+  })
+
+  it('a genuine delta continuation does NOT supersede (composes with the prompt fix)', () => {
+    const delta =
+      'One correction to the earlier summary: the NSF award figures cited publicly range from about ' +
+      '1.5 million dollars on four awards to more than 3.5 million dollars across related work, and the ' +
+      'university reached Carnegie R1 status in 2022, which his cyberinfrastructure projects supported. ' +
+      'He additionally co-chairs the Montana University System AI Task Force and helped launch ChatMT, ' +
+      'a secure AI access initiative across the Montana University System campuses, plus community ' +
+      'efforts like the Montana AI summit and TRAIL workshops for rural and tribal communities.'
+    expect(supersedesSegment(bioV1, delta)).toBe(false)
+  })
+
+  it('short status narration never supersedes and is never superseded', () => {
+    expect(supersedesSegment('Pulling a few primary pages for fuller bio details.', bioV2)).toBe(
+      false
+    )
+    expect(supersedesSegment(bioV1, 'Fetching a couple more biographical details.')).toBe(false)
+  })
+
+  it('visibleAnswer drops rewritten segments and keeps the rest, paragraph-joined', () => {
+    expect(visibleAnswer(['Gathering details from primary pages.', bioV1, bioV2])).toBe(
+      'Gathering details from primary pages.\n\n' + bioV2
+    )
+  })
+
+  it('visibleAnswer keeps everything when nothing is superseded', () => {
+    expect(visibleAnswer(['First part.', 'Second part.'])).toBe('First part.\n\nSecond part.')
+    expect(visibleAnswer([''])).toBe('')
   })
 })
 
@@ -1825,6 +2032,322 @@ describe('runGraph — Ursa resolution', () => {
   it('rehydrateModelRef returns a concrete ref unchanged', () => {
     expect(rehydrateModelRef('c1', 'anthropic/claude-sonnet-5')).toBe('anthropic/claude-sonnet-5')
     expect(getLastResolvedModelRef).not.toHaveBeenCalled()
+  })
+})
+
+describe('runGraph — Ursa Modes: code mode lock (Task 3)', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  it("locks to the coder role with no classifier call when mode is 'code'", async () => {
+    vi.mocked(getConversationMeta).mockReturnValue({
+      id: 'c1',
+      projectPath: null,
+      title: null,
+      modelRef: 'ursa/auto',
+      createdAt: 0,
+      updatedAt: 0,
+      permissionMode: 'accept-edits',
+      activeRules: [],
+      effort: 'medium',
+      webSearch: false,
+      thinking: false,
+      ursaMode: 'code',
+      projectId: null,
+      pinned: false,
+      archived: false,
+      environment: 'local',
+      worktrees: []
+    })
+    vi.mocked(coderRoleIfEligible).mockReturnValue({
+      name: 'coder',
+      modelRef: 'openai/gpt-5.6-sol',
+      description: 'builds things'
+    })
+    const result = await resolveTurnModelRef('c1', 'ursa/auto', 'build a widget')
+    expect(result).toEqual({ modelRef: 'openai/gpt-5.6-sol', ursaRole: 'coder' })
+    expect(resolveUrsaModelRef).not.toHaveBeenCalled()
+    expect(setLastResolvedModelRef).toHaveBeenCalledWith('c1', 'openai/gpt-5.6-sol')
+  })
+
+  it("falls through to the normal auto (classifier) path when the coder role is unkeyed in 'code' mode", async () => {
+    vi.mocked(getConversationMeta).mockReturnValue({
+      id: 'c1',
+      projectPath: null,
+      title: null,
+      modelRef: 'ursa/auto',
+      createdAt: 0,
+      updatedAt: 0,
+      permissionMode: 'accept-edits',
+      activeRules: [],
+      effort: 'medium',
+      webSearch: false,
+      thinking: false,
+      ursaMode: 'code',
+      projectId: null,
+      pinned: false,
+      archived: false,
+      environment: 'local',
+      worktrees: []
+    })
+    vi.mocked(coderRoleIfEligible).mockReturnValue(undefined)
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'anthropic/claude-haiku-4-5',
+      roleName: 'grunt'
+    })
+    const result = await resolveTurnModelRef('c1', 'ursa/auto', 'build a widget')
+    expect(resolveUrsaModelRef).toHaveBeenCalledWith({ userText: 'build a widget' })
+    expect(result).toEqual({ modelRef: 'anthropic/claude-haiku-4-5', ursaRole: 'grunt' })
+  })
+
+  it("mode 'auto' (or unset) never consults coderRoleIfEligible and runs the classifier as before", async () => {
+    vi.mocked(getConversationMeta).mockReturnValue({
+      id: 'c1',
+      projectPath: null,
+      title: null,
+      modelRef: 'ursa/auto',
+      createdAt: 0,
+      updatedAt: 0,
+      permissionMode: 'accept-edits',
+      activeRules: [],
+      effort: 'medium',
+      webSearch: false,
+      thinking: false,
+      ursaMode: 'auto',
+      projectId: null,
+      pinned: false,
+      archived: false,
+      environment: 'local',
+      worktrees: []
+    })
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'anthropic/claude-haiku-4-5',
+      roleName: 'grunt'
+    })
+    const result = await resolveTurnModelRef('c1', 'ursa/auto', 'hi')
+    expect(coderRoleIfEligible).not.toHaveBeenCalled()
+    expect(result).toEqual({ modelRef: 'anthropic/claude-haiku-4-5', ursaRole: 'grunt' })
+  })
+})
+
+describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {
+  // getConversationMeta is set per-test via mockReturnValue, which vi.clearAllMocks
+  // does NOT reset -- so restore the module-mock default (null) after each test,
+  // or a leaked ursaMode:'council' would make runGraph's new council branch fire
+  // in unrelated later suites (e.g. the pipeline proposal test).
+  afterEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(getConversationMeta).mockReturnValue(null)
+  })
+
+  const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
+  const metaWith = (ursaMode: 'auto' | 'code' | 'council' | 'deep-research') => ({
+    id: 'c1',
+    projectPath: null,
+    title: null,
+    modelRef: 'ursa/auto',
+    createdAt: 0,
+    updatedAt: 0,
+    permissionMode: 'accept-edits' as const,
+    activeRules: [],
+    effort: 'medium' as const,
+    thinking: false,
+    webSearch: false,
+    ursaMode,
+    projectId: null,
+    pinned: false,
+    archived: false,
+    environment: 'local' as const,
+    worktrees: []
+  })
+
+  it("routes an Ursa turn to runCouncil (no classifier, no agent) when mode is 'council'", async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('council'))
+    vi.mocked(runCouncil).mockResolvedValue({ paused: false })
+    const sink = makeSink()
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'weigh X vs Y',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    expect(result).toEqual({ paused: false })
+    expect(runCouncil).toHaveBeenCalledWith('c1', 'weigh X vs Y', sink, expect.anything())
+    // Council never classifies and never builds an agent.
+    expect(resolveUrsaModelRef).not.toHaveBeenCalled()
+    expect(makeModel).not.toHaveBeenCalled()
+    // The user_message is still emitted before dispatch (transcript honesty).
+    expect(
+      vi
+        .mocked(sink.emit)
+        .mock.calls.map((c) => c[1])
+        .some((e) => e.type === 'user_message')
+    ).toBe(true)
+  })
+
+  it("does NOT route to runCouncil for mode 'auto' (classifier path unchanged)", async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('auto'))
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'anthropic/claude-sonnet-5',
+      roleName: 'reviewer'
+    })
+    const sink = makeSink()
+    // buildAgentAndContext/drive may throw with the fake model — irrelevant; we
+    // only assert the council seam was not taken and the classifier still ran.
+    await runGraph({
+      conversationId: 'c1',
+      userText: 'explain this',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal
+    }).catch(() => {})
+    expect(runCouncil).not.toHaveBeenCalled()
+    expect(resolveUrsaModelRef).toHaveBeenCalled()
+  })
+
+  it('does NOT route a concrete (non-Ursa) model to runCouncil even if meta says council', async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('council'))
+    const sink = makeSink()
+    await runGraph({
+      conversationId: 'c1',
+      userText: 'hi',
+      modelRef: 'anthropic/claude-sonnet-5',
+      sink,
+      signal: new AbortController().signal
+    }).catch(() => {})
+    expect(runCouncil).not.toHaveBeenCalled()
+  })
+})
+
+describe('runGraph — Ursa Modes: deep research (Task 6)', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(getConversationMeta).mockReturnValue(null)
+    setStartUrsaPipeline(() => {})
+  })
+
+  const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
+  const metaWith = (ursaMode: 'auto' | 'code' | 'council' | 'deep-research') => ({
+    id: 'c1',
+    projectPath: null,
+    title: null,
+    modelRef: 'ursa/auto',
+    createdAt: 0,
+    updatedAt: 0,
+    permissionMode: 'accept-edits' as const,
+    activeRules: [],
+    effort: 'medium' as const,
+    thinking: false,
+    webSearch: false,
+    ursaMode,
+    projectId: null,
+    pinned: false,
+    archived: false,
+    environment: 'local' as const,
+    worktrees: []
+  })
+
+  it('auto-starts the preset pipeline (running, no consent card) and parks paused:true', async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('deep-research'))
+    const started = vi.fn()
+    setStartUrsaPipeline(started)
+    const sink = makeSink()
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'research quantum error correction',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    // Parked so startRunOrchestrator keeps the AbortController alive; the engine
+    // owns the run from here.
+    expect(result).toEqual({ paused: true })
+    // Persisted as a RUNNING pipeline straight away with a sentinel call_id --
+    // never 'proposed', so resolveUrsaPipelineOrchestrator rejects it.
+    expect(setUrsaPipeline).toHaveBeenCalledTimes(1)
+    const [convId, steps, callId] = vi.mocked(setUrsaPipeline).mock.calls[0]
+    expect(convId).toBe('c1')
+    expect((steps as Array<{ role: string }>).map((s) => s.role)).toEqual(['verifier', 'reviewer'])
+    expect(typeof callId).toBe('string')
+    expect(setUrsaPipelineStatus).toHaveBeenCalledWith('c1', 'running')
+    // The engine was started on the turn's live signal.
+    expect(started).toHaveBeenCalledWith('c1', sink, expect.anything())
+    // NO classifier, NO agent, and crucially NO pending consent card.
+    expect(resolveUrsaModelRef).not.toHaveBeenCalled()
+    expect(makeModel).not.toHaveBeenCalled()
+    const emitted = vi.mocked(sink.emit).mock.calls.map((c) => c[1])
+    expect(emitted.some((e) => e.type === 'tool_call')).toBe(false)
+    // The user_message is still emitted before dispatch (transcript honesty).
+    expect(emitted.some((e) => e.type === 'user_message')).toBe(true)
+  })
+
+  it('fails honestly (recoverable error, no pipeline) when the verifier is unkeyed', async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('deep-research'))
+    vi.mocked(resolveDeepResearchPipeline).mockReturnValue({
+      error: 'Deep Research needs a Perplexity API key. Add one in Settings > Providers.'
+    })
+    const started = vi.fn()
+    setStartUrsaPipeline(started)
+    const sink = makeSink()
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'research something',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    expect(result).toEqual({ paused: false, failed: true })
+    expect(setUrsaPipeline).not.toHaveBeenCalled()
+    expect(started).not.toHaveBeenCalled()
+    expect(sink.setState).toHaveBeenCalledWith('c1', 'error')
+    const emitted = vi.mocked(sink.emit).mock.calls.map((c) => c[1])
+    const err = emitted.find((e) => e.type === 'error')
+    expect(err).toMatchObject({ recoverable: true })
+    expect((err as { message: string }).message).toMatch(/Perplexity/)
+  })
+
+  it('does NOT deep-research a concrete (non-Ursa) model even if meta says deep-research', async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('deep-research'))
+    const started = vi.fn()
+    setStartUrsaPipeline(started)
+    const sink = makeSink()
+    await runGraph({
+      conversationId: 'c1',
+      userText: 'hi',
+      modelRef: 'anthropic/claude-sonnet-5',
+      sink,
+      signal: new AbortController().signal
+    }).catch(() => {})
+    expect(started).not.toHaveBeenCalled()
+    expect(setUrsaPipeline).not.toHaveBeenCalled()
+  })
+
+  it('REGRESSION: Auto-mode classifier pipeline proposal still shows its consent card', async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('auto'))
+    const steps = [
+      { role: 'coder', modelRef: 'openai/gpt-5.6-sol', subtask: 'build' },
+      { role: 'reviewer', modelRef: 'anthropic/claude-sonnet-5', subtask: 'review' }
+    ]
+    vi.mocked(resolveUrsaModelRef).mockResolvedValue({
+      modelRef: 'openai/gpt-5.6-sol',
+      roleName: 'coder',
+      pipeline: steps
+    })
+    const sink = makeSink()
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'build then review',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    // Auto mode still parks on the consent card, NOT the deep-research auto-start.
+    expect(result).toEqual({ paused: true })
+    expect(resolveDeepResearchPipeline).not.toHaveBeenCalled()
+    const emitted = vi.mocked(sink.emit).mock.calls.map((c) => c[1])
+    const card = emitted.find((e) => e.type === 'tool_call')
+    expect(card).toMatchObject({ tool: 'ursa_pipeline', approvalState: 'pending' })
+    expect(sink.setState).toHaveBeenCalledWith('c1', 'awaiting-approval')
   })
 })
 

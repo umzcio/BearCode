@@ -57,6 +57,8 @@ const conversations = {
   setMode: vi.fn(() => Promise.resolve()),
   setEffort: vi.fn(() => Promise.resolve()),
   setThinking: vi.fn(() => Promise.resolve()),
+  setWebSearch: vi.fn(() => Promise.resolve()),
+  setUrsaMode: vi.fn(() => Promise.resolve()),
   setPinned: vi.fn(() => Promise.resolve()),
   setArchived: vi.fn(() => Promise.resolve()),
   rename: vi.fn(() => Promise.resolve()),
@@ -124,11 +126,13 @@ const convoMeta: ConversationMeta = {
   activeRules: [],
   effort: 'adaptive',
   thinking: true,
+  webSearch: false,
   projectId: null,
   pinned: false,
   archived: false,
   environment: 'local',
-  worktrees: []
+  worktrees: [],
+  ursaMode: 'auto'
 }
 
 const convo = (over: Partial<Convo> = {}): Convo => ({
@@ -146,6 +150,8 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   environment: 'local',
   effort: 'adaptive',
   thinking: true,
+  webSearch: false,
+  ursaMode: 'auto',
   projectId: null,
   pinned: false,
   archived: false,

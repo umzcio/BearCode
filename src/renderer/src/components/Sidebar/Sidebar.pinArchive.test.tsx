@@ -20,6 +20,8 @@ const convo: Convo = {
   permissionMode: 'ask',
   effort: 'medium',
   thinking: false,
+  webSearch: false,
+  ursaMode: 'auto',
   projectId: null,
   pinned: false,
   archived: false,

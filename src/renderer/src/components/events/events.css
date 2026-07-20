@@ -824,6 +824,50 @@
   background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
+/* Ursa Modes (Task 5): the council deliberation block -- collapsed labeled
+   rows for each seat's answer and peer review, grouped by stage under a small
+   Ursa-accent stage label. Purely presentational; reuses the .step collapse
+   idiom (reduce-motion safe -- the only motion is the shared .chev rotation). */
+.council {
+  margin: 2px 0 6px;
+}
+.council-stage + .council-stage {
+  margin-top: 8px;
+}
+.council-stage-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.01em;
+  margin: 0 0 2px 8px;
+  user-select: none;
+}
+.council-seat-badge {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 13px;
+  line-height: 1;
+}
+.council-seat-name {
+  flex: 0 0 auto;
+  color: var(--text);
+  font-weight: 600;
+}
+.council-seat-stage {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+}
+.council-seat.failed .council-seat-name {
+  color: var(--text-dim);
+}
+.council-seat-failed {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--red);
+  letter-spacing: 0.02em;
+}
+
 /* Ursa Phase 2: the pipeline proposal card. Reuses .approval-card chrome; the
    step list is the one addition -- one numbered row per role/model/subtask so
    consent is never granted without seeing the full plan. */
@@ -978,4 +1022,14 @@
 .cite-ref:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
+}
+
+/* Inline markdown links in agent prose ([text](url) -- Grok/GPT write these). */
+.agent-text a.md-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.agent-text a.md-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }

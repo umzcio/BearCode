@@ -715,6 +715,12 @@ export type Event =
       // the renderer folds it into the per-model cost breakdown so the
       // classifier's (real) spend is not invisible.
       ursaClassifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
+      // Ursa Modes (Task 4): the per-call token usage of every COUNCIL seat call
+      // (each seat's initial answer AND its peer review) on a council-mode turn.
+      // One entry per call, on the seat's own modelRef. The chair's own usage
+      // rides the normal `usage` slot above; this array lets the cost popover
+      // book all ~7 deliberation calls too. Absent on non-council turns.
+      ursaCouncilUsage?: Array<{ modelRef: string; inputTokens: number; outputTokens: number }>
       // Web sources the answering model itself cited (Perplexity sonar models
       // return `citations`/`search_results` with every response; the [n]
       // markers in the answer text are 1-based indexes into this list). The
@@ -742,6 +748,24 @@ export type Event =
   // the oldest `summarizedCount` messages into a summary (auto-compaction).
   // Older event streams simply lack it; renderers must handle its absence.
   | { type: 'compaction'; id: string; summarizedCount: number; createdAt?: number }
+  // Ursa Modes (Task 4, council): one member's contribution to a council-mode
+  // turn -- either its initial answer (`stage: 'answer'`) or its anonymized peer
+  // review of the others (`stage: 'review'`). Emitted collapsed and labeled
+  // (renderer, Task 5); the chair's synthesis is the turn's normal
+  // assistant_text, not a council_seat. `seat` is the member's short model
+  // label; `status: 'failed'` marks a seat whose answer call errored (dropped
+  // from later stages). Older event streams lack it; renderers must handle its
+  // absence.
+  | {
+      type: 'council_seat'
+      id: string
+      seat: string
+      modelRef: string
+      stage: 'answer' | 'review'
+      text: string
+      status: 'done' | 'failed'
+      createdAt?: number
+    }
 
 // ---- Provider layer ----
 
@@ -893,6 +917,14 @@ export interface WorktreeInfo {
 
 // ---- Conversations ----
 
+// Ursa Modes (Arc 2, 2026-07-19 design): when the conversation's model is the
+// Ursa sentinel, the composer's Mode picker replaces the (meaningless-for-a-
+// router) Effort picker. 'auto' is exactly today's Ursa (classifier routing);
+// 'code'/'council'/'deep-research' are hard locks -- see
+// planning/2026-07-19-ursa-modes-design.md. Persisted per conversation
+// (ursa_mode column), same idiom as effort.
+export type UrsaMode = 'auto' | 'code' | 'council' | 'deep-research'
+
 export interface ConversationMeta {
   id: string
   projectPath: string | null
@@ -908,6 +940,15 @@ export interface ConversationMeta {
   // effort/thinking columns, falling back to the settings defaults (db toMeta).
   effort: EffortLevel
   thinking: boolean
+  // Per-conversation server-side Web Search toggle (effort-popover row).
+  // Governs provider-executed search (Anthropic web_search, OpenAI Responses
+  // built-in, xAI Live Search); Perplexity searches regardless. Default OFF --
+  // searches bill per use, so it is an explicit opt-in per conversation.
+  webSearch: boolean
+  // Ursa Modes (Arc 2): only meaningful when modelRef is the Ursa sentinel.
+  // Resolved from the ursa_mode column, coercing unknown/NULL to 'auto'
+  // (db toMeta) -- never falls back to a settings default like effort does.
+  ursaMode: UrsaMode
   // The project this conversation belongs to (E4), or null when unassigned.
   projectId: string | null
   // Pin/archive flags (E7). Pinned conversations float to the top of their
@@ -1282,7 +1323,9 @@ export interface BearcodeApi {
     clear(): Promise<void>
     setMode(id: string, mode: PermissionMode): Promise<void>
     setEffort(id: string, effort: EffortLevel): Promise<void>
+    setUrsaMode(id: string, mode: UrsaMode): Promise<void>
     setThinking(id: string, thinking: boolean): Promise<void>
+    setWebSearch(id: string, webSearch: boolean): Promise<void>
     // F3: chosen at create, locked at first run. Worktrees are provisioned
     // main-side (the renderer never shells out), so this takes only the
     // environment and returns the updated meta with the resolved worktrees.

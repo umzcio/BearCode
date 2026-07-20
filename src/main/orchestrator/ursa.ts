@@ -163,6 +163,68 @@ export function roleNameForModelRef(modelRef: string): string | undefined {
   return CURATED_ROLES.find((r) => r.modelRef === modelRef)?.name
 }
 
+// Ursa Modes (Task 3): the 'code' mode hard-locks to the coder role, skipping
+// the classifier entirely. Returns undefined when the coder role's provider
+// has no configured key, so the caller can fall through to the normal auto
+// (classifier) path instead of ever handing back a role the turn can't run --
+// same eligibility check eligibleRoles() applies to the whole curated set.
+export function coderRoleIfEligible(): UrsaRole | undefined {
+  const role = CURATED_ROLES.find((r) => r.name === 'coder')
+  if (!role) return undefined
+  const { provider } = parseModelRef(role.modelRef)
+  const status = keyStatus()
+  return provider === 'ollama' || status[provider] ? role : undefined
+}
+
+// Ursa Modes (Task 6): the code-curated Deep Research pipeline preset. Picking
+// the Deep Research mode IS the consent (unlike classifier-proposed pipelines,
+// which keep their per-turn card), so these three steps are auto-approved and
+// started straight away. Roles map to CURATED_ROLES; the verifier's live-web
+// search is the whole point of the mode, so an unkeyed verifier is a hard error
+// (see resolveDeepResearchPipeline). Adjust in code only, never user-facing.
+export const DEEP_RESEARCH_PIPELINE: ReadonlyArray<{ role: string; subtask: string }> = [
+  { role: 'verifier', subtask: 'Search the live web; gather facts + sources with citations' },
+  {
+    role: 'architect',
+    subtask: 'Analyze findings, identify gaps and contradictions, reason through follow-ups'
+  },
+  { role: 'reviewer', subtask: 'Write the final comprehensive, citation-backed report' }
+]
+
+// Resolve the Deep Research preset into concrete pipeline steps, eligibility-
+// gated by provider key (same keyStatus/parseModelRef check eligibleRoles and
+// coderRoleIfEligible use). The verifier step is MANDATORY -- its live-web
+// search is the point of the mode -- so if the verifier role's provider is
+// unkeyed this returns an { error } the caller surfaces as a recoverable turn
+// error, never starting a pipeline. Any OTHER step whose role's provider is
+// unkeyed is silently DROPPED (the mode degrades to what is actually runnable).
+// Roles stay curated: only names present in CURATED_ROLES resolve. Exported for
+// tests.
+export function resolveDeepResearchPipeline():
+  | { steps: Array<{ role: string; modelRef: string; subtask: string }> }
+  | { error: string } {
+  const status = keyStatus()
+  const isKeyed = (modelRef: string): boolean => {
+    const { provider } = parseModelRef(modelRef)
+    return provider === 'ollama' || Boolean(status[provider])
+  }
+  const steps: Array<{ role: string; modelRef: string; subtask: string }> = []
+  for (const preset of DEEP_RESEARCH_PIPELINE) {
+    const role = CURATED_ROLES.find((r) => r.name === preset.role)
+    if (!role) continue // defensive: the preset only names curated roles
+    if (!isKeyed(role.modelRef)) {
+      if (preset.role === 'verifier') {
+        return {
+          error: 'Deep Research needs a Perplexity API key. Add one in Settings > Providers.'
+        }
+      }
+      continue // drop an unkeyed non-verifier step
+    }
+    steps.push({ role: role.name, modelRef: role.modelRef, subtask: preset.subtask })
+  }
+  return { steps }
+}
+
 // A role is eligible only if its provider currently has a configured key
 // (mirrors ModelPicker.tsx's provider.reachable / requiresKey && !keyConfigured
 // dimming logic) -- Ursa must never select a role it cannot actually run.

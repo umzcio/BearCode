@@ -19,6 +19,10 @@ import { Command } from '@langchain/langgraph'
 import type { AIMessageChunk, BaseMessageChunk, ToolMessageChunk } from '@langchain/core/messages'
 import { isToolMessageChunk } from '@langchain/core/messages'
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base'
+import type {
+  HandleLLMNewTokenCallbackFields,
+  NewTokenIndices
+} from '@langchain/core/callbacks/base'
 import type { LLMResult } from '@langchain/core/outputs'
 import type {
   AttachmentRef,
@@ -55,6 +59,7 @@ import {
   setLastResolvedModelRef,
   setPermissionMode,
   setUrsaPipeline,
+  setUrsaPipelineStatus,
   touchedFilesFor
 } from '../db'
 import { readAttachmentBase64, readAttachmentSidecar } from '../attachments/ingest'
@@ -91,13 +96,16 @@ import {
 import { parseModelRef, supportsNativePdf } from '../providers/registry'
 import { maybeGenerateTitle } from '../title'
 import { renderPlanFeedback } from '../artifacts/feedback'
-import { makeModel } from './models'
+import { makeModel, serverSearchActive } from './models'
 import {
   isUrsaModelRef,
   resolveUrsaModelRef,
   resolveSubagentModelRefs,
-  roleNameForModelRef
+  roleNameForModelRef,
+  coderRoleIfEligible,
+  resolveDeepResearchPipeline
 } from './ursa'
+import { runCouncil } from './council'
 import { compactionAdvanced } from './compaction'
 import {
   COMPACT_ACK_DIRECTIVE,
@@ -111,7 +119,7 @@ import {
   excludeDefaultSummarization,
   tunesSummarization
 } from './summarizer'
-import { orchestratorSystemPrompt } from './systemPrompt'
+import { orchestratorSystemPrompt, webSearchPromptBlock } from './systemPrompt'
 import { textDeltaEvent, thinkingDeltaEvent } from './bridge'
 import { makeTurnUsage, readUsage, type TurnUsageAccumulator } from './usage'
 import { getCheckpointer } from './checkpointer'
@@ -274,6 +282,59 @@ export function citationsFromMetadata(meta: Record<string, unknown> | undefined)
     return urls.filter((u): u is string => typeof u === 'string').map((url) => ({ url }))
   }
   return []
+}
+
+// Extract url citations from a streamed chunk's CONTENT-block annotations --
+// the Responses-API shape (OpenAI web_search, and xai when it sends
+// annotations): response.output_text.annotation.added events become text
+// blocks carrying annotations:[{type:'citation', source:'url_citation', url,
+// title}] (see @langchain/openai convertOpenAIAnnotationToLangChain). These
+// never touch response_metadata, which is why citationsFromMetadata alone
+// left the Sources list empty on the Responses path. Exported for tests.
+export function citationsFromContentAnnotations(content: unknown): SourceCitation[] {
+  if (!Array.isArray(content)) return []
+  const out: SourceCitation[] = []
+  for (const raw of content) {
+    const block = raw as { annotations?: unknown }
+    if (!block || !Array.isArray(block.annotations)) continue
+    for (const a of block.annotations) {
+      const c = a as { type?: string; url?: unknown; title?: unknown }
+      if (c?.type === 'citation' && typeof c.url === 'string') {
+        // xai stuffs the inline [[n]] marker NUMBER into the annotation's
+        // title ("1", "2", ...) -- worse than no title (the Sources list
+        // rendered "5 2 members.educause.edu"). Keep only real titles.
+        const title =
+          typeof c.title === 'string' && c.title.trim() !== '' && !/^\d+$/.test(c.title.trim())
+            ? c.title
+            : undefined
+        out.push({ url: c.url, ...(title ? { title } : {}) })
+      }
+    }
+  }
+  return out
+}
+
+// Fallback source extraction from the ANSWER TEXT itself: Grok's server-side
+// search writes citations inline as [[n]](url) markdown links (the renderer
+// turns them into cite-ref chips) but was observed live sending NO structured
+// citations, so without this the Sources list stays empty. Ordered by n,
+// first url per n wins, duplicate urls collapsed. Exported for tests.
+export function citationsFromInlineLinks(text: string): SourceCitation[] {
+  const re = /\[\[(\d{1,2})\]\]\((https?:\/\/[^\s)]+)\)/g
+  const byIndex = new Map<number, string>()
+  for (const m of text.matchAll(re)) {
+    const n = Number(m[1])
+    if (!byIndex.has(n)) byIndex.set(n, m[2])
+  }
+  const out: SourceCitation[] = []
+  const seen = new Set<string>()
+  for (const n of [...byIndex.keys()].sort((a, b) => a - b)) {
+    const url = byIndex.get(n) as string
+    if (seen.has(url)) continue
+    seen.add(url)
+    out.push({ url })
+  }
+  return out
 }
 
 // Derive the producing agent's id from a streamed chunk's metadata (and, as
@@ -624,6 +685,56 @@ export function buildUserMessageContent(
 // silent -- this guard is what prevents a double-emit. Exported for tests.
 export function shouldEmitBridgedText(bridged: string, streamedAnswer: string): boolean {
   return bridged !== '' && !streamedAnswer.includes(bridged)
+}
+
+// Same containment decision for the THINKING bridge (the answer guard's
+// missing twin -- diagnosed live on xai/grok-4.5: the Responses API streams
+// reasoning deltas that drive()'s contentBlocks path emits, and then
+// handleLLMEnd re-emitted the identical text as a second thinking block).
+// `streamedReasoning` is what the bridge itself observed via
+// handleLLMNewToken, so ordering is guaranteed: for any run, every token
+// callback fires before that run's handleLLMEnd. Exported for tests.
+export function shouldEmitBridgedThinking(thinking: string, streamedReasoning: string): boolean {
+  return thinking !== '' && !streamedReasoning.includes(thinking)
+}
+
+// --- Answer-segment supersede (the Grok full-rewrite fix) ---------------
+// grok-4.5 rewrites its ENTIRE answer on every agent-loop round (verified
+// across three live smokes; prompt instructions not to were ignored), so a
+// multi-round turn rendered the same bio two or three times. drive() keeps
+// one answer segment per model call; a LATER long segment that covers most
+// of an EARLIER long segment's vocabulary is a rewrite, and the earlier one
+// is dropped from the visible/persisted answer. Prefix comparison does NOT
+// work (live rewrites diverge within the first 30 chars: "(also referred to
+// as Zachary L." vs "(also **Zachary Rossmiller**)"), hence token overlap.
+// If a model obeys the prompt and continues with only a NEW delta, overlap
+// stays low and both segments survive -- so this composes with the prompt
+// instead of fighting it. Exported for tests.
+
+// Both segments must be substantial: short status narration ("Pulling a few
+// primary pages…") never supersedes and is never superseded.
+const SUPERSEDE_MIN_CHARS = 400
+// Fraction of the earlier segment's tokens that must appear in the later one.
+const SUPERSEDE_OVERLAP = 0.7
+
+export function supersedesSegment(earlier: string, later: string): boolean {
+  if (earlier.length < SUPERSEDE_MIN_CHARS || later.length < SUPERSEDE_MIN_CHARS) return false
+  const tokens = earlier.toLowerCase().match(/[a-z0-9]+/g) ?? []
+  if (tokens.length === 0) return false
+  const laterSet = new Set(later.toLowerCase().match(/[a-z0-9]+/g) ?? [])
+  let hits = 0
+  for (const t of tokens) if (laterSet.has(t)) hits++
+  return hits / tokens.length >= SUPERSEDE_OVERLAP
+}
+
+// The turn's visible answer: every segment not superseded by a later one,
+// joined with paragraph breaks. Recomputed on each stream emit (segments per
+// turn are few and small, so this is cheap), so a rewrite REPLACES the stale
+// copy live in the UI instead of stacking under it.
+export function visibleAnswer(segments: string[]): string {
+  return segments
+    .filter((seg, i) => seg !== '' && !segments.slice(i + 1).some((l) => supersedesSegment(seg, l)))
+    .join('\n\n')
 }
 
 // Attribution guard for a pending interrupt: a run_command interrupt carries
@@ -1386,6 +1497,12 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
   name = 'bearcode-reasoning-bridge'
   private readonly startedAt = new Map<string, number>()
   private readonly seen = new Set<string>()
+  // Everything the token stream already delivered as reasoning this turn,
+  // accumulated across ALL runs (parent/child both fire token callbacks, and
+  // exact-duplicate text across runs is harmless to containment). Feeds
+  // shouldEmitBridgedThinking so a provider whose stream carries reasoning
+  // (xai Responses) doesn't get the same text re-emitted by handleLLMEnd.
+  private streamedReasoning = ''
   constructor(
     private readonly conversationId: string,
     private readonly sink: RunSink,
@@ -1401,6 +1518,22 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
     // A new model call: forget the previous call's answer-start so this call's
     // thinking time is measured against its own first answer token.
     this.answerStartedAt.t = null
+  }
+  handleLLMNewToken(
+    _token: string,
+    _idx: NewTokenIndices,
+    _runId: string,
+    _parentRunId?: string,
+    _tags?: string[],
+    fields?: HandleLLMNewTokenCallbackFields
+  ): void {
+    // Record reasoning the stream carries so handleLLMEnd can stay silent for
+    // text drive() already emitted live (see shouldEmitBridgedThinking).
+    // GenerationChunk (the non-chat member of the fields union) has no
+    // `message`, so widen through a structural cast; thinkingTextOfMessage
+    // returns '' for anything that isn't a content array.
+    const chunk = fields?.chunk as { message?: { content?: unknown } } | undefined
+    this.streamedReasoning += thinkingTextOfMessage(chunk?.message?.content)
   }
   handleLLMEnd(output: LLMResult, runId: string, parentRunId?: string): void {
     const started = this.startedAt.get(runId) ?? Date.now()
@@ -1449,6 +1582,10 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
     }
     if (!thinking || this.seen.has(thinking)) return
     this.seen.add(thinking)
+    // Containment guard (the answer bridge's twin): the stream already
+    // delivered this call's reasoning, so drive()'s contentBlocks path emitted
+    // it live -- a second block here is the "thinking repeated" bug.
+    if (!shouldEmitBridgedThinking(thinking, this.streamedReasoning)) return
     // Thinking wall-clock = call start until the answer began (falls back to the
     // whole call if this call never produced answer text, e.g. a pure tool step).
     const answerAt = this.answerStartedAt.t
@@ -1552,7 +1689,11 @@ async function drive(
   // wrapper (WorkedGroup.tsx) can render a distinct pill per subagent).
   interface AgentTextState {
     answerId: string
-    answer: string
+    // One entry per model call (a call boundary pushes a new segment); the
+    // emitted/persisted block text is visibleAnswer(answerSegments), which
+    // drops earlier segments a later call fully rewrote (grok-4.5 does this
+    // every round -- see supersedesSegment).
+    answerSegments: string[]
     thinkId: string
     think: string
     thinkStartedAt: number
@@ -1564,7 +1705,7 @@ async function drive(
     if (!s) {
       s = {
         answerId: randomUUID(),
-        answer: '',
+        answerSegments: [],
         thinkId: '',
         think: '',
         thinkStartedAt: 0,
@@ -1708,6 +1849,16 @@ async function drive(
     if (key === 'main') {
       const cited = citationsFromMetadata(aiChunk.response_metadata)
       if (cited.length > 0) ctx.citationsAccum.list = cited
+      // Responses-path citations arrive incrementally as content-block
+      // annotations (one event per annotation), so ACCUMULATE + dedupe by
+      // url, unlike the metadata shape above where every chunk carries the
+      // full list and replace is correct.
+      const annotated = citationsFromContentAnnotations(aiChunk.content)
+      if (annotated.length > 0) {
+        const known = new Set(ctx.citationsAccum.list.map((c) => c.url))
+        const fresh = annotated.filter((c) => !known.has(c.url))
+        if (fresh.length > 0) ctx.citationsAccum.list = [...ctx.citationsAccum.list, ...fresh]
+      }
     }
     if (process.env['BEARCODE_DEBUG_BLOCKS']) {
       const blocks = aiChunk.contentBlocks ?? []
@@ -1724,6 +1875,14 @@ async function drive(
         if (!s.thinkId) {
           s.thinkId = randomUUID()
           s.thinkStartedAt = Date.now()
+        } else if (s.thinkEndedAt) {
+          // A later model call's reasoning is joining a block that already
+          // "ended" (answer text arrived since). Separate the segments so a
+          // multi-call turn (xai streams reasoning per agent-loop round)
+          // doesn't run sentences together, and clear the end stamp so the
+          // next answer token re-marks where thinking stopped.
+          s.think += '\n\n'
+          s.thinkEndedAt = 0
         }
         s.think += reasoning
         ctx.sink.emit(
@@ -1735,9 +1894,21 @@ async function drive(
         // Mark when the main agent's answer began, so the reasoning handler can
         // time "Thought for Ns" as the pre-answer gap. Main agent only (key ===
         // 'main'), so a subagent's text can't skew the main thinking timer.
-        if (key === 'main' && ctx.answerStartedAt.t === null) ctx.answerStartedAt.t = Date.now()
-        s.answer += block.text
-        ctx.sink.emit(ctx.conversationId, textDeltaEvent(s.answerId, s.answer, agentId))
+        // The reset (handleLLMStart) doubles as a call-boundary signal: a null
+        // stamp with text already accumulated means a NEW model call is adding
+        // to this turn's answer -- start a fresh segment so visibleAnswer can
+        // both paragraph-separate the rounds and drop full rewrites.
+        if (key === 'main' && ctx.answerStartedAt.t === null) {
+          ctx.answerStartedAt.t = Date.now()
+          const last = s.answerSegments[s.answerSegments.length - 1]
+          if (last) s.answerSegments.push('')
+        }
+        if (s.answerSegments.length === 0) s.answerSegments.push('')
+        s.answerSegments[s.answerSegments.length - 1] += block.text
+        ctx.sink.emit(
+          ctx.conversationId,
+          textDeltaEvent(s.answerId, visibleAnswer(s.answerSegments), agentId)
+        )
       }
     }
     const msgId = aiChunk.id ?? `${key}:__current__`
@@ -1764,13 +1935,14 @@ async function drive(
         )
       )
     }
-    if (s.answer) {
-      appendEvent(ctx.conversationId, textDeltaEvent(s.answerId, s.answer, agentId))
+    const answer = visibleAnswer(s.answerSegments)
+    if (answer) {
+      appendEvent(ctx.conversationId, textDeltaEvent(s.answerId, answer, agentId))
       // Only the main agent's answer feeds title generation (subagent output
       // is internal), matching legacy run.ts which titles from the primary
       // answer. Accumulate across segments so a paused/resumed turn's title
       // sees the whole answer, not just the pre-pause fragment.
-      if (key === 'main') ctx.answerAccum.text += s.answer
+      if (key === 'main') ctx.answerAccum.text += answer
     }
   }
 
@@ -2020,6 +2192,30 @@ export function setOnResumeSettled(
 ): void {
   onResumeSettled = fn
 }
+
+// Ursa Modes (Task 6): Deep Research mode auto-starts a preset pipeline directly
+// from runGraph, but the pipeline engine (runUrsaPipeline) lives in index.ts --
+// which already imports graph.ts, so a direct import back would be circular.
+// Same module-level injection idiom as onResumeSettled above keeps the single
+// index.ts -> graph.ts import direction. index.ts injects runUrsaPipeline here
+// at startup; runGraph's deep-research branch fires it (fire-and-forget on the
+// turn's live AbortController) after persisting the pipeline as 'running'.
+let startUrsaPipeline:
+  | ((conversationId: string, sink: RunSink, signal: AbortSignal) => void)
+  | undefined
+export function setStartUrsaPipeline(
+  fn: (conversationId: string, sink: RunSink, signal: AbortSignal) => void
+): void {
+  startUrsaPipeline = fn
+}
+
+// The sentinel call_id stamped on an auto-started Deep Research pipeline row.
+// Picking the mode IS the consent, so the row is persisted directly as 'running'
+// (never 'proposed') with NO synthetic consent card. resolveUrsaPipelineOrchestrator
+// rejects any resolve whose row is not 'proposed', so this row can never be
+// approved/denied through the proposal machinery -- the sentinel just makes that
+// intent explicit and un-uuid-like in the transcript/db.
+const DEEP_RESEARCH_CALL_ID = 'ursa-deep-research-auto'
 
 // Called from src/main/orchestrator/index.ts's resolveApprovalOrchestrator
 // (IPC bridge for bearcode:tools:approve). Records ONE card's decision:
@@ -2478,7 +2674,11 @@ function buildAgentAndContext(
       )
     }
   }
-  const model = makeModel(modelRef, { effort: meta?.effort, thinking: meta?.thinking })
+  const model = makeModel(modelRef, {
+    effort: meta?.effort,
+    thinking: meta?.thinking,
+    webSearch: meta?.webSearch
+  })
   const diffGroupId = randomUUID()
   const backend = projectPath
     ? new DiffFsBackend(conversationId, projectPath, diffGroupId, worktreeMappings)
@@ -2687,6 +2887,10 @@ function buildAgentAndContext(
     // extra machinery.
     systemPrompt:
       orchestratorSystemPrompt(projectPath, meta?.permissionMode === 'plan') +
+      // Only when the request actually carries the server search tool (the
+      // same predicate makeModel used above), so the prompt never advertises
+      // a tool the model doesn't have this turn.
+      (serverSearchActive(modelRef, meta?.webSearch) ? webSearchPromptBlock() : '') +
       ruleAdditions +
       commandAdditions +
       mentionAdditions,
@@ -2771,6 +2975,20 @@ export async function resolveTurnModelRef(
   pipeline?: Array<{ role: string; modelRef: string; subtask: string }>
 }> {
   if (!isUrsaModelRef(modelRef)) return { modelRef }
+  // Ursa Modes (Task 3): 'code' mode hard-locks to the coder role with NO
+  // classifier call at all -- no classifierUsage, no pipeline. council /
+  // deep-research modes are handled by later tasks; for now they (and 'auto')
+  // fall straight through to the classifier path below, unchanged.
+  const ursaMode = getConversationMeta(conversationId)?.ursaMode
+  if (ursaMode === 'code') {
+    const coder = coderRoleIfEligible()
+    if (coder) {
+      setLastResolvedModelRef(conversationId, coder.modelRef)
+      return { modelRef: coder.modelRef, ursaRole: coder.name }
+    }
+    // Coder's provider is unkeyed -- fall through to the normal auto
+    // (classifier) path below rather than ever breaking the turn.
+  }
   // Task 4 (#2): give the classifier the conversation's recent context and the
   // role that handled the previous turn, so mid-conversation messages route by
   // the ongoing task rather than the isolated current message. Both are
@@ -2896,6 +3114,49 @@ export async function runGraph(opts: {
     // acks — rather than lowering the trigger for some later turn.
     if (commandForcesCompact(command)) {
       markForceCompact(conversationId)
+    }
+  }
+
+  // Ursa Modes (Task 4): council mode runs a dedicated multi-seat deliberation
+  // runner INSTEAD of the single-agent graph -- the same structural seam as the
+  // pipeline branch below, but decided BEFORE classification (council never
+  // classifies, and never builds an agent or acquires tools). Only for a fresh
+  // Ursa turn: pipeline steps and declined-pipeline re-runs (ursaStep /
+  // ursaResolved) are always auto-mode internals. runCouncil drives the turn to
+  // its own terminal state and never pauses. Deep-research (Task 6) auto-starts
+  // the Phase 2 pipeline engine from the same seam.
+  if (!ursaResolved && !ursaStep && isUrsaModelRef(modelRef)) {
+    const ursaMode = getConversationMeta(conversationId)?.ursaMode
+    if (ursaMode === 'council') {
+      return runCouncil(conversationId, userText, sink, signal)
+    }
+    // Ursa Modes (Task 6): deep-research mode auto-starts a fixed research
+    // pipeline (design §Deep Research). Picking the mode IS the consent, so
+    // there is NO 'proposed' phase and NO consent card -- unlike an Auto-mode
+    // classifier-proposed pipeline. Eligibility-map the preset: if the verifier
+    // (the point of the mode) is unkeyed, fail honestly with a recoverable
+    // error; other unkeyed steps drop. Persist the row directly as 'running'
+    // with a sentinel call_id the resolver rejects, then hand the turn to the
+    // Phase 2 pipeline engine on this turn's live AbortController and return
+    // paused:true so startRunOrchestrator keeps that controller alive -- the
+    // engine owns the run's lifecycle from here (mirrors
+    // resolveUrsaPipelineOrchestrator's approve path).
+    if (ursaMode === 'deep-research') {
+      const resolved = resolveDeepResearchPipeline()
+      if ('error' in resolved) {
+        emitAndPersist(conversationId, sink, {
+          type: 'error',
+          id: randomUUID(),
+          message: resolved.error,
+          recoverable: true
+        })
+        sink.setState(conversationId, 'error')
+        return { paused: false, failed: true }
+      }
+      setUrsaPipeline(conversationId, resolved.steps, DEEP_RESEARCH_CALL_ID)
+      setUrsaPipelineStatus(conversationId, 'running')
+      startUrsaPipeline?.(conversationId, sink, signal)
+      return { paused: true }
     }
   }
 
@@ -3322,6 +3583,13 @@ async function closeOutTurn(
         status: f.status
       }))
     })
+  }
+
+  // Grok fallback: no structured citations arrived this turn, but the answer
+  // carries inline [[n]](url) links -- surface those as the Sources list.
+  if (ctx.citationsAccum.list.length === 0 && ctx.answerAccum.text) {
+    const inline = citationsFromInlineLinks(ctx.answerAccum.text)
+    if (inline.length > 0) ctx.citationsAccum.list = inline
   }
 
   const usageSnapshot = ctx.turnUsage.snapshot()

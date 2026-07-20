@@ -10,6 +10,7 @@ import { URSA_MODEL_REF } from '@shared/types'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
 import { EffortPicker } from '../EffortPicker/EffortPicker'
+import { UrsaModePicker } from '../UrsaModePicker/UrsaModePicker'
 import { ContextMeter } from '../ContextMeter/ContextMeter'
 import { Hint } from '../Hint'
 import { Menu, type MenuGroup } from '../ui/Menu'
@@ -681,7 +682,10 @@ export function Composer({
         <div className="controls-right">
           <ContextMeter />
           <ModelPicker />
-          <EffortPicker />
+          {/* Effort is meaningless for a router: Ursa conversations swap the
+              Effort control for the per-conversation Mode picker (Auto / Code /
+              Council / Deep Research). Concrete models keep EffortPicker as-is. */}
+          {modelRef === URSA_MODEL_REF ? <UrsaModePicker /> : <EffortPicker />}
           {running ? (
             <Hint label="Stop" side="top">
               <button className="icon-btn send-btn stop" aria-label="Stop" onClick={onStop}>

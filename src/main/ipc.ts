@@ -43,6 +43,7 @@ import type {
 } from '../shared/types'
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
+import { isUrsaMode } from '../shared/ursaMode'
 import { keyStatus, setKey, setVaultSecret } from './keys'
 import { ursaRequiredProviders } from './orchestrator/ursa'
 import {
@@ -581,11 +582,23 @@ export function registerIpc(): void {
     }
     db.setEffort(id, effort)
   })
+  ipcMain.handle('bearcode:conversations:set-ursa-mode', (_e, id: string, mode: unknown) => {
+    if (!isUrsaMode(mode)) {
+      throw new Error(`Invalid ursa mode: ${String(mode)}`)
+    }
+    db.setUrsaMode(id, mode)
+  })
   ipcMain.handle('bearcode:conversations:set-thinking', (_e, id: string, thinking: unknown) => {
     if (typeof thinking !== 'boolean') {
       throw new Error(`Invalid thinking: ${String(thinking)}`)
     }
     db.setThinking(id, thinking)
+  })
+  ipcMain.handle('bearcode:conversations:set-web-search', (_e, id: string, webSearch: unknown) => {
+    if (typeof webSearch !== 'boolean') {
+      throw new Error(`Invalid webSearch: ${String(webSearch)}`)
+    }
+    db.setWebSearch(id, webSearch)
   })
   // F3: env is chosen at create and locked at first run. The renderer calls
   // set-environment on the just-created conversation BEFORE the first run.

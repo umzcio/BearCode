@@ -1,6 +1,7 @@
 import { memo, useEffect, useState } from 'react'
 import type { Event } from '@shared/types'
 import { subagentLabel } from '@shared/agentId'
+import { formatElapsed } from '../../lib/activity'
 import { ThinkingPaw } from '../brand/ThinkingPaw'
 import { IconChevronDown } from '../icons'
 import { ThinkingStep } from './ThinkingStep'
@@ -54,9 +55,11 @@ function WorkedGroupImpl({
     return () => clearInterval(timer)
   }, [live, startedAt])
 
+  // Same formatter the RunStatusBar uses (lib/activity formatElapsed) so the
+  // two live timers can never disagree ("89s" vs "1:06" -- a live complaint).
   const label = live
-    ? `Working…${elapsed > 0 ? ` ${elapsed}s` : ''}`
-    : `Worked for ${workedSeconds ?? 1}s`
+    ? `Working…${elapsed > 0 ? ` ${formatElapsed(elapsed)}` : ''}`
+    : `Worked for ${formatElapsed(workedSeconds ?? 1)}`
 
   // Pair each tool_call with its tool_result; thinking renders on its own.
   const resultsByCallId = new Map<string, Extract<Event, { type: 'tool_result' }>>()
