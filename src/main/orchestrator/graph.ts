@@ -698,6 +698,45 @@ export function shouldEmitBridgedThinking(thinking: string, streamedReasoning: s
   return thinking !== '' && !streamedReasoning.includes(thinking)
 }
 
+// --- Answer-segment supersede (the Grok full-rewrite fix) ---------------
+// grok-4.5 rewrites its ENTIRE answer on every agent-loop round (verified
+// across three live smokes; prompt instructions not to were ignored), so a
+// multi-round turn rendered the same bio two or three times. drive() keeps
+// one answer segment per model call; a LATER long segment that covers most
+// of an EARLIER long segment's vocabulary is a rewrite, and the earlier one
+// is dropped from the visible/persisted answer. Prefix comparison does NOT
+// work (live rewrites diverge within the first 30 chars: "(also referred to
+// as Zachary L." vs "(also **Zachary Rossmiller**)"), hence token overlap.
+// If a model obeys the prompt and continues with only a NEW delta, overlap
+// stays low and both segments survive -- so this composes with the prompt
+// instead of fighting it. Exported for tests.
+
+// Both segments must be substantial: short status narration ("Pulling a few
+// primary pages…") never supersedes and is never superseded.
+const SUPERSEDE_MIN_CHARS = 400
+// Fraction of the earlier segment's tokens that must appear in the later one.
+const SUPERSEDE_OVERLAP = 0.7
+
+export function supersedesSegment(earlier: string, later: string): boolean {
+  if (earlier.length < SUPERSEDE_MIN_CHARS || later.length < SUPERSEDE_MIN_CHARS) return false
+  const tokens = earlier.toLowerCase().match(/[a-z0-9]+/g) ?? []
+  if (tokens.length === 0) return false
+  const laterSet = new Set(later.toLowerCase().match(/[a-z0-9]+/g) ?? [])
+  let hits = 0
+  for (const t of tokens) if (laterSet.has(t)) hits++
+  return hits / tokens.length >= SUPERSEDE_OVERLAP
+}
+
+// The turn's visible answer: every segment not superseded by a later one,
+// joined with paragraph breaks. Recomputed on each stream emit (segments per
+// turn are few and small, so this is cheap), so a rewrite REPLACES the stale
+// copy live in the UI instead of stacking under it.
+export function visibleAnswer(segments: string[]): string {
+  return segments
+    .filter((seg, i) => seg !== '' && !segments.slice(i + 1).some((l) => supersedesSegment(seg, l)))
+    .join('\n\n')
+}
+
 // Attribution guard for a pending interrupt: a run_command interrupt carries
 // the exact command string the tool received (tools.ts passes the zod-parsed
 // `command` verbatim), so a candidate tool call only owns the interrupt when
@@ -1650,7 +1689,11 @@ async function drive(
   // wrapper (WorkedGroup.tsx) can render a distinct pill per subagent).
   interface AgentTextState {
     answerId: string
-    answer: string
+    // One entry per model call (a call boundary pushes a new segment); the
+    // emitted/persisted block text is visibleAnswer(answerSegments), which
+    // drops earlier segments a later call fully rewrote (grok-4.5 does this
+    // every round -- see supersedesSegment).
+    answerSegments: string[]
     thinkId: string
     think: string
     thinkStartedAt: number
@@ -1662,7 +1705,7 @@ async function drive(
     if (!s) {
       s = {
         answerId: randomUUID(),
-        answer: '',
+        answerSegments: [],
         thinkId: '',
         think: '',
         thinkStartedAt: 0,
@@ -1853,15 +1896,19 @@ async function drive(
         // 'main'), so a subagent's text can't skew the main thinking timer.
         // The reset (handleLLMStart) doubles as a call-boundary signal: a null
         // stamp with text already accumulated means a NEW model call is adding
-        // to this turn's answer -- separate the segments so multi-round
-        // answers don't run sentences together ("...communities.Retrying
-        // lookups..." was live-observed on grok-4.5).
+        // to this turn's answer -- start a fresh segment so visibleAnswer can
+        // both paragraph-separate the rounds and drop full rewrites.
         if (key === 'main' && ctx.answerStartedAt.t === null) {
           ctx.answerStartedAt.t = Date.now()
-          if (s.answer) s.answer += '\n\n'
+          const last = s.answerSegments[s.answerSegments.length - 1]
+          if (last) s.answerSegments.push('')
         }
-        s.answer += block.text
-        ctx.sink.emit(ctx.conversationId, textDeltaEvent(s.answerId, s.answer, agentId))
+        if (s.answerSegments.length === 0) s.answerSegments.push('')
+        s.answerSegments[s.answerSegments.length - 1] += block.text
+        ctx.sink.emit(
+          ctx.conversationId,
+          textDeltaEvent(s.answerId, visibleAnswer(s.answerSegments), agentId)
+        )
       }
     }
     const msgId = aiChunk.id ?? `${key}:__current__`
@@ -1888,13 +1935,14 @@ async function drive(
         )
       )
     }
-    if (s.answer) {
-      appendEvent(ctx.conversationId, textDeltaEvent(s.answerId, s.answer, agentId))
+    const answer = visibleAnswer(s.answerSegments)
+    if (answer) {
+      appendEvent(ctx.conversationId, textDeltaEvent(s.answerId, answer, agentId))
       // Only the main agent's answer feeds title generation (subagent output
       // is internal), matching legacy run.ts which titles from the primary
       // answer. Accumulate across segments so a paused/resumed turn's title
       // sees the whole answer, not just the pre-pause fragment.
-      if (key === 'main') ctx.answerAccum.text += s.answer
+      if (key === 'main') ctx.answerAccum.text += answer
     }
   }
 

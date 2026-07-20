@@ -92,6 +92,8 @@ import {
   citationsFromInlineLinks,
   shouldEmitBridgedText,
   shouldEmitBridgedThinking,
+  supersedesSegment,
+  visibleAnswer,
   shouldRetryEmptyFinal,
   interruptBelongsToToolCall,
   findDanglingRunCommandCalls,
@@ -472,6 +474,60 @@ describe('shouldEmitBridgedThinking (thinking containment guard)', () => {
 
   it('emits when the streamed reasoning differs from the completed-call thinking', () => {
     expect(shouldEmitBridgedThinking('Full call reasoning.', 'unrelated partial')).toBe(true)
+  })
+})
+
+describe('supersedesSegment / visibleAnswer (Grok full-rewrite dedup)', () => {
+  // Two paraphrased rewrites of the same bio, mimicking the live grok-4.5
+  // repro: same vocabulary and structure, but diverging within the first
+  // 30 chars (so prefix comparison would NOT catch it).
+  const bioV1 =
+    '**Zach Rossmiller** (also referred to as Zachary L. Rossmiller) is the Associate Vice President ' +
+    'for Information Technology and Chief Information Officer (CIO) at the University of Montana in Missoula. ' +
+    'He is originally from Dutton, a small farming town in north-central Montana. He has spent roughly ' +
+    'fifteen years at the university, starting as a work-study student and rising through technical and ' +
+    'leadership roles. He holds an MBA, a BS in Management Information Systems, and an AAS in Computer ' +
+    'Networking, all from the University of Montana. He also serves as an Affiliate Associate Professor.'
+  const bioV2 =
+    '**Zach Rossmiller** (also **Zachary Rossmiller**) is the Associate Vice President for Information ' +
+    'Technology and Chief Information Officer (CIO) at the **University of Montana** in Missoula. ' +
+    'He grew up in Dutton, a small farming town in north-central Montana, and has spent about fifteen ' +
+    'years at the university, starting as a work-study student and rising through technical and ' +
+    'leadership roles into executive IT leadership. His degrees are all from the University of Montana: ' +
+    'an MBA, a BS in Management Information Systems, and an AAS in Computer Networking. He is also an ' +
+    'Affiliate Associate Professor and adjunct instructor.'
+
+  it('a paraphrased full rewrite supersedes the earlier segment', () => {
+    expect(supersedesSegment(bioV1, bioV2)).toBe(true)
+  })
+
+  it('a genuine delta continuation does NOT supersede (composes with the prompt fix)', () => {
+    const delta =
+      'One correction to the earlier summary: the NSF award figures cited publicly range from about ' +
+      '1.5 million dollars on four awards to more than 3.5 million dollars across related work, and the ' +
+      'university reached Carnegie R1 status in 2022, which his cyberinfrastructure projects supported. ' +
+      'He additionally co-chairs the Montana University System AI Task Force and helped launch ChatMT, ' +
+      'a secure AI access initiative across the Montana University System campuses, plus community ' +
+      'efforts like the Montana AI summit and TRAIL workshops for rural and tribal communities.'
+    expect(supersedesSegment(bioV1, delta)).toBe(false)
+  })
+
+  it('short status narration never supersedes and is never superseded', () => {
+    expect(supersedesSegment('Pulling a few primary pages for fuller bio details.', bioV2)).toBe(
+      false
+    )
+    expect(supersedesSegment(bioV1, 'Fetching a couple more biographical details.')).toBe(false)
+  })
+
+  it('visibleAnswer drops rewritten segments and keeps the rest, paragraph-joined', () => {
+    expect(visibleAnswer(['Gathering details from primary pages.', bioV1, bioV2])).toBe(
+      'Gathering details from primary pages.\n\n' + bioV2
+    )
+  })
+
+  it('visibleAnswer keeps everything when nothing is superseded', () => {
+    expect(visibleAnswer(['First part.', 'Second part.'])).toBe('First part.\n\nSecond part.')
+    expect(visibleAnswer([''])).toBe('')
   })
 })
 
