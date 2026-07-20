@@ -45,11 +45,6 @@ vi.mock('./ursa', () => ({
       'openai/gpt-5.6-sol': 'coder',
       'anthropic/claude-sonnet-5': 'reviewer'
     })[ref],
-  // Ursa Modes (Task 3): resolveTurnModelRef's 'code' mode branch consults
-  // this instead of the classifier. Default undefined (unkeyed) so tests
-  // that don't override it exercise the fall-through-to-auto path; per-test
-  // overridden for the locked-coder path.
-  coderRoleIfEligible: vi.fn(() => undefined),
   // Ursa Modes (Task 6): runGraph's deep-research branch consults this to
   // eligibility-map the preset. Default returns a 3-step pipeline; per-test
   // overridden for the verifier-gate error path.
@@ -127,7 +122,6 @@ import {
 import {
   resolveUrsaModelRef,
   resolveSubagentModelRefs,
-  coderRoleIfEligible,
   resolveDeepResearchPipeline
 } from './ursa'
 import { makeModel } from './models'
@@ -2035,10 +2029,10 @@ describe('runGraph — Ursa resolution', () => {
   })
 })
 
-describe('runGraph — Ursa Modes: code mode lock (Task 3)', () => {
+describe('runGraph — Ursa Modes: code mode routes through the classifier', () => {
   afterEach(() => vi.clearAllMocks())
 
-  it("locks to the coder role with no classifier call when mode is 'code'", async () => {
+  it("mode 'code' runs the classifier exactly like 'auto' (no hard lock)", async () => {
     vi.mocked(getConversationMeta).mockReturnValue({
       id: 'c1',
       projectPath: null,
@@ -2058,45 +2052,14 @@ describe('runGraph — Ursa Modes: code mode lock (Task 3)', () => {
       environment: 'local',
       worktrees: []
     })
-    vi.mocked(coderRoleIfEligible).mockReturnValue({
-      name: 'coder',
-      modelRef: 'openai/gpt-5.6-sol',
-      description: 'builds things'
-    })
-    const result = await resolveTurnModelRef('c1', 'ursa/auto', 'build a widget')
-    expect(result).toEqual({ modelRef: 'openai/gpt-5.6-sol', ursaRole: 'coder' })
-    expect(resolveUrsaModelRef).not.toHaveBeenCalled()
-    expect(setLastResolvedModelRef).toHaveBeenCalledWith('c1', 'openai/gpt-5.6-sol')
-  })
-
-  it("falls through to the normal auto (classifier) path when the coder role is unkeyed in 'code' mode", async () => {
-    vi.mocked(getConversationMeta).mockReturnValue({
-      id: 'c1',
-      projectPath: null,
-      title: null,
-      modelRef: 'ursa/auto',
-      createdAt: 0,
-      updatedAt: 0,
-      permissionMode: 'accept-edits',
-      activeRules: [],
-      effort: 'medium',
-      webSearch: false,
-      thinking: false,
-      ursaMode: 'code',
-      projectId: null,
-      pinned: false,
-      archived: false,
-      environment: 'local',
-      worktrees: []
-    })
-    vi.mocked(coderRoleIfEligible).mockReturnValue(undefined)
     vi.mocked(resolveUrsaModelRef).mockResolvedValue({
-      modelRef: 'anthropic/claude-haiku-4-5',
-      roleName: 'grunt'
+      modelRef: 'openai/gpt-5.6-sol',
+      roleName: 'coder'
     })
     const result = await resolveTurnModelRef('c1', 'ursa/auto', 'build a widget')
     expect(resolveUrsaModelRef).toHaveBeenCalledWith({ userText: 'build a widget' })
-    expect(result).toEqual({ modelRef: 'anthropic/claude-haiku-4-5', ursaRole: 'grunt' })
+    expect(result).toEqual({ modelRef: 'openai/gpt-5.6-sol', ursaRole: 'coder' })
+    expect(setLastResolvedModelRef).toHaveBeenCalledWith('c1', 'openai/gpt-5.6-sol')
   })
 
   it("mode 'auto' (or unset) never consults coderRoleIfEligible and runs the classifier as before", async () => {
@@ -2124,7 +2087,6 @@ describe('runGraph — Ursa Modes: code mode lock (Task 3)', () => {
       roleName: 'grunt'
     })
     const result = await resolveTurnModelRef('c1', 'ursa/auto', 'hi')
-    expect(coderRoleIfEligible).not.toHaveBeenCalled()
     expect(result).toEqual({ modelRef: 'anthropic/claude-haiku-4-5', ursaRole: 'grunt' })
   })
 })

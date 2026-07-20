@@ -163,19 +163,6 @@ export function roleNameForModelRef(modelRef: string): string | undefined {
   return CURATED_ROLES.find((r) => r.modelRef === modelRef)?.name
 }
 
-// Ursa Modes (Task 3): the 'code' mode hard-locks to the coder role, skipping
-// the classifier entirely. Returns undefined when the coder role's provider
-// has no configured key, so the caller can fall through to the normal auto
-// (classifier) path instead of ever handing back a role the turn can't run --
-// same eligibility check eligibleRoles() applies to the whole curated set.
-export function coderRoleIfEligible(): UrsaRole | undefined {
-  const role = CURATED_ROLES.find((r) => r.name === 'coder')
-  if (!role) return undefined
-  const { provider } = parseModelRef(role.modelRef)
-  const status = keyStatus()
-  return provider === 'ollama' || status[provider] ? role : undefined
-}
-
 // Ursa Modes (Task 6): the code-curated Deep Research pipeline preset. Picking
 // the Deep Research mode IS the consent (unlike classifier-proposed pipelines,
 // which keep their per-turn card), so these three steps are auto-approved and
@@ -192,8 +179,8 @@ export const DEEP_RESEARCH_PIPELINE: ReadonlyArray<{ role: string; subtask: stri
 ]
 
 // Resolve the Deep Research preset into concrete pipeline steps, eligibility-
-// gated by provider key (same keyStatus/parseModelRef check eligibleRoles and
-// coderRoleIfEligible use). The verifier step is MANDATORY -- its live-web
+// gated by provider key (same keyStatus/parseModelRef check eligibleRoles
+// uses). The verifier step is MANDATORY -- its live-web
 // search is the point of the mode -- so if the verifier role's provider is
 // unkeyed this returns an { error } the caller surfaces as a recoverable turn
 // error, never starting a pipeline. Any OTHER step whose role's provider is
