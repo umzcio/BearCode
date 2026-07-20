@@ -31,6 +31,21 @@ describe('ToolStep ursa_pipeline proposal card', () => {
     expect(screen.getByText('Review it')).toBeTruthy()
   })
 
+  it('shows Ursus copy and icon when the conversation\'s modelRef is the Ursus sentinel', () => {
+    useAppStore.setState({ modelRef: 'ursus/auto' } as never)
+    try {
+      render(<ToolStep call={pipelineCall('pending') as never} convoId="c1" />)
+      expect(screen.getAllByText('Ursus proposes a pipeline').length).toBeGreaterThan(0)
+      expect(screen.queryByText('Ursa proposes a pipeline')).toBeNull()
+    } finally {
+      // This file has no global store reset between tests (afterEach only runs
+      // RTL's cleanup) -- explicitly undo the modelRef override so later tests
+      // in this file don't inherit it and silently render Ursus copy instead of
+      // Ursa's default.
+      useAppStore.setState({ modelRef: undefined } as never)
+    }
+  })
+
   it('Approve calls resolvePipeline(convoId, callId, true)', () => {
     const resolvePipeline = vi.fn()
     useAppStore.setState({ resolvePipeline: resolvePipeline as never })

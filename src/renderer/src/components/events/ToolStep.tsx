@@ -6,6 +6,8 @@ import { Select } from '../Select'
 import { usePendingCardHotkeys } from './usePendingCardHotkeys'
 import { AllowGrid } from './AllowGrid'
 import ursaTeddy from '../../assets/ursa-teddy.svg'
+import ursusBear from '../../assets/ursus-bear.svg'
+import { URSUS_MODEL_REF } from '@shared/types'
 import './events.css'
 
 type ToolCallEvent = Extract<Event, { type: 'tool_call' }>
@@ -1375,6 +1377,9 @@ function PendingPipeline({
   const resolvePipeline = useAppStore((s) => s.resolvePipeline)
   const providers = useAppStore((s) => s.providers)
   const isFirstPending = isFirst
+  const isUrsusTurn = useAppStore((s) => s.modelRef) === URSUS_MODEL_REF
+  const routerLabel = isUrsusTurn ? 'Ursus' : 'Ursa'
+  const routerIcon = isUrsusTurn ? ursusBear : ursaTeddy
 
   const approve = (): void => resolvePipeline(convoId, callId, true)
   const deny = (): void => resolvePipeline(convoId, callId, false)
@@ -1384,13 +1389,13 @@ function PendingPipeline({
   return (
     <div className="step" id={isFirstPending ? 'pending-approval-card' : undefined}>
       <div className="step-row static">
-        <span>Ursa proposes a pipeline</span>
+        <span>{routerLabel} proposes a pipeline</span>
       </div>
       <div className="waiting-note">Waiting for your input…</div>
       <div className="approval-card pulse-once pipeline-card">
         <div className="approval-title">
-          <img className="pipeline-teddy" src={ursaTeddy} alt="" />
-          Ursa proposes a pipeline
+          <img className="pipeline-teddy" src={routerIcon} alt="" />
+          {routerLabel} proposes a pipeline
         </div>
         <ol className="pipeline-steps">
           {steps.map((s, i) => (

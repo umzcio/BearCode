@@ -104,6 +104,12 @@ import {
   roleNameForModelRef,
   resolveDeepResearchPipeline
 } from './ursa'
+import {
+  isUrsusModelRef,
+  resolveUrsusModelRef,
+  CURATED_URSUS_ROLES,
+  resolveSubagentUrsusModelRefs
+} from './ursus'
 import { runCouncil } from './council'
 import { compactionAdvanced } from './compaction'
 import {
@@ -230,11 +236,26 @@ export const SUBAGENT_NAMES = new Set([RESEARCHER_SUBAGENT.name, BROWSER_SUBAGEN
 // model on turn_meta. Partitioning usage by model identity is future work; this
 // override changes which model actually runs the subagent, not how its usage is
 // booked. Exported for tests.
-export function buildSubagents(ursaRole: string | undefined, browserTools: SubAgent['tools']): SubAgent[] {
+//
+// Ursus turns are disambiguated from Ursa turns by checking whether modelRef
+// matches one of Ursus's own curated role refs (see the isUrsusTurn check
+// below) -- role NAMES are shared strings across both routers, but their
+// concrete models differ, so the name alone can't tell them apart.
+export function buildSubagents(
+  ursaRole: string | undefined,
+  modelRef: string,
+  browserTools: SubAgent['tools']
+): SubAgent[] {
   const researcher: SubAgent = { ...RESEARCHER_SUBAGENT }
   const browser: SubAgent = { ...BROWSER_SUBAGENT, tools: browserTools }
   if (ursaRole) {
-    const refs = resolveSubagentModelRefs()
+    // Ursus turns share Ursa's role NAMES (architect/coder/reviewer/verifier/
+    // grunt) but resolve to different concrete models -- infer which router
+    // actually produced this turn's modelRef by checking Ursus's own curated
+    // table first, so a Ursus turn's subagents ride Ursus's models, never
+    // Ursa's, even though ursaRole is an identical string either way.
+    const isUrsusTurn = CURATED_URSUS_ROLES.some((r) => r.modelRef === modelRef)
+    const refs = isUrsusTurn ? resolveSubagentUrsusModelRefs() : resolveSubagentModelRefs()
     // resolveSubagentModelRefs gates on keyStatus() (vault entry EXISTS), but
     // makeModel -> requireKey -> getKey decrypts, and an entry that exists yet
     // fails to decrypt (keychain reset, migrated userData) throws. A broken
@@ -2913,6 +2934,7 @@ function buildAgentAndContext(
     // The browser subagent's wrapped browser_* tools ride along untouched.
     subagents: buildSubagents(
       ursaRole,
+      modelRef,
       wrapToolsWithHooks(browserTools, hookCtx) as typeof browserTools
     ),
     ...(backendFactory ? { backend: backendFactory } : {}),
@@ -2973,18 +2995,22 @@ export async function resolveTurnModelRef(
   // non-pipeline turns behave exactly as before.
   pipeline?: Array<{ role: string; modelRef: string; subtask: string }>
 }> {
-  if (!isUrsaModelRef(modelRef)) return { modelRef }
+  const isUrsus = isUrsusModelRef(modelRef)
+  if (!isUrsaModelRef(modelRef) && !isUrsus) return { modelRef }
   // Task 4 (#2): give the classifier the conversation's recent context and the
   // role that handled the previous turn, so mid-conversation messages route by
   // the ongoing task rather than the isolated current message. Both are
   // advisory prompt inputs; empty/undefined on turn 1 (nothing prior).
   const recentContext = getRecentUrsaContext(conversationId)
   const previousRole = getLastUrsaRole(conversationId)
-  const resolved = await resolveUrsaModelRef({
+  const resolveOpts = {
     userText,
     ...(recentContext ? { recentContext } : {}),
     ...(previousRole ? { previousRole } : {})
-  })
+  }
+  const resolved = isUrsus
+    ? await resolveUrsusModelRef(resolveOpts)
+    : await resolveUrsaModelRef(resolveOpts)
   setLastResolvedModelRef(conversationId, resolved.modelRef)
   return {
     modelRef: resolved.modelRef,
@@ -3003,7 +3029,7 @@ export async function resolveTurnModelRef(
 // unresolved-provider error -- the correct, honest failure mode (never silently
 // guessing a role for a resumed turn).
 export function rehydrateModelRef(conversationId: string, modelRef: string): string {
-  if (!isUrsaModelRef(modelRef)) return modelRef
+  if (!isUrsaModelRef(modelRef) && !isUrsusModelRef(modelRef)) return modelRef
   return getLastResolvedModelRef(conversationId) ?? modelRef
 }
 

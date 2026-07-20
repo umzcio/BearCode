@@ -64,6 +64,20 @@ vi.mock('./ursa', () => ({
   }))
 }))
 
+// Ursus resolution is mocked exactly like Ursa's above, so graph.ts's dispatch
+// seam can be exercised without a real classifier call. CURATED_URSUS_ROLES here
+// is a small FAKE fixture (not the real 5-role production table) -- consistent
+// with how the ./ursa mock above keeps roleNameForModelRef's fixture minimal.
+vi.mock('./ursus', () => ({
+  URSUS_MODEL_REF: 'ursus/auto',
+  isUrsusModelRef: (ref: string) => ref === 'ursus/auto',
+  resolveUrsusModelRef: vi.fn(),
+  resolveSubagentUrsusModelRefs: vi.fn(() => ({})),
+  CURATED_URSUS_ROLES: [
+    { name: 'grunt', modelRef: 'openrouter/minimax/minimax-m3', description: 'fake grunt' }
+  ]
+}))
+
 // makeModel is mocked so buildSubagents can build distinguishable per-role
 // subagent models without constructing a real provider client. Returns a
 // tagged sentinel so a test can assert exactly which ref produced which
@@ -124,6 +138,12 @@ import {
   resolveSubagentModelRefs,
   resolveDeepResearchPipeline
 } from './ursa'
+import {
+  URSUS_MODEL_REF,
+  resolveUrsusModelRef,
+  resolveSubagentUrsusModelRefs,
+  CURATED_URSUS_ROLES
+} from './ursus'
 import { makeModel } from './models'
 import { runCouncil } from './council'
 import {
@@ -2012,6 +2032,19 @@ describe('runGraph — Ursa resolution', () => {
     expect(setLastResolvedModelRef).not.toHaveBeenCalled()
   })
 
+  it('resolveTurnModelRef routes a Ursus sentinel through resolveUrsusModelRef, not resolveUrsaModelRef', async () => {
+    vi.mocked(resolveUrsusModelRef).mockResolvedValue({
+      modelRef: 'openrouter/moonshotai/kimi-k3',
+      roleName: 'coder'
+    })
+    const result = await resolveTurnModelRef('c1', URSUS_MODEL_REF, 'build me a script')
+    expect(result).toEqual({
+      modelRef: 'openrouter/moonshotai/kimi-k3',
+      ursaRole: 'coder'
+    })
+    expect(resolveUrsaModelRef).not.toHaveBeenCalled()
+  })
+
   it('rehydrateModelRef reuses the persisted resolution for the sentinel instead of re-classifying', () => {
     vi.mocked(getLastResolvedModelRef).mockReturnValue('anthropic/claude-haiku-4-5')
     expect(rehydrateModelRef('c1', 'ursa/auto')).toBe('anthropic/claude-haiku-4-5')
@@ -2026,6 +2059,12 @@ describe('runGraph — Ursa resolution', () => {
   it('rehydrateModelRef returns a concrete ref unchanged', () => {
     expect(rehydrateModelRef('c1', 'anthropic/claude-sonnet-5')).toBe('anthropic/claude-sonnet-5')
     expect(getLastResolvedModelRef).not.toHaveBeenCalled()
+  })
+
+  it('rehydrateModelRef substitutes the last-resolved ref for a Ursus sentinel', () => {
+    vi.mocked(getLastResolvedModelRef).mockReturnValue('openrouter/minimax/minimax-m3')
+    expect(rehydrateModelRef('c1', URSUS_MODEL_REF)).toBe('openrouter/minimax/minimax-m3')
+    expect(getLastResolvedModelRef).toHaveBeenCalledWith('c1')
   })
 })
 
@@ -2386,7 +2425,7 @@ describe('buildSubagents (Ursa Arc 2 subagent-level routing)', () => {
       researcher: 'anthropic/claude-sonnet-5',
       browser: 'openai/gpt-5.6-luna'
     })
-    const [researcher, browser] = buildSubagents('coder', browserTools)
+    const [researcher, browser] = buildSubagents('coder', 'anthropic/claude-sonnet-5', browserTools)
 
     expect(researcher.name).toBe('researcher')
     expect(researcher.model).toEqual({ __fakeModel: 'anthropic/claude-sonnet-5' })
@@ -2405,7 +2444,7 @@ describe('buildSubagents (Ursa Arc 2 subagent-level routing)', () => {
       researcher: 'anthropic/claude-sonnet-5',
       browser: 'openai/gpt-5.6-luna'
     })
-    const [researcher, browser] = buildSubagents(undefined, browserTools)
+    const [researcher, browser] = buildSubagents(undefined, 'anthropic/claude-sonnet-5', browserTools)
 
     expect(researcher).not.toHaveProperty('model')
     expect(browser).not.toHaveProperty('model')
@@ -2416,7 +2455,7 @@ describe('buildSubagents (Ursa Arc 2 subagent-level routing)', () => {
 
   it('adds no model field when the resolver returns an empty map (no keyed roles)', () => {
     vi.mocked(resolveSubagentModelRefs).mockReturnValue({})
-    const [researcher, browser] = buildSubagents('reviewer', browserTools)
+    const [researcher, browser] = buildSubagents('reviewer', 'anthropic/claude-sonnet-5', browserTools)
 
     expect(researcher).not.toHaveProperty('model')
     expect(browser).not.toHaveProperty('model')
@@ -2428,10 +2467,21 @@ describe('buildSubagents (Ursa Arc 2 subagent-level routing)', () => {
     vi.mocked(resolveSubagentModelRefs).mockReturnValue({
       researcher: 'anthropic/claude-sonnet-5'
     })
-    const [researcher, browser] = buildSubagents('architect', browserTools)
+    const [researcher, browser] = buildSubagents('architect', 'anthropic/claude-sonnet-5', browserTools)
 
     expect(researcher.model).toEqual({ __fakeModel: 'anthropic/claude-sonnet-5' })
     expect(browser).not.toHaveProperty('model')
     expect(browser.tools).toBe(browserTools)
+  })
+
+  it("buildSubagents routes to Ursus models when modelRef matches a Ursus curated role, not Ursa's", () => {
+    vi.mocked(resolveSubagentUrsusModelRefs).mockReturnValue({
+      browser: 'openrouter/minimax/minimax-m3'
+    })
+    const grunt = CURATED_URSUS_ROLES.find((r) => r.name === 'grunt')!
+    const subagents = buildSubagents('grunt', grunt.modelRef, [])
+    const browser = subagents.find((s) => s.name === 'browser')
+    expect(browser?.model).toEqual({ __fakeModel: 'openrouter/minimax/minimax-m3' })
+    expect(resolveSubagentModelRefs).not.toHaveBeenCalled()
   })
 })
