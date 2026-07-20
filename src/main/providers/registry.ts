@@ -44,8 +44,8 @@ export const GOOGLE_MODELS: ModelInfo[] = [
 // Curated popular subset; live discovery of the full catalog lands in Phase 6.
 export const OPENROUTER_MODELS: ModelInfo[] = [
   { id: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
-  { id: 'moonshotai/kimi-k2', label: 'Kimi K2' },
-  { id: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B' }
+  { id: 'moonshotai/kimi-k3', label: 'Kimi K3' },
+  { id: 'z-ai/glm-5.2', label: 'GLM 5.2' }
 ]
 
 // Perplexity's Sonar family (verified against docs.perplexity.ai, 2026-07).
