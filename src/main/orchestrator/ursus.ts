@@ -67,11 +67,12 @@ export const CURATED_URSUS_ROLES: readonly UrsaRole[] = [
     name: 'verifier',
     modelRef: 'openrouter/deepseek/deepseek-v4-pro',
     description:
-      'Fact-checking, verification, and deep reasoning: confirming claims, checking ' +
-      'logic, validating an approach, or anything that benefits from careful ' +
-      'step-by-step reasoning and tool use. NOT for writing code or building things ' +
-      '-- only for checking and verifying. (model strengths: reasoning, verification, ' +
-      'tool use; cost tier: mid)'
+      'Fact-checking and verification against the live web: confirming claims, ' +
+      'looking up current events, prices, versions, release dates, or anything ' +
+      "whose answer depends on up-to-date external information, with sources. " +
+      "NOT for writing code, building things, or reviewing the user's own files " +
+      '-- only for checking facts out in the world. (model strengths: reasoning, ' +
+      'verification, live web search; cost tier: mid)'
   },
   {
     name: 'grunt',
