@@ -103,6 +103,33 @@ export class OpenRouterSearchChat extends ChatOpenAICompletions {
     if (!has) p.tools = [...existing, OPENROUTER_WEB_SEARCH]
     return params
   }
+
+  // OpenRouter returns web_search citations as a raw `annotations` array on
+  // the Chat Completions message -- `[{type:'url_citation', url, title,
+  // content, start_index, end_index}]` -- a DIFFERENT shape from Perplexity's
+  // top-level `citations`/`search_results` fields (attachSearchCitations
+  // above) and NOT the same shape LangChain's own annotation-to-content-
+  // block conversion handles (that logic lives only in
+  // @langchain/openai's Responses-API converter -- OpenRouter speaks only
+  // Chat Completions, so it never applies here). Normalize directly onto
+  // response_metadata.search_results -- exactly the shape
+  // citationsFromMetadata (graph.ts) already reads, so no downstream
+  // changes are needed.
+  override _convertCompletionsDeltaToBaseMessageChunk(
+    ...args: Parameters<ChatOpenAICompletions['_convertCompletionsDeltaToBaseMessageChunk']>
+  ): ReturnType<ChatOpenAICompletions['_convertCompletionsDeltaToBaseMessageChunk']> {
+    const chunk = super._convertCompletionsDeltaToBaseMessageChunk(...args)
+    attachOpenRouterSearchResults(chunk, args[1])
+    return chunk
+  }
+
+  override _convertCompletionsMessageToBaseMessage(
+    ...args: Parameters<ChatOpenAICompletions['_convertCompletionsMessageToBaseMessage']>
+  ): ReturnType<ChatOpenAICompletions['_convertCompletionsMessageToBaseMessage']> {
+    const msg = super._convertCompletionsMessageToBaseMessage(...args)
+    attachOpenRouterSearchResults(msg, args[1])
+    return msg
+  }
 }
 
 // The delta hook returns a message chunk; the non-streaming hook returns a
@@ -121,6 +148,22 @@ function attachSearchCitations(target: any, rawResponse: unknown): void {
     ...(Array.isArray(citations) ? { citations } : {}),
     ...(Array.isArray(searchResults) ? { search_results: searchResults } : {})
   }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function attachOpenRouterSearchResults(target: any, rawResponse: unknown): void {
+  const raw = rawResponse as { annotations?: unknown } | undefined
+  const msg = target && typeof target === 'object' && 'message' in target ? target.message : target
+  if (!msg || !raw || !Array.isArray(raw.annotations)) return
+  const results = raw.annotations
+    .filter(
+      (a): a is { type: string; url: string; title?: string } =>
+        Boolean(a && typeof a === 'object' && (a as { type?: unknown }).type === 'url_citation') &&
+        typeof (a as { url?: unknown }).url === 'string'
+    )
+    .map((a) => ({ url: a.url, ...(typeof a.title === 'string' ? { title: a.title } : {}) }))
+  if (results.length === 0) return
+  msg.response_metadata = { ...(msg.response_metadata ?? {}), search_results: results }
 }
 
 // Anthropic's server-side web_search tool (executed by Anthropic, billed per

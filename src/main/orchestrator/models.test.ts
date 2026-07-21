@@ -170,6 +170,41 @@ describe('makeModel', () => {
     const msg = chunk?.message ?? chunk
     expect(msg.response_metadata.citations).toEqual(['https://x.com/some-post'])
   })
+
+  it('OpenRouter search results normalize url_citation annotations onto response_metadata.search_results', () => {
+    const m = makeModel('openrouter/moonshotai/kimi-k3', { webSearch: true })
+    const raw = {
+      id: 'x',
+      choices: [],
+      annotations: [
+        { type: 'url_citation', url: 'https://a.com', title: 'A', content: 'excerpt', start_index: 0, end_index: 5 },
+        { type: 'url_citation', url: 'https://b.com', content: 'excerpt with no title' },
+        { type: 'something_else', url: 'https://ignored.com' }
+      ]
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chunk = (m as any)._convertCompletionsDeltaToBaseMessageChunk(
+      { role: 'assistant', content: 'hi' },
+      raw
+    )
+    const msg = chunk?.message ?? chunk
+    expect(msg.response_metadata.search_results).toEqual([
+      { url: 'https://a.com', title: 'A' },
+      { url: 'https://b.com' }
+    ])
+  })
+
+  it('OpenRouter with no annotations leaves response_metadata.search_results unset', () => {
+    const m = makeModel('openrouter/moonshotai/kimi-k3', { webSearch: true })
+    const raw = { id: 'x', choices: [] }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chunk = (m as any)._convertCompletionsDeltaToBaseMessageChunk(
+      { role: 'assistant', content: 'hi' },
+      raw
+    )
+    const msg = chunk?.message ?? chunk
+    expect(msg.response_metadata?.search_results).toBeUndefined()
+  })
 })
 
 describe('buildModelExtras — OpenAI reasoning models', () => {
