@@ -469,7 +469,9 @@ export function modelDisplay(
   ref: ModelRef | null
 ): { name: string; color: string } {
   if (ref === URSA_MODEL_REF) return { name: 'Ursa', color: '#4c8dff' }
-  if (ref === URSUS_MODEL_REF) return { name: 'Ursus', color: '#6b5842' }
+  // Light blue, matching ursus-teddy.svg's palette (the original brown was set
+  // for the retired walking-bear icon and no longer matched anything).
+  if (ref === URSUS_MODEL_REF) return { name: 'Ursus', color: '#6ec3fa' }
   if (ref) {
     const slash = ref.indexOf('/')
     const providerId = ref.slice(0, slash)

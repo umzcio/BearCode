@@ -9,7 +9,12 @@ import type { ProviderId } from '../../shared/types'
 vi.mock('./models', () => ({ makeModel: vi.fn() }))
 vi.mock('../db', () => ({
   appendEvent: vi.fn(),
-  getRecentUrsaContext: vi.fn(() => '')
+  getRecentUrsaContext: vi.fn(() => ''),
+  // runCouncil's fire-and-forget maybeGenerateTitle reaches through to this on
+  // every successful chair synthesis; without it the call rejects as an
+  // unhandled rejection AFTER the assertions pass. Returning a titled meta
+  // makes maybeGenerateTitle no-op immediately (its `meta.title` early return).
+  getConversationMeta: vi.fn(() => ({ id: 'c1', title: 'titled' }))
 }))
 vi.mock('../keys', () => ({ keyStatus: vi.fn() }))
 
@@ -21,7 +26,9 @@ import {
   buildChairPrompt,
   seatLabel,
   COUNCIL_SEATS,
-  type CouncilSeatAnswer
+  URSA_COUNCIL,
+  type CouncilSeatAnswer,
+  type CouncilConfig
 } from './council'
 import { makeModel } from './models'
 import { keyStatus } from '../keys'
@@ -141,6 +148,75 @@ describe('council pure helpers', () => {
     expect(prompt).toContain(seatLabel(GEM))
     expect(prompt).toContain(`Review by ${seatLabel(GROK)}`)
     expect(prompt).toContain(`Response A = ${seatLabel(SOL)}`)
+  })
+})
+
+// Ursus convenes the SAME runner with its own seats/chair -- the whole point of
+// CouncilConfig. These refs are deliberately a different provider entirely from
+// Ursa's, so a config leak would be unmissable.
+const U_SEAT_A = 'openrouter/moonshotai/kimi-k3'
+const U_SEAT_B = 'openrouter/z-ai/glm-5.2'
+const U_SEAT_C = 'openrouter/minimax/minimax-m3'
+const U_CHAIR = 'openrouter/deepseek/deepseek-v4-pro'
+const URSUS_CFG: CouncilConfig = {
+  seats: [U_SEAT_A, U_SEAT_B, U_SEAT_C],
+  chair: U_CHAIR,
+  unavailable: 'ursus council unavailable'
+}
+
+describe('runCouncil — honors a non-Ursa CouncilConfig', () => {
+  it('seats and chairs on the supplied config, never Ursa\'s models', async () => {
+    vi.mocked(keyStatus).mockReturnValue(keyed())
+    const models: Record<string, unknown> = {
+      [U_SEAT_A]: seatModel('a'),
+      [U_SEAT_B]: seatModel('b'),
+      [U_SEAT_C]: seatModel('c'),
+      [U_CHAIR]: chairModel(['Ursus ', 'synthesis'])
+    }
+    vi.mocked(makeModel).mockImplementation((ref: string) => {
+      const m = models[ref]
+      if (!m) throw new Error(`unexpected model constructed: ${ref}`)
+      return m as never
+    })
+
+    const sink = makeSink()
+    const result = await runCouncil('c1', 'Q?', sink, new AbortController().signal, URSUS_CFG)
+    expect(result).toEqual({ paused: false })
+
+    // Every constructed model came from the Ursus config.
+    const built = vi.mocked(makeModel).mock.calls.map((c) => c[0])
+    expect(new Set(built)).toEqual(new Set([U_SEAT_A, U_SEAT_B, U_SEAT_C, U_CHAIR]))
+    for (const ref of built) expect(COUNCIL_SEATS).not.toContain(ref)
+
+    // turn_meta books the Ursus chair, not Ursa's.
+    const meta = emitted(sink).find((e) => e.type === 'turn_meta')
+    expect(meta && meta.type === 'turn_meta' && meta.provider).toBe('openrouter')
+    expect(meta && meta.type === 'turn_meta' && meta.model).toBe('deepseek/deepseek-v4-pro')
+  })
+
+  it('surfaces the config\'s own unavailable message when its seats are unkeyed', async () => {
+    vi.mocked(keyStatus).mockReturnValue(keyed({ openrouter: false }))
+    const sink = makeSink()
+    const result = await runCouncil('c1', 'Q?', sink, new AbortController().signal, URSUS_CFG)
+    expect(result).toEqual({ paused: false, failed: true })
+    const err = emitted(sink).find((e) => e.type === 'error')
+    expect(err && err.type === 'error' && err.message).toBe('ursus council unavailable')
+  })
+
+  it('defaults to Ursa\'s council when no config is passed', async () => {
+    expect(URSA_COUNCIL.seats).toBe(COUNCIL_SEATS)
+    vi.mocked(keyStatus).mockReturnValue(keyed())
+    const models: Record<string, unknown> = {
+      [SOL]: seatModel('sol'),
+      [GEM]: seatModel('gem'),
+      [GROK]: seatModel('grok'),
+      [CHAIR]: chairModel()
+    }
+    vi.mocked(makeModel).mockImplementation((ref: string) => models[ref] as never)
+    const sink = makeSink()
+    await runCouncil('c1', 'Q?', sink, new AbortController().signal)
+    const built = vi.mocked(makeModel).mock.calls.map((c) => c[0])
+    expect(built).toContain(CHAIR)
   })
 })
 

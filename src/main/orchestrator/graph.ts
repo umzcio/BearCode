@@ -109,9 +109,11 @@ import {
   resolveUrsusModelRef,
   CURATED_URSUS_ROLES,
   resolveSubagentUrsusModelRefs,
-  roleNameForModelRef as roleNameForUrsusModelRef
+  roleNameForModelRef as roleNameForUrsusModelRef,
+  resolveUrsusDeepResearchPipeline,
+  URSUS_COUNCIL
 } from './ursus'
-import { runCouncil } from './council'
+import { runCouncil, URSA_COUNCIL } from './council'
 import { compactionAdvanced } from './compaction'
 import {
   COMPACT_ACK_DIRECTIVE,
@@ -3137,10 +3139,20 @@ export async function runGraph(opts: {
   // ursaResolved) are always auto-mode internals. runCouncil drives the turn to
   // its own terminal state and never pauses. Deep-research (Task 6) auto-starts
   // the Phase 2 pipeline engine from the same seam.
-  if (!ursaResolved && !ursaStep && isUrsaModelRef(modelRef)) {
+  // Both routers dispatch modes here: Ursa and Ursus are the same mechanism with
+  // different models, so each mode picks the matching router's council config /
+  // deep-research resolver rather than being Ursa-only.
+  if (!ursaResolved && !ursaStep && (isUrsaModelRef(modelRef) || isUrsusModelRef(modelRef))) {
+    const isUrsusRouter = isUrsusModelRef(modelRef)
     const ursaMode = getConversationMeta(conversationId)?.ursaMode
     if (ursaMode === 'council') {
-      return runCouncil(conversationId, userText, sink, signal)
+      return runCouncil(
+        conversationId,
+        userText,
+        sink,
+        signal,
+        isUrsusRouter ? URSUS_COUNCIL : URSA_COUNCIL
+      )
     }
     // Ursa Modes (Task 6): deep-research mode auto-starts a fixed research
     // pipeline (design §Deep Research). Picking the mode IS the consent, so
@@ -3154,7 +3166,9 @@ export async function runGraph(opts: {
     // engine owns the run's lifecycle from here (mirrors
     // resolveUrsaPipelineOrchestrator's approve path).
     if (ursaMode === 'deep-research') {
-      const resolved = resolveDeepResearchPipeline()
+      const resolved = isUrsusRouter
+        ? await resolveUrsusDeepResearchPipeline()
+        : resolveDeepResearchPipeline()
       if ('error' in resolved) {
         emitAndPersist(conversationId, sink, {
           type: 'error',

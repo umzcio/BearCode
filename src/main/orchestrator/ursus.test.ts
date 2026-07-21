@@ -7,7 +7,12 @@ import {
   ursusRequiredProviders,
   SUBAGENT_URSUS_ROLE_MAP,
   resolveSubagentUrsusModelRefs,
-  roleNameForModelRef
+  roleNameForModelRef,
+  URSUS_COUNCIL,
+  URSUS_COUNCIL_SEATS,
+  URSUS_COUNCIL_CHAIR,
+  URSUS_DEEP_RESEARCH_PIPELINE,
+  resolveUrsusDeepResearchPipeline
 } from './ursus'
 
 vi.mock('../db', () => ({}))
@@ -76,6 +81,67 @@ describe('CURATED_URSUS_ROLES', () => {
     for (const role of CURATED_URSUS_ROLES) {
       expect(providers).toContain(role.modelRef.split('/')[0])
     }
+  })
+})
+
+describe('URSUS_COUNCIL', () => {
+  it('seats three models and chairs on a fourth, distinct one', () => {
+    expect(URSUS_COUNCIL_SEATS).toHaveLength(3)
+    expect(URSUS_COUNCIL_SEATS).not.toContain(URSUS_COUNCIL_CHAIR)
+    expect(new Set(URSUS_COUNCIL_SEATS).size).toBe(3)
+  })
+
+  it('rides entirely on openrouter (no ollama seat -- eligibleSeats is sync)', () => {
+    for (const ref of [...URSUS_COUNCIL_SEATS, URSUS_COUNCIL_CHAIR]) {
+      expect(ref.split('/')[0]).toBe('openrouter')
+    }
+  })
+
+  it('exposes a config whose unavailable message names OpenRouter, not Anthropic', () => {
+    expect(URSUS_COUNCIL.seats).toBe(URSUS_COUNCIL_SEATS)
+    expect(URSUS_COUNCIL.chair).toBe(URSUS_COUNCIL_CHAIR)
+    expect(URSUS_COUNCIL.unavailable).toMatch(/OpenRouter/i)
+    expect(URSUS_COUNCIL.unavailable).not.toMatch(/Anthropic/i)
+  })
+})
+
+describe('resolveUrsusDeepResearchPipeline', () => {
+  beforeEach(() => {
+    listOllamaModelsSpy.mockReset()
+    listOllamaModelsSpy.mockResolvedValue({
+      models: [{ id: 'ornith:35b', label: 'ornith:35b' }],
+      reachable: true
+    })
+    vi.mocked(keyStatus).mockReturnValue({ openrouter: true } as never)
+  })
+
+  it('resolves every preset step to its curated role model when all are usable', async () => {
+    const result = await resolveUrsusDeepResearchPipeline()
+    expect('steps' in result).toBe(true)
+    if (!('steps' in result)) return
+    expect(result.steps.map((s) => s.role)).toEqual(
+      URSUS_DEEP_RESEARCH_PIPELINE.map((p) => p.role)
+    )
+    for (const step of result.steps) {
+      const role = CURATED_URSUS_ROLES.find((r) => r.name === step.role)
+      expect(step.modelRef).toBe(role!.modelRef)
+    }
+  })
+
+  it('errors (never starts) when the mandatory verifier is unusable', async () => {
+    vi.mocked(keyStatus).mockReturnValue({ openrouter: false } as never)
+    const result = await resolveUrsusDeepResearchPipeline()
+    expect('error' in result).toBe(true)
+    if ('error' in result) expect(result.error).toMatch(/OpenRouter/i)
+  })
+
+  it('silently drops an unusable NON-verifier step rather than failing', async () => {
+    // Ollama unreachable => the architect step drops; verifier + reviewer remain.
+    listOllamaModelsSpy.mockResolvedValue({ models: [], reachable: false })
+    const result = await resolveUrsusDeepResearchPipeline()
+    expect('steps' in result).toBe(true)
+    if (!('steps' in result)) return
+    expect(result.steps.map((s) => s.role)).toEqual(['verifier', 'reviewer'])
   })
 })
 

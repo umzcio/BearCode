@@ -82,7 +82,14 @@ vi.mock('./ursus', () => ({
     })[ref],
   CURATED_URSUS_ROLES: [
     { name: 'grunt', modelRef: 'openrouter/minimax/minimax-m3', description: 'fake grunt' }
-  ]
+  ],
+  URSUS_COUNCIL: { seats: ['ursus/seat'], chair: 'ursus/chair', unavailable: 'ursus' },
+  resolveUrsusDeepResearchPipeline: vi.fn(async () => ({
+    steps: [
+      { role: 'verifier', modelRef: 'openrouter/deepseek/deepseek-v4-pro', subtask: 'search' },
+      { role: 'reviewer', modelRef: 'openrouter/z-ai/glm-5.2', subtask: 'write it up' }
+    ]
+  }))
 }))
 
 // makeModel is mocked so buildSubagents can build distinguishable per-role
@@ -97,7 +104,10 @@ vi.mock('./models', () => ({
 // council.test.ts; mock it here so runGraph's council-dispatch seam can be
 // asserted without driving three model calls + a chair stream.
 vi.mock('./council', () => ({
-  runCouncil: vi.fn(async () => ({ paused: false }))
+  runCouncil: vi.fn(async () => ({ paused: false })),
+  // Sentinel configs: the dispatch seam picks one per router, and the tests
+  // assert WHICH object reached runCouncil -- opaque identity is enough.
+  URSA_COUNCIL: { seats: ['ursa/seat'], chair: 'ursa/chair', unavailable: 'ursa' }
 }))
 
 import {
@@ -149,10 +159,12 @@ import {
   URSUS_MODEL_REF,
   resolveUrsusModelRef,
   resolveSubagentUrsusModelRefs,
-  CURATED_URSUS_ROLES
+  CURATED_URSUS_ROLES,
+  URSUS_COUNCIL,
+  resolveUrsusDeepResearchPipeline
 } from './ursus'
 import { makeModel } from './models'
-import { runCouncil } from './council'
+import { runCouncil, URSA_COUNCIL } from './council'
 import {
   getLastResolvedModelRef,
   getLastUrsaRole,
@@ -2152,7 +2164,13 @@ describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {
       signal: new AbortController().signal
     })
     expect(result).toEqual({ paused: false })
-    expect(runCouncil).toHaveBeenCalledWith('c1', 'weigh X vs Y', sink, expect.anything())
+    expect(runCouncil).toHaveBeenCalledWith(
+      'c1',
+      'weigh X vs Y',
+      sink,
+      expect.anything(),
+      URSA_COUNCIL
+    )
     // Council never classifies and never builds an agent.
     expect(resolveUrsaModelRef).not.toHaveBeenCalled()
     expect(makeModel).not.toHaveBeenCalled()
@@ -2176,6 +2194,38 @@ describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {
       signal: new AbortController().signal
     }).catch(() => {})
     expect(runCouncil).not.toHaveBeenCalled()
+  })
+
+  // Parity: Ursus dispatches council through the SAME seam, with its OWN config.
+  it("routes a Ursus turn to runCouncil with URSUS_COUNCIL when mode is 'council'", async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('council'))
+    vi.mocked(runCouncil).mockResolvedValue({ paused: false })
+    const sink = makeSink()
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'weigh X vs Y',
+      modelRef: 'ursus/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    expect(result).toEqual({ paused: false })
+    expect(runCouncil).toHaveBeenCalledWith(
+      'c1',
+      'weigh X vs Y',
+      sink,
+      expect.anything(),
+      URSUS_COUNCIL
+    )
+    // Ursus's council must never convene on Ursa's config.
+    expect(runCouncil).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      URSA_COUNCIL
+    )
+    expect(resolveUrsusModelRef).not.toHaveBeenCalled()
+    expect(makeModel).not.toHaveBeenCalled()
   })
 })
 
@@ -2282,6 +2332,56 @@ describe('runGraph — Ursa Modes: deep research (Task 6)', () => {
     expect(setUrsaPipeline).not.toHaveBeenCalled()
   })
 
+  // Parity: Ursus deep-research uses the SAME seam and engine, resolving its
+  // steps through Ursus's own (async) resolver, never Ursa's.
+  it('auto-starts a Ursus deep-research pipeline via the Ursus resolver', async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('deep-research'))
+    const started = vi.fn()
+    setStartUrsaPipeline(started)
+    const sink = makeSink()
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'research quantum error correction',
+      modelRef: 'ursus/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    expect(result).toEqual({ paused: true })
+    expect(resolveUrsusDeepResearchPipeline).toHaveBeenCalled()
+    expect(resolveDeepResearchPipeline).not.toHaveBeenCalled()
+    const [, steps] = vi.mocked(setUrsaPipeline).mock.calls[0]
+    // The steps came from Ursus's table (OpenRouter refs), not Ursa's.
+    for (const s of steps as Array<{ modelRef: string }>) {
+      expect(s.modelRef.startsWith('openrouter/')).toBe(true)
+    }
+    expect(setUrsaPipelineStatus).toHaveBeenCalledWith('c1', 'running')
+    expect(started).toHaveBeenCalledWith('c1', sink, expect.anything())
+  })
+
+  it('fails honestly when the Ursus verifier is unusable', async () => {
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('deep-research'))
+    vi.mocked(resolveUrsusDeepResearchPipeline).mockResolvedValue({
+      error: 'Ursus Deep Research needs an OpenRouter API key for its web-search verifier.'
+    })
+    const started = vi.fn()
+    setStartUrsaPipeline(started)
+    const sink = makeSink()
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'research something',
+      modelRef: 'ursus/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    expect(result).toEqual({ paused: false, failed: true })
+    expect(setUrsaPipeline).not.toHaveBeenCalled()
+    expect(started).not.toHaveBeenCalled()
+    const err = vi
+      .mocked(sink.emit)
+      .mock.calls.map((c) => c[1])
+      .find((e) => e.type === 'error')
+    expect((err as { message: string }).message).toMatch(/OpenRouter/)
+  })
 })
 
 describe('runGraph — Ursa Phase 2 pipeline proposal (consent gate)', () => {

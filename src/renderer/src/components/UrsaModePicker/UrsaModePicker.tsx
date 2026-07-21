@@ -8,11 +8,15 @@ import { Popover } from '../ui/Popover'
 import { useCloseOnSettingsOpen } from '../../lib/useCloseOnSettingsOpen'
 import './UrsaModePicker.css'
 
-// Presentational copy for the three Ursa modes. Keyed by UrsaMode so TypeScript
-// enforces one entry per mode; the render order comes from URSA_MODES (the
-// canonical union in shared/ursaMode.ts) so the dropdown can never drift from
-// the type. `pillLabel` is the compact composer-button text.
-const MODE_COPY: Record<UrsaMode, { label: string; pillLabel: string; desc: string }> = {
+// Presentational copy for the three modes, per router. Ursa and Ursus expose
+// the SAME three modes and differ only in which models fill them, so only the
+// router-specific names in the descriptions vary. Keyed by UrsaMode so
+// TypeScript enforces one entry per mode; the render order comes from
+// URSA_MODES (the canonical union in shared/ursaMode.ts) so the dropdown can
+// never drift from the type. `pillLabel` is the compact composer-button text.
+type ModeCopy = Record<UrsaMode, { label: string; pillLabel: string; desc: string }>
+
+const URSA_COPY: ModeCopy = {
   code: { label: 'Code', pillLabel: 'Code', desc: 'Ursa routes each turn' },
   council: {
     label: 'Council',
@@ -26,11 +30,29 @@ const MODE_COPY: Record<UrsaMode, { label: string; pillLabel: string; desc: stri
   }
 }
 
-// Ursa-only replacement for the EffortPicker: effort is meaningless for a
-// router, so when the conversation's model is Ursa the composer swaps in this
-// per-conversation Mode picker (same slot, same Menu/Popover primitive, same
-// visual weight). Mounted by Composer.tsx behind the URSA_MODEL_REF check.
-export function UrsaModePicker(): React.JSX.Element {
+const URSUS_COPY: ModeCopy = {
+  code: { label: 'Code', pillLabel: 'Code', desc: 'Ursus routes each turn' },
+  council: {
+    label: 'Council',
+    pillLabel: 'Council',
+    desc: 'Three models deliberate, DeepSeek V4 Pro synthesizes'
+  },
+  'deep-research': {
+    label: 'Deep Research',
+    pillLabel: 'Deep Research',
+    desc: 'Multi-step web research with citations'
+  }
+}
+
+// The router-mode replacement for the EffortPicker: effort is meaningless for a
+// router, so when the conversation's model is Ursa OR Ursus the composer swaps
+// in this per-conversation Mode picker (same slot, same Menu/Popover primitive,
+// same visual weight). Both routers expose identical modes -- only the copy
+// naming their models differs. Mounted by Composer.tsx behind the
+// URSA_MODEL_REF / URSUS_MODEL_REF check.
+export function UrsaModePicker({ router = 'ursa' }: { router?: 'ursa' | 'ursus' }): React.JSX.Element {
+  const MODE_COPY = router === 'ursus' ? URSUS_COPY : URSA_COPY
+  const routerName = router === 'ursus' ? 'Ursus' : 'Ursa'
   const mode = useAppStore((s) => s.ursaMode)
   const setUrsaMode = useAppStore((s) => s.setUrsaMode)
   const [open, setOpen] = useState(false)
@@ -84,7 +106,7 @@ export function UrsaModePicker(): React.JSX.Element {
 
   return (
     <div className="ursa-mode-picker">
-      <Hint label="Ursa mode" side="top" disabled={open}>
+      <Hint label={`${routerName} mode`} side="top" disabled={open}>
         <button ref={triggerRef} className="pill-btn" onClick={() => setOpen((o) => !o)}>
           <span>{MODE_COPY[mode].pillLabel}</span>
           <span className="chev">

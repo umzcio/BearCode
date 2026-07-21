@@ -3,9 +3,10 @@
 // no frontier/flagship providers. Same "pick the router, let it route" mechanism
 // as Ursa (curated role table + classifier + optional pipeline), but its own
 // table, its own classifier call, and no shared state with Ursa's CURATED_ROLES --
-// same independence precedent Council already set. v1 is single-mode only: no
-// Council/Deep-Research equivalent, no mode concept at all (see
-// planning/2026-07-20-ursus-design.md).
+// same independence precedent Council already set. Ursus reaches full feature
+// parity with Ursa -- all three modes (Code / Council / Deep Research), the same
+// pipeline engine, the same subagent routing -- and differs ONLY in which models
+// fill every seat. Anything Ursa can do, Ursus does with OpenRouter/Ollama models.
 //
 // Roles are NOT user-configurable -- same philosophy as Ursa. Settings > Ursus is
 // limited to an on/off toggle and a read-only provider status check (see
@@ -19,6 +20,7 @@ import { getSettings } from '../settings'
 import { keyStatus } from '../keys'
 import { parseModelRef, listOllamaModels } from '../providers/registry'
 import { resolvePipelineSteps } from './ursa'
+import type { CouncilConfig } from './council'
 
 // Re-exported (not redeclared) so main-process callers of ursus.ts and renderer
 // callers of shared/types.ts see the exact same sentinel string.
@@ -148,6 +150,76 @@ export async function eligibleUrsusRoles(roles: readonly UrsaRole[]): Promise<Ur
     }
   }
   return result
+}
+
+// Ursus's council -- the exact structural mirror of Ursa's (council.ts's
+// COUNCIL_SEATS/COUNCIL_CHAIR): three diverse seats deliberate, a FOURTH,
+// distinct, deepest-reasoning model chairs and is never a seat. Diversity here
+// is model-family rather than API-provider (everything rides OpenRouter):
+// Moonshot / Z-AI / MiniMax sit, DeepSeek V4 Pro chairs. Deliberately all
+// OpenRouter and no Ollama seat: the runner's eligibility check is synchronous
+// keyStatus (council.ts's eligibleSeats), and a local 35B in a remote council
+// would need the async reachability probe -- same reason SUBAGENT_URSUS_ROLE_MAP
+// avoids the Ollama role. Adjust in code only, never user-facing.
+export const URSUS_COUNCIL_SEATS: readonly string[] = [
+  'openrouter/moonshotai/kimi-k3', // agentic coding + execution
+  'openrouter/z-ai/glm-5.2', // consistency + debugging rigor
+  'openrouter/minimax/minimax-m3' // fast, broad, general-purpose
+]
+export const URSUS_COUNCIL_CHAIR = 'openrouter/deepseek/deepseek-v4-pro' // reasoning + synthesis, NOT a seat
+
+export const URSUS_COUNCIL: CouncilConfig = {
+  seats: URSUS_COUNCIL_SEATS,
+  chair: URSUS_COUNCIL_CHAIR,
+  unavailable:
+    'Ursus Council mode needs an OpenRouter API key (it seats and chairs entirely on ' +
+    'OpenRouter models). Add one in Settings > Providers, or switch modes.'
+}
+
+// Ursus's Deep Research preset -- the same three-stage shape as Ursa's
+// DEEP_RESEARCH_PIPELINE (search -> analyze -> write), mapped onto Ursus's own
+// curated roles. Picking the mode IS the consent, so these steps are
+// auto-approved with no per-turn card. Adjust in code only.
+export const URSUS_DEEP_RESEARCH_PIPELINE: ReadonlyArray<{ role: string; subtask: string }> = [
+  { role: 'verifier', subtask: 'Search the live web; gather facts + sources with citations' },
+  {
+    role: 'architect',
+    subtask: 'Analyze findings, identify gaps and contradictions, reason through follow-ups'
+  },
+  { role: 'reviewer', subtask: 'Write the final comprehensive, citation-backed report' }
+]
+
+// Resolve the Ursus Deep Research preset into concrete steps, eligibility-gated
+// exactly like Ursa's resolveDeepResearchPipeline -- with two deliberate
+// differences. (1) ASYNC: Ursus's architect is Ollama-backed, and eligibility
+// for it means a live reachability probe, not a key check (see
+// eligibleUrsusRoles). (2) The mandatory step's error names OpenRouter, since
+// Ursus's verifier reaches the live web through OpenRouter's web_search server
+// tool rather than Perplexity. The verifier step stays MANDATORY -- live search
+// is the entire point of the mode -- so an unusable verifier returns an { error }
+// the caller surfaces as a recoverable turn error and never starts a pipeline.
+// Any OTHER unusable step is silently dropped (the mode degrades to what can
+// actually run). Exported for tests.
+export async function resolveUrsusDeepResearchPipeline(): Promise<
+  { steps: Array<{ role: string; modelRef: string; subtask: string }> } | { error: string }
+> {
+  const usable = await eligibleUrsusRoles(CURATED_URSUS_ROLES)
+  const steps: Array<{ role: string; modelRef: string; subtask: string }> = []
+  for (const preset of URSUS_DEEP_RESEARCH_PIPELINE) {
+    const role = usable.find((r) => r.name === preset.role)
+    if (!role) {
+      if (preset.role === 'verifier') {
+        return {
+          error:
+            'Ursus Deep Research needs an OpenRouter API key for its web-search verifier. ' +
+            'Add one in Settings > Providers.'
+        }
+      }
+      continue // drop an unusable non-verifier step
+    }
+    steps.push({ role: role.name, modelRef: role.modelRef, subtask: preset.subtask })
+  }
+  return { steps }
 }
 
 const ClassifierOutput = z.object({

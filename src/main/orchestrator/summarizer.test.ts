@@ -54,8 +54,12 @@ describe('summaryTriggerTokens', () => {
     expect(summaryTriggerTokens('ollama/llama3.2')).toBeNull()
   })
 
-  it('is null for a curated OpenRouter model (no window)', () => {
-    expect(summaryTriggerTokens('openrouter/deepseek/deepseek-chat')).toBeNull()
+  // OpenRouter models used to carry no contextWindow, which silently disabled
+  // auto-compaction for every OpenRouter conversation (and so for 4 of Ursus's
+  // 5 roles). They now carry real windows, so the trigger resolves like any
+  // other provider: 131_072 * 0.85 = 111_411.2 -> floored.
+  it('resolves for a curated OpenRouter model', () => {
+    expect(summaryTriggerTokens('openrouter/deepseek/deepseek-chat')).toBe(111_411)
   })
 
   it('is null for an unknown model id under a known provider', () => {

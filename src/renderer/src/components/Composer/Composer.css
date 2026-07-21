@@ -49,6 +49,37 @@
   opacity: 0.5;
   animation: ursa-spin var(--dur-ambient) linear infinite;
 }
+/* Ursus gets the identical treatment in its own light-blue palette (matching
+   ursus-teddy.svg) -- same mechanism, different colors, exactly like the
+   routers themselves. Reuses the ursa-spin keyframes and --ursa-ang property. */
+.composer--ursus {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--bg-raised), var(--bg-raised)) padding-box,
+    conic-gradient(from var(--ursa-ang, 0deg), #1c5f8f, #2f96e0, #6ec3fa, #8fd6ff, #6ec3fa, #2f96e0, #1c5f8f)
+      border-box;
+  animation: ursa-spin var(--dur-ambient) linear infinite;
+}
+.composer--ursus::before {
+  content: '';
+  position: absolute;
+  inset: -14px;
+  z-index: -1;
+  border-radius: 24px;
+  background: conic-gradient(
+    from var(--ursa-ang, 0deg),
+    #1c5f8f,
+    #2f96e0,
+    #6ec3fa,
+    #8fd6ff,
+    #6ec3fa,
+    #2f96e0,
+    #1c5f8f
+  );
+  filter: blur(22px);
+  opacity: 0.5;
+  animation: ursa-spin var(--dur-ambient) linear infinite;
+}
 @keyframes ursa-spin {
   to {
     --ursa-ang: 360deg;
@@ -56,7 +87,9 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .composer--ursa,
-  .composer--ursa::before {
+  .composer--ursa::before,
+  .composer--ursus,
+  .composer--ursus::before {
     animation: none;
   }
   .composer--ursa {
@@ -64,7 +97,13 @@
       linear-gradient(var(--bg-raised), var(--bg-raised)) padding-box,
       linear-gradient(135deg, #4c8dff, #5c98ff) border-box;
   }
-  .composer--ursa::before {
+  .composer--ursus {
+    background:
+      linear-gradient(var(--bg-raised), var(--bg-raised)) padding-box,
+      linear-gradient(135deg, #2f96e0, #6ec3fa) border-box;
+  }
+  .composer--ursa::before,
+  .composer--ursus::before {
     opacity: 0.3;
   }
 }

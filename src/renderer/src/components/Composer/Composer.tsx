@@ -6,7 +6,7 @@ import type {
   MentionRef,
   PickedAttachmentWire
 } from '@shared/types'
-import { URSA_MODEL_REF } from '@shared/types'
+import { URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
 import { EffortPicker } from '../EffortPicker/EffortPicker'
@@ -390,7 +390,14 @@ export function Composer({
 
   return (
     <div
-      className={'composer' + (modelRef === URSA_MODEL_REF ? ' composer--ursa' : '')}
+      className={
+        'composer' +
+        (modelRef === URSA_MODEL_REF
+          ? ' composer--ursa'
+          : modelRef === URSUS_MODEL_REF
+            ? ' composer--ursus'
+            : '')
+      }
       ref={composerRef}
     >
       {showNotice ? (
@@ -682,10 +689,16 @@ export function Composer({
         <div className="controls-right">
           <ContextMeter />
           <ModelPicker />
-          {/* Effort is meaningless for a router: Ursa conversations swap the
-              Effort control for the per-conversation Mode picker (Auto / Code /
+          {/* Effort is meaningless for a router: BOTH router conversations swap
+              the Effort control for the per-conversation Mode picker (Code /
               Council / Deep Research). Concrete models keep EffortPicker as-is. */}
-          {modelRef === URSA_MODEL_REF ? <UrsaModePicker /> : <EffortPicker />}
+          {modelRef === URSA_MODEL_REF ? (
+            <UrsaModePicker />
+          ) : modelRef === URSUS_MODEL_REF ? (
+            <UrsaModePicker router="ursus" />
+          ) : (
+            <EffortPicker />
+          )}
           {running ? (
             <Hint label="Stop" side="top">
               <button className="icon-btn send-btn stop" aria-label="Stop" onClick={onStop}>

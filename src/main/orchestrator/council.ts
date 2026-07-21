@@ -36,6 +36,26 @@ export const COUNCIL_SEATS: readonly string[] = [
 ]
 export const COUNCIL_CHAIR = 'anthropic/claude-fable-5' // deep reasoning + synthesis, NOT a seat
 
+// Which council convenes for a turn. Ursa and Ursus each supply one: the runner
+// below is entirely generic over it, so the two routers share one deliberation
+// engine and differ ONLY in which models sit and chair -- the same "same
+// mechanism, different models" split ursa.ts/ursus.ts already draw for roles.
+export interface CouncilConfig {
+  seats: readonly string[]
+  chair: string
+  // The honest recoverable error when this council cannot convene (no keyed
+  // seat, or no chair key). Names the providers THIS council actually needs.
+  unavailable: string
+}
+
+export const URSA_COUNCIL: CouncilConfig = {
+  seats: COUNCIL_SEATS,
+  chair: COUNCIL_CHAIR,
+  unavailable:
+    'Council mode needs at least one keyed council seat (OpenAI, Google, or xAI) and the ' +
+    'chair (Anthropic). Add the missing API key(s) in Settings > Providers, or switch modes.'
+}
+
 // A completed seat answer carried between stages. `seatRef` is the concrete
 // "provider/modelId"; `text` is the seat's full answer.
 export interface CouncilSeatAnswer {
@@ -62,10 +82,12 @@ export interface ResolvedReview {
 }
 
 // The seats whose provider currently has a configured key. Seats are never
-// Ollama, so a plain keyStatus check suffices (mirrors ursa.ts's eligibleRoles).
-export function eligibleSeats(): string[] {
+// Ollama (neither council's), so a plain keyStatus check suffices (mirrors
+// ursa.ts's eligibleRoles). Defaults to Ursa's council so existing callers and
+// tests read unchanged; Ursus passes its own seats.
+export function eligibleSeats(seats: readonly string[] = COUNCIL_SEATS): string[] {
   const status = keyStatus()
-  return COUNCIL_SEATS.filter((ref) => status[parseModelRef(ref).provider])
+  return seats.filter((ref) => status[parseModelRef(ref).provider])
 }
 
 // A short display label for a seat/chair (the modelId portion of the ref), used
@@ -192,37 +214,33 @@ function usageOf(
   return null
 }
 
-// The honest error shown when the council cannot convene (no keyed seats, or no
-// chair key, or every seat failed). Recoverable -- the user can add a key and
-// retry, or switch modes.
-const COUNCIL_UNAVAILABLE =
-  'Council mode needs at least one keyed council seat (OpenAI, Google, or xAI) and the ' +
-  'chair (Anthropic). Add the missing API key(s) in Settings > Providers, or switch modes.'
-
 // Run one full council turn. Emits council_seat events (answers + reviews),
 // streams the chair's synthesis as the turn's normal assistant_text, books
 // per-call usage on turn_meta.ursaCouncilUsage (seats + reviews) plus the
 // chair's own usage in the normal slot, and drives the conversation to its
 // terminal state itself (like closeOutTurn). Never pauses. `signal` aborts every
 // in-flight call at any stage; a failed seat degrades (drops from later stages)
-// rather than failing the turn.
+// rather than failing the turn. `config` selects which council convenes --
+// defaults to Ursa's so existing callers/tests are unaffected.
 export async function runCouncil(
   conversationId: string,
   userText: string,
   sink: RunSink,
-  signal: AbortSignal
+  signal: AbortSignal,
+  config: CouncilConfig = URSA_COUNCIL
 ): Promise<{ paused: boolean; failed?: boolean }> {
+  const { chair: councilChair } = config
   const emit = (event: Event): void => {
     sink.emit(conversationId, event)
     appendEvent(conversationId, event)
   }
   const startedAt = Date.now()
 
-  const seats = eligibleSeats()
-  const chairProvider = parseModelRef(COUNCIL_CHAIR).provider
+  const seats = eligibleSeats(config.seats)
+  const chairProvider = parseModelRef(councilChair).provider
   const chairKeyed = keyStatus()[chairProvider]
   if (seats.length === 0 || !chairKeyed) {
-    emit({ type: 'error', id: randomUUID(), message: COUNCIL_UNAVAILABLE, recoverable: true })
+    emit({ type: 'error', id: randomUUID(), message: config.unavailable, recoverable: true })
     sink.setState(conversationId, 'error')
     return { paused: false, failed: true }
   }
@@ -337,7 +355,7 @@ export async function runCouncil(
     const answerId = randomUUID()
     let answerText = ''
     let merged: AIMessageChunk | undefined
-    const stream = await makeModel(COUNCIL_CHAIR).stream(
+    const stream = await makeModel(councilChair).stream(
       [
         new SystemMessage(CHAIR_SYSTEM),
         new HumanMessage(buildChairPrompt(userText, answers, reviews))
@@ -363,7 +381,7 @@ export async function runCouncil(
       type: 'turn_meta',
       id: randomUUID(),
       provider: chairProvider,
-      model: parseModelRef(COUNCIL_CHAIR).modelId,
+      model: parseModelRef(councilChair).modelId,
       startedAt,
       endedAt: Date.now(),
       ...(chairUsage
@@ -378,7 +396,7 @@ export async function runCouncil(
     // gets an auto title (final-review finding). Titles run on the chair's
     // provider's cheap model.
     if (!signal.aborted) {
-      void maybeGenerateTitle(conversationId, chairProvider, parseModelRef(COUNCIL_CHAIR).modelId, userText, answerText, (id) => {
+      void maybeGenerateTitle(conversationId, chairProvider, parseModelRef(councilChair).modelId, userText, answerText, (id) => {
         const meta = getConversationMeta(id)
         if (meta) sink.metaChanged(meta)
       })

@@ -1130,6 +1130,8 @@ describe('modelDisplay — Ursus sentinel', () => {
   it('returns "Ursus" instead of falling through to "Choose a model"', () => {
     const result = modelDisplay([], URSUS_MODEL_REF)
     expect(result.name).toBe('Ursus')
-    expect(result.color).toBe('#6b5842')
+    // Light blue, matching ursus-teddy.svg (was brown, for the retired
+    // walking-bear icon).
+    expect(result.color).toBe('#6ec3fa')
   })
 })
