@@ -263,25 +263,27 @@ export const PinnedApprovalArea = createContext(false)
 // (see PinnedApprovalArea above), so the singletons can never double up.
 // Computed ONCE per ToolStep render (instead of once per Pending* card,
 // M-17) and passed down as an `isFirst` prop to whichever card is rendered.
-function useFirstPendingCallId(convoId: string): string | null {
-  const pinnedCopy = useContext(PinnedApprovalArea)
-  return useAppStore((s) => {
-    if (!pinnedCopy) return null
-    const events = s.conversations[convoId]?.events
-    if (!events) return null
-    for (const e of events) {
-      if (e.type === 'tool_call' && e.approvalState === 'pending') return e.id
-    }
-    return null
-  })
+// The pinned copy IS the interactive one, by construction: ConversationView
+// renders exactly one pinned card, choosing the first pending tool_call itself.
+// So being pinned is the whole answer -- no second scan needed.
+//
+// This used to ALSO re-scan the store for the first pending call and compare
+// ids, which meant two independent "find the first pending call" passes had to
+// agree. When they didn't, the pinned card silently lost its number chips AND
+// its hotkeys. Routers are the way they disagree: an `ursa_pipeline` consent
+// call sits in the same event list, so while one is pending it wins the scan
+// here while ConversationView has pinned something else -- reproduced in
+// ToolStep.pinned.test.tsx. Deriving from the context alone cannot desync, and
+// cannot double-fire either, since only one pinned card ever exists.
+function useIsPinnedApproval(): boolean {
+  return useContext(PinnedApprovalArea)
 }
 
 export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const openReviewForFile = useAppStore((s) => s.openReviewForFile)
   const openFile = useAppStore((s) => s.openFile)
-  const firstPendingCallId = useFirstPendingCallId(convoId)
-  const isFirst = call.id === firstPendingCallId
+  const isFirst = useIsPinnedApproval()
 
   if (
     (call.tool === 'write_file' || call.tool === 'edit_file') &&
