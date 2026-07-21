@@ -11,7 +11,9 @@ describe('model context windows', () => {
   it('google models carry a context window', () => {
     expect(GOOGLE_MODELS.every((m) => typeof m.contextWindow === 'number')).toBe(true)
   })
-  it('openrouter models omit it (varied/unknown)', () => {
-    expect(OPENROUTER_MODELS.every((m) => m.contextWindow === undefined)).toBe(true)
+  it('openrouter models carry a context window', () => {
+    expect(OPENROUTER_MODELS.every((m) => typeof m.contextWindow === 'number')).toBe(true)
+    const kimi = OPENROUTER_MODELS.find((m) => m.id === 'moonshotai/kimi-k3')
+    expect(kimi?.contextWindow).toBe(1_048_576)
   })
 })

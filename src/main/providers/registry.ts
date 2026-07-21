@@ -42,10 +42,13 @@ export const GOOGLE_MODELS: ModelInfo[] = [
 ]
 
 // Curated popular subset; live discovery of the full catalog lands in Phase 6.
+// Context windows verified against openrouter.ai per-model pages, 2026-07-20.
 export const OPENROUTER_MODELS: ModelInfo[] = [
-  { id: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
-  { id: 'moonshotai/kimi-k3', label: 'Kimi K3' },
-  { id: 'z-ai/glm-5.2', label: 'GLM 5.2' }
+  { id: 'deepseek/deepseek-chat', label: 'DeepSeek Chat', contextWindow: 131_072 },
+  { id: 'moonshotai/kimi-k3', label: 'Kimi K3', contextWindow: 1_048_576 },
+  { id: 'z-ai/glm-5.2', label: 'GLM 5.2', contextWindow: 1_000_000 },
+  { id: 'deepseek/deepseek-v4-pro', label: 'DeepSeek V4 Pro', contextWindow: 1_000_000 },
+  { id: 'minimax/minimax-m3', label: 'MiniMax M3', contextWindow: 1_000_000 }
 ]
 
 // Perplexity's Sonar family (verified against docs.perplexity.ai, 2026-07).
