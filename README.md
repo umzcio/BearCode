@@ -19,7 +19,7 @@
   route each turn to the best of them) at a folder and watch it plan, run tools, and produce
   reviewable diffs — with a full agent-loop spine: rules, skills, workflows, hooks, plugins,
   memory, and sandboxing, all on your machine.<br/><br/>
-  <a href="#quick-start">Quick Start</a> · <a href="#meet-ursa">Meet Ursa</a> · <a href="#features">Features</a> · <a href="#the-agents-spine">The .agents Spine</a> · <a href="#architecture">Architecture</a>
+  <a href="#quick-start">Quick Start</a> · <a href="#meet-ursa">Meet Ursa</a> · <a href="#meet-ursus">Meet Ursus</a> · <a href="#features">Features</a> · <a href="#the-agents-spine">The .agents Spine</a> · <a href="#architecture">Architecture</a>
 </p>
 
 ---
@@ -120,6 +120,53 @@ composer (next to the model picker, where the effort selector lives for non-Ursa
 
 ---
 
+## Meet Ursus
+
+<p align="center">
+  <img src="src/renderer/src/assets/ursus-teddy.svg" alt="Ursus" width="110" />
+</p>
+
+<p align="center">
+  <strong>Everything Ursa does — without the frontier price tag.</strong>
+</p>
+
+**Ursus** is Ursa's sibling router, sitting right below it in the model picker. Same mechanism,
+same modes, same pipelines, same subagent routing — the only difference is which models fill the
+seats. Ursus stays entirely on **OpenRouter and local Ollama**, so no frontier-lab API key is
+required:
+
+| Role | When your message is… | Ursus routes to |
+|------|------------------------|-----------------|
+| 🏛️ **Architect** | planning, deciding, or designing *before* building | Ornith-1.0 35B *(local)* |
+| 🔨 **Coder** | anything whose deliverable is code or files — any size | Kimi K3 |
+| 🔍 **Reviewer** | review, critique, or verification of existing work | GLM 5.2 |
+| 🔎 **Verifier** | fact-checks and current-info lookups against the live web | DeepSeek V4 Pro |
+| ⚡ **Grunt** | quick, routine, mechanical asks | MiniMax M3 |
+
+Everything described under [Meet Ursa](#meet-ursa) — curated roles, graceful degradation,
+crash-safe per-turn persistence, role badges, subagent routing, and consent-gated pipelines —
+applies identically here. The composer picks up the same slow-rotating aura, in Ursus's light blue.
+
+**Modes** work the same way, with Ursus's own models:
+
+- **Code** — the default; every turn classified fresh and routed to the best-fitting role.
+- **Council** — Kimi K3, GLM 5.2, and MiniMax M3 answer independently and anonymously peer-review
+  each other, with **DeepSeek V4 Pro** chairing the synthesis.
+- **Deep Research** — DeepSeek V4 Pro **searches** the live web (via OpenRouter's web-search
+  server tool), Ornith-1.0 **analyzes** the findings, and GLM 5.2 **writes** the citation-backed
+  report. Requires an OpenRouter API key.
+
+> **Note.** Ursus trades frontier-model quality for cost and local control. In side-by-side
+> testing it is noticeably more prone to asserting unverified specifics than Ursa, and less
+> inclined to check its own work — turn Web Search on for anything fact-sensitive, and prefer Ursa
+> when accuracy matters more than spend.
+
+**Requirements.** An OpenRouter API key covers four of the five roles. The Architect additionally
+needs [Ollama](https://ollama.com) running locally with `ornith:35b` pulled; without it that role
+is skipped and the other four still route normally. Enable Ursus in Settings → Ursus.
+
+---
+
 ## See It In Action
 
 <p align="center">
@@ -138,6 +185,8 @@ composer (next to the model picker, where the effort selector lives for non-Ursa
 - **Ursa dynamic model routing**: a cross-provider orchestrator entry in the model picker that
   classifies each turn and routes it to the right model for the job — see
   [Meet Ursa](#meet-ursa)
+- **Ursus routing**: the same router, the same three modes, restricted to OpenRouter + local
+  Ollama models for a no-frontier-key setup — see [Meet Ursus](#meet-ursus)
 - **Multi-provider model support**: Anthropic, OpenAI, Google, xAI, Perplexity, OpenRouter, and
   local Ollama — switch mid-conversation, set per-project defaults, add custom models and context
   windows. Includes Grok 4.20 Multi-Agent, where the effort picker maps to the model's parallel
