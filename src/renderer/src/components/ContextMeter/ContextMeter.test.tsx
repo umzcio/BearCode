@@ -48,7 +48,7 @@ describe('ContextMeter', () => {
     const { container } = render(<ContextMeter />)
     expect(container.firstChild).toBeNull()
   })
-  it('hidden when the model has no known window', () => {
+  it('hidden when the model has no known window AND no usage was reported', () => {
     useAppStore.setState({
       modelRef: 'ollama/x',
       view: { kind: 'conversation', id: 'c1' },
@@ -58,6 +58,41 @@ describe('ContextMeter', () => {
     })
     const { container } = render(<ContextMeter />)
     expect(container.firstChild).toBeNull()
+  })
+
+  // Regression: an unknown context window used to hide the ENTIRE meter, taking
+  // the token/cost breakdown with it. Ursus routes its architect role to a local
+  // Ollama model (no window in /api/tags), so most Ursus turns showed no usage
+  // UI at all. Usage and cost do not need a window -- only the ring's % does.
+  it('still shows tokens and cost when the window is unknown but usage exists', () => {
+    useAppStore.setState({
+      modelRef: 'ursus/auto',
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: {
+        c1: convo([
+          {
+            type: 'turn_meta',
+            id: 't1',
+            provider: 'ollama',
+            model: 'ornith:35b',
+            startedAt: 0,
+            endedAt: 1,
+            ursaRole: 'architect',
+            usage: { inputTokens: 1200, outputTokens: 300, lastInputTokens: 1200 }
+          }
+        ]) as never
+      }
+    })
+    const { container } = render(<ContextMeter />)
+    // The trigger renders (it did not before), labelled for the unknown case.
+    const trigger = screen.getByLabelText(/token usage and cost/i)
+    expect(trigger).toBeTruthy()
+    expect(container.querySelector('.context-ring.unknown')).toBeTruthy()
+    // And the breakdown is reachable, reporting the tokens we do know.
+    fireEvent.click(trigger)
+    expect(screen.getByText(/tokens used/i)).toBeTruthy()
+    expect(screen.getByText(/context window unknown/i)).toBeTruthy()
+    expect(screen.getByText(/1,200/)).toBeTruthy()
   })
   it('shows a percentage for an active conversation', () => {
     useAppStore.setState({

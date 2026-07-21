@@ -59,31 +59,46 @@ export function ContextMeter(): React.JSX.Element | null {
     ? (convo ? latestResolvedModelRef(convo.events) : null)
     : modelRef
   const ctxWindow = contextWindowFor(providers, effectiveModelRef)
-  if (!convo || !convoId || !ctxWindow) return null
 
   // Prefer the provider's real last-turn prompt size; fall back to the char/4
   // estimate until any turn reports usage.
-  const measuredTokens = latestUsage(convo.events)?.lastInputTokens ?? null
+  const measuredTokens = latestUsage(convo?.events ?? [])?.lastInputTokens ?? null
   const measured = measuredTokens !== null
-  const tokens = measured ? measuredTokens : conversationTokens(convo.events)
-  const { pct, near } = contextUsage(tokens, ctxWindow)
-  const state = pct >= 100 ? 'over' : near ? 'near' : ''
-  const offset = CIRC * (1 - Math.min(100, pct) / 100)
+  const tokens = measured ? measuredTokens : conversationTokens(convo?.events ?? [])
 
-  // Per-model breakdown + cost — shown only once at least one turn has reported
-  // measured usage (mirrors how the ring gates on a known context window).
-  const byModel = usageByModel(convo.events)
+  // Per-model breakdown + cost. NONE of this needs a context window -- only the
+  // ring's percentage does. A model with no known window (every Ollama model,
+  // whose catalog comes from a live /api/tags listing that carries no window;
+  // also any custom model added without one) used to hide the ENTIRE meter,
+  // taking the token and cost breakdown down with it. Since Ursus routes its
+  // architect role to a local Ollama model, that meant no usage UI at all for
+  // most Ursus turns. The window is now optional: the breakdown always renders
+  // once a turn has reported usage, and only the ring degrades.
+  const byModel = usageByModel(convo?.events ?? [])
   const cost = conversationCost(byModel, modelPricing)
-  // Per-role spend (Ursa-routed conversations only) — empty otherwise.
-  const byRole = costByRole(convo.events, modelPricing)
+  // Per-role spend (router-driven conversations only) — empty otherwise.
+  const byRole = costByRole(convo?.events ?? [], modelPricing)
+
+  // Nothing to show only when there is genuinely nothing: no conversation, or a
+  // conversation with neither a known window nor any measured usage yet.
+  if (!convo || !convoId) return null
+  if (!ctxWindow && byModel.length === 0) return null
+
+  const usage = ctxWindow ? contextUsage(tokens, ctxWindow) : null
+  const pct = usage?.pct ?? null
+  const state = pct === null ? 'unknown' : pct >= 100 ? 'over' : usage?.near ? 'near' : ''
+  // With no known window the ring shows an empty track (no fill), signalling
+  // "usage is known, capacity isn't" rather than a misleading 0%.
+  const offset = pct === null ? CIRC : CIRC * (1 - Math.min(100, pct) / 100)
+  const ringLabel = pct === null ? 'Token usage and cost' : `Context ${pct}% used`
 
   return (
     <div className="context-meter-wrap">
       <button
         ref={triggerRef}
         className={'context-ring ' + state}
-        aria-label={`Context ${pct}% used`}
-        title={`${measured ? '' : '~'}${pct}% context used`}
+        aria-label={ringLabel}
+        title={pct === null ? ringLabel : `${measured ? '' : '~'}${pct}% context used`}
         onClick={() => setOpen((o) => !o)}
       >
         <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true">
@@ -106,21 +121,37 @@ export function ContextMeter(): React.JSX.Element | null {
         placement="top-end"
       >
         <div className="menu menu--in-popover context-popover">
-          <div className="context-pop-row">
-            <span className="context-pop-label">Context window</span>
-            <span className="context-pop-pct">{pct}%</span>
-          </div>
-          <div className="context-pop-bar">
-            <div
-              className={'context-pop-bar-fill ' + state}
-              style={{ transform: `scaleX(${Math.min(100, pct) / 100})` }}
-            />
-          </div>
-          <div className="context-pop-sub">
-            {measured ? '' : '~'}
-            {tokens.toLocaleString()} of {ctxWindow.toLocaleString()} tokens (
-            {measured ? 'measured' : 'estimated'})
-          </div>
+          {ctxWindow !== undefined && pct !== null ? (
+            <>
+              <div className="context-pop-row">
+                <span className="context-pop-label">Context window</span>
+                <span className="context-pop-pct">{pct}%</span>
+              </div>
+              <div className="context-pop-bar">
+                <div
+                  className={'context-pop-bar-fill ' + state}
+                  style={{ transform: `scaleX(${Math.min(100, pct) / 100})` }}
+                />
+              </div>
+              <div className="context-pop-sub">
+                {measured ? '' : '~'}
+                {tokens.toLocaleString()} of {ctxWindow.toLocaleString()} tokens (
+                {measured ? 'measured' : 'estimated'})
+              </div>
+            </>
+          ) : (
+            /* Window unknown (e.g. a local Ollama model): report the tokens we
+               DO know honestly rather than inventing a capacity to divide by. */
+            <>
+              <div className="context-pop-row">
+                <span className="context-pop-label">Tokens used</span>
+                <span className="context-pop-pct">{tokens.toLocaleString()}</span>
+              </div>
+              <div className="context-pop-sub">
+                context window unknown for this model
+              </div>
+            </>
+          )}
           {byModel.length > 0 ? (
             <>
               <div className="context-pop-divider" />

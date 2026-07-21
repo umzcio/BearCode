@@ -160,7 +160,54 @@ export function capabilitiesFor(ref: string): ModelCapabilities | null {
   return CAPABILITIES[ref] ?? null
 }
 
-export async function listOllamaModels(): Promise<{
+// /api/tags carries no context window, so an Ollama model's window has to come
+// from /api/show, which reports it under an ARCHITECTURE-prefixed key
+// ("qwen35moe.context_length", "llama.context_length", ...). The architecture is
+// also in model_info as general.architecture, but matching any *.context_length
+// key is strictly more robust and costs nothing. Ollama does not guarantee the
+// field exists for every model, so a miss is normal -> undefined, not an error.
+export function contextLengthFromShow(payload: unknown): number | undefined {
+  const info = (payload as { model_info?: Record<string, unknown> } | null)?.model_info
+  if (!info) return undefined
+  for (const [key, value] of Object.entries(info)) {
+    if (key.endsWith('.context_length') && typeof value === 'number' && value > 0) return value
+  }
+  return undefined
+}
+
+// One /api/show round trip per model is far too expensive to repeat on every
+// listing (listOllamaModels runs per-turn via eligibleUrsusRoles). A model's
+// context length is immutable for a given pulled tag, so cache it for the
+// process lifetime and only ever fetch each id once.
+const ollamaContextWindows = new Map<string, number | undefined>()
+
+async function fetchOllamaContextWindow(base: string, id: string): Promise<number | undefined> {
+  if (ollamaContextWindows.has(id)) return ollamaContextWindows.get(id)
+  try {
+    const res = await fetch(`${base}/api/show`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: id }),
+      signal: AbortSignal.timeout(4000)
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const win = contextLengthFromShow(await res.json())
+    ollamaContextWindows.set(id, win)
+    return win
+  } catch {
+    // Do NOT cache a failure: a transient error should not permanently mark the
+    // model as window-less for the rest of the session.
+    return undefined
+  }
+}
+
+// `withContextWindows` is opt-in because it costs one extra request per model.
+// Callers that only need the model LIST (per-turn eligibility checks) leave it
+// off and keep the single-request fast path; the catalog that feeds the
+// renderer (and therefore the context meter) turns it on.
+export async function listOllamaModels(
+  opts: { withContextWindows?: boolean } = {}
+): Promise<{
   models: ModelInfo[]
   reachable: boolean
   note?: string
@@ -170,7 +217,16 @@ export async function listOllamaModels(): Promise<{
     const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(2000) })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = (await res.json()) as { models?: { name: string }[] }
-    const models = (data.models ?? []).map((m) => ({ id: m.name, label: m.name }))
+    const names = (data.models ?? []).map((m) => m.name)
+    if (!opts.withContextWindows) {
+      return { models: names.map((id) => ({ id, label: id })), reachable: true }
+    }
+    const models = await Promise.all(
+      names.map(async (id) => {
+        const contextWindow = await fetchOllamaContextWindow(base, id)
+        return { id, label: id, ...(contextWindow ? { contextWindow } : {}) }
+      })
+    )
     return { models, reachable: true }
   } catch {
     return { models: [], reachable: false, note: 'Ollama not running' }
@@ -225,7 +281,11 @@ export const REGISTRY: ProviderRegistryEntry[] = [
     displayName: 'Ollama',
     color: '#3ecf8e',
     requiresKey: false,
-    listModels: listOllamaModels
+    // The catalog path feeds the renderer (model picker, context meter, pricing),
+    // so it pays the extra /api/show round trip per model to learn each one's
+    // context window. Per-turn eligibility checks call listOllamaModels()
+    // directly, without the flag, and keep the single-request fast path.
+    listModels: () => listOllamaModels({ withContextWindows: true })
   }
 ]
 

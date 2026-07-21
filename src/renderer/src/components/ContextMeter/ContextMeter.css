@@ -31,6 +31,13 @@
 .context-ring.over {
   color: var(--danger, var(--red));
 }
+/* Window unknown (e.g. a local Ollama model): the ring is an empty track --
+   usage is known, capacity isn't. Dashed to read as "no reading available"
+   rather than a real 0%. */
+.context-ring.unknown .ring-track {
+  stroke-dasharray: 2 2.5;
+  opacity: 0.75;
+}
 
 .context-ring .ring-track {
   fill: none;
