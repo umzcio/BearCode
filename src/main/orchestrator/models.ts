@@ -76,6 +76,35 @@ export class XaiChatOpenAI extends ChatOpenAICompletions {
   }
 }
 
+// OpenRouter's `openrouter:web_search` server tool (executed by OpenRouter,
+// works for ANY OpenRouter model regardless of the underlying provider's own
+// search support -- falls back to a non-native search engine when the
+// underlying model has no native search). Same invocationParams-chokepoint
+// pattern as AnthropicSearchChat below: appended only when the per-
+// conversation Web Search toggle is on (makeModel sets bearcodeWebSearch).
+// ChatOpenAICompletions (not plain ChatOpenAI) for the same reason
+// ToollessChatOpenAI/XaiChatOpenAI above extend it -- only Completions
+// exposes the overridable raw-response conversion hooks at runtime.
+const OPENROUTER_WEB_SEARCH = { type: 'openrouter:web_search' }
+export class OpenRouterSearchChat extends ChatOpenAICompletions {
+  bearcodeWebSearch = false
+  override invocationParams(
+    ...args: Parameters<ChatOpenAICompletions['invocationParams']>
+  ): ReturnType<ChatOpenAICompletions['invocationParams']> {
+    const params = super.invocationParams(...args)
+    if (!this.bearcodeWebSearch) return params
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const p = params as any
+    const existing = Array.isArray(p.tools) ? p.tools : []
+    const has = existing.some(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (t: any) => t && typeof t === 'object' && t.type === 'openrouter:web_search'
+    )
+    if (!has) p.tools = [...existing, OPENROUTER_WEB_SEARCH]
+    return params
+  }
+}
+
 // The delta hook returns a message chunk; the non-streaming hook returns a
 // message. Both carry response_metadata. rawResponse is the full parsed API
 // payload (per-SSE-chunk when streaming), where Perplexity's/xAI's fields live.
@@ -289,13 +318,24 @@ export function makeModel(
     }
     case 'google':
       return new ChatGoogleGenerativeAI({ apiKey: requireKey('google'), model: modelId, ...extras })
-    case 'openrouter':
+    case 'openrouter': {
+      if (search) {
+        const m = new OpenRouterSearchChat({
+          apiKey: requireKey('openrouter'),
+          model: modelId,
+          configuration: { baseURL: 'https://openrouter.ai/api/v1' },
+          ...extras
+        })
+        m.bearcodeWebSearch = true
+        return m
+      }
       return new ChatOpenAI({
         apiKey: requireKey('openrouter'),
         model: modelId,
         configuration: { baseURL: 'https://openrouter.ai/api/v1' },
         ...extras
       })
+    }
     case 'perplexity':
       // Perplexity is an OpenAI-compatible Chat Completions endpoint. Same
       // pattern as openrouter: ChatOpenAI + a baseURL override. NEVER

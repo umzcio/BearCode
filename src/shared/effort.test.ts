@@ -86,11 +86,16 @@ describe('webSearchCapability', () => {
     expect(webSearchCapability('openai/gpt-5.6-sol')).toBe('toggle')
   })
 
-  it('is always-on for perplexity and unavailable elsewhere', () => {
+  it('is always-on for perplexity and unavailable for non-reasoning OpenAI/google/unknown', () => {
     expect(webSearchCapability('perplexity/sonar-pro')).toBe('always')
     expect(webSearchCapability('openai/gpt-5-chat-latest')).toBe('none')
     expect(webSearchCapability('google/gemini-2.5-pro')).toBe('none')
-    expect(webSearchCapability('openrouter/deepseek/deepseek-chat')).toBe('none')
     expect(webSearchCapability(null)).toBe('none')
+  })
+
+  it('is a toggle for openrouter (any model) and unavailable for ollama (fully local)', () => {
+    expect(webSearchCapability('openrouter/deepseek/deepseek-chat')).toBe('toggle')
+    expect(webSearchCapability('openrouter/moonshotai/kimi-k3')).toBe('toggle')
+    expect(webSearchCapability('ollama/ornith:35b')).toBe('none')
   })
 })

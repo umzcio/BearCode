@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('../keys', () => ({
   getKey: (p: string) =>
-    ['anthropic', 'perplexity', 'xai', 'openai'].includes(p) ? 'sk-test' : undefined
+    ['anthropic', 'perplexity', 'xai', 'openai', 'openrouter'].includes(p) ? 'sk-test' : undefined
 }))
 
 import { makeModel, buildModelExtras } from './models'
@@ -115,6 +115,32 @@ describe('makeModel', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ws = onTools.find((t: any) => t?.name === 'web_search')
     expect(ws?.type).toBe('web_search_20250305')
+  })
+
+  it('OpenRouter search-off is a plain ChatOpenAI with no server tools', () => {
+    const off = makeModel('openrouter/moonshotai/kimi-k3')
+    expect(off.constructor.name).not.toBe('OpenRouterSearchChat')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const offTypes = ((off as any).invocationParams({}).tools ?? []).map((t: any) => t.type)
+    expect(offTypes).not.toContain('openrouter:web_search')
+  })
+
+  it('OpenRouter search-on IS an OpenRouterSearchChat instance with the openrouter:web_search tool', () => {
+    const on = makeModel('openrouter/moonshotai/kimi-k3', { webSearch: true })
+    expect(on.constructor.name).toBe('OpenRouterSearchChat')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const types = ((on as any).invocationParams({}).tools ?? []).map((t: any) => t.type)
+    expect(types).toContain('openrouter:web_search')
+  })
+
+  it('OpenRouter search-on does not duplicate the server tool across repeated invocationParams calls', () => {
+    const on = makeModel('openrouter/moonshotai/kimi-k3', { webSearch: true })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m = on as any
+    m.invocationParams({})
+    const params = m.invocationParams({})
+    const types = (params.tools ?? []).map((t: { type?: string }) => t.type)
+    expect(types.filter((t: string) => t === 'openrouter:web_search')).toHaveLength(1)
   })
 
   it('grok-4.20-multi-agent carries agent_count in its request params', () => {

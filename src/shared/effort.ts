@@ -98,7 +98,14 @@ export function webSearchCapability(modelRef: string | null): 'toggle' | 'always
       return 'toggle'
     case 'perplexity':
       return 'always'
+    case 'openrouter':
+      // OpenRouter's openrouter:web_search server tool works for ANY
+      // OpenRouter model regardless of the underlying provider's own search
+      // support (falls back to a non-native search engine when needed).
+      return 'toggle'
     default:
+      // ollama, unknown: no server-side search mechanism exists for fully
+      // local inference.
       return 'none'
   }
 }
