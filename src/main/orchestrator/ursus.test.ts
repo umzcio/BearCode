@@ -6,7 +6,8 @@ import {
   CURATED_URSUS_ROLES,
   ursusRequiredProviders,
   SUBAGENT_URSUS_ROLE_MAP,
-  resolveSubagentUrsusModelRefs
+  resolveSubagentUrsusModelRefs,
+  roleNameForModelRef
 } from './ursus'
 
 vi.mock('../db', () => ({}))
@@ -38,6 +39,16 @@ describe('isUrsusModelRef', () => {
   it('matches only the sentinel', () => {
     expect(isUrsusModelRef(URSUS_MODEL_REF)).toBe(true)
     expect(isUrsusModelRef('openrouter/moonshotai/kimi-k3')).toBe(false)
+  })
+})
+
+describe('roleNameForModelRef', () => {
+  it('recovers the role name for a declined-pipeline Ursus modelRef', () => {
+    expect(roleNameForModelRef('openrouter/moonshotai/kimi-k3')).toBe('coder')
+    expect(roleNameForModelRef('ollama/ornith:35b')).toBe('architect')
+  })
+  it('is undefined for a modelRef no curated Ursus role maps to', () => {
+    expect(roleNameForModelRef('anthropic/claude-sonnet-5')).toBeUndefined()
   })
 })
 

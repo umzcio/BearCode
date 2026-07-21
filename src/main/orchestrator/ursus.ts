@@ -112,6 +112,14 @@ export function resolveSubagentUrsusModelRefs(): Record<string, string> {
   return result
 }
 
+// Mirrors ursa.ts's roleNameForModelRef -- used by the DECLINED-pipeline path
+// so a declined Ursus proposal recovers its role name for turn_meta the same
+// way a declined Ursa proposal does. undefined when no curated Ursus role
+// maps to that ref, an honest degradation to a role-less turn_meta.
+export function roleNameForModelRef(modelRef: string): string | undefined {
+  return CURATED_URSUS_ROLES.find((r) => r.modelRef === modelRef)?.name
+}
+
 // The set of providers Ursus's curated roles depend on -- read by Settings >
 // Ursus to render its read-only provider-status check.
 export function ursusRequiredProviders(): ProviderId[] {

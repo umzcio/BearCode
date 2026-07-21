@@ -108,7 +108,8 @@ import {
   isUrsusModelRef,
   resolveUrsusModelRef,
   CURATED_URSUS_ROLES,
-  resolveSubagentUrsusModelRefs
+  resolveSubagentUrsusModelRefs,
+  roleNameForModelRef as roleNameForUrsusModelRef
 } from './ursus'
 import { runCouncil } from './council'
 import { compactionAdvanced } from './compaction'
@@ -3201,7 +3202,10 @@ export async function runGraph(opts: {
     })
   } else if (ursaResolved) {
     resolvedModelRef = ursaResolved.modelRef
-    ursaRole = ursaResolved.ursaRole ?? roleNameForModelRef(ursaResolved.modelRef)
+    ursaRole =
+      ursaResolved.ursaRole ??
+      roleNameForModelRef(ursaResolved.modelRef) ??
+      roleNameForUrsusModelRef(ursaResolved.modelRef)
   } else {
     const turnModel = await resolveTurnModelRef(conversationId, modelRef, userText)
     resolvedModelRef = turnModel.modelRef

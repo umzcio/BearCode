@@ -73,6 +73,13 @@ vi.mock('./ursus', () => ({
   isUrsusModelRef: (ref: string) => ref === 'ursus/auto',
   resolveUrsusModelRef: vi.fn(),
   resolveSubagentUrsusModelRefs: vi.fn(() => ({})),
+  // Mirrors the ./ursa mock's roleNameForModelRef above: a real reverse-lookup
+  // (it is pure) against this file's fixture, so the declined-pipeline branch
+  // stays honest for any test exercising it on a Ursus-resolved ref.
+  roleNameForModelRef: (ref: string) =>
+    ({
+      'openrouter/minimax/minimax-m3': 'grunt'
+    })[ref],
   CURATED_URSUS_ROLES: [
     { name: 'grunt', modelRef: 'openrouter/minimax/minimax-m3', description: 'fake grunt' }
   ]
