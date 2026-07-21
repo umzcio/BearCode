@@ -21,11 +21,15 @@
   initial-value: 0deg;
   inherits: false;
 }
+/* Orange, sampled straight from ursa-teddy.svg's own palette (#8e2f01 darkest,
+   #be3e00 shading, #ed5500 the dominant body colour, #fd741b the highlight) so
+   the aura matches the mascot -- the same relationship Ursus's light blue has
+   to ursus-teddy.svg. */
 .composer--ursa {
   border: 1px solid transparent;
   background:
     linear-gradient(var(--bg-raised), var(--bg-raised)) padding-box,
-    conic-gradient(from var(--ursa-ang, 0deg), #2f5fb8, #4c8dff, #5c98ff, #8fc0ff, #5c98ff, #4c8dff, #2f5fb8)
+    conic-gradient(from var(--ursa-ang, 0deg), #8e2f01, #be3e00, #ed5500, #fd741b, #ed5500, #be3e00, #8e2f01)
       border-box;
   animation: ursa-spin var(--dur-ambient) linear infinite;
 }
@@ -37,13 +41,13 @@
   border-radius: 24px;
   background: conic-gradient(
     from var(--ursa-ang, 0deg),
-    #2f5fb8,
-    #4c8dff,
-    #5c98ff,
-    #8fc0ff,
-    #5c98ff,
-    #4c8dff,
-    #2f5fb8
+    #8e2f01,
+    #be3e00,
+    #ed5500,
+    #fd741b,
+    #ed5500,
+    #be3e00,
+    #8e2f01
   );
   filter: blur(22px);
   opacity: 0.5;
@@ -95,7 +99,7 @@
   .composer--ursa {
     background:
       linear-gradient(var(--bg-raised), var(--bg-raised)) padding-box,
-      linear-gradient(135deg, #4c8dff, #5c98ff) border-box;
+      linear-gradient(135deg, #be3e00, #fd741b) border-box;
   }
   .composer--ursus {
     background:

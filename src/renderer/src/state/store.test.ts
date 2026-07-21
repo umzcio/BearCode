@@ -1122,7 +1122,8 @@ describe('modelDisplay — Ursa sentinel', () => {
   it('returns "Ursa" instead of falling through to "Choose a model"', () => {
     const result = modelDisplay([], URSA_MODEL_REF)
     expect(result.name).toBe('Ursa')
-    expect(result.color).toBe('#4c8dff')
+    // Orange, matching ursa-teddy.svg (was BearCode blue).
+    expect(result.color).toBe('#ed5500')
   })
 })
 

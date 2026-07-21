@@ -162,8 +162,9 @@
   text-align: right;
 }
 
-/* Per-role spend (Ursa-routed turns), accented with the Ursa blue used by the
-   model badge (store.ts modelDisplay, #4c8dff). */
+/* Per-role spend (router-driven turns). Accented with the app accent
+   (--accent), NOT a router's brand colour -- this row renders for Ursa and
+   Ursus alike, so it deliberately does not follow either mascot's palette. */
 .context-pop-role-row {
   display: flex;
   align-items: baseline;

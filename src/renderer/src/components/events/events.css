@@ -777,8 +777,9 @@
 }
 
 /* Ursa Phase 2: the slim per-step divider inside a pipeline turn's worked
-   group ("2  Step 2/3  reviewer · Claude Sonnet 5"). Ursa accent (#4c8dff),
-   trailing hairline rule. No animation -- reduce-motion safe by construction. */
+   group ("2  Step 2/3  reviewer · Claude Sonnet 5"). Uses the app accent
+   (#4c8dff), NOT a router brand colour -- Ursus pipelines render this too.
+   Trailing hairline rule. No animation -- reduce-motion safe by construction. */
 .ursa-step {
   display: flex;
   align-items: center;

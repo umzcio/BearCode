@@ -468,7 +468,9 @@ export function modelDisplay(
   providers: ProviderModels[],
   ref: ModelRef | null
 ): { name: string; color: string } {
-  if (ref === URSA_MODEL_REF) return { name: 'Ursa', color: '#4c8dff' }
+  // Orange, matching ursa-teddy.svg's dominant body colour (the composer aura
+  // uses the same palette) -- was BearCode blue, which matched nothing.
+  if (ref === URSA_MODEL_REF) return { name: 'Ursa', color: '#ed5500' }
   // Light blue, matching ursus-teddy.svg's palette (the original brown was set
   // for the retired walking-bear icon and no longer matched anything).
   if (ref === URSUS_MODEL_REF) return { name: 'Ursus', color: '#6ec3fa' }
