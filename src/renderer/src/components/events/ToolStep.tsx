@@ -6,7 +6,7 @@ import { Select } from '../Select'
 import { usePendingCardHotkeys } from './usePendingCardHotkeys'
 import { AllowGrid } from './AllowGrid'
 import ursaTeddy from '../../assets/ursa-teddy.svg'
-import ursusBear from '../../assets/ursus-bear.svg'
+import ursusTeddy from '../../assets/ursus-teddy.svg'
 import { URSUS_MODEL_REF } from '@shared/types'
 import './events.css'
 
@@ -1379,7 +1379,7 @@ function PendingPipeline({
   const isFirstPending = isFirst
   const isUrsusTurn = useAppStore((s) => s.modelRef) === URSUS_MODEL_REF
   const routerLabel = isUrsusTurn ? 'Ursus' : 'Ursa'
-  const routerIcon = isUrsusTurn ? ursusBear : ursaTeddy
+  const routerIcon = isUrsusTurn ? ursusTeddy : ursaTeddy
 
   const approve = (): void => resolvePipeline(convoId, callId, true)
   const deny = (): void => resolvePipeline(convoId, callId, false)

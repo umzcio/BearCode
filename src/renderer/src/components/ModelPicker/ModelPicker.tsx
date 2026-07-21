@@ -7,7 +7,7 @@ import { Hint } from '../Hint'
 import { IconChevronDown, IconSearch } from '../icons'
 import { Popover } from '../ui/Popover'
 import ursaTeddy from '../../assets/ursa-teddy.svg'
-import ursusBear from '../../assets/ursus-bear.svg'
+import ursusTeddy from '../../assets/ursus-teddy.svg'
 import { useCloseOnSettingsOpen } from '../../lib/useCloseOnSettingsOpen'
 import './ModelPicker.css'
 
@@ -157,7 +157,7 @@ export function ModelPicker(): React.JSX.Element {
           {modelRef === URSA_MODEL_REF ? (
             <img src={ursaTeddy} alt="" className="ursa-icon" />
           ) : modelRef === URSUS_MODEL_REF ? (
-            <img src={ursusBear} alt="" className="ursa-icon" />
+            <img src={ursusTeddy} alt="" className="ursa-icon" />
           ) : modelRef ? (
             <ProviderIcon provider={modelRef.slice(0, modelRef.indexOf('/')) as ProviderId} />
           ) : (
@@ -238,7 +238,7 @@ export function ModelPicker(): React.JSX.Element {
               }
             }}
           >
-            <img src={ursusBear} alt="" className="ursa-icon" />
+            <img src={ursusTeddy} alt="" className="ursa-icon" />
             <span>Ursus</span>
             {!ursusEnabled ? (
               <span className="ursa-hint">Enable Ursus in Settings first</span>

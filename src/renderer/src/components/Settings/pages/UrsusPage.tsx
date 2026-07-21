@@ -5,7 +5,7 @@ import { useAppStore } from '../../../state/store'
 import { Toggle } from '../../Toggle'
 import { ProviderIcon } from '../../ProviderIcon'
 import { Loading } from '../../ui/Loading'
-import ursusBear from '../../../assets/ursus-bear.svg'
+import ursusTeddy from '../../../assets/ursus-teddy.svg'
 
 // Cap kept in sync with the main-process coercion (settings.ts
 // URSUS_INSTRUCTIONS_MAX). The write path enforces it regardless; maxLength is a
@@ -48,7 +48,7 @@ export function UrsusPage(): JSX.Element | null {
   return (
     <>
       <div className="page-title">
-        <img className="page-title-icon" src={ursusBear} alt="" />
+        <img className="page-title-icon" src={ursusTeddy} alt="" />
         Ursus
       </div>
       <div className="page-sub">
