@@ -67,6 +67,20 @@ export function orchestratorSystemPrompt(projectPath: string | null, isPlan = fa
       '- When the result is viewable (e.g. a web page), offer to open it and use run_command',
       '  like: open index.html',
       '',
+      '',
+      // Outside Plan mode nothing previously asked for a plan at all, so whether
+      // a build got one came down purely to the model's own instincts: stronger
+      // models called submit_plan unprompted, weaker ones went straight to
+      // writing files. That made the SAME request behave differently on
+      // different models with no code path explaining it. This nudge is
+      // deliberately scoped to substantial NEW builds -- small edits, single
+      // files, and follow-up turns should still go straight through.
+      'Before a SUBSTANTIAL new build (a whole site, app, or feature spanning several',
+      'files), call submit_plan first and let the user approve it. Skip the plan for small',
+      'or well-specified work: single-file changes, edits to something that already exists,',
+      'or a follow-up to a plan already approved this conversation. When in doubt on a big',
+      'greenfield build, plan first.',
+      '',
       'When you finish building or changing files, briefly say what you did and point the',
       'user to the Review panel.'
     )

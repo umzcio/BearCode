@@ -39,10 +39,28 @@ describe('orchestratorSystemPrompt', () => {
     // The plan frame must not resurrect the retired execution-mode block.
     expect(prompt).not.toContain('Execution mode:')
   })
-  it('non-plan modes emit NO planning frame (default isPlan=false)', () => {
+  it('non-plan modes emit no PLAN MODE frame (default isPlan=false)', () => {
     const prompt = orchestratorSystemPrompt('/tmp/proj')
     expect(prompt).not.toContain('PLAN MODE')
-    expect(prompt).not.toContain('submit_plan')
+    // The read-only plan-mode workflow specifically stays out.
+    expect(prompt).not.toContain('submit_plan BEFORE')
+    expect(prompt).not.toContain('read-only')
+  })
+
+  // Whether a big build got a plan used to depend entirely on the model's own
+  // instincts, since nothing outside Plan mode asked for one -- the same request
+  // planned on a strong model and did not on a weaker one. The nudge is scoped
+  // to substantial new builds so small/well-specified work still goes straight
+  // through.
+  it('nudges toward submit_plan for substantial new builds in any mode', () => {
+    const prompt = orchestratorSystemPrompt('/tmp/proj')
+    expect(prompt).toContain('submit_plan')
+    expect(prompt).toContain('SUBSTANTIAL new build')
+    expect(prompt).toMatch(/Skip the plan for small/)
+  })
+
+  it('omits the build-plan nudge when there is no workspace to build in', () => {
+    expect(orchestratorSystemPrompt(null)).not.toContain('SUBSTANTIAL new build')
   })
   it('plan frame appears even with no workspace (isPlan=true, projectPath=null)', () => {
     expect(orchestratorSystemPrompt(null, true)).toContain('PLAN MODE')
