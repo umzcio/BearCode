@@ -22,6 +22,63 @@ describe('readUsage', () => {
   })
 })
 
+describe('provider-reported cost (OpenRouter usage accounting)', () => {
+  const withCost = (input: number, output: number, cost?: number): unknown => ({
+    generations: [
+      [
+        {
+          message: {
+            usage_metadata: { input_tokens: input, output_tokens: output },
+            ...(cost === undefined ? {} : { response_metadata: { bearcodeCostUsd: cost } })
+          }
+        }
+      ]
+    ]
+  })
+
+  it('readUsage surfaces a reported cost when present', () => {
+    expect(readUsage(withCost(10, 5, 0.007) as never)).toEqual({
+      input: 10,
+      output: 5,
+      costUsd: 0.007
+    })
+  })
+
+  it('readUsage omits costUsd entirely when the provider reported none', () => {
+    expect(readUsage(withCost(10, 5) as never)).toEqual({ input: 10, output: 5 })
+  })
+
+  it('the accumulator sums cost across calls', () => {
+    const acc = makeTurnUsage()
+    acc.add('r1', undefined, { input: 10, output: 5, costUsd: 0.01 })
+    acc.add('r2', undefined, { input: 20, output: 5, costUsd: 0.02 })
+    expect(acc.snapshot()?.costUsd).toBeCloseTo(0.03, 10)
+  })
+
+  // A bare 0 would render as a real "$0.00" and hide the fact that nothing was
+  // reported, so costUsd must stay absent for non-reporting providers.
+  it('omits costUsd when NO call reported one (not a misleading zero)', () => {
+    const acc = makeTurnUsage()
+    acc.add('r1', undefined, { input: 10, output: 5 })
+    const snap = acc.snapshot()
+    expect(snap).toMatchObject({ inputTokens: 10, outputTokens: 5 })
+    expect(snap && 'costUsd' in snap).toBe(false)
+  })
+
+  it('a reported zero IS kept (a free model really did cost nothing)', () => {
+    const acc = makeTurnUsage()
+    acc.add('r1', undefined, { input: 10, output: 5, costUsd: 0 })
+    expect(acc.snapshot()?.costUsd).toBe(0)
+  })
+
+  it('does not double-count cost on the parent/child double-fire', () => {
+    const acc = makeTurnUsage()
+    acc.add('child', 'parent', { input: 10, output: 5, costUsd: 0.05 })
+    acc.add('parent', undefined, { input: 10, output: 5, costUsd: 0.05 })
+    expect(acc.snapshot()?.costUsd).toBeCloseTo(0.05, 10)
+  })
+})
+
 describe('makeTurnUsage accumulator', () => {
   it('sums input/output across distinct model calls and tracks last input', () => {
     const acc = makeTurnUsage()

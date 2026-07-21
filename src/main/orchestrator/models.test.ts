@@ -5,7 +5,7 @@ vi.mock('../keys', () => ({
     ['anthropic', 'perplexity', 'xai', 'openai', 'openrouter'].includes(p) ? 'sk-test' : undefined
 }))
 
-import { makeModel, buildModelExtras } from './models'
+import { makeModel, buildModelExtras, attachOpenRouterCost } from './models'
 
 describe('makeModel', () => {
   it('builds an Anthropic model when the key exists', () => {
@@ -117,12 +117,56 @@ describe('makeModel', () => {
     expect(ws?.type).toBe('web_search_20250305')
   })
 
-  it('OpenRouter search-off is a plain ChatOpenAI with no server tools', () => {
+  it('OpenRouter search-off attaches NO server tools (but is still the OR client)', () => {
     const off = makeModel('openrouter/moonshotai/kimi-k3')
-    expect(off.constructor.name).not.toBe('OpenRouterSearchChat')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const offTypes = ((off as any).invocationParams({}).tools ?? []).map((t: any) => t.type)
     expect(offTypes).not.toContain('openrouter:web_search')
+  })
+
+  // Usage accounting is what makes cost work for OpenRouter at all: the synced
+  // LiteLLM price map covers almost none of its catalog, so a derived price
+  // reads "unpriced" for nearly every model. It must ride EVERY call, not just
+  // search-enabled ones.
+  it('OpenRouter requests usage accounting whether or not search is on', () => {
+    for (const m of [
+      makeModel('openrouter/moonshotai/kimi-k3'),
+      makeModel('openrouter/moonshotai/kimi-k3', { webSearch: true })
+    ]) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((m as any).invocationParams({}).usage).toEqual({ include: true })
+    }
+  })
+
+  describe('attachOpenRouterCost', () => {
+    it('lands a reported cost on response_metadata', () => {
+      const msg: Record<string, unknown> = {}
+      attachOpenRouterCost(msg, { usage: { cost: 0.00123 } })
+      expect(msg.response_metadata).toMatchObject({ bearcodeCostUsd: 0.00123 })
+    })
+
+    it('keeps a genuine zero (a free model is not the same as unreported)', () => {
+      const msg: Record<string, unknown> = {}
+      attachOpenRouterCost(msg, { usage: { cost: 0 } })
+      expect(msg.response_metadata).toMatchObject({ bearcodeCostUsd: 0 })
+    })
+
+    it('ignores a missing/non-numeric cost and non-final stream chunks', () => {
+      for (const raw of [{}, { usage: {} }, { usage: { cost: 'free' } }, undefined]) {
+        const msg: Record<string, unknown> = {}
+        attachOpenRouterCost(msg, raw)
+        expect(msg.response_metadata).toBeUndefined()
+      }
+    })
+
+    it('preserves any metadata already attached (e.g. search citations)', () => {
+      const msg: Record<string, unknown> = { response_metadata: { search_results: [{ url: 'u' }] } }
+      attachOpenRouterCost(msg, { usage: { cost: 2 } })
+      expect(msg.response_metadata).toEqual({
+        search_results: [{ url: 'u' }],
+        bearcodeCostUsd: 2
+      })
+    })
   })
 
   it('OpenRouter search-on IS an OpenRouterSearchChat instance with the openrouter:web_search tool', () => {

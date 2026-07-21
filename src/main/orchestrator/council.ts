@@ -205,11 +205,24 @@ function contentText(content: unknown): string {
 // Normalize a message/chunk's usage_metadata to the {inputTokens,outputTokens}
 // shape ursaCouncilUsage/turn_meta expect. null when the provider reported none.
 function usageOf(
-  msg: { usage_metadata?: { input_tokens?: number; output_tokens?: number } } | undefined
-): { inputTokens: number; outputTokens: number } | null {
+  msg:
+    | {
+        usage_metadata?: { input_tokens?: number; output_tokens?: number }
+        response_metadata?: Record<string, unknown>
+      }
+    | undefined
+): { inputTokens: number; outputTokens: number; costUsd?: number } | null {
   const um = msg?.usage_metadata
   if (um && (um.input_tokens != null || um.output_tokens != null)) {
-    return { inputTokens: um.input_tokens ?? 0, outputTokens: um.output_tokens ?? 0 }
+    // Provider-reported cost when available (OpenRouter usage accounting) --
+    // every council seat and the chair is its own billable call, so without
+    // this a Ursus council turn shows "unpriced" for all ~7 of them.
+    const reported = msg?.response_metadata?.['bearcodeCostUsd']
+    return {
+      inputTokens: um.input_tokens ?? 0,
+      outputTokens: um.output_tokens ?? 0,
+      ...(typeof reported === 'number' && Number.isFinite(reported) ? { costUsd: reported } : {})
+    }
   }
   return null
 }
@@ -248,7 +261,12 @@ export async function runCouncil(
   const contextBlock = getRecentUrsaContext(conversationId)
   // One entry per seat call (answers + reviews) so the cost popover books every
   // deliberation call; the chair's usage goes in turn_meta.usage instead.
-  const councilUsage: Array<{ modelRef: string; inputTokens: number; outputTokens: number }> = []
+  const councilUsage: Array<{
+    modelRef: string
+    inputTokens: number
+    outputTokens: number
+    costUsd?: number
+  }> = []
 
   try {
     // ---- Stage 1: answers (parallel, toolless) ----------------------------

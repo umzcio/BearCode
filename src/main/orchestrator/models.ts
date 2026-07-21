@@ -92,9 +92,16 @@ export class OpenRouterSearchChat extends ChatOpenAICompletions {
     ...args: Parameters<ChatOpenAICompletions['invocationParams']>
   ): ReturnType<ChatOpenAICompletions['invocationParams']> {
     const params = super.invocationParams(...args)
-    if (!this.bearcodeWebSearch) return params
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const p = params as any
+    // Usage accounting, requested on EVERY OpenRouter call (not just search
+    // ones): OpenRouter then returns the actual charge for the request in
+    // usage.cost. This is the only dependable cost source for its catalog --
+    // the synced LiteLLM price map covers almost none of OpenRouter's models,
+    // so a derived price is "unpriced" for nearly all of them.
+    // https://openrouter.ai/docs/use-cases/usage-accounting
+    p.usage = { ...(p.usage ?? {}), include: true }
+    if (!this.bearcodeWebSearch) return params
     const existing = Array.isArray(p.tools) ? p.tools : []
     const has = existing.some(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -120,6 +127,7 @@ export class OpenRouterSearchChat extends ChatOpenAICompletions {
   ): ReturnType<ChatOpenAICompletions['_convertCompletionsDeltaToBaseMessageChunk']> {
     const chunk = super._convertCompletionsDeltaToBaseMessageChunk(...args)
     attachOpenRouterSearchResults(chunk, args[1])
+    attachOpenRouterCost(chunk, args[1])
     return chunk
   }
 
@@ -128,8 +136,27 @@ export class OpenRouterSearchChat extends ChatOpenAICompletions {
   ): ReturnType<ChatOpenAICompletions['_convertCompletionsMessageToBaseMessage']> {
     const msg = super._convertCompletionsMessageToBaseMessage(...args)
     attachOpenRouterSearchResults(msg, args[1])
+    attachOpenRouterCost(msg, args[1])
     return msg
   }
+}
+
+// OpenRouter's usage-accounting cost for one call, in USD, off the response's
+// `usage.cost`. Streaming sends usage only on the FINAL chunk, so most chunks
+// carry nothing -- that is normal, not an error. Landed on response_metadata
+// under a bearcode-namespaced key so it cannot collide with a provider field;
+// usage.ts reads it back out. Exported for tests.
+export const OPENROUTER_COST_KEY = 'bearcodeCostUsd'
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function attachOpenRouterCost(target: any, rawResponse: unknown): void {
+  const usage = (rawResponse as { usage?: { cost?: unknown } } | undefined)?.usage
+  const msg = target && typeof target === 'object' && 'message' in target ? target.message : target
+  if (!msg || !usage) return
+  // A genuine 0 (a free model) is meaningful and must be kept; only a missing
+  // or non-numeric cost is skipped.
+  if (typeof usage.cost !== 'number' || !Number.isFinite(usage.cost)) return
+  msg.response_metadata = { ...(msg.response_metadata ?? {}), [OPENROUTER_COST_KEY]: usage.cost }
 }
 
 // The delta hook returns a message chunk; the non-streaming hook returns a
@@ -362,22 +389,17 @@ export function makeModel(
     case 'google':
       return new ChatGoogleGenerativeAI({ apiKey: requireKey('google'), model: modelId, ...extras })
     case 'openrouter': {
-      if (search) {
-        const m = new OpenRouterSearchChat({
-          apiKey: requireKey('openrouter'),
-          model: modelId,
-          configuration: { baseURL: 'https://openrouter.ai/api/v1' },
-          ...extras
-        })
-        m.bearcodeWebSearch = true
-        return m
-      }
-      return new ChatOpenAI({
+      // ALWAYS this class now, search or not: it also turns on usage accounting
+      // so every OpenRouter call reports its real cost back (see
+      // invocationParams). The web-search tool stays gated on the toggle.
+      const m = new OpenRouterSearchChat({
         apiKey: requireKey('openrouter'),
         model: modelId,
         configuration: { baseURL: 'https://openrouter.ai/api/v1' },
         ...extras
       })
+      if (search) m.bearcodeWebSearch = true
+      return m
     }
     case 'perplexity':
       // Perplexity is an OpenAI-compatible Chat Completions endpoint. Same

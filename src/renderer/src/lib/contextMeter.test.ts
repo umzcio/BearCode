@@ -16,10 +16,25 @@ function turnMeta(
   id: string,
   provider: string,
   model: string,
-  usage?: { inputTokens: number; outputTokens: number; lastInputTokens: number },
-  ursaClassifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number },
+  usage?: {
+    inputTokens: number
+    outputTokens: number
+    lastInputTokens: number
+    costUsd?: number
+  },
+  ursaClassifierUsage?: {
+    modelRef: string
+    inputTokens: number
+    outputTokens: number
+    costUsd?: number
+  },
   ursaRole?: string,
-  ursaCouncilUsage?: Array<{ modelRef: string; inputTokens: number; outputTokens: number }>
+  ursaCouncilUsage?: Array<{
+    modelRef: string
+    inputTokens: number
+    outputTokens: number
+    costUsd?: number
+  }>
 ): Event {
   return {
     type: 'turn_meta',
@@ -318,6 +333,95 @@ describe('contextMeter', () => {
     ]
     const rows = costByRole(events)
     expect(rows).toEqual([{ role: 'local', cost: 0, hasUnknown: true }])
+  })
+
+  // OpenRouter reports the real charge per call (usage accounting). BearCode's
+  // synced LiteLLM price map covers almost none of its catalog, so without this
+  // precedence every Ursus turn read "unpriced" and cost $0.00.
+  describe('provider-reported cost beats the derived price table', () => {
+    it('usageByModel sums a reported cost per model, and leaves it undefined when none', () => {
+      const events: Event[] = [
+        turnMeta('t1', 'openrouter', 'z-ai/glm-5.2', {
+          inputTokens: 100,
+          outputTokens: 50,
+          lastInputTokens: 100,
+          costUsd: 0.004
+        }),
+        turnMeta('t2', 'openrouter', 'z-ai/glm-5.2', {
+          inputTokens: 200,
+          outputTokens: 60,
+          lastInputTokens: 200,
+          costUsd: 0.006
+        }),
+        turnMeta('t3', 'anthropic', 'claude-opus-4-8', {
+          inputTokens: 10,
+          outputTokens: 10,
+          lastInputTokens: 10
+        })
+      ]
+      const rows = usageByModel(events)
+      const glm = rows.find((r) => r.modelRef === 'openrouter/z-ai/glm-5.2')
+      expect(glm?.reportedCostUsd).toBeCloseTo(0.01, 10)
+      expect(rows.find((r) => r.modelRef === 'anthropic/claude-opus-4-8')?.reportedCostUsd).toBeUndefined()
+    })
+
+    it('conversationCost uses the reported figure and does NOT flag it unpriced', () => {
+      const byModel = [
+        {
+          modelRef: 'openrouter/moonshotai/kimi-k3',
+          provider: 'openrouter',
+          model: 'moonshotai/kimi-k3',
+          inputTokens: 1_000_000,
+          outputTokens: 1_000_000,
+          reportedCostUsd: 0.42
+        }
+      ]
+      const cost = conversationCost(byModel)
+      expect(cost.total).toBeCloseTo(0.42, 10)
+      // The whole point: this model has no price-table entry, but it is priced.
+      expect(cost.hasUnknown).toBe(false)
+    })
+
+    it('a reported zero counts as free, not as unpriced', () => {
+      const cost = conversationCost([
+        {
+          modelRef: 'openrouter/some/free-model',
+          provider: 'openrouter',
+          model: 'some/free-model',
+          inputTokens: 500,
+          outputTokens: 500,
+          reportedCostUsd: 0
+        }
+      ])
+      expect(cost.total).toBe(0)
+      expect(cost.hasUnknown).toBe(false)
+    })
+
+    it('costByRole credits a reported council cost instead of flagging unknown', () => {
+      const events: Event[] = [
+        {
+          type: 'turn_meta',
+          id: 't1',
+          provider: 'openrouter',
+          model: 'deepseek/deepseek-v4-pro',
+          startedAt: 0,
+          endedAt: 1,
+          ursaRole: 'council',
+          usage: { inputTokens: 10, outputTokens: 10, lastInputTokens: 10, costUsd: 0.02 },
+          ursaCouncilUsage: [
+            {
+              modelRef: 'openrouter/moonshotai/kimi-k3',
+              inputTokens: 5,
+              outputTokens: 5,
+              costUsd: 0.01
+            }
+          ]
+        } as unknown as Event
+      ]
+      expect(costByRole(events)).toEqual([
+        { role: 'council', cost: expect.closeTo(0.03, 10), hasUnknown: false }
+      ])
+    })
   })
 
   it('conversationCost multiplies tokens x per-1M price, sums total, flags unknown', () => {

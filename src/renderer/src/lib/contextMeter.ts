@@ -74,12 +74,29 @@ export function usageByModel(events: Event[]): {
   model: string
   inputTokens: number
   outputTokens: number
+  // Summed provider-REPORTED cost for this model, when the provider reports one
+  // (OpenRouter usage accounting). undefined means "nobody reported", which is
+  // different from 0 ("reported, and it was free") -- conversationCost only
+  // falls back to the price table for the undefined case.
+  reportedCostUsd?: number
 }[] {
   const map = new Map<
     string,
-    { modelRef: string; provider: string; model: string; inputTokens: number; outputTokens: number }
+    {
+      modelRef: string
+      provider: string
+      model: string
+      inputTokens: number
+      outputTokens: number
+      reportedCostUsd?: number
+    }
   >()
-  const add = (modelRef: string, inputTokens: number, outputTokens: number): void => {
+  const add = (
+    modelRef: string,
+    inputTokens: number,
+    outputTokens: number,
+    costUsd?: number
+  ): void => {
     const slash = modelRef.indexOf('/')
     const provider = slash === -1 ? modelRef : modelRef.slice(0, slash)
     const model = slash === -1 ? modelRef : modelRef.slice(slash + 1)
@@ -92,25 +109,28 @@ export function usageByModel(events: Event[]): {
     }
     cur.inputTokens += inputTokens
     cur.outputTokens += outputTokens
+    if (costUsd != null) cur.reportedCostUsd = (cur.reportedCostUsd ?? 0) + costUsd
     map.set(modelRef, cur)
   }
   for (const e of events) {
     if (e.type !== 'turn_meta') continue
-    if (e.usage) add(`${e.provider}/${e.model}`, e.usage.inputTokens, e.usage.outputTokens)
+    if (e.usage)
+      add(`${e.provider}/${e.model}`, e.usage.inputTokens, e.usage.outputTokens, e.usage.costUsd)
     // Ursa Phase 1 (Task 5, #3): the routing classifier ran on its own cheap
     // model (its own modelRef, often different from the resolved role's), and
     // those tokens cost real money -- fold them into the same per-model rollup
     // so the breakdown/cost accounts for them under the classifier's model.
     if (e.ursaClassifierUsage) {
       const cu = e.ursaClassifierUsage
-      add(cu.modelRef, cu.inputTokens, cu.outputTokens)
+      add(cu.modelRef, cu.inputTokens, cu.outputTokens, cu.costUsd)
     }
     // Ursa Modes (Task 4): every council seat + review call ran on its own seat
     // model (often different from the chair booked under `usage` above) and cost
     // real money -- fold each entry into the same per-model rollup so the
     // breakdown/cost accounts for all the deliberation calls too.
     if (e.ursaCouncilUsage) {
-      for (const cu of e.ursaCouncilUsage) add(cu.modelRef, cu.inputTokens, cu.outputTokens)
+      for (const cu of e.ursaCouncilUsage)
+        add(cu.modelRef, cu.inputTokens, cu.outputTokens, cu.costUsd)
     }
   }
   return [...map.values()]
@@ -132,7 +152,17 @@ export function costByRole(
   for (const e of events) {
     if (e.type !== 'turn_meta' || !e.ursaRole) continue
     const cur = map.get(e.ursaRole) ?? { role: e.ursaRole, cost: 0, hasUnknown: false }
-    const addCost = (modelRef: string, inputTokens: number, outputTokens: number): void => {
+    const addCost = (
+      modelRef: string,
+      inputTokens: number,
+      outputTokens: number,
+      reported?: number
+    ): void => {
+      // Same precedence as conversationCost: reported beats derived.
+      if (reported != null) {
+        cur.cost += reported
+        return
+      }
       const price = resolvePrice(modelRef, synced)
       if (!price) {
         cur.hasUnknown = true
@@ -140,15 +170,22 @@ export function costByRole(
       }
       cur.cost += (inputTokens * price.inputPer1M + outputTokens * price.outputPer1M) / 1_000_000
     }
-    if (e.usage) addCost(`${e.provider}/${e.model}`, e.usage.inputTokens, e.usage.outputTokens)
+    if (e.usage)
+      addCost(
+        `${e.provider}/${e.model}`,
+        e.usage.inputTokens,
+        e.usage.outputTokens,
+        e.usage.costUsd
+      )
     if (e.ursaClassifierUsage) {
       const cu = e.ursaClassifierUsage
-      addCost(cu.modelRef, cu.inputTokens, cu.outputTokens)
+      addCost(cu.modelRef, cu.inputTokens, cu.outputTokens, cu.costUsd)
     }
     // Ursa Modes (Task 4): a council turn's ursaRole is 'council', so every seat
     // + review call's spend folds into that role alongside the chair's usage.
     if (e.ursaCouncilUsage) {
-      for (const cu of e.ursaCouncilUsage) addCost(cu.modelRef, cu.inputTokens, cu.outputTokens)
+      for (const cu of e.ursaCouncilUsage)
+        addCost(cu.modelRef, cu.inputTokens, cu.outputTokens, cu.costUsd)
     }
     map.set(e.ursaRole, cur)
   }
@@ -166,6 +203,14 @@ export function conversationCost(
   let total = 0
   let hasUnknown = false
   for (const m of byModel) {
+    // A provider-REPORTED cost always wins: it is the real charge, including
+    // caching discounts and whatever provider the request actually routed to.
+    // The price table is the fallback for providers that report nothing.
+    if (m.reportedCostUsd != null) {
+      perModel[m.modelRef] = m.reportedCostUsd
+      total += m.reportedCostUsd
+      continue
+    }
     const price = resolvePrice(m.modelRef, synced)
     if (!price) {
       hasUnknown = true

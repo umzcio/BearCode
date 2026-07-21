@@ -706,7 +706,19 @@ export type Event =
       model: string
       startedAt: number
       endedAt: number
-      usage?: { inputTokens: number; outputTokens: number; lastInputTokens: number }
+      // `costUsd` is a cost REPORTED BY THE PROVIDER for this turn's calls,
+      // not one derived from a price table. OpenRouter returns the real charge
+      // with every response (usage accounting), which is the only reliable
+      // figure for its catalog: BearCode's synced price map is populated from
+      // LiteLLM and covers almost none of OpenRouter's models, so the derived
+      // cost showed "unpriced" for nearly every Ursus turn. When present it
+      // WINS over any computed price (see conversationCost).
+      usage?: {
+        inputTokens: number
+        outputTokens: number
+        lastInputTokens: number
+        costUsd?: number
+      }
       ursaRole?: string
       // Ursa Phase 1 (Task 5, #3): the token usage of THIS turn's routing
       // classifier call, on the cheap model it ran on (its own modelRef, which
@@ -714,13 +726,23 @@ export type Event =
       // Ursa-routed turns whose classifier actually ran and reported usage;
       // the renderer folds it into the per-model cost breakdown so the
       // classifier's (real) spend is not invisible.
-      ursaClassifierUsage?: { modelRef: string; inputTokens: number; outputTokens: number }
+      ursaClassifierUsage?: {
+        modelRef: string
+        inputTokens: number
+        outputTokens: number
+        costUsd?: number
+      }
       // Ursa Modes (Task 4): the per-call token usage of every COUNCIL seat call
       // (each seat's initial answer AND its peer review) on a council-mode turn.
       // One entry per call, on the seat's own modelRef. The chair's own usage
       // rides the normal `usage` slot above; this array lets the cost popover
       // book all ~7 deliberation calls too. Absent on non-council turns.
-      ursaCouncilUsage?: Array<{ modelRef: string; inputTokens: number; outputTokens: number }>
+      ursaCouncilUsage?: Array<{
+        modelRef: string
+        inputTokens: number
+        outputTokens: number
+        costUsd?: number
+      }>
       // Web sources the answering model itself cited (Perplexity sonar models
       // return `citations`/`search_results` with every response; the [n]
       // markers in the answer text are 1-based indexes into this list). The
