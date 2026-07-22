@@ -14,6 +14,14 @@ export interface Turn {
   // them by stage, and so a toolless council turn (no tool_call/thinking steps)
   // never renders an empty "Worked for Ns" group. Older turns carry none.
   councilSeats: Extract<Event, { type: 'council_seat' }>[]
+  // Review mode (Phase H, Task 6): findings streamed by the review panel for
+  // this turn, plus the summary emitted once the panel concludes. Own bucket
+  // (like councilSeats) so ReviewFindings renders once per turn instead of
+  // interleaving with the step stream. review_clarify is NOT bucketed here --
+  // ConversationView reads it straight off convo.events since it's a pinned
+  // pending-interaction card (mirrors how firstPendingCall reads tool_call).
+  reviewFindings: Extract<Event, { type: 'review_finding' }>[]
+  reviewSummary?: Extract<Event, { type: 'review_summary' }>
   done: boolean
   // The turn's closing turn_meta event (Ursa Phase 1 Task 11), if it has
   // completed. Carries provider/model/ursaRole for the hover badge -- not set
@@ -40,6 +48,7 @@ export function groupTurns(events: Event[]): TranscriptItem[] {
         artifacts: [],
         errors: [],
         councilSeats: [],
+        reviewFindings: [],
         done: false
       }
       // Push the live object by reference so later events mutating `current`
@@ -67,6 +76,10 @@ export function groupTurns(events: Event[]): TranscriptItem[] {
         current.artifacts.push(ev)
       } else if (ev.type === 'council_seat') {
         current.councilSeats.push(ev)
+      } else if (ev.type === 'review_finding') {
+        current.reviewFindings.push(ev)
+      } else if (ev.type === 'review_summary') {
+        current.reviewSummary = ev
       } else if (ev.type === 'error') {
         current.errors.push(ev)
       } else if (ev.type === 'turn_meta') {
@@ -105,6 +118,8 @@ export function sameTranscriptItem(a: TranscriptItem, b: TranscriptItem): boolea
       arr(x.diffs as Event[], y.diffs as Event[]) &&
       arr(x.artifacts as Event[], y.artifacts as Event[]) &&
       arr(x.councilSeats as Event[], y.councilSeats as Event[]) &&
+      arr(x.reviewFindings as Event[], y.reviewFindings as Event[]) &&
+      x.reviewSummary === y.reviewSummary &&
       arr(x.errors as Event[], y.errors as Event[])
     )
   }

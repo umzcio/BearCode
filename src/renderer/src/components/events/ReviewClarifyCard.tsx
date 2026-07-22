@@ -1,0 +1,115 @@
+import { useState } from 'react'
+import type { Event, ReviewLens } from '@shared/types'
+import { useAppStore } from '../../state/store'
+import { FieldHint } from '../ui/FieldHint'
+import './events.css'
+
+type ReviewClarifyEvent = Extract<Event, { type: 'review_clarify' }>
+
+const LENS_OPTIONS: { value: ReviewLens; label: string }[] = [
+  { value: 'code', label: 'Code' },
+  { value: 'security', label: 'Security' },
+  { value: 'accessibility', label: 'Accessibility' },
+  { value: 'performance', label: 'Performance' },
+  { value: 'comprehensive', label: 'Comprehensive' }
+]
+
+export interface ReviewClarifyCardProps {
+  event: ReviewClarifyEvent
+  convoId: string
+}
+
+// Review mode (Phase H, Task 6): the opening dialog for the review panel when
+// the classifier couldn't resolve a lens and/or a scope from the request.
+// Matches .approval-card's visual weight (same chrome the command-approval
+// and pipeline-proposal cards use) since this is the same kind of pending
+// interaction -- the run is parked in 'awaiting-approval' until it's answered.
+//
+// A field that ISN'T being asked already has its answer on the event
+// (event.lens / event.scope) and is never re-shown. When only one field is
+// asked, picking/typing it is enough to confirm immediately (no extra click
+// for the single-lens-chip case, per the confirm-on-pick UX pipeline cards and
+// approval-opt rows already use elsewhere). When BOTH fields are asked, a
+// lens chip only stages a local selection -- scope still needs typing -- so a
+// Confirm button gates the final call until both are answered.
+export function ReviewClarifyCard({
+  event,
+  convoId
+}: ReviewClarifyCardProps): React.JSX.Element {
+  const resolveReviewClarification = useAppStore((s) => s.resolveReviewClarification)
+  const [chosenLens, setChosenLens] = useState<ReviewLens | null>(null)
+  const [scopeInput, setScopeInput] = useState(event.scope ?? '')
+  const scopeTrimmed = scopeInput.trim()
+  const scopeInvalid = event.askScope && scopeTrimmed.length === 0
+  const lensResolved = chosenLens ?? event.lens ?? null
+
+  const pickLens = (lens: ReviewLens): void => {
+    if (event.askScope) {
+      // Scope still needs an answer -- stage the pick, wait for Confirm.
+      setChosenLens(lens)
+      return
+    }
+    resolveReviewClarification(convoId, lens, event.scope ?? '')
+  }
+
+  const confirm = (): void => {
+    if (!lensResolved || scopeInvalid) return
+    resolveReviewClarification(convoId, lensResolved, scopeTrimmed)
+  }
+
+  return (
+    <div className="approval-card pulse-once clarify-card" id="pending-approval-card">
+      <div className="approval-title">What should the review panel look at?</div>
+      {event.askLens ? (
+        <div className="clarify-field">
+          <div className="clarify-label">Lens</div>
+          <div className="lens-chips" role="group" aria-label="Review lens">
+            {LENS_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                className={'lens-chip' + (chosenLens === opt.value ? ' selected' : '')}
+                aria-pressed={chosenLens === opt.value}
+                onClick={() => pickLens(opt.value)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {event.askScope ? (
+        <div className="clarify-field">
+          <label className="clarify-label" htmlFor="review-clarify-scope">
+            Scope
+          </label>
+          <input
+            id="review-clarify-scope"
+            className="set-input clarify-scope-input"
+            type="text"
+            value={scopeInput}
+            placeholder="e.g. src, or 'what was just built'"
+            onChange={(e) => setScopeInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') confirm()
+            }}
+          />
+          <FieldHint show={scopeInvalid}>
+            Enter a path, a glob, or describe what to review.
+          </FieldHint>
+        </div>
+      ) : null}
+      {event.askScope ? (
+        <div className="approval-actions">
+          <button
+            className="pill-btn primary"
+            disabled={!lensResolved || scopeInvalid}
+            onClick={confirm}
+          >
+            Confirm
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}

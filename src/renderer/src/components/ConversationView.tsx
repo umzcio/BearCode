@@ -6,6 +6,8 @@ import { RunStatusBar } from './RunStatusBar/RunStatusBar'
 import { WorktreeBar } from './Worktree/WorktreeBar'
 import { WorkedGroup } from './events/WorkedGroup'
 import { CouncilPanel } from './events/CouncilPanel'
+import { ReviewFindings } from './events/ReviewFindings'
+import { ReviewClarifyCard } from './events/ReviewClarifyCard'
 import { ToolStep, PinnedApprovalArea } from './events/ToolStep'
 import { AssistantText } from './events/AssistantText'
 import { ArtifactCard } from './events/ArtifactCard'
@@ -117,6 +119,18 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const firstPendingCall = convo.events.find(
     (e) => e.type === 'tool_call' && e.approvalState === 'pending'
   )
+
+  // Review mode (Phase H, Task 6): a review_clarify card is a pending
+  // interaction like the pinned approval card above, but it carries no
+  // approvalState field of its own -- resolving it re-dispatches the run,
+  // which appends the next events (findings, or an error) right after it. So
+  // "still pending" is exactly "it's the last event in the conversation" --
+  // nothing else has arrived to answer it yet. Mirrors runGraph's own
+  // contract (graph.ts): emitting review_clarify is always the LAST thing
+  // that happens before the run parks in 'awaiting-approval'.
+  const lastEvent = convo.events[convo.events.length - 1]
+  const pendingClarify =
+    lastEvent?.type === 'review_clarify' ? lastEvent : undefined
 
   const jumpToApproval = (): void => {
     document
@@ -303,6 +317,9 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                   {turn.councilSeats.length > 0 ? (
                     <CouncilPanel seats={turn.councilSeats} />
                   ) : null}
+                  {turn.reviewFindings.length > 0 || turn.reviewSummary ? (
+                    <ReviewFindings events={turn.reviewFindings} summary={turn.reviewSummary} />
+                  ) : null}
                   {turn.artifacts.map((a) => (
                     <ArtifactCard key={a.id} event={a} />
                   ))}
@@ -390,6 +407,13 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
             <PinnedApprovalArea.Provider value={true}>
               <ToolStep call={firstPendingCall} convoId={convoId} />
             </PinnedApprovalArea.Provider>
+          </div>
+        </div>
+      ) : null}
+      {pendingClarify ? (
+        <div className="convo-status">
+          <div className="convo-status-inner pinned-approval">
+            <ReviewClarifyCard event={pendingClarify} convoId={convoId} />
           </div>
         </div>
       ) : null}

@@ -623,8 +623,12 @@
   .worked-head .chev,
   .step-row .chev,
   .diff-head .chev,
-  .artifact-card .chev {
+  .artifact-card .chev,
+  .finding-head .chev {
     transition: none;
+  }
+  .finding-detail {
+    animation: none;
   }
 }
 
@@ -1033,4 +1037,226 @@
 .agent-text a.md-link:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* Review mode (Phase H, Task 6): severity chip + lens badge shared between
+   the findings report and the summary header. Severity is a SEMANTIC color
+   axis (critical/important/minor), deliberately separate from --accent
+   (brand) -- red/amber read as danger/warn everywhere else in the app
+   (.step-stats .minus, .council-seat-failed), minor stays neutral text-dim
+   rather than inventing a fourth hue. */
+.sev-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.sev-chip.sev-critical {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+}
+.sev-chip.sev-important {
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+}
+.sev-chip.sev-minor {
+  color: var(--text-dim);
+  background: var(--bg-hover);
+}
+.lens-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+/* The findings report card: a summary header (counts + optional note) above
+   severity-grouped, expandable rows. Chrome matches .approval-card's raised
+   surface at a lighter touch (no pulse -- this isn't a pending interaction). */
+.review-findings {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin: 2px 0 8px;
+  max-width: 640px;
+}
+.review-findings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.review-findings-title {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--text);
+}
+.review-findings-counts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.review-findings-note {
+  font-size: 12.5px;
+  color: var(--text-mid);
+  line-height: 1.5;
+  margin: 0 0 8px;
+}
+.review-sev-group + .review-sev-group {
+  margin-top: 4px;
+}
+.finding-row {
+  border-radius: 8px;
+}
+.finding-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  margin: 0 -8px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.finding-head:hover {
+  background: var(--bg-hover);
+}
+.finding-head:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.finding-loc {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.finding-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 13px;
+  flex: 1;
+}
+.finding-head .chev {
+  display: flex;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  transition: transform var(--dur-menu) var(--ease-out);
+}
+.finding-head .chev svg {
+  width: 12px;
+  height: 12px;
+}
+.finding-row.open .finding-head .chev {
+  transform: rotate(90deg);
+}
+.finding-detail {
+  margin: 2px 0 6px 8px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--border);
+  color: var(--text-mid);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  animation: finding-detail-in var(--dur-menu) var(--ease-out);
+}
+@keyframes finding-detail-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* The clarify card: reuses .approval-card chrome (pulse-once, same as the
+   command-approval/pipeline-proposal cards it sits alongside) since it's the
+   same kind of pending interaction. Lens chips are plain always-visible
+   buttons -- NOT a Menu/Popover dropdown (CLAUDE.md: don't hand-roll a
+   dropdown where a flat set of options reads better as chips). */
+.clarify-card .clarify-field {
+  margin-bottom: 12px;
+}
+.clarify-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-mid);
+  margin-bottom: 6px;
+}
+.lens-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.lens-chip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-window);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+.lens-chip:hover {
+  background: var(--bg-hover);
+}
+.lens-chip:active {
+  transform: scale(0.96);
+}
+.lens-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.lens-chip.selected {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
+  color: var(--accent-strong, var(--accent));
+}
+.clarify-scope-input {
+  width: 100%;
+}
+/* Confirm only renders when scope needs typing (single-lens-chip picks
+   submit immediately with no button) -- matches the primary-button recipe
+   already used by the skill-proposal/hooks/connectors forms (Settings.css). */
+.clarify-card .approval-actions .pill-btn {
+  border: 1px solid var(--border);
+  padding: 7px 16px;
+}
+.clarify-card .approval-actions .pill-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.clarify-card .approval-actions .pill-btn.primary:hover {
+  background: var(--accent-strong, var(--accent));
+}
+.clarify-card .approval-actions .pill-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
