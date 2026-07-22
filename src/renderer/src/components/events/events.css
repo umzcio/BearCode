@@ -623,16 +623,13 @@
   .worked-head .chev,
   .step-row .chev,
   .diff-head .chev,
-  .artifact-card .chev,
-  .finding-head .chev {
+  .artifact-card .chev {
     transition: none;
   }
-  .finding-detail {
-    animation: none;
-  }
-  .lens-chip:active {
-    transform: none;
-  }
+  /* NOTE: the review UI's reduced-motion overrides (.finding-head .chev,
+     .finding-detail, .lens-chip:active) live in a SECOND block further down,
+     AFTER their base rules -- placing them here left them inert (their base
+     rules appear later in the file and won by source order). */
 }
 
 .allow-grid {
@@ -1231,6 +1228,21 @@
 }
 .lens-chip:active {
   transform: scale(0.96);
+}
+/* Reduced-motion overrides for the review UI, placed AFTER their base rules
+   (.finding-head .chev @1162, .finding-detail @1179, .lens-chip:active above)
+   so source order (equal specificity, no !important) actually suppresses the
+   motion. Grouping them in the earlier reduced-motion block left them inert. */
+@media (prefers-reduced-motion: reduce) {
+  .finding-head .chev {
+    transition: none;
+  }
+  .finding-detail {
+    animation: none;
+  }
+  .lens-chip:active {
+    transform: none;
+  }
 }
 .lens-chip:focus-visible {
   outline: none;
