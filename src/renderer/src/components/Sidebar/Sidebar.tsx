@@ -178,11 +178,13 @@ export function Sidebar(): React.JSX.Element {
       {hermesEnabled ? (
         <>
           <div className="projects-head">
-            {(() => {
-              const HermesIcon = projectIcon(hermesIcon)
-              return <HermesIcon size={14} />
-            })()}
-            {hermesLabel || 'Hermes'}
+            <span className="head-label">
+              {(() => {
+                const HermesIcon = projectIcon(hermesIcon)
+                return <HermesIcon size={14} />
+              })()}
+              <span className="head-label-text">{hermesLabel || 'Hermes'}</span>
+            </span>
             <div className="actions">
               <Hint label="New Hermes conversation" side="bottom">
                 <button
@@ -196,7 +198,7 @@ export function Sidebar(): React.JSX.Element {
               </Hint>
             </div>
           </div>
-          <div className="projects-scroll">
+          <div className="projects-scroll hermes-scroll">
             {hermesConvoIds.length === 0 ? (
               <div className="sidebar-empty">
                 <EmptyState title="No Hermes conversations yet" />
