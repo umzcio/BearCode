@@ -55,6 +55,16 @@ describe('newHermesConversation', () => {
     expect(state.convoOrder).toContain('h1')
     expect(state.view).toEqual({ kind: 'conversation', id: 'h1' })
   })
+
+  it('syncs the store top-level modelRef to HERMES_MODEL_REF immediately (not just the per-conversation record)', async () => {
+    // Regression: send()/retryRun() dispatch runs using the store's transient
+    // top-level modelRef, not the per-conversation one. Without this, a freshly
+    // created Hermes conversation would send its first turn under whatever
+    // model was last active (or not send at all) until closed and reopened.
+    useAppStore.setState({ modelRef: 'anthropic/claude-sonnet-5' })
+    await useAppStore.getState().newHermesConversation()
+    expect(useAppStore.getState().modelRef).toBe(HERMES_MODEL_REF)
+  })
 })
 
 describe('testHermesConnection', () => {

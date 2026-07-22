@@ -30,7 +30,7 @@ import type {
   UrsaMode,
   WorktreeInfo
 } from '@shared/types'
-import { URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
+import { HERMES_MODEL_REF, URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
 import { describeError } from '../lib/errors'
 import { mergeEvent } from '../lib/mergeEvent'
@@ -499,7 +499,10 @@ export function refConfigured(providers: ProviderModels[], ref: ModelRef | null)
   // provider, so a conversation that has it selected is inherently ready.
   // Per-turn eligibility is re-checked server-side by resolveUrsaModelRef;
   // a failure there surfaces as its own error event, not this composer notice.
-  if (ref === URSA_MODEL_REF || ref === URSUS_MODEL_REF) return true
+  // Same rationale for the Hermes sentinel: it routes to the Hermes Gateway,
+  // not a provider/model pair, so it's always "configured" here -- the Hermes
+  // settings page gates whether the Gateway itself is reachable/enabled.
+  if (ref === URSA_MODEL_REF || ref === URSUS_MODEL_REF || ref === HERMES_MODEL_REF) return true
   const slash = ref.indexOf('/')
   const providerId = ref.slice(0, slash)
   const modelId = ref.slice(slash + 1)
@@ -1322,7 +1325,13 @@ export const useAppStore = create<AppState>((set, get) => {
         return {
           conversations,
           convoOrder: orderByRecency(conversations),
-          view: { kind: 'conversation', id: meta.id }
+          view: { kind: 'conversation', id: meta.id },
+          // Mirror newConversationInProject/openConvo: the composer's transient
+          // top-level modelRef must be synced to the sentinel immediately, or
+          // send()/retryRun() dispatch under whatever model was last active
+          // (and corrupt the conversation's persisted modelRef) until the
+          // conversation is closed and reopened.
+          modelRef: HERMES_MODEL_REF
         }
       })
     },
