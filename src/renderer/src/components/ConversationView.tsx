@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AttachmentRef } from '@shared/types'
+import { HERMES_MODEL_REF } from '@shared/types'
 import { useAppStore, workedSecondsByTurn, modelDisplay } from '../state/store'
 import { Composer } from './Composer/Composer'
 import { RunStatusBar } from './RunStatusBar/RunStatusBar'
@@ -14,6 +15,7 @@ import { SourcesList } from './events/SourcesList'
 import { remapCitations } from '../lib/citations'
 import { ErrorCard } from './events/ErrorCard'
 import { CompactionMarker } from './events/CompactionMarker'
+import { EmptyState } from './ui/EmptyState'
 import { IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
 import { Hint } from './Hint'
 import { messageTimestamp } from '../lib/time'
@@ -70,6 +72,7 @@ function AttachmentPill({
 export function ConversationView({ convoId }: { convoId: string }): React.JSX.Element {
   const convo = useAppStore((s) => s.conversations[convoId])
   const providers = useAppStore((s) => s.providers)
+  const settings = useAppStore((s) => s.settings)
   const send = useAppStore((s) => s.send)
   const cancelRun = useAppStore((s) => s.cancelRun)
   const retryRun = useAppStore((s) => s.retryRun)
@@ -200,6 +203,29 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   }, [focusMatches, convo.loaded, convo.events, setFocusMatches])
 
   const focusIdx = focusEventId ? focusMatches.indexOf(focusEventId) : -1
+
+  // Task 12: before the first message, a Hermes conversation that isn't
+  // configured yet gets a setup EmptyState instead of the normal
+  // transcript+composer -- guiding the user to Settings up front rather than
+  // letting them hit send and land on runHermes's "not configured" error
+  // event (which still renders fine via the generic ErrorCard path below,
+  // e.g. once Hermes IS enabled but the gateway is unreachable). Gated on
+  // events.length so the moment a turn actually starts (even a failed one),
+  // the normal transcript takes back over.
+  if (convo.modelRef === HERMES_MODEL_REF && convo.events.length === 0 && !settings?.hermesEnabled) {
+    return (
+      <div className="convo-view">
+        <div className="convo-scroll">
+          <div className="convo-inner">
+            <EmptyState
+              title="Set up Hermes to start chatting"
+              hint="Go to Settings → Hermes and add your Gateway URL."
+            />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="convo-view">
