@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, fireEvent } from '@testing-library/react'
 import { Composer } from './Composer'
 import { useAppStore } from '../../state/store'
 import { URSA_MODEL_REF, HERMES_MODEL_REF } from '@shared/types'
@@ -55,12 +55,36 @@ describe('Composer — Hermes lean mode (Task 11)', () => {
     expect(container.querySelector('.effort-picker')).toBeTruthy()
   })
 
-  it('still shows the attachment picker and mic controls for a Hermes conversation', () => {
+  it('hides the add-context (attachment/mention/action/browser) picker but keeps mic controls for a Hermes conversation', () => {
+    // Changed by the final-review fix (finding 2): runHermes/sendHermesMessage
+    // only ever transmit the plain text content -- attachments, @-mentions, and
+    // slash commands picked from this menu are silently dropped. Showing the
+    // affordance let a user attach a file, watch it appear as a pill, and have
+    // it vanish with zero indication Hermes never saw it. Voice stays: it
+    // transcribes locally to plain text before sending, which Hermes DOES
+    // receive.
     useAppStore.setState({ modelRef: HERMES_MODEL_REF, providers: [] } as never)
     const { container } = render(<Composer onSend={() => {}} />)
-    expect(container.querySelector('.add-context')).toBeTruthy()
+    expect(container.querySelector('.add-context')).toBeNull()
     expect(container.querySelector('.mic-btn')).toBeTruthy()
     expect(container.querySelector('textarea')).toBeTruthy()
+  })
+
+  it('still shows the add-context picker for a normal conversation', () => {
+    useAppStore.setState({ modelRef: 'anthropic/claude-sonnet-5', providers: [] } as never)
+    const { container } = render(<Composer onSend={() => {}} />)
+    expect(container.querySelector('.add-context')).toBeTruthy()
+  })
+
+  it('does not open the mention popover when "@" is typed directly in a Hermes conversation', () => {
+    // Mentions have a second entry point besides the add-context menu item:
+    // typing "@" directly is detected by the textarea's own onChange. That
+    // path must be suppressed too, or the same silent-drop bug survives it.
+    useAppStore.setState({ modelRef: HERMES_MODEL_REF, providers: [] } as never)
+    const { container } = render(<Composer onSend={() => {}} />)
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: '@' } })
+    expect(container.querySelector('.mention-menu')).toBeNull()
   })
 
   // Task 8's newHermesConversation (and openConvo's refConfigured guard, which

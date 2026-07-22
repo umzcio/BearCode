@@ -565,7 +565,13 @@ export function Composer({
           const next = e.target.value
           setValue(next)
           setMenuDismissed(false)
-          setMentionQuery(activeMentionQuery(next, e.target.selectionStart ?? next.length))
+          // A Hermes conversation has no add-context affordance to reach this
+          // (see the .add-context gate above), but typing "@" directly is a
+          // second, independent entry point into the same picker -- runHermes
+          // never forwards mentions, so it must stay suppressed here too.
+          setMentionQuery(
+            isHermesConvo ? null : activeMentionQuery(next, e.target.selectionStart ?? next.length)
+          )
           setMentionIndex(0)
         }}
         onKeyDown={(e) => {
@@ -660,27 +666,36 @@ export function Composer({
       />
       <div className="composer-controls">
         <div className="controls-left">
-          <div className="add-context">
-            <Hint label="Add context" side="top" disabled={addMenuOpen}>
-              <button
-                ref={addMenuBtnRef}
-                className="icon-btn"
-                aria-label="Add context"
-                onClick={() => setAddMenuOpen((o) => !o)}
-              >
-                <IconPlus />
-              </button>
-            </Hint>
-            <Menu
-              anchorRef={addMenuBtnRef}
-              open={addMenuOpen}
-              onClose={() => setAddMenuOpen(false)}
-              groups={addContextGroups}
-              onSelect={onAddContextSelect}
-              placement="top-start"
-              ariaLabel="Add context"
-            />
-          </div>
+          {/* Media/Mentions/Actions/Browser all end up as fields (attachments/
+              mentions/command) that runHermes never forwards to the Gateway --
+              only the plain text is sent (see hermes.ts). Showing this affordance
+              for a Hermes conversation would let a user attach a file or pick a
+              mention/command, watch it appear as a pill, and have it silently
+              vanish. Hidden entirely, same gating pattern as the model/mode/
+              effort pickers below. */}
+          {!isHermesConvo && (
+            <div className="add-context">
+              <Hint label="Add context" side="top" disabled={addMenuOpen}>
+                <button
+                  ref={addMenuBtnRef}
+                  className="icon-btn"
+                  aria-label="Add context"
+                  onClick={() => setAddMenuOpen((o) => !o)}
+                >
+                  <IconPlus />
+                </button>
+              </Hint>
+              <Menu
+                anchorRef={addMenuBtnRef}
+                open={addMenuOpen}
+                onClose={() => setAddMenuOpen(false)}
+                groups={addContextGroups}
+                onSelect={onAddContextSelect}
+                placement="top-start"
+                ariaLabel="Add context"
+              />
+            </div>
+          )}
           {!isHermesConvo && <ModePicker />}
           <Hint
             label={voice.status === 'recording' ? 'Stop recording' : 'Voice input'}
