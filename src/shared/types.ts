@@ -1175,6 +1175,13 @@ export interface AppSettings {
   // read by Ursus's own classifier. Optional & additive: coerced to '' on read,
   // capped at 2000 chars.
   ursusInstructions?: string
+  // Hermes integration: enable gate defaults to off; label/icon are cosmetic
+  // sidebar customization with safe fallbacks so a blank/garbage value can
+  // never render an empty section header.
+  hermesEnabled?: boolean
+  hermesGatewayUrl?: string
+  hermesLabel?: string
+  hermesIcon?: string
   // F8 Agent Settings (global defaults; per-project overrides = F9). Optional &
   // additive: absent → behavior-preserving defaults (custom / deny / auto).
   securityPreset?: SecurityPreset
