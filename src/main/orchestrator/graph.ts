@@ -3216,10 +3216,10 @@ export async function runGraph(opts: {
           ...(resolved.scope ? { scope: resolved.scope } : {}),
           createdAt: Date.now()
         })
-        // RunState has no 'idle' -- 'done' is what every other clean end-of-turn
-        // path in this file uses (e.g. line ~3694's normal completion); the
-        // clarify card fully ends this turn (paused:false), it doesn't pause it.
-        sink.setState(conversationId, 'done')
+        // The turn is parked awaiting the user to answer the clarify card. The
+        // analogous pipeline-PROPOSAL path uses awaiting-approval so the renderer
+        // shows it as active/waiting in the sidebar.
+        sink.setState(conversationId, 'awaiting-approval')
         return { paused: false }
       }
       return runReview(conversationId, userText, resolved.lens, resolved.scope, sink, signal, panel)
