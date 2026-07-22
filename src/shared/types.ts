@@ -823,6 +823,11 @@ export const URSA_MODEL_REF = 'ursa/auto'
 // following the same 'provider/modelId'-shaped namespace convention.
 export const URSUS_MODEL_REF = 'ursus/auto'
 
+// The sentinel modelRef that marks a conversation as Hermes-routed (self-hosted agent).
+// Same rationale as URSA_MODEL_REF: lives here so the renderer can reference it
+// without crossing the Electron process boundary.
+export const HERMES_MODEL_REF = 'hermes/agent'
+
 // A named model assignment Ursa's classifier can dispatch a turn to. The set
 // of roles is curated in code (main/orchestrator/ursa.ts's CURATED_ROLES),
 // never user-editable -- this type exists so the renderer's turn_meta badge
@@ -979,6 +984,9 @@ export interface ConversationMeta {
   // Resolved from the ursa_mode column, coercing unknown/NULL to 'code'
   // (db toMeta) -- never falls back to a settings default like effort does.
   ursaMode: UrsaMode
+  // Hermes session ID: only meaningful when modelRef is the Hermes sentinel.
+  // Persisted per conversation to maintain thread continuity with remote Hermes agent.
+  hermesSessionId: string | null
   // The project this conversation belongs to (E4), or null when unassigned.
   projectId: string | null
   // Pin/archive flags (E7). Pinned conversations float to the top of their
