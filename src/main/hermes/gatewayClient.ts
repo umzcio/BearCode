@@ -107,11 +107,22 @@ export async function sendHermesMessage(opts: HermesChatOptions): Promise<void> 
   const reader = response.body!.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    buffer = parseSseBuffer(buffer, opts.onDelta)
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      buffer = parseSseBuffer(buffer, opts.onDelta)
+    }
+  } catch (err) {
+    // A mid-stream disconnect is NOT eligible for the network-failure retry
+    // above -- onDelta may already have fired with partial content, so
+    // retrying would duplicate/corrupt what the caller has already rendered.
+    if (err instanceof HermesGatewayError) throw err
+    throw new HermesGatewayError(
+      err instanceof Error ? err.message : 'Hermes stream read failed',
+      'stream'
+    )
   }
 }
 

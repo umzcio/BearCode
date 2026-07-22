@@ -128,6 +128,49 @@ describe('sendHermesMessage', () => {
       })
     ).rejects.toMatchObject({ kind: 'network' })
   })
+
+  it('throws HermesGatewayError kind "stream" (not "network") when the reader fails mid-stream', async () => {
+    const encoder = new TextEncoder()
+    let calls = 0
+    const midStreamFailingResponse = {
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            calls += 1
+            if (calls === 1) {
+              return {
+                done: false,
+                value: encoder.encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n')
+              }
+            }
+            throw new Error('socket hang up')
+          }
+        })
+      }
+    } as unknown as Response
+
+    const fetchSpy = vi.fn().mockResolvedValue(midStreamFailingResponse)
+    global.fetch = fetchSpy as unknown as typeof fetch
+
+    const deltas: string[] = []
+    await expect(
+      sendHermesMessage({
+        gatewayUrl: 'http://x:8642',
+        sessionId: 's',
+        userText: 'hi',
+        signal: new AbortController().signal,
+        onDelta: (d) => deltas.push(d)
+      })
+    ).rejects.toMatchObject({ kind: 'stream' })
+
+    // The first chunk should have already been delivered before the failure --
+    // this is precisely why a mid-stream failure must not be retried.
+    expect(deltas).toEqual(['partial'])
+    // No retry: only the initial fetch, no second connection attempt.
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('checkHermesHealth', () => {
