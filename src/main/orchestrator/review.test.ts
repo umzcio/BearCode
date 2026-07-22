@@ -20,7 +20,10 @@ vi.mock('../title', () => ({
 }))
 // runReview's target-gathering reads the workspace through node's fs -- mock
 // it so scope='src' resolves to one trivial file. This test is about panel
-// orchestration, not file IO; no real disk is touched.
+// orchestration, not file IO; no real disk is touched. realpathSync is
+// identity (no symlinks in this fake tree) -- it's needed because review.ts
+// now resolves scope through fsBackend.ts's resolveInWorkspace(), which calls
+// realpathSync as its containment core.
 vi.mock('fs', () => ({
   existsSync: vi.fn(() => true),
   statSync: vi.fn((p: string) => ({
@@ -28,7 +31,28 @@ vi.mock('fs', () => ({
     isFile: () => p !== '/project/src'
   })),
   readdirSync: vi.fn((dir: string) => (dir === '/project/src' ? ['a.ts'] : [])),
-  readFileSync: vi.fn(() => 'const x = 1\n')
+  readFileSync: vi.fn(() => 'const x = 1\n'),
+  realpathSync: vi.fn((p: string) => p)
+}))
+// review.ts now reuses fsBackend.ts's resolveInWorkspace() for scope
+// containment (jail against path traversal); importing fsBackend.ts pulls in
+// its module graph (permissions/diffs/settings/hooks-runner), so mock those
+// exactly like fsBackend.test.ts does -- this test only needs the module to
+// import cleanly, none of these are exercised by runReview.
+vi.mock('../permissions', () => ({
+  evaluateEditForConversation: vi.fn(() => 'apply'),
+  evaluateCommandForConversation: vi.fn(() => 'run'),
+  resolveConversationMode: vi.fn(() => 'accept-edits')
+}))
+vi.mock('../diffs', () => ({ stageFile: vi.fn() }))
+vi.mock('../settings', () => ({ getSettings: vi.fn(() => ({ fileAccessPolicy: 'deny' })) }))
+vi.mock('@langchain/langgraph', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@langchain/langgraph')>()
+  return { ...actual, interrupt: vi.fn() }
+})
+vi.mock('../hooks/runner', () => ({
+  runPreToolUse: vi.fn(),
+  runPostToolUse: vi.fn()
 }))
 
 import { URSA_REVIEW_PANEL, rubricFor, resolveReviewRequest, runReview } from './review'
@@ -144,5 +168,60 @@ describe('runReview', () => {
     expect(res).toEqual({ paused: false, failed: true })
     expect(emitted(s).some((e) => e.type === 'error')).toBe(true)
     expect(emitted(s).some((e) => e.type === 'review_finding')).toBe(false)
+  })
+
+  // FINDING 1 coverage: `scope` is free text an LLM classifier pulled from
+  // the user's message. A "../../secret" scope resolves (via path.resolve)
+  // to well outside projectPath ('/project') -- resolveInWorkspace must
+  // reject it, so resolveScopeFiles returns [] and NO file read ever
+  // happens. If the old ad-hoc `resolve(projectPath, scope)` were still in
+  // place this would silently read outside the workspace instead.
+  it('rejects a scope that resolves outside the workspace -- no read escapes projectPath', async () => {
+    const { readFileSync } = await import('fs')
+    vi.mocked(readFileSync).mockClear()
+    const s = sink()
+    const res = await runReview(
+      'c1', 'x', 'code', '../../secret', s as never, new AbortController().signal, URSA_REVIEW_PANEL
+    )
+    expect(res).toEqual({ paused: false, failed: true })
+    expect(readFileSync).not.toHaveBeenCalled()
+    const evs = emitted(s)
+    expect(evs.some((e) => e.type === 'error' && /nothing to review/i.test((e as any).message))).toBe(true)
+    expect(evs.some((e) => e.type === 'review_summary')).toBe(false)
+  })
+
+  // FINDING 2 coverage: every seat throwing must NOT look like every seat
+  // reviewing and finding nothing clean. The chair must never run, and no
+  // review_summary (which would misreport "0 findings" as "code passed
+  // review") may be emitted.
+  it('fails cleanly (no false "clean" summary) when every seat throws', async () => {
+    const { makeModel } = await import('./models')
+    vi.mocked(makeModel).mockImplementation(((ref: string) => ({
+      withStructuredOutput: () => ({
+        invoke: vi.fn(async () => {
+          throw new Error(ref === 'anthropic/claude-sonnet-5' ? 'chair should never be invoked' : 'seat down')
+        })
+      })
+    })) as never)
+    const s = sink()
+    const res = await runReview('c1', 'x', 'code', 'src', s as never, new AbortController().signal, URSA_REVIEW_PANEL)
+    expect(res).toEqual({ paused: false, failed: true })
+    const evs = emitted(s)
+    expect(evs.some((e) => e.type === 'error' && /every reviewer failed/i.test((e as any).message))).toBe(true)
+    expect(evs.some((e) => e.type === 'review_summary')).toBe(false)
+    expect(evs.some((e) => e.type === 'review_finding')).toBe(false)
+  })
+
+  // FINDING 3 coverage: a lone file that blows the context cap must not be
+  // reported as "nothing to review" (there WAS content, it just didn't fit).
+  it('reports "too large" rather than "nothing to review" when the only file exceeds the cap', async () => {
+    const { readFileSync } = await import('fs')
+    vi.mocked(readFileSync).mockReturnValueOnce('x'.repeat(70_000))
+    const s = sink()
+    const res = await runReview('c1', 'x', 'code', 'src', s as never, new AbortController().signal, URSA_REVIEW_PANEL)
+    expect(res).toEqual({ paused: false, failed: true })
+    const evs = emitted(s)
+    expect(evs.some((e) => e.type === 'error' && /too large/i.test((e as any).message))).toBe(true)
+    expect(evs.some((e) => e.type === 'error' && /nothing to review/i.test((e as any).message))).toBe(false)
   })
 })

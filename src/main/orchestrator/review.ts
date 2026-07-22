@@ -5,7 +5,7 @@
 // tuned independently). See planning/2026-07-21-reviewer-mode-design.md.
 import { randomUUID } from 'crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
-import { join, relative, resolve } from 'path'
+import { join, relative } from 'path'
 import { z } from 'zod'
 import { SystemMessage, HumanMessage } from '@langchain/core/messages'
 import type { Event, ReviewFinding, ReviewLens } from '../../shared/types'
@@ -17,6 +17,7 @@ import { keyStatus } from '../keys'
 import { appendEvent, getConversationMeta, getEvents } from '../db'
 import { parseModelRef } from '../providers/registry'
 import { CHEAP_MODEL, maybeGenerateTitle } from '../title'
+import { resolveInWorkspace } from './fsBackend'
 
 export const URSA_REVIEW_PANEL: CouncilConfig = {
   seats: ['anthropic/claude-fable-5', 'openai/gpt-5.6-sol', 'xai/grok-4.5'],
@@ -194,11 +195,29 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp(`^${re}$`)
 }
 
+// Filter `rels` (paths relative to `projectPath`) down to those that still
+// resolve INSIDE the workspace once symlinks are followed -- defense in
+// depth against a symlink under an otherwise-legitimate scope pointing
+// outside the project (listFilesRecursive's statSync follows symlinks when
+// deciding whether to walk into a directory).
+function withinWorkspace(projectPath: string, rels: string[]): string[] {
+  return rels.filter((rel) => !resolveInWorkspace(projectPath, rel).outside)
+}
+
 // Resolve `scope` to the ordered list of file paths (relative to
 // `projectPath`) it names. Three forms: the literal 'what was just built'
 // (this conversation's write_file/edit_file tool_calls, dedupe-first-seen), a
 // glob (contains *, ?, or [), or a plain path (file or directory, walked
 // recursively). Returns [] rather than throwing when nothing resolves.
+//
+// SECURITY: `scope` is free text an LLM classifier pulled out of the user's
+// message -- never a path the app itself constructed. It must be resolved
+// through the same symlink-aware containment check the agent's own file
+// tools use (resolveInWorkspace, fsBackend.ts -- the core jailPath() wraps),
+// with anything that resolves outside the workspace rejected outright.
+// Ad-hoc `resolve(projectPath, scope)` would let an absolute path or a
+// "../../" sequence escape the project, and the resolved file gets read and
+// embedded in prompts sent to third-party LLM APIs.
 function resolveScopeFiles(projectPath: string, scope: string, conversationId: string): string[] {
   if (scope === 'what was just built') {
     const seen = new Set<string>()
@@ -214,20 +233,20 @@ function resolveScopeFiles(projectPath: string, scope: string, conversationId: s
         files.push(rel)
       }
     }
-    return files
+    return withinWorkspace(projectPath, files)
   }
   if (/[*?[]/.test(scope)) {
     const matcher = globToRegExp(scope)
     const all: string[] = []
     listFilesRecursive(projectPath, projectPath, all)
-    return all.filter((rel) => matcher.test(rel))
+    return withinWorkspace(projectPath, all).filter((rel) => matcher.test(rel))
   }
-  const target = resolve(projectPath, scope)
-  if (!existsSync(target)) return []
+  const { real: target, outside } = resolveInWorkspace(projectPath, scope)
+  if (outside || !existsSync(target)) return []
   if (statSync(target).isFile()) return [relative(projectPath, target)]
   const out: string[] = []
   listFilesRecursive(target, projectPath, out)
-  return out
+  return withinWorkspace(projectPath, out)
 }
 
 // Read `scope`'s resolved files into one bounded block ("### <relpath>\n
@@ -235,19 +254,25 @@ function resolveScopeFiles(projectPath: string, scope: string, conversationId: s
 // overflow, files are included in listed order until the cap and `note`
 // records the honest truncation. Unreadable files (deleted mid-scan, binary
 // decode failure) are skipped rather than failing the whole gather. Returns
-// null when the scope names no readable file -- the caller emits the
-// recoverable "Nothing to review" error. Kept separate from gatherTarget so
-// scope resolution can be unit-tested on its own if it grows.
+// null when the scope names no readable file at all -- the caller emits the
+// recoverable "Nothing to review" error. Returns `{ tooLarge: true }` when at
+// least one file WAS read but its section alone blew the cap before anything
+// could be included (a lone oversized file) -- distinct from "nothing to
+// review" because there genuinely was something, it just didn't fit; the
+// caller emits a dedicated "too large" error instead of the misleading
+// "nothing to review" one. Kept separate from gatherTarget so scope
+// resolution can be unit-tested on its own if it grows.
 function resolveScopeToBlock(
   projectPath: string | null,
   scope: string,
   conversationId: string
-): { block: string; note?: string } | null {
+): { block: string; note?: string; tooLarge?: boolean } | null {
   if (!projectPath) return null
   const files = resolveScopeFiles(projectPath, scope, conversationId)
   if (files.length === 0) return null
   let block = ''
   let included = 0
+  let sawReadable = false
   for (const rel of files) {
     let contents: string
     try {
@@ -255,12 +280,13 @@ function resolveScopeToBlock(
     } catch {
       continue
     }
+    sawReadable = true
     const section = `### ${rel}\n${contents}\n`
     if (block.length + section.length > REVIEW_CONTEXT_CAP) break
     block += section
     included++
   }
-  if (included === 0) return null
+  if (included === 0) return sawReadable ? { block: '', tooLarge: true } : null
   const note =
     included < files.length ? `reviewed ${included} of ${files.length} files (scope truncated)` : undefined
   return { block, note }
@@ -268,11 +294,12 @@ function resolveScopeToBlock(
 
 // Gather the scope's files into one bounded block. Returns null when the
 // scope resolves to nothing (caller emits the recoverable "nothing to
-// review").
+// review"); returns `{ tooLarge: true }` when the scope named readable
+// content that didn't fit (caller emits a distinct "too large" error).
 async function gatherTarget(
   conversationId: string,
   scope: string
-): Promise<{ block: string; note?: string } | null> {
+): Promise<{ block: string; note?: string; tooLarge?: boolean } | null> {
   const projectPath = getConversationMeta(conversationId)?.projectPath ?? null
   return resolveScopeToBlock(projectPath, scope, conversationId)
 }
@@ -304,6 +331,16 @@ export async function runReview(
     sink.setState(conversationId, 'error')
     return { paused: false, failed: true }
   }
+  if (target.tooLarge) {
+    emit({
+      type: 'error',
+      id: randomUUID(),
+      message: `${scope} is too large to review in one pass.`,
+      recoverable: true
+    })
+    sink.setState(conversationId, 'error')
+    return { paused: false, failed: true }
+  }
   // Cost booking is intentionally minimal (v1): withStructuredOutput hides
   // usage_metadata, so per-call usage cannot be booked accurately here. Left
   // empty rather than pushing fake {..,0,0} entries, which would misreport
@@ -312,7 +349,11 @@ export async function runReview(
   const human = (extra = ''): HumanMessage =>
     new HumanMessage(`Review request: ${userText}\n\nTarget:\n${target.block}${extra}`)
   try {
-    // Stage 1: seats review in parallel, structured findings, toolless.
+    // Stage 1: seats review in parallel, structured findings, toolless. A
+    // seat whose model call THROWS resolves to `null` -- distinct from a
+    // seat that genuinely reviewed and found nothing (`findings: []`), which
+    // is a valid outcome (clean code) and must not be conflated with "seat
+    // never ran".
     const raw = await Promise.all(
       seats.map(async (seatRef) => {
         try {
@@ -323,12 +364,22 @@ export async function runReview(
           return { seatRef, findings: res.findings ?? [] }
         } catch (err) {
           if (signal.aborted) throw err
-          return { seatRef, findings: [] as ReviewFinding[] }
+          return null
         }
       })
     )
+    const succeeded = raw.filter((r): r is { seatRef: string; findings: ReviewFinding[] } => r !== null)
+    // If EVERY seat threw, the chair would otherwise run on empty input and
+    // emit an all-zeros review_summary -- telling the user their code passed
+    // review with zero findings when no review actually happened. Mirrors
+    // runCouncil's "no answers survived" guard (council.ts).
+    if (succeeded.length === 0) {
+      emit({ type: 'error', id: randomUUID(), message: 'Every reviewer failed. Try again.', recoverable: true })
+      sink.setState(conversationId, 'error')
+      return { paused: false, failed: true }
+    }
     // Stage 2: chair merges (even with 0 findings -> confirms "clean").
-    const panelBlock = raw
+    const panelBlock = succeeded
       .map(
         (r) =>
           `### Reviewer ${seatLabel(r.seatRef)}\n` +
