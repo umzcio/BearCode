@@ -1354,6 +1354,10 @@ export interface BearcodeApi {
     set(provider: ProviderId, key: string): Promise<void>
     status(): Promise<Record<ProviderId, boolean>>
   }
+  hermes: {
+    testConnection(gatewayUrl: string, token?: string): Promise<{ ok: boolean; message: string }>
+    setToken(token: string): Promise<void>
+  }
   ursa: {
     requiredProviders(): Promise<ProviderId[]>
     // Ursa Phase 2: approve/deny a proposed pipeline (the synthetic
@@ -1376,6 +1380,10 @@ export interface BearcodeApi {
     list(): Promise<ConversationMeta[]>
     get(id: string): Promise<Event[]>
     create(projectPath: string | null, id?: string): Promise<ConversationMeta>
+    // Hermes: mints a project-less conversation pinned to HERMES_MODEL_REF with
+    // a fresh session id, so the Gateway SSE client (Task 4/5) has a stable
+    // session to resume against.
+    createHermes(): Promise<ConversationMeta>
     delete(id: string): Promise<void>
     clear(): Promise<void>
     setMode(id: string, mode: PermissionMode): Promise<void>

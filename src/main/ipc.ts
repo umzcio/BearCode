@@ -44,7 +44,8 @@ import type {
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
 import { isUrsaMode } from '../shared/ursaMode'
-import { keyStatus, setKey, setVaultSecret } from './keys'
+import { keyStatus, setKey, setVaultSecret, setHermesToken } from './keys'
+import { checkHermesHealth } from './hermes/gatewayClient'
 import { ursaRequiredProviders } from './orchestrator/ursa'
 import { ursusRequiredProviders } from './orchestrator/ursus'
 import {
@@ -122,7 +123,7 @@ import { loadHooks } from './hooks/loader'
 import { setHookActive } from './hooks/state'
 import { writeGlobalHook, updateGlobalHook, deleteGlobalHook } from './hooks/authoring'
 import { validateHookEvent, validateHookName } from './hooks/validate'
-import { COMMAND_NAME_PATTERN } from '../shared/types'
+import { COMMAND_NAME_PATTERN, HERMES_MODEL_REF } from '../shared/types'
 import {
   assertValidConversationId,
   ingestPickedFiles,
@@ -504,6 +505,13 @@ export function registerIpc(): void {
   })
   ipcMain.handle('bearcode:keys:status', () => keyStatus())
 
+  ipcMain.handle('bearcode:hermes:test-connection', (_e, gatewayUrl: string, token?: string) =>
+    checkHermesHealth(gatewayUrl, token)
+  )
+  ipcMain.handle('bearcode:hermes:set-token', (_e, token: string) => {
+    setHermesToken(token)
+  })
+
   // Ursa Phase 1: the curated role table lives entirely in main
   // (orchestrator/ursa.ts) -- this just tells the Settings > Ursa page which
   // providers it depends on, so the page can render a read-only key-status
@@ -561,6 +569,12 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:conversations:create', (_e, projectPath: string | null, id?: string) => {
     if (id !== undefined) assertValidConversationId(id)
     return db.createConversation(projectPath, id)
+  })
+  ipcMain.handle('bearcode:conversations:create-hermes', () => {
+    const meta = db.createConversation(null)
+    db.setModelRef(meta.id, HERMES_MODEL_REF)
+    db.setHermesSessionId(meta.id, randomUUID())
+    return db.getConversationMeta(meta.id)
   })
   ipcMain.handle('bearcode:conversations:delete', async (_e, id: string) => {
     forgetRunOrchestrator(id)

@@ -119,6 +119,15 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:keys:set', provider, key),
     status: () => ipcRenderer.invoke('bearcode:keys:status')
   },
+  hermes: {
+    testConnection: (
+      gatewayUrl: string,
+      token?: string
+    ): Promise<{ ok: boolean; message: string }> =>
+      ipcRenderer.invoke('bearcode:hermes:test-connection', gatewayUrl, token),
+    setToken: (token: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:hermes:set-token', token)
+  },
   ursa: {
     requiredProviders: () => ipcRenderer.invoke('bearcode:ursa:required-providers'),
     resolvePipeline: (conversationId: string, callId: string, approved: boolean) =>
@@ -139,6 +148,8 @@ const bearcode: BearcodeApi = {
     get: (id: string) => ipcRenderer.invoke('bearcode:conversations:get', id),
     create: (projectPath: string | null, id?: string) =>
       ipcRenderer.invoke('bearcode:conversations:create', projectPath, id),
+    createHermes: (): Promise<ConversationMeta> =>
+      ipcRenderer.invoke('bearcode:conversations:create-hermes'),
     delete: (id: string) => ipcRenderer.invoke('bearcode:conversations:delete', id),
     clear: () => ipcRenderer.invoke('bearcode:conversations:clear'),
     setMode: (id: string, mode: PermissionMode): Promise<void> =>
