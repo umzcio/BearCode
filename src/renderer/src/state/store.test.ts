@@ -132,7 +132,8 @@ const convoMeta: ConversationMeta = {
   archived: false,
   environment: 'local',
   worktrees: [],
-  ursaMode: 'code'
+  ursaMode: 'code',
+  hermesSessionId: null
 }
 
 const convo = (over: Partial<Convo> = {}): Convo => ({
