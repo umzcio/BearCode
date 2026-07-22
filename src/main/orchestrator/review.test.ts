@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-vi.mock('../db', () => ({ getRecentUrsaContext: vi.fn(() => ''), appendEvent: vi.fn(), getConversationMeta: vi.fn(() => ({ id: 'c1', title: 't' })) }))
+vi.mock('../db', () => ({
+  getRecentUrsaContext: vi.fn(() => ''),
+  appendEvent: vi.fn(),
+  getConversationMeta: vi.fn(() => ({ id: 'c1', title: 't', projectPath: '/project' })),
+  getEvents: vi.fn(() => [])
+}))
 vi.mock('../keys', () => ({ keyStatus: vi.fn(() => ({ anthropic: true, openai: true, xai: true, openrouter: true })) }))
 const invokeSpy = vi.hoisted(() => vi.fn())
 vi.mock('./models', () => ({ makeModel: vi.fn(() => ({ withStructuredOutput: () => ({ invoke: invokeSpy }) })) }))
@@ -10,12 +15,26 @@ vi.mock('../title', () => ({
     google: 'gemini-2.5-flash',
     perplexity: 'sonar',
     xai: 'grok-4-fast'
-  }
+  },
+  maybeGenerateTitle: vi.fn()
+}))
+// runReview's target-gathering reads the workspace through node's fs -- mock
+// it so scope='src' resolves to one trivial file. This test is about panel
+// orchestration, not file IO; no real disk is touched.
+vi.mock('fs', () => ({
+  existsSync: vi.fn(() => true),
+  statSync: vi.fn((p: string) => ({
+    isDirectory: () => p === '/project/src',
+    isFile: () => p !== '/project/src'
+  })),
+  readdirSync: vi.fn((dir: string) => (dir === '/project/src' ? ['a.ts'] : [])),
+  readFileSync: vi.fn(() => 'const x = 1\n')
 }))
 
-import { URSA_REVIEW_PANEL, rubricFor, resolveReviewRequest } from './review'
+import { URSA_REVIEW_PANEL, rubricFor, resolveReviewRequest, runReview } from './review'
 import { URSUS_REVIEW_PANEL } from './ursus'
 import { keyStatus } from '../keys'
+import type { Event } from '../../shared/types'
 
 describe('review panels', () => {
   it('Ursa panel: 3 diverse seats + Sonnet chair, chair not a seat', () => {
@@ -78,5 +97,52 @@ describe('resolveReviewRequest', () => {
       lens: 'security',
       scope: 'src'
     })
+  })
+})
+
+// seats return raw findings; chair merges. Model factory returns per-ref fakes.
+const finding = (over = {}) => ({ severity: 'important', lens: 'security', file: 'a.ts', line: 3, title: 't', detail: 'd', ...over })
+function panelModels(seatFindings: Record<string, unknown[]>, chairMerged: unknown[]) {
+  return (ref: string) => ({
+    withStructuredOutput: () => ({
+      invoke: vi.fn(async () =>
+        ref === 'anthropic/claude-sonnet-5' ? { findings: chairMerged } : { findings: seatFindings[ref] ?? [] }
+      )
+    })
+  })
+}
+const sink = () => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
+const emitted = (s: any): Event[] => s.emit.mock.calls.map((c: any[]) => c[1])
+
+describe('runReview', () => {
+  beforeEach(() => {
+    vi.mocked(keyStatus).mockReturnValue({ anthropic: true, openai: true, xai: true, openrouter: true } as ReturnType<
+      typeof keyStatus
+    >)
+  })
+
+  it('runs seats then chair, emits one review_finding per merged finding + a summary', async () => {
+    const { makeModel } = await import('./models')
+    vi.mocked(makeModel).mockImplementation(panelModels(
+      { 'anthropic/claude-fable-5': [finding()], 'openai/gpt-5.6-sol': [finding()], 'xai/grok-4.5': [] },
+      [finding({ severity: 'critical' }), finding({ severity: 'minor', file: 'b.ts' })]
+    ) as never)
+    const s = sink()
+    const res = await runReview('c1', 'audit', 'security', 'src', s as never, new AbortController().signal, URSA_REVIEW_PANEL)
+    expect(res).toEqual({ paused: false })
+    const evs = emitted(s)
+    expect(evs.filter((e) => e.type === 'review_finding')).toHaveLength(2)
+    const summary = evs.find((e) => e.type === 'review_summary') as any
+    expect(summary.counts).toEqual({ critical: 1, important: 0, minor: 1 })
+  })
+
+  it('recoverable error (no findings emitted) when the chair provider is unkeyed', async () => {
+    const { keyStatus } = await import('../keys')
+    vi.mocked(keyStatus).mockReturnValue({ openai: true, xai: true } as never) // no anthropic (chair)
+    const s = sink()
+    const res = await runReview('c1', 'x', 'code', 'src', s as never, new AbortController().signal, URSA_REVIEW_PANEL)
+    expect(res).toEqual({ paused: false, failed: true })
+    expect(emitted(s).some((e) => e.type === 'error')).toBe(true)
+    expect(emitted(s).some((e) => e.type === 'review_finding')).toBe(false)
   })
 })
