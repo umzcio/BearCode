@@ -418,6 +418,11 @@ interface AppState {
   setArchived(id: string, archived: boolean): void
   renameConversation(id: string, title: string): void
   newConversationInProject(path: string): Promise<void>
+  // Hermes: mints a project-less conversation pinned to HERMES_MODEL_REF and
+  // opens it (Task 7 IPC does the DB work; this just reflects it into state).
+  newHermesConversation(): Promise<void>
+  testHermesConnection(gatewayUrl: string, token?: string): Promise<{ ok: boolean; message: string }>
+  saveHermesToken(token: string): Promise<void>
   togglePermMenu(): void
   pickWorkspace(): Promise<void>
   setWorkspace(path: string | null): void
@@ -1304,6 +1309,26 @@ export const useAppStore = create<AppState>((set, get) => {
         }
       })
     },
+
+    newHermesConversation: async () => {
+      // Hermes conversations are project-less -- there is no folder to inherit
+      // defaults from (createHermes already seeds sensible ones main-side), so
+      // this only mirrors newConversationInProject's state-write tail: build
+      // the Convo from the returned meta and switch the active view to it.
+      const meta = await window.bearcode.conversations.createHermes()
+      const convo = { ...fromMeta(meta), loaded: true }
+      set((s) => {
+        const conversations = { ...s.conversations, [meta.id]: convo }
+        return {
+          conversations,
+          convoOrder: orderByRecency(conversations),
+          view: { kind: 'conversation', id: meta.id }
+        }
+      })
+    },
+    testHermesConnection: (gatewayUrl, token) =>
+      window.bearcode.hermes.testConnection(gatewayUrl, token),
+    saveHermesToken: (token) => window.bearcode.hermes.setToken(token),
 
     togglePermMenu: () => set((s) => ({ permMenuTick: s.permMenuTick + 1 })),
 
