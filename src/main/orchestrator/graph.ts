@@ -3112,12 +3112,14 @@ export async function runGraph(opts: {
   // submissions; if the old interrupted task replays on this thread, it
   // re-enters its own artifactId slot (tools.ts tryEnterPlanReview).
   clearPlanReviewPending(conversationId)
-  if (!ursaResolved && !ursaStep) {
+  if (!ursaResolved && !ursaStep && !reviewResolved) {
     // Pin any @-mentioned Manual rules into active_rules BEFORE building the
     // agent, so this turn's meta read already includes them (see
-    // persistRuleMentions). Skipped on the declined-pipeline re-run and on
-    // pipeline steps: the mentions were already pinned when the proposal was
-    // created, and pipeline steps are internal turns (no user_message echo).
+    // persistRuleMentions). Skipped on the declined-pipeline re-run, on
+    // pipeline steps, and on a review-clarify re-dispatch: the mentions were
+    // already pinned (or don't apply) when the original turn's user_message
+    // was emitted, and re-emitting it here would duplicate it in the
+    // transcript.
     persistRuleMentions(conversationId, mentions)
     const userEvent: Event = {
       type: 'user_message',

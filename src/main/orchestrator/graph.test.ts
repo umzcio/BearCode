@@ -2516,6 +2516,37 @@ describe('runGraph — Ursa Modes: review dispatch (Task 4)', () => {
       URSA_REVIEW_PANEL
     )
   })
+
+  // A reviewResolved dispatch is a re-entry into runGraph for a turn whose
+  // user_message was already emitted on the FIRST pass (when the clarify card
+  // was raised). Re-echoing it here would duplicate the turn in the
+  // transcript -- the same reasoning that already excludes ursaResolved and
+  // ursaStep from the echo guard (see the ursaStep suite above).
+  it('reviewResolved re-dispatch does NOT re-echo user_message', async () => {
+    const { resolveReviewRequest, runReview, URSA_REVIEW_PANEL } = await import('./review')
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('review'))
+    const sink = makeSink()
+    await runGraph({
+      conversationId: 'c1',
+      userText: 'review src',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal,
+      reviewResolved: { lens: 'security', scope: 'src' }
+    })
+    expect(resolveReviewRequest).not.toHaveBeenCalled()
+    const emitted = vi.mocked(sink.emit).mock.calls.map((c) => c[1])
+    expect(emitted.filter((e) => e.type === 'user_message').length).toBe(0)
+    expect(runReview).toHaveBeenCalledWith(
+      'c1',
+      'review src',
+      'security',
+      'src',
+      sink,
+      expect.anything(),
+      URSA_REVIEW_PANEL
+    )
+  })
 })
 
 describe('runGraph — Ursa Phase 2 pipeline proposal (consent gate)', () => {
