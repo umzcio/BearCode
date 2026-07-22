@@ -630,6 +630,9 @@
   .finding-detail {
     animation: none;
   }
+  .lens-chip:active {
+    transform: none;
+  }
 }
 
 .allow-grid {

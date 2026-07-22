@@ -4,7 +4,7 @@
 // code-curated, own table per mode (separate from the councils so they can be
 // tuned independently). See planning/2026-07-21-reviewer-mode-design.md.
 import { randomUUID } from 'crypto'
-import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'fs'
 import { join, relative } from 'path'
 import { z } from 'zod'
 import { SystemMessage, HumanMessage } from '@langchain/core/messages'
@@ -243,9 +243,17 @@ function resolveScopeFiles(projectPath: string, scope: string, conversationId: s
   }
   const { real: target, outside } = resolveInWorkspace(projectPath, scope)
   if (outside || !existsSync(target)) return []
-  if (statSync(target).isFile()) return [relative(projectPath, target)]
+  // MINOR 5 fix: `target` is already realpath'd by resolveInWorkspace, so
+  // `relative()` must use an equally realpath'd base -- otherwise a
+  // symlinked projectPath (e.g. macOS /tmp -> /private/tmp) renders every
+  // finding.file here `../`-laden instead of a clean project-relative path.
+  // Purely cosmetic (never a containment break: withinWorkspace still
+  // re-checks every path through resolveInWorkspace below), but worth
+  // getting right since these paths are what the UI shows the user.
+  const realRoot = realpathSync(projectPath)
+  if (statSync(target).isFile()) return [relative(realRoot, target)]
   const out: string[] = []
-  listFilesRecursive(target, projectPath, out)
+  listFilesRecursive(target, realRoot, out)
   return withinWorkspace(projectPath, out)
 }
 

@@ -212,6 +212,32 @@ export function cancelRunOrchestrator(conversationId: string, sink?: RunSink): v
     if (meta) sink.metaChanged(meta)
     return
   }
+  // Review mode: Stop while parked on a review_clarify card. This park is
+  // ALSO pre-graph -- the turn that raised the clarify card already ran to
+  // completion (see startReviewFromClarification's doc comment above), so
+  // there is no live AbortController awaiting the abort() above, no
+  // pendingApprovals entry, and no Ursa pipeline row. Every branch here would
+  // otherwise fall through and leave the conversation stuck in
+  // 'awaiting-approval' forever with Stop as a permanent no-op. Detection
+  // mirrors ConversationView.tsx's own contract for "still pending" (the
+  // review_clarify card carries no answer/approvalState field of its own):
+  // it is exactly "the clarify card is the last event in the transcript" --
+  // resolving it always appends the next event (a re-dispatched run's
+  // findings or error) right after it.
+  if (sink) {
+    const events = getEvents(conversationId)
+    const last = events[events.length - 1]
+    if (last?.type === 'review_clarify') {
+      aborts.delete(conversationId)
+      const event: Event = { type: 'error', id: randomUUID(), message: 'Cancelled', recoverable: true }
+      sink.emit(conversationId, event)
+      appendEvent(conversationId, event)
+      sink.setState(conversationId, 'cancelled')
+      const meta = getConversationMeta(conversationId)
+      if (meta) sink.metaChanged(meta)
+      return
+    }
+  }
   // Ursa Phase 2 (Task 4): Stop while an approved pipeline is RUNNING. Two
   // sub-cases share this mark:
   //  - a step is actively driving: the abort() above cancels its drive signal;
@@ -313,22 +339,31 @@ export function resolveUrsaPipelineOrchestrator(
 //     runDeclinedPipelineSingleRole's lastUserMessageFull() call above: the
 //     original request that raised the clarify card is still the last
 //     user_message on this conversation (the clarify card itself isn't one).
-//   - modelRef mirrors that same function's getLastResolvedModelRef() read:
-//     review mode always resolves and persists a concrete model before it can
-//     reach the clarify branch (Ursa/Ursus classification happens up front),
-//     so this is never the raw 'ursa/auto' sentinel here.
+//   - modelRef: unlike a pipeline turn, the review branch in graph.ts RETURNS
+//     to park the clarify card BEFORE classification ever runs (see the
+//     `ursaMode === 'review'` branch in graph.ts) -- so a conversation that
+//     has only ever used Review mode has NO last-resolved model at all.
+//     runReview only needs the ROUTER identity (Ursa vs Ursus), which the
+//     conversation's own modelRef sentinel ('ursa/auto' / 'ursus/auto')
+//     already carries -- isUrsaModelRef/isUrsusModelRef treat that sentinel
+//     as a first-class ref, and the reviewResolved opt below bypasses the
+//     classifier entirely, so falling back to the raw conversation modelRef
+//     is correct and sufficient. Prefer the classifier's own last-resolved
+//     ref when one exists (a mixed-mode conversation that previously ran a
+//     normal turn), and only fall back to the conversation's persisted
+//     modelRef when that's missing.
 export function startReviewFromClarification(
   conversationId: string,
   lens: ReviewLens,
   scope: string,
   sink: RunSink
 ): void {
-  const resolvedModelRef = getLastResolvedModelRef(conversationId)
+  const resolvedModelRef = getLastResolvedModelRef(conversationId) ?? getConversationMeta(conversationId)?.modelRef
   const last = lastUserMessageFull(conversationId)
   if (!resolvedModelRef) {
-    // Mirrors runDeclinedPipelineSingleRole's same-shaped guard: this should be
-    // unreachable (the turn that raised the clarify card always persists a
-    // resolved model first), but fail honestly rather than guess a role.
+    // Only reachable when the conversation genuinely has no model at all
+    // (neither a classifier-resolved ref nor its own persisted modelRef) --
+    // fail honestly rather than guess a role.
     const event: Event = {
       type: 'error',
       id: randomUUID(),

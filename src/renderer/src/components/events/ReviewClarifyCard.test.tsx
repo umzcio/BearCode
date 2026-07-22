@@ -5,10 +5,13 @@ import { ReviewClarifyCard } from './ReviewClarifyCard'
 import type { Event } from '@shared/types'
 
 const resolveClarify = vi.fn(() => Promise.resolve())
+const cancel = vi.fn(() => Promise.resolve())
 beforeEach(() => {
   resolveClarify.mockClear()
+  cancel.mockClear()
   ;(globalThis as unknown as { window: Record<string, unknown> }).window.bearcode = {
-    review: { resolveClarify }
+    review: { resolveClarify },
+    run: { cancel }
   }
 })
 afterEach(cleanup)
@@ -70,5 +73,43 @@ describe('ReviewClarifyCard', () => {
     fireEvent.change(input, { target: { value: 'src' } })
     fireEvent.click(screen.getByText('Confirm'))
     expect(resolveClarify).toHaveBeenCalledWith('c1', 'performance', 'src')
+  })
+
+  it('IMPORTANT 3: a second Confirm click after the first does not double-dispatch', () => {
+    const event = clarifyEvent({ askLens: false, askScope: true, lens: 'code' })
+    render(<ReviewClarifyCard event={event as never} convoId="c1" />)
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'src/renderer' } })
+    const confirmBtn = screen.getByText('Confirm') as HTMLButtonElement
+
+    fireEvent.click(confirmBtn)
+    expect(resolveClarify).toHaveBeenCalledTimes(1)
+    // Confirm is now disabled -- a second click (or an impatient double-click
+    // before React re-renders in a real browser) must not fire a second run.
+    expect(confirmBtn.disabled).toBe(true)
+    fireEvent.click(confirmBtn)
+    expect(resolveClarify).toHaveBeenCalledTimes(1)
+    // The scope input and chips are locked too -- nothing left to interact with.
+    expect((input as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('IMPORTANT 3: a second chip click after the first (lens-only card) does not double-dispatch', () => {
+    const event = clarifyEvent({ askLens: true, askScope: false, scope: 'src/ui' })
+    render(<ReviewClarifyCard event={event as never} convoId="c1" />)
+
+    fireEvent.click(screen.getByText('Security'))
+    expect(resolveClarify).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByText('Security'))
+    fireEvent.click(screen.getByText('Code'))
+    expect(resolveClarify).toHaveBeenCalledTimes(1)
+  })
+
+  it('IMPORTANT 2: Cancel calls the shared cancelRun action (same path as the composer Stop button)', () => {
+    const event = clarifyEvent({ askLens: true, askScope: true })
+    render(<ReviewClarifyCard event={event as never} convoId="c1" />)
+
+    fireEvent.click(screen.getByText('Cancel'))
+    expect(cancel).toHaveBeenCalledWith('c1')
+    expect(resolveClarify).not.toHaveBeenCalled()
   })
 })

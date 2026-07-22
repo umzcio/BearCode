@@ -37,24 +37,43 @@ export function ReviewClarifyCard({
   convoId
 }: ReviewClarifyCardProps): React.JSX.Element {
   const resolveReviewClarification = useAppStore((s) => s.resolveReviewClarification)
+  const cancelRun = useAppStore((s) => s.cancelRun)
   const [chosenLens, setChosenLens] = useState<ReviewLens | null>(null)
   const [scopeInput, setScopeInput] = useState(event.scope ?? '')
+  // IMPORTANT 3 fix: the re-dispatched panel run takes seconds before its
+  // first finding appends, and during that window this card would otherwise
+  // still be the last event and fully interactive -- a second Confirm (or, in
+  // the lens-only case, a second chip click) would call
+  // resolveReviewClarification again and start a second concurrent run on
+  // the same conversation. Once the user has answered once, lock the whole
+  // card down; there is nothing left here to interact with until the
+  // re-dispatched run's own events replace it as "last event".
+  const [submitted, setSubmitted] = useState(false)
   const scopeTrimmed = scopeInput.trim()
   const scopeInvalid = event.askScope && scopeTrimmed.length === 0
   const lensResolved = chosenLens ?? event.lens ?? null
 
   const pickLens = (lens: ReviewLens): void => {
+    if (submitted) return
     if (event.askScope) {
       // Scope still needs an answer -- stage the pick, wait for Confirm.
       setChosenLens(lens)
       return
     }
+    setSubmitted(true)
     resolveReviewClarification(convoId, lens, event.scope ?? '')
   }
 
   const confirm = (): void => {
-    if (!lensResolved || scopeInvalid) return
+    if (submitted || !lensResolved || scopeInvalid) return
+    setSubmitted(true)
     resolveReviewClarification(convoId, lensResolved, scopeTrimmed)
+  }
+
+  const cancel = (): void => {
+    if (submitted) return
+    setSubmitted(true)
+    cancelRun(convoId)
   }
 
   return (
@@ -70,6 +89,7 @@ export function ReviewClarifyCard({
                 type="button"
                 className={'lens-chip' + (chosenLens === opt.value ? ' selected' : '')}
                 aria-pressed={chosenLens === opt.value}
+                disabled={submitted}
                 onClick={() => pickLens(opt.value)}
               >
                 {opt.label}
@@ -89,6 +109,7 @@ export function ReviewClarifyCard({
             type="text"
             value={scopeInput}
             placeholder="e.g. src, or 'what was just built'"
+            disabled={submitted}
             onChange={(e) => setScopeInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') confirm()
@@ -99,17 +120,20 @@ export function ReviewClarifyCard({
           </FieldHint>
         </div>
       ) : null}
-      {event.askScope ? (
-        <div className="approval-actions">
+      <div className="approval-actions">
+        {event.askScope ? (
           <button
             className="pill-btn primary"
-            disabled={!lensResolved || scopeInvalid}
+            disabled={submitted || !lensResolved || scopeInvalid}
             onClick={confirm}
           >
             Confirm
           </button>
-        </div>
-      ) : null}
+        ) : null}
+        <button className="pill-btn" disabled={submitted} onClick={cancel}>
+          Cancel
+        </button>
+      </div>
     </div>
   )
 }
