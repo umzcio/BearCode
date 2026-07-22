@@ -168,9 +168,12 @@ export function Composer({
   // entirely -- there is only ever one command per turn. An open resume
   // picker also suppresses it: the two popovers share the spot above the
   // composer and both react to arrows/enter/escape, so they must never
-  // render stacked.
+  // render stacked. A Hermes conversation has no add-context affordance to
+  // reach slash commands (see the .add-context gate below), but typing "/"
+  // directly is a second, independent entry point -- runHermes never forwards
+  // commands (only plain text), so it must stay suppressed here too.
   const menuOpen =
-    command === null && !menuDismissed && !resumePickerOpen && value.length > 0 && value[0] === '/'
+    command === null && !menuDismissed && !resumePickerOpen && value.length > 0 && value[0] === '/' && !isHermesConvo
   const filtered = menuOpen ? filterSlashCommands(value.slice(1), commands) : []
   const safeIndex = Math.min(highlightedIndex, Math.max(0, filtered.length - 1))
 

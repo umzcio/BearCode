@@ -87,6 +87,20 @@ describe('Composer — Hermes lean mode (Task 11)', () => {
     expect(container.querySelector('.mention-menu')).toBeNull()
   })
 
+  it('does not open the slash-command menu when "/" is typed in a Hermes conversation', () => {
+    // Slash commands are picked from the add-context menu item, but typing "/"
+    // directly is a second, independent entry point detected by the textarea's
+    // own onChange. That path must be suppressed too, or a user can type "/",
+    // pick a command from the opened SlashMenu, have it appear as a pill in the
+    // sent message, and have it silently vanish (runHermes never forwards
+    // commands, only plain text). Same silent-drop bug class as @-mentions.
+    useAppStore.setState({ modelRef: HERMES_MODEL_REF, providers: [] } as never)
+    const { container } = render(<Composer onSend={() => {}} />)
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: '/' } })
+    expect(container.querySelector('.slash-menu')).toBeNull()
+  })
+
   // Task 8's newHermesConversation (and openConvo's refConfigured guard, which
   // isn't special-cased for HERMES_MODEL_REF the way it is for Ursa/Ursus)
   // don't reliably sync the transient top-level `modelRef` to the Hermes
