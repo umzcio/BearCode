@@ -32,6 +32,7 @@ import type {
   PermissionMode,
   PlanReviewResolveResult,
   ProviderId,
+  ReviewLens,
   SkillSaveResult,
   SourceCitation,
   ToolName
@@ -111,9 +112,11 @@ import {
   resolveSubagentUrsusModelRefs,
   roleNameForModelRef as roleNameForUrsusModelRef,
   resolveUrsusDeepResearchPipeline,
-  URSUS_COUNCIL
+  URSUS_COUNCIL,
+  URSUS_REVIEW_PANEL
 } from './ursus'
 import { runCouncil, URSA_COUNCIL } from './council'
+import { runReview, resolveReviewRequest, URSA_REVIEW_PANEL } from './review'
 import { compactionAdvanced } from './compaction'
 import {
   COMPACT_ACK_DIRECTIVE,
@@ -3056,6 +3059,12 @@ export async function runGraph(opts: {
   // ursaRole for turn_meta is recovered from the modelRef when omitted, so
   // per-role spend still attributes correctly. Undefined for every normal turn.
   ursaResolved?: { modelRef: string; ursaRole?: string }
+  // Review mode (Phase H, Task 4): a PRE-RESOLVED lens+scope for a review-mode
+  // turn whose clarify card was just answered. Mirrors ursaResolved's shape:
+  // when set, runGraph skips resolveReviewRequest entirely so an answered
+  // clarify card never re-classifies (and can't re-ask for the same field).
+  // Undefined for every normal review-mode turn (which classifies fresh).
+  reviewResolved?: { lens: ReviewLens; scope: string }
   // Ursa Phase 2 (Task 4): drive ONE step of an approved pipeline. When set,
   // runGraph:
   //  - skips the user_message echo (+ rule-mention pin + force-compact): steps
@@ -3094,7 +3103,8 @@ export async function runGraph(opts: {
     mentions = [],
     attachments = [],
     ursaResolved,
-    ursaStep
+    ursaStep,
+    reviewResolved
   } = opts
 
   sink.setState(conversationId, 'running')
@@ -3183,6 +3193,36 @@ export async function runGraph(opts: {
       setUrsaPipelineStatus(conversationId, 'running')
       startUrsaPipeline?.(conversationId, sink, signal)
       return { paused: true }
+    }
+    // Review mode (Phase H, Task 4): a dedicated audit-panel runner, dispatched
+    // from the same pre-classification seam as council/deep-research above.
+    // Unlike deep-research, picking the mode is NOT full consent -- the panel
+    // still needs a lens (what to audit for) and a scope (what to audit), so a
+    // fresh turn classifies the free-text request via resolveReviewRequest
+    // first. When either comes back missing, emit a review_clarify card and
+    // park the turn (idle, paused:false) instead of guessing; the caller
+    // re-invokes runGraph with reviewResolved once the user answers, which
+    // bypasses the classifier so an already-answered field is never re-asked.
+    if (ursaMode === 'review') {
+      const panel = isUrsusRouter ? URSUS_REVIEW_PANEL : URSA_REVIEW_PANEL
+      const resolved = reviewResolved ?? (await resolveReviewRequest(userText, panel))
+      if (!resolved.lens || !resolved.scope) {
+        emitAndPersist(conversationId, sink, {
+          type: 'review_clarify',
+          id: randomUUID(),
+          askLens: !resolved.lens,
+          askScope: !resolved.scope,
+          ...(resolved.lens ? { lens: resolved.lens } : {}),
+          ...(resolved.scope ? { scope: resolved.scope } : {}),
+          createdAt: Date.now()
+        })
+        // RunState has no 'idle' -- 'done' is what every other clean end-of-turn
+        // path in this file uses (e.g. line ~3694's normal completion); the
+        // clarify card fully ends this turn (paused:false), it doesn't pause it.
+        sink.setState(conversationId, 'done')
+        return { paused: false }
+      }
+      return runReview(conversationId, userText, resolved.lens, resolved.scope, sink, signal, panel)
     }
   }
 

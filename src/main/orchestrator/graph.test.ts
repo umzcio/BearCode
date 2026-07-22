@@ -89,7 +89,21 @@ vi.mock('./ursus', () => ({
       { role: 'verifier', modelRef: 'openrouter/deepseek/deepseek-v4-pro', subtask: 'search' },
       { role: 'reviewer', modelRef: 'openrouter/z-ai/glm-5.2', subtask: 'write it up' }
     ]
-  }))
+  })),
+  // Review mode (Phase H, Task 4): the Ursus router's review panel config, a
+  // sentinel object so tests can assert WHICH panel reached runReview.
+  URSUS_REVIEW_PANEL: { seats: ['us'], chair: 'uc', unavailable: 'uu' }
+}))
+
+// Review mode (Phase H, Task 4): the review panel runner and its request
+// resolver are self-contained (tested in review.test.ts); mock them here so
+// runGraph's review-dispatch seam can be asserted in isolation.
+vi.mock('./review', () => ({
+  runReview: vi.fn(async () => ({ paused: false })),
+  resolveReviewRequest: vi.fn(),
+  // Sentinel config: the dispatch seam picks one per router, and the tests
+  // assert WHICH object reached runReview -- opaque identity is enough.
+  URSA_REVIEW_PANEL: { seats: ['s'], chair: 'c', unavailable: 'u' }
 }))
 
 // makeModel is mocked so buildSubagents can build distinguishable per-role
@@ -2381,6 +2395,126 @@ describe('runGraph — Ursa Modes: deep research (Task 6)', () => {
       .mock.calls.map((c) => c[1])
       .find((e) => e.type === 'error')
     expect((err as { message: string }).message).toMatch(/OpenRouter/)
+  })
+})
+
+describe('runGraph — Ursa Modes: review dispatch (Task 4)', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(getConversationMeta).mockReturnValue(null)
+  })
+
+  const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
+  const metaWith = (ursaMode: 'code' | 'council' | 'deep-research' | 'review') => ({
+    id: 'c1',
+    projectPath: null,
+    title: null,
+    modelRef: 'ursa/auto',
+    createdAt: 0,
+    updatedAt: 0,
+    permissionMode: 'accept-edits' as const,
+    activeRules: [],
+    effort: 'medium' as const,
+    thinking: false,
+    webSearch: false,
+    ursaMode,
+    projectId: null,
+    pinned: false,
+    archived: false,
+    environment: 'local' as const,
+    worktrees: []
+  })
+
+  it('review mode with a resolved lens+scope routes to runReview (Ursa panel)', async () => {
+    const { resolveReviewRequest, runReview, URSA_REVIEW_PANEL } = await import('./review')
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('review'))
+    vi.mocked(resolveReviewRequest).mockResolvedValue({ lens: 'security', scope: 'src' })
+    const sink = makeSink()
+    await runGraph({
+      conversationId: 'c1',
+      userText: 'audit src for security',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    expect(runReview).toHaveBeenCalledWith(
+      'c1',
+      'audit src for security',
+      'security',
+      'src',
+      sink,
+      expect.anything(),
+      URSA_REVIEW_PANEL
+    )
+  })
+
+  it('review mode with an UNRESOLVED lens emits review_clarify and does NOT run the panel', async () => {
+    const { resolveReviewRequest, runReview } = await import('./review')
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('review'))
+    vi.mocked(resolveReviewRequest).mockResolvedValue({ scope: 'src' }) // no lens
+    const sink = makeSink()
+    const res = await runGraph({
+      conversationId: 'c1',
+      userText: 'review src',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    expect(res).toEqual({ paused: false })
+    expect(runReview).not.toHaveBeenCalled()
+    const evs = vi.mocked(sink.emit).mock.calls.map((c) => c[1])
+    const clar = evs.find((e) => e.type === 'review_clarify') as any
+    expect(clar).toBeTruthy()
+    expect(clar.askLens).toBe(true)
+    expect(clar.askScope).toBe(false)
+  })
+
+  it('a Ursus review turn uses URSUS_REVIEW_PANEL', async () => {
+    const { resolveReviewRequest, runReview } = await import('./review')
+    const { URSUS_REVIEW_PANEL } = await import('./ursus')
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('review'))
+    vi.mocked(resolveReviewRequest).mockResolvedValue({ lens: 'code', scope: 'src' })
+    const sink = makeSink()
+    await runGraph({
+      conversationId: 'c1',
+      userText: 'x',
+      modelRef: 'ursus/auto',
+      sink,
+      signal: new AbortController().signal
+    })
+    expect(runReview).toHaveBeenCalledWith(
+      'c1',
+      'x',
+      'code',
+      'src',
+      sink,
+      expect.anything(),
+      URSUS_REVIEW_PANEL
+    )
+  })
+
+  it('reviewResolved bypasses the classifier (answered clarify card never re-asks)', async () => {
+    const { resolveReviewRequest, runReview, URSA_REVIEW_PANEL } = await import('./review')
+    vi.mocked(getConversationMeta).mockReturnValue(metaWith('review'))
+    const sink = makeSink()
+    await runGraph({
+      conversationId: 'c1',
+      userText: 'review src',
+      modelRef: 'ursa/auto',
+      sink,
+      signal: new AbortController().signal,
+      reviewResolved: { lens: 'accessibility', scope: 'src/ui' }
+    })
+    expect(resolveReviewRequest).not.toHaveBeenCalled()
+    expect(runReview).toHaveBeenCalledWith(
+      'c1',
+      'review src',
+      'accessibility',
+      'src/ui',
+      sink,
+      expect.anything(),
+      URSA_REVIEW_PANEL
+    )
   })
 })
 
