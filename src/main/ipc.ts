@@ -31,6 +31,7 @@ import type {
   ProjectSettings,
   ProviderId,
   PromoteTarget,
+  ReviewLens,
   RuleEntry,
   RunState,
   SkillEntry,
@@ -142,6 +143,7 @@ import {
   resolveSkillProposalOrchestrator,
   resolveUrsaPipelineOrchestrator,
   resumeInterruptedRuns,
+  startReviewFromClarification,
   startRunOrchestrator
 } from './orchestrator'
 import { checkNow, installNow } from './updater'
@@ -530,6 +532,28 @@ export function registerIpc(): void {
         throw new Error('resolve-pipeline: approved must be a boolean')
       }
       resolveUrsaPipelineOrchestrator(conversationId, callId, approved, sink)
+    }
+  )
+
+  // Review mode (Phase H, Task 5): resolve a review_clarify card. Same thin
+  // wire-boundary guard as resolve-pipeline above; delegates to
+  // startReviewFromClarification, which re-dispatches a normal run for
+  // conversationId with the answered lens/scope pre-resolved. Fire-and-forget:
+  // progress flows back over bearcode:event.
+  ipcMain.handle(
+    'bearcode:review:resolve-clarify',
+    (_e, conversationId: unknown, lens: unknown, scope: unknown) => {
+      if (
+        typeof conversationId !== 'string' ||
+        typeof lens !== 'string' ||
+        typeof scope !== 'string'
+      ) {
+        throw new Error('resolve-clarify: conversationId, lens, scope must be strings')
+      }
+      if (!['code', 'security', 'accessibility', 'performance', 'comprehensive'].includes(lens)) {
+        throw new Error('resolve-clarify: invalid lens')
+      }
+      startReviewFromClarification(conversationId, lens as ReviewLens, scope, sink)
     }
   )
 

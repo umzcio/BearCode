@@ -1388,6 +1388,14 @@ export interface BearcodeApi {
     // back over bearcode:event, like run:start.
     resolvePipeline(conversationId: string, callId: string, approved: boolean): Promise<void>
   }
+  review: {
+    // Review mode (Phase H, Task 5): resolve a review_clarify card. Re-dispatches
+    // a normal run for conversationId with the answered lens/scope pre-resolved
+    // (runGraph's reviewResolved), so the already-answered field is never
+    // re-classified. Fire-and-forget: progress flows back over bearcode:event,
+    // like ursa.resolvePipeline.
+    resolveClarify(conversationId: string, lens: ReviewLens, scope: string): Promise<void>
+  }
   ursus: {
     requiredProviders(): Promise<ProviderId[]>
   }

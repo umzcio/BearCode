@@ -11,6 +11,7 @@ import {
   type Event,
   type MentionRef,
   type PlanReviewResolveResult,
+  type ReviewLens,
   type SkillProposalResolution,
   type SkillSaveResult
 } from '../../shared/types'
@@ -114,7 +115,13 @@ export async function startRunOrchestrator(
   sink: RunSink,
   command: CommandRef | null = null,
   mentions: MentionRef[] = [],
-  attachments: AttachmentRef[] = []
+  attachments: AttachmentRef[] = [],
+  // Review mode (Phase H, Task 5): a PRE-RESOLVED lens+scope for the
+  // re-dispatched run that answers a review_clarify card. Threaded straight
+  // through to runGraph's own reviewResolved (see its doc comment in
+  // graph.ts) -- everything else about this call is a normal run start.
+  // Undefined for every normal send.
+  reviewResolved?: { lens: ReviewLens; scope: string }
 ): Promise<void> {
   // Persist the model on the conversation row (mirrors the legacy engine's
   // run.ts). Beyond restoring the picker on reopen, crash-resume (A2) needs it:
@@ -132,7 +139,8 @@ export async function startRunOrchestrator(
       signal: controller.signal,
       command,
       mentions,
-      attachments
+      attachments,
+      reviewResolved
     })
     // Paused at a command-approval interrupt (risk 4): the run isn't done,
     // it's parked in graph.ts's pendingApprovals until
@@ -291,6 +299,57 @@ export function resolveUrsaPipelineOrchestrator(
     setUrsaPipelineStatus(conversationId, 'declined')
     void runDeclinedPipelineSingleRole(conversationId, sink)
   }
+}
+
+// Review mode (Phase H, Task 5): resolve a review_clarify card, wired from
+// bearcode:review:resolve-clarify. Unlike a pipeline proposal, a parked
+// clarify card is NOT a kept-alive AbortController -- the turn that raised it
+// already ran to completion (paused:false, state 'awaiting-approval'; see
+// graph.ts's review-mode branch), so there is nothing to resume. Instead this
+// starts a brand-new run through the SAME startRunOrchestrator path a normal
+// send uses, with reviewResolved set so runGraph skips resolveReviewRequest
+// entirely (an answered field is never re-classified/re-asked).
+//   - userText is read back from the persisted transcript exactly like
+//     runDeclinedPipelineSingleRole's lastUserMessageFull() call above: the
+//     original request that raised the clarify card is still the last
+//     user_message on this conversation (the clarify card itself isn't one).
+//   - modelRef mirrors that same function's getLastResolvedModelRef() read:
+//     review mode always resolves and persists a concrete model before it can
+//     reach the clarify branch (Ursa/Ursus classification happens up front),
+//     so this is never the raw 'ursa/auto' sentinel here.
+export function startReviewFromClarification(
+  conversationId: string,
+  lens: ReviewLens,
+  scope: string,
+  sink: RunSink
+): void {
+  const resolvedModelRef = getLastResolvedModelRef(conversationId)
+  const last = lastUserMessageFull(conversationId)
+  if (!resolvedModelRef) {
+    // Mirrors runDeclinedPipelineSingleRole's same-shaped guard: this should be
+    // unreachable (the turn that raised the clarify card always persists a
+    // resolved model first), but fail honestly rather than guess a role.
+    const event: Event = {
+      type: 'error',
+      id: randomUUID(),
+      message: 'Could not recover the model for this review. Try sending the message again.',
+      recoverable: true
+    }
+    sink.emit(conversationId, event)
+    appendEvent(conversationId, event)
+    sink.setState(conversationId, 'error')
+    return
+  }
+  void startRunOrchestrator(
+    conversationId,
+    last.text,
+    resolvedModelRef,
+    sink,
+    last.command,
+    last.mentions,
+    last.attachments,
+    { lens, scope }
+  )
 }
 
 // Ursa Phase 2 (Task 4): the step-execution loop for an approved pipeline. Each

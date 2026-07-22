@@ -22,6 +22,7 @@ import type {
   ProjectSettings,
   ProviderId,
   ProviderModels,
+  ReviewLens,
   RunState,
   SettingsInfo,
   SkillInfo,
@@ -383,6 +384,10 @@ interface AppState {
   // bearcode:event. Approve runs the steps in order; deny runs the turn
   // single-role, exactly as Phase 1.
   resolvePipeline(convoId: string, callId: string, approved: boolean): void
+  // Review mode (Phase H, Task 5): resolve a review_clarify card. Fire-and-
+  // forget like resolvePipeline; the re-dispatched run's progress flows back
+  // over bearcode:event.
+  resolveReviewClarification(conversationId: string, lens: ReviewLens, scope: string): void
   addPermissionRule(input: AddRuleInput): void
   refreshPermissionRules(): Promise<void>
   deletePermissionRule(id: string): Promise<void>
@@ -1035,6 +1040,10 @@ export const useAppStore = create<AppState>((set, get) => {
 
     resolvePipeline: (convoId, callId, approved) => {
       void window.bearcode.ursa.resolvePipeline(convoId, callId, approved)
+    },
+
+    resolveReviewClarification: (conversationId, lens, scope) => {
+      void window.bearcode.review.resolveClarify(conversationId, lens, scope)
     },
 
     addPermissionRule: (input) => {

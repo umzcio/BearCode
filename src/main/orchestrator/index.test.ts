@@ -35,11 +35,13 @@ import {
   assertValidMentions,
   cancelRunOrchestrator,
   resolveUrsaPipelineOrchestrator,
-  runUrsaPipeline
+  runUrsaPipeline,
+  startReviewFromClarification
 } from './index'
 import {
   advanceUrsaPipeline,
   appendOrReplaceEvent,
+  getEvents,
   getLastResolvedModelRef,
   getUrsaPipeline,
   setUrsaPipelineStatus
@@ -218,6 +220,42 @@ describe('resolveUrsaPipelineOrchestrator (Ursa Phase 2 consent gate)', () => {
     const sink = makeSink()
     resolveUrsaPipelineOrchestrator('c1', 'card1', true, sink)
     expect(sink.emit).not.toHaveBeenCalled()
+  })
+})
+
+describe('startReviewFromClarification (Review mode Phase H, Task 5)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(getLastResolvedModelRef).mockReturnValue('openai/gpt-5.6-sol')
+    vi.mocked(getEvents).mockReturnValue([
+      { type: 'user_message', id: 'u1', text: 'review this for issues', createdAt: Date.now() }
+    ] as Event[])
+    vi.mocked(runGraph).mockResolvedValue({ paused: false })
+  })
+
+  it('re-dispatches a run for the conversation with the answered lens+scope pre-resolved', async () => {
+    const sink = makeSink()
+    startReviewFromClarification('c1', 'security', 'src/auth', sink)
+
+    await vi.waitFor(() => expect(runGraph).toHaveBeenCalled())
+    const opts = vi.mocked(runGraph).mock.calls[0][0]
+    // The re-dispatched run reads the conversation's last user_message back
+    // (mirrors runDeclinedPipelineSingleRole's lastUserMessageFull()) and the
+    // persisted resolved model (mirrors its getLastResolvedModelRef() read),
+    // with reviewResolved set so runGraph skips resolveReviewRequest entirely.
+    expect(opts.conversationId).toBe('c1')
+    expect(opts.userText).toBe('review this for issues')
+    expect(opts.modelRef).toBe('openai/gpt-5.6-sol')
+    expect(opts.reviewResolved).toEqual({ lens: 'security', scope: 'src/auth' })
+  })
+
+  it('fails honestly instead of guessing when no model was ever resolved for this conversation', () => {
+    vi.mocked(getLastResolvedModelRef).mockReturnValue(null)
+    const sink = makeSink()
+    startReviewFromClarification('c1', 'security', 'src/auth', sink)
+
+    expect(runGraph).not.toHaveBeenCalled()
+    expect(sink.setState).toHaveBeenCalledWith('c1', 'error')
   })
 })
 
