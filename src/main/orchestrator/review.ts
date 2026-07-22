@@ -9,6 +9,7 @@ import type { ReviewLens } from '../../shared/types'
 import type { CouncilConfig } from './council'
 import { makeModel } from './models'
 import { keyStatus } from '../keys'
+import { parseModelRef } from '../providers/registry'
 import { CHEAP_MODEL } from '../title'
 
 export const URSA_REVIEW_PANEL: CouncilConfig = {
@@ -65,20 +66,28 @@ const RequestSchema = z.object({
   )
 })
 
-function cheapReviewModelRef(): string | null {
+// Prefers a dedicated cheap model on any keyed first-party provider; if none
+// is keyed (an all-OpenRouter Ursus setup has no CHEAP_MODEL entry by design),
+// falls back to reusing a panel model already in play -- classifying on a
+// keyed OpenRouter seat rather than silently refusing to classify at all.
+function cheapClassifierRef(panel: CouncilConfig): string | null {
   const status = keyStatus()
-  // Prefer the chair's provider's cheap model; fall back to any keyed cheap provider.
-  for (const provider of ['anthropic', 'openai', 'openrouter'] as const) {
-    if (CHEAP_MODEL[provider] && status[provider]) return `${provider}/${CHEAP_MODEL[provider]}`
+  for (const provider of Object.keys(CHEAP_MODEL)) {
+    const cheap = CHEAP_MODEL[provider as keyof typeof CHEAP_MODEL]
+    if (cheap && status[provider]) return `${provider}/${cheap}`
+  }
+  for (const ref of [...panel.seats, panel.chair]) {
+    if (status[parseModelRef(ref).provider]) return ref
   }
   return null
 }
 
 export async function resolveReviewRequest(
-  userText: string
+  userText: string,
+  panel: CouncilConfig
 ): Promise<{ lens?: ReviewLens; scope?: string }> {
-  const ref = cheapReviewModelRef()
-  if (!ref) return {} // no cheap model available -> ask for everything
+  const ref = cheapClassifierRef(panel)
+  if (!ref) return {} // nothing keyed at all -> ask for everything
   const out = (await makeModel(ref)
     .withStructuredOutput(RequestSchema)
     .invoke([

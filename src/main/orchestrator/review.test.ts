@@ -3,10 +3,19 @@ vi.mock('../db', () => ({ getRecentUrsaContext: vi.fn(() => ''), appendEvent: vi
 vi.mock('../keys', () => ({ keyStatus: vi.fn(() => ({ anthropic: true, openai: true, xai: true, openrouter: true })) }))
 const invokeSpy = vi.hoisted(() => vi.fn())
 vi.mock('./models', () => ({ makeModel: vi.fn(() => ({ withStructuredOutput: () => ({ invoke: invokeSpy }) })) }))
-vi.mock('../title', () => ({ CHEAP_MODEL: { anthropic: 'claude-haiku-4-5', openai: 'gpt-5.6-luna', openrouter: 'deepseek/deepseek-chat' } }))
+vi.mock('../title', () => ({
+  CHEAP_MODEL: {
+    anthropic: 'claude-haiku-4-5',
+    openai: 'gpt-5.6-luna',
+    google: 'gemini-2.5-flash',
+    perplexity: 'sonar',
+    xai: 'grok-4-fast'
+  }
+}))
 
 import { URSA_REVIEW_PANEL, rubricFor, resolveReviewRequest } from './review'
 import { URSUS_REVIEW_PANEL } from './ursus'
+import { keyStatus } from '../keys'
 
 describe('review panels', () => {
   it('Ursa panel: 3 diverse seats + Sonnet chair, chair not a seat', () => {
@@ -39,19 +48,35 @@ describe('rubricFor', () => {
 })
 
 describe('resolveReviewRequest', () => {
-  beforeEach(() => invokeSpy.mockReset())
+  beforeEach(() => {
+    invokeSpy.mockReset()
+    vi.mocked(keyStatus).mockReturnValue({ anthropic: true, openai: true, xai: true, openrouter: true } as ReturnType<
+      typeof keyStatus
+    >)
+  })
   it('passes through an explicit lens + scope from the classifier', async () => {
     invokeSpy.mockResolvedValue({ lens: 'security', scope: 'src/auth' })
-    expect(await resolveReviewRequest('audit src/auth for vulns')).toEqual({ lens: 'security', scope: 'src/auth' })
+    expect(await resolveReviewRequest('audit src/auth for vulns', URSA_REVIEW_PANEL)).toEqual({
+      lens: 'security',
+      scope: 'src/auth'
+    })
   })
   it('leaves fields undefined when the classifier omits them', async () => {
     invokeSpy.mockResolvedValue({})
-    expect(await resolveReviewRequest('review this')).toEqual({ lens: undefined, scope: undefined })
+    expect(await resolveReviewRequest('review this', URSA_REVIEW_PANEL)).toEqual({ lens: undefined, scope: undefined })
   })
   it('drops an out-of-set lens rather than trusting it', async () => {
     invokeSpy.mockResolvedValue({ lens: 'vibes', scope: 'x' })
-    const r = await resolveReviewRequest('x')
+    const r = await resolveReviewRequest('x', URSA_REVIEW_PANEL)
     expect(r.lens).toBeUndefined()
     expect(r.scope).toBe('x')
+  })
+  it('falls back to a keyed OpenRouter panel seat for an all-OpenRouter Ursus setup', async () => {
+    vi.mocked(keyStatus).mockReturnValue({ openrouter: true } as ReturnType<typeof keyStatus>)
+    invokeSpy.mockResolvedValue({ lens: 'security', scope: 'src' })
+    expect(await resolveReviewRequest('review src for security', URSUS_REVIEW_PANEL)).toEqual({
+      lens: 'security',
+      scope: 'src'
+    })
   })
 })
