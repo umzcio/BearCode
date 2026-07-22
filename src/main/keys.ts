@@ -68,6 +68,16 @@ export function getKey(provider: ProviderId): string | undefined {
   return getVaultSecret(provider)
 }
 
+const HERMES_TOKEN_VAULT_KEY = 'hermes:bearerToken'
+
+export function setHermesToken(token: string): void {
+  setVaultSecret(HERMES_TOKEN_VAULT_KEY, token)
+}
+
+export function getHermesToken(): string | undefined {
+  return getVaultSecret(HERMES_TOKEN_VAULT_KEY)
+}
+
 // Replaces ${VAULT:key} references in a string with the decrypted secret,
 // or '' if the key isn't in the vault. Used to resolve MCP server configs
 // (headers/env) without ever storing plaintext secrets in mcp.json.
