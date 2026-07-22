@@ -176,6 +176,21 @@ export const URSUS_COUNCIL: CouncilConfig = {
     'OpenRouter models). Add one in Settings > Providers, or switch modes.'
 }
 
+// Ursus's review panel -- same shape as URSA_REVIEW_PANEL (review.ts), its own
+// OpenRouter models. All-OpenRouter so eligibility is a synchronous keyStatus
+// check (no Ollama seat), same as URSUS_COUNCIL.
+export const URSUS_REVIEW_PANEL: CouncilConfig = {
+  seats: [
+    'openrouter/moonshotai/kimi-k3',
+    'openrouter/z-ai/glm-5.2',
+    'openrouter/minimax/minimax-m3'
+  ],
+  chair: 'openrouter/deepseek/deepseek-v4-pro',
+  unavailable:
+    'Ursus Review needs an OpenRouter API key (it seats and chairs entirely on OpenRouter ' +
+    'models). Add one in Settings > Providers.'
+}
+
 // Ursus's Deep Research preset -- the same three-stage shape as Ursa's
 // DEEP_RESEARCH_PIPELINE (search -> analyze -> write), mapped onto Ursus's own
 // curated roles. Picking the mode IS the consent, so these steps are
