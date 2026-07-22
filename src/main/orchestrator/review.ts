@@ -117,6 +117,35 @@ export async function resolveReviewRequest(
 
 const REVIEW_CONTEXT_CAP = 60_000
 
+// Scope phrases that mean "the whole project" rather than a specific path.
+// Trailing "." and surrounding whitespace are normalized off before lookup, so
+// "everything.", ".", and "" all land here. Keep lowercase.
+const WHOLE_PROJECT_SCOPE = new Set([
+  '',
+  '*',
+  '**',
+  'everything',
+  'all',
+  'anything',
+  'the project',
+  'whole project',
+  'the whole project',
+  'this project',
+  'the codebase',
+  'whole codebase',
+  'the whole codebase',
+  'this codebase',
+  'the code',
+  'this code',
+  'the repo',
+  'the repository',
+  'the whole thing',
+  'quick glance',
+  'a quick glance',
+  'just a glance',
+  'a glance'
+])
+
 const FindingSchema = z.object({
   findings: z.array(
     z.object({
@@ -235,6 +264,19 @@ function resolveScopeFiles(projectPath: string, scope: string, conversationId: s
     }
     return withinWorkspace(projectPath, files)
   }
+  // Whole-project intent: the scope input invites humans to name what to review,
+  // and the most natural answer ("everything", "all", "the codebase", or just
+  // blank) means the whole project -- not a file literally named "everything".
+  // Map that family to the entire workspace (the char-cap + truncation below
+  // keep a big repo bounded). Checked BEFORE the glob branch so bare `*`/`**`
+  // land here too.
+  const norm = scope.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.]$/, '')
+  if (WHOLE_PROJECT_SCOPE.has(norm)) {
+    const realRoot = realpathSync(projectPath)
+    const all: string[] = []
+    listFilesRecursive(realRoot, realRoot, all)
+    return withinWorkspace(projectPath, all)
+  }
   if (/[*?[]/.test(scope)) {
     const matcher = globToRegExp(scope)
     const all: string[] = []
@@ -333,9 +375,29 @@ export async function runReview(
     sink.setState(conversationId, 'error')
     return { paused: false, failed: true }
   }
+  // Distinguish "no workspace" from "scope found nothing" -- the old code blamed
+  // the scope ("Nothing to review in <scope>") even when the real problem was
+  // that no project folder was open.
+  if (!getConversationMeta(conversationId)?.projectPath) {
+    emit({
+      type: 'error',
+      id: randomUUID(),
+      message: 'Open a project folder to run a review.',
+      recoverable: true
+    })
+    sink.setState(conversationId, 'error')
+    return { paused: false, failed: true }
+  }
   const target = await gatherTarget(conversationId, scope)
   if (!target) {
-    emit({ type: 'error', id: randomUUID(), message: `Nothing to review in ${scope}.`, recoverable: true })
+    emit({
+      type: 'error',
+      id: randomUUID(),
+      // Guiding, not a dead end: the scope named no files, so tell the user what
+      // actually resolves instead of just echoing their words back.
+      message: `Couldn't find "${scope}" to review. Try a path (src), a glob (src/**/*.ts), or "everything".`,
+      recoverable: true
+    })
     sink.setState(conversationId, 'error')
     return { paused: false, failed: true }
   }

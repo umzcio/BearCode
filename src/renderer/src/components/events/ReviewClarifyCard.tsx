@@ -108,7 +108,7 @@ export function ReviewClarifyCard({
             className="set-input clarify-scope-input"
             type="text"
             value={scopeInput}
-            placeholder="e.g. src, or 'what was just built'"
+            placeholder="e.g. src, src/**/*.ts, 'everything', or 'what was just built'"
             disabled={submitted}
             onChange={(e) => setScopeInput(e.target.value)}
             onKeyDown={(e) => {
@@ -116,7 +116,7 @@ export function ReviewClarifyCard({
             }}
           />
           <FieldHint show={scopeInvalid}>
-            Enter a path, a glob, or describe what to review.
+            A path (src), a glob (src/**/*.ts), or &lsquo;everything&rsquo;.
           </FieldHint>
         </div>
       ) : null}

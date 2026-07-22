@@ -186,7 +186,8 @@ describe('runReview', () => {
     expect(res).toEqual({ paused: false, failed: true })
     expect(readFileSync).not.toHaveBeenCalled()
     const evs = emitted(s)
-    expect(evs.some((e) => e.type === 'error' && /nothing to review/i.test((e as any).message))).toBe(true)
+    // Scope resolved to nothing (jailed out) -> the guiding "couldn't find" error.
+    expect(evs.some((e) => e.type === 'error' && /couldn't find/i.test((e as any).message))).toBe(true)
     expect(evs.some((e) => e.type === 'review_summary')).toBe(false)
   })
 
@@ -223,5 +224,36 @@ describe('runReview', () => {
     const evs = emitted(s)
     expect(evs.some((e) => e.type === 'error' && /too large/i.test((e as any).message))).toBe(true)
     expect(evs.some((e) => e.type === 'error' && /nothing to review/i.test((e as any).message))).toBe(false)
+  })
+
+  it('tells the user to open a folder when no workspace is set (not "nothing in <scope>")', async () => {
+    const { getConversationMeta } = await import('../db')
+    vi.mocked(getConversationMeta).mockReturnValueOnce({ id: 'c1', title: 't', projectPath: null } as never)
+    const s = sink()
+    const res = await runReview('c1', 'x', 'code', 'everything', s as never, new AbortController().signal, URSA_REVIEW_PANEL)
+    expect(res).toEqual({ paused: false, failed: true })
+    const err = emitted(s).find((e) => e.type === 'error') as any
+    expect(err.message).toMatch(/open a project folder/i)
+  })
+
+  it('maps a whole-project scope ("everything") to the workspace instead of a literal path', async () => {
+    const { makeModel } = await import('./models')
+    vi.mocked(makeModel).mockImplementation(panelModels(
+      { 'anthropic/claude-fable-5': [], 'openai/gpt-5.6-sol': [], 'xai/grok-4.5': [] },
+      []
+    ) as never)
+    const { readdirSync, statSync } = await import('fs')
+    // Root now lists a real file so the whole-project walk finds content.
+    vi.mocked(readdirSync).mockImplementation(((dir: string) => (dir === '/project' ? ['a.ts'] : [])) as never)
+    vi.mocked(statSync).mockImplementation(((p: string) => ({
+      isDirectory: () => p === '/project',
+      isFile: () => p !== '/project'
+    })) as never)
+    const s = sink()
+    const res = await runReview('c1', 'x', 'code', 'everything', s as never, new AbortController().signal, URSA_REVIEW_PANEL)
+    // "everything" resolved to files and ran the panel -- NOT a "couldn't find" error.
+    expect(res).toEqual({ paused: false })
+    expect(emitted(s).some((e) => e.type === 'error')).toBe(false)
+    expect(emitted(s).some((e) => e.type === 'review_summary')).toBe(true)
   })
 })
