@@ -27,6 +27,11 @@ const URSA_COPY: ModeCopy = {
     label: 'Deep Research',
     pillLabel: 'Deep Research',
     desc: 'Multi-step web research with citations'
+  },
+  review: {
+    label: 'Review',
+    pillLabel: 'Review',
+    desc: 'Panel audit — code, security, a11y, performance'
   }
 }
 
@@ -41,6 +46,11 @@ const URSUS_COPY: ModeCopy = {
     label: 'Deep Research',
     pillLabel: 'Deep Research',
     desc: 'Multi-step web research with citations'
+  },
+  review: {
+    label: 'Review',
+    pillLabel: 'Review',
+    desc: 'Panel audit — code, security, a11y, performance'
   }
 }
 
