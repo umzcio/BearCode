@@ -12,7 +12,8 @@ describe('SETTINGS_NAV', () => {
       'models',
       'voice',
       'ursa',
-      'ursus'
+      'ursus',
+      'hermes'
     ])
     expect(SETTINGS_NAV[1].items.map((i) => i.id)).toEqual([
       'skills',

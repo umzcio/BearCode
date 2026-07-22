@@ -7,6 +7,7 @@ export type SettingsPageId =
   | 'voice'
   | 'ursa'
   | 'ursus'
+  | 'hermes'
   | 'skills'
   | 'rules'
   | 'connectors'
@@ -40,7 +41,8 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       { id: 'models', label: 'Models', icon: 'IconGrid' },
       { id: 'voice', label: 'Voice', icon: 'IconMic' },
       { id: 'ursa', label: 'Ursa', icon: 'IconPaw' },
-      { id: 'ursus', label: 'Ursus', icon: 'IconPawPrint' }
+      { id: 'ursus', label: 'Ursus', icon: 'IconPawPrint' },
+      { id: 'hermes', label: 'Hermes', icon: 'IconChat' }
     ]
   },
   {
