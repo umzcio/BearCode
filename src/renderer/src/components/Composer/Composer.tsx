@@ -6,7 +6,7 @@ import type {
   MentionRef,
   PickedAttachmentWire
 } from '@shared/types'
-import { URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
+import { HERMES_MODEL_REF, URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
 import { EffortPicker } from '../EffortPicker/EffortPicker'
@@ -90,7 +90,9 @@ export function Composer({
     useShallow((s) => {
       if (!conversationId) return undefined
       const c = s.conversations[conversationId]
-      return c ? { eventsLen: c.events.length, environment: c.environment } : undefined
+      return c
+        ? { eventsLen: c.events.length, environment: c.environment, modelRef: c.modelRef }
+        : undefined
     })
   )
   // Scoped to id/title (primitives, so shallow-compare actually catches
@@ -135,6 +137,17 @@ export function Composer({
 
   const modelReady = refConfigured(providers, modelRef)
   const showNotice = providers.length > 0 && !modelReady
+  // Hermes conversations are project-less and talk to a self-hosted agent,
+  // not this app's local model/permission/effort machinery -- hide those
+  // picker controls entirely (Task 11 lean mode). Checked against both the
+  // transient top-level `modelRef` (what Ursa/Ursus keys off above) AND the
+  // active conversation's own persisted modelRef: unlike Ursa/Ursus,
+  // HERMES_MODEL_REF isn't special-cased in refConfigured, so openConvo's
+  // `refConfigured(...)` guard silently skips syncing the top-level field
+  // when opening (or, via newHermesConversation, creating) a Hermes
+  // conversation. Falling back to the per-conversation value keeps lean mode
+  // correct even when that top-level sync is stale.
+  const isHermesConvo = modelRef === HERMES_MODEL_REF || activeConvo?.modelRef === HERMES_MODEL_REF
   // The pill makes trailing text optional (design 5.2): a bare workflow/goal
   // send is valid, only an empty composer with no pill is not.
   const hasContent =
@@ -668,7 +681,7 @@ export function Composer({
               ariaLabel="Add context"
             />
           </div>
-          <ModePicker />
+          {!isHermesConvo && <ModePicker />}
           <Hint
             label={voice.status === 'recording' ? 'Stop recording' : 'Voice input'}
             keys="⌃M"
@@ -688,11 +701,13 @@ export function Composer({
         </div>
         <div className="controls-right">
           <ContextMeter />
-          <ModelPicker />
+          {!isHermesConvo && <ModelPicker />}
           {/* Effort is meaningless for a router: BOTH router conversations swap
               the Effort control for the per-conversation Mode picker (Code /
-              Council / Deep Research). Concrete models keep EffortPicker as-is. */}
-          {modelRef === URSA_MODEL_REF ? (
+              Council / Deep Research). Concrete models keep EffortPicker as-is.
+              Hermes lean mode (Task 11) drops this control entirely, along
+              with the web-search toggle that lives inside EffortPicker. */}
+          {isHermesConvo ? null : modelRef === URSA_MODEL_REF ? (
             <UrsaModePicker />
           ) : modelRef === URSUS_MODEL_REF ? (
             <UrsaModePicker router="ursus" />
