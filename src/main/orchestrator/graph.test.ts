@@ -110,6 +110,15 @@ vi.mock('./council', () => ({
   URSA_COUNCIL: { seats: ['ursa/seat'], chair: 'ursa/chair', unavailable: 'ursa' }
 }))
 
+// Hermes integration: the Gateway relay runner is a self-contained module
+// (hermes.test.ts covers it directly); mock it here so runGraph's Hermes-
+// dispatch seam can be asserted without a real Gateway SSE call. Mirrors the
+// ./council mock above.
+vi.mock('./hermes', () => ({
+  isHermesModelRef: (ref: string) => ref === 'hermes/agent',
+  runHermes: vi.fn(async () => ({ paused: false }))
+}))
+
 import {
   textOfMessage,
   buildUserMessageContent,
@@ -165,6 +174,7 @@ import {
 } from './ursus'
 import { makeModel } from './models'
 import { runCouncil, URSA_COUNCIL } from './council'
+import { runHermes } from './hermes'
 import {
   getLastResolvedModelRef,
   getLastUrsaRole,
@@ -2226,6 +2236,43 @@ describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {
     )
     expect(resolveUrsusModelRef).not.toHaveBeenCalled()
     expect(makeModel).not.toHaveBeenCalled()
+  })
+})
+
+describe('Hermes dispatch seam', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
+
+  it('routes a Hermes-model turn to runHermes and never classifies or builds an agent', async () => {
+    vi.mocked(runHermes).mockResolvedValue({ paused: false })
+    const sink = makeSink()
+    const signal = new AbortController().signal
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'hi',
+      modelRef: 'hermes/agent',
+      sink,
+      signal
+    })
+    expect(result).toEqual({ paused: false })
+    expect(runHermes).toHaveBeenCalledWith('c1', 'hi', sink, signal)
+    // Hermes never classifies and never builds an agent.
+    expect(resolveUrsaModelRef).not.toHaveBeenCalled()
+    expect(resolveUrsusModelRef).not.toHaveBeenCalled()
+    expect(makeModel).not.toHaveBeenCalled()
+  })
+
+  it('does NOT route a concrete (non-Hermes) model to runHermes', async () => {
+    const sink = makeSink()
+    await runGraph({
+      conversationId: 'c1',
+      userText: 'hi',
+      modelRef: 'anthropic/claude-sonnet-5',
+      sink,
+      signal: new AbortController().signal
+    }).catch(() => {})
+    expect(runHermes).not.toHaveBeenCalled()
   })
 })
 
