@@ -76,13 +76,36 @@ describe('ReviewFindings', () => {
     expect(screen.getByText('0 minor')).toBeTruthy()
   })
 
-  it('clicking a finding calls the store openFile action with the file path', () => {
-    const openFile = vi.fn()
-    useAppStore.setState({ openFile: openFile as never })
+  it('clicking a finding opens the file in the aux pane at its exact line', () => {
+    const openFileInPane = vi.fn()
+    useAppStore.setState({ openFileInPane: openFileInPane as never })
     const events = [findingEvent('f1', 'critical', 'SQL injection', 'src/db.ts', 12)] as never
     render(<ReviewFindings events={events} />)
 
     fireEvent.click(screen.getByText('SQL injection'))
-    expect(openFile).toHaveBeenCalledWith('src/db.ts')
+    expect(openFileInPane).toHaveBeenCalledWith('src/db.ts', 12)
+  })
+
+  it('clicking a finding with no line opens the file without a line', () => {
+    const openFileInPane = vi.fn()
+    useAppStore.setState({ openFileInPane: openFileInPane as never })
+    const events = [
+      {
+        type: 'review_finding',
+        id: 'f1',
+        finding: {
+          severity: 'important',
+          lens: 'security',
+          file: 'src/big.ts',
+          title: 'Whole-file smell',
+          detail: 'no single line'
+        },
+        createdAt: 1
+      }
+    ] as never
+    render(<ReviewFindings events={events} />)
+
+    fireEvent.click(screen.getByText('Whole-file smell'))
+    expect(openFileInPane).toHaveBeenCalledWith('src/big.ts', undefined)
   })
 })

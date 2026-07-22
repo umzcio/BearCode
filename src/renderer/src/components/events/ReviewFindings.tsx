@@ -27,18 +27,18 @@ const LENS_LABEL: Record<ReviewLens, string> = {
 const SEVERITIES = ['critical', 'important', 'minor'] as const
 
 // One finding row: severity chip + lens badge + file:line + title, expandable
-// to the full detail text. Clicking opens the file (the store's openFile --
-// same action ToolStep's Cmd-click file rows use, see AuxiliaryPane/DiffCard)
-// and toggles the detail open, so the row is a single obvious click target
-// rather than two competing ones.
+// to the full detail text. Clicking opens the file in the in-app aux pane at
+// the finding's exact line (store's openFileInPane -> Monaco revealLine) and
+// toggles the detail open, so the row is a single obvious click target rather
+// than two competing ones.
 function FindingRow({ finding }: { finding: ReviewFinding }): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const openFile = useAppStore((s) => s.openFile)
+  const openFileInPane = useAppStore((s) => s.openFileInPane)
   const loc = finding.line ? `${finding.file}:${finding.line}` : finding.file
 
   const activate = (): void => {
     setOpen((o) => !o)
-    openFile(finding.file)
+    openFileInPane(finding.file, finding.line)
   }
 
   return (

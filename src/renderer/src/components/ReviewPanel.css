@@ -845,6 +845,17 @@
 .ap-spacer {
   flex: 1;
 }
+/* Review mode: the file:line label in the FilePanel header (a finding opened
+   at its exact line). Truncates so a long path never pushes out the close btn. */
+.ap-file-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
 
 /* --- Segmented toggles (Overview/Diff, Diff/Code/Preview) --- */
 .ap-segmented {

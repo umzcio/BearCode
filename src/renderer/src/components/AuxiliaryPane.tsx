@@ -147,6 +147,13 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
     )
   }
 
+  // Review mode: a finding target -- an arbitrary workspace file, not a
+  // deliverable in the rail. Self-contained (fetches its own text) so, like
+  // browser, it renders before the convo/rail machinery.
+  if (sel.kind === 'file') {
+    return <FilePanel key={sel.path + ':' + (sel.line ?? '')} path={sel.path} line={sel.line} />
+  }
+
   if (!convo) return null
 
   const entries = deriveRailEntries(convo.events)
@@ -256,6 +263,71 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
             </button>
           </Hint>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Review mode: a single workspace file opened at a finding's exact line. It
+// fetches the file's text through the jailed read-file IPC (never in the
+// renderer) and hands it to MonacoCode with revealLine, so clicking a finding
+// lands the cursor where it points -- read-only, no rail, no diff.
+function FilePanel({ path, line }: { path: string; line?: number }): React.JSX.Element {
+  const closeReview = useAppStore((s) => s.closeReview)
+  const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
+  const convoId = useAppStore((s) => (s.view.kind === 'conversation' ? s.view.id : null))
+  const [content, setContent] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    if (!convoId) return undefined
+    let stale = false
+    setContent(null)
+    setFailed(false)
+    void window.bearcode.shell
+      .readFile(convoId, path)
+      .then((text) => {
+        if (!stale) setContent(text)
+      })
+      .catch(() => {
+        if (!stale) setFailed(true)
+      })
+    return () => {
+      stale = true
+    }
+  }, [convoId, path])
+
+  return (
+    <div className="ap-panel" style={{ flexBasis: auxPaneWidth }}>
+      <div className="ap-row ap-row-top">
+        <ApBrand />
+        <span className="ap-file-name">
+          {baseName(path)}
+          {line ? `:${line}` : ''}
+        </span>
+        <div className="ap-spacer" />
+        <div className="ap-actions">
+          <Hint label="Close panel" side="bottom">
+            <button aria-label="Close panel" onClick={closeReview}>
+              <IconClose />
+            </button>
+          </Hint>
+        </div>
+      </div>
+      <div className="ap-body">
+        {failed ? (
+          <div className="diff-loading">
+            <EmptyState title="Couldn't open file" hint={path} />
+          </div>
+        ) : content === null ? (
+          <div className="diff-loading">
+            <Loading label="Loading file…" />
+          </div>
+        ) : (
+          <Suspense fallback={<Loading />}>
+            <MonacoCode key={path} value={content} language={languageFor(path)} revealLine={line} />
+          </Suspense>
+        )}
       </div>
     </div>
   )

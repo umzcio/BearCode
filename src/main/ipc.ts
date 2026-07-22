@@ -465,6 +465,16 @@ export function registerIpc(): void {
     const abs = jailPath(meta.projectPath, path)
     void shell.openPath(abs)
   })
+  // Review mode: read a workspace file's text for the in-app pane (findings
+  // open at their exact line here, not in the OS default app). Same jail as
+  // open-file -- jailPath throws if the resolved path escapes the workspace
+  // root, so a finding's renderer-supplied path can never read outside it.
+  ipcMain.handle('bearcode:shell:read-file', (_e, conversationId: string, path: string) => {
+    const meta = db.getConversationMeta(conversationId)
+    if (!meta?.projectPath) throw new Error('No workspace folder for this conversation')
+    const abs = jailPath(meta.projectPath, path)
+    return readFileSync(abs, 'utf8')
+  })
   ipcMain.handle('bearcode:tools:approve', (_e, callId: string, approved: boolean) => {
     resolveApprovalOrchestrator(callId, approved)
   })

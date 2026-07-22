@@ -1372,6 +1372,9 @@ export interface BearcodeApi {
   // conversation's workspace root (see ipc.ts's 'bearcode:shell:open-file').
   shell: {
     openFile(conversationId: string, path: string): Promise<void>
+    // Review mode: read a workspace file's text for the in-app pane (findings
+    // open at their exact line). Jail-validated in main, same as openFile.
+    readFile(conversationId: string, path: string): Promise<string>
   }
   tools: {
     approve(callId: string, approved: boolean): Promise<void>

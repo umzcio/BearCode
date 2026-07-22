@@ -109,7 +109,9 @@ const bearcode: BearcodeApi = {
   },
   shell: {
     openFile: (conversationId: string, path: string): Promise<void> =>
-      ipcRenderer.invoke('bearcode:shell:open-file', conversationId, path)
+      ipcRenderer.invoke('bearcode:shell:open-file', conversationId, path),
+    readFile: (conversationId: string, path: string): Promise<string> =>
+      ipcRenderer.invoke('bearcode:shell:read-file', conversationId, path)
   },
   tools: {
     approve: (callId: string, approved: boolean) =>
