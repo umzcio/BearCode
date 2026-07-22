@@ -11,6 +11,9 @@ interface MonacoCodeProps {
   fitContent?: boolean
   // Wash every line green: how created files render in Review.
   washAdded?: boolean
+  // Review mode: scroll this 1-based line to center + place the cursor on it,
+  // so a finding opens exactly where it points.
+  revealLine?: number
 }
 
 export default function MonacoCode({
@@ -19,7 +22,8 @@ export default function MonacoCode({
   commentedLines,
   onAddComment,
   fitContent = false,
-  washAdded = false
+  washAdded = false,
+  revealLine
 }: MonacoCodeProps): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const edRef = useRef<monaco.editor.ICodeEditor | null>(null)
@@ -65,6 +69,11 @@ export default function MonacoCode({
     }
     if (onAddComment) disposables.push(attachCommenting(editor, onAddComment))
 
+    if (revealLine && revealLine > 0) {
+      editor.revealLineInCenter(revealLine)
+      editor.setPosition({ lineNumber: revealLine, column: 1 })
+    }
+
     return () => {
       wash?.clear()
       disposables.forEach((d) => d.dispose())
@@ -74,7 +83,7 @@ export default function MonacoCode({
     }
     // onAddComment intentionally not a dependency: rebinding tears down Monaco.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, language, fitContent, washAdded])
+  }, [value, language, fitContent, washAdded, revealLine])
 
   useEffect(() => {
     decorations.current?.clear()

@@ -35,11 +35,14 @@ import {
   assertValidMentions,
   cancelRunOrchestrator,
   resolveUrsaPipelineOrchestrator,
-  runUrsaPipeline
+  runUrsaPipeline,
+  startReviewFromClarification
 } from './index'
 import {
   advanceUrsaPipeline,
   appendOrReplaceEvent,
+  getConversationMeta,
+  getEvents,
   getLastResolvedModelRef,
   getUrsaPipeline,
   setUrsaPipelineStatus
@@ -221,6 +224,66 @@ describe('resolveUrsaPipelineOrchestrator (Ursa Phase 2 consent gate)', () => {
   })
 })
 
+describe('startReviewFromClarification (Review mode Phase H, Task 5)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(getLastResolvedModelRef).mockReturnValue('openai/gpt-5.6-sol')
+    vi.mocked(getEvents).mockReturnValue([
+      { type: 'user_message', id: 'u1', text: 'review this for issues', createdAt: Date.now() }
+    ] as Event[])
+    vi.mocked(runGraph).mockResolvedValue({ paused: false })
+  })
+
+  it('re-dispatches a run for the conversation with the answered lens+scope pre-resolved', async () => {
+    const sink = makeSink()
+    startReviewFromClarification('c1', 'security', 'src/auth', sink)
+
+    await vi.waitFor(() => expect(runGraph).toHaveBeenCalled())
+    const opts = vi.mocked(runGraph).mock.calls[0][0]
+    // The re-dispatched run reads the conversation's last user_message back
+    // (mirrors runDeclinedPipelineSingleRole's lastUserMessageFull()) and the
+    // persisted resolved model (mirrors its getLastResolvedModelRef() read),
+    // with reviewResolved set so runGraph skips resolveReviewRequest entirely.
+    expect(opts.conversationId).toBe('c1')
+    expect(opts.userText).toBe('review this for issues')
+    expect(opts.modelRef).toBe('openai/gpt-5.6-sol')
+    expect(opts.reviewResolved).toEqual({ lens: 'security', scope: 'src/auth' })
+  })
+
+  it('CRITICAL 1: falls back to the conversation modelRef sentinel when no classifier ref was ever resolved (fresh review-only conversation)', async () => {
+    // The review branch in graph.ts returns to park the clarify card BEFORE
+    // classification ever runs, so a conversation that has only ever used
+    // Review mode has no last-resolved model -- getLastResolvedModelRef is
+    // null here, but the conversation's own persisted modelRef sentinel
+    // ('ursa/auto') must still let the re-dispatch succeed.
+    vi.mocked(getLastResolvedModelRef).mockReturnValue(null)
+    vi.mocked(getConversationMeta).mockReturnValue({
+      id: 'c1',
+      projectPath: null,
+      title: null,
+      modelRef: 'ursa/auto'
+    } as ReturnType<typeof getConversationMeta>)
+    const sink = makeSink()
+    startReviewFromClarification('c1', 'security', 'src/auth', sink)
+
+    await vi.waitFor(() => expect(runGraph).toHaveBeenCalled())
+    const opts = vi.mocked(runGraph).mock.calls[0][0]
+    expect(opts.modelRef).toBe('ursa/auto')
+    expect(opts.reviewResolved).toEqual({ lens: 'security', scope: 'src/auth' })
+    expect(sink.setState).not.toHaveBeenCalledWith('c1', 'error')
+  })
+
+  it('fails honestly instead of guessing when NEITHER a resolved model NOR a conversation modelRef exists', () => {
+    vi.mocked(getLastResolvedModelRef).mockReturnValue(null)
+    vi.mocked(getConversationMeta).mockReturnValue(null)
+    const sink = makeSink()
+    startReviewFromClarification('c1', 'security', 'src/auth', sink)
+
+    expect(runGraph).not.toHaveBeenCalled()
+    expect(sink.setState).toHaveBeenCalledWith('c1', 'error')
+  })
+})
+
 describe('cancelRunOrchestrator — Stop while a pipeline is proposed', () => {
   const proposed = {
     conversationId: 'c1',
@@ -230,7 +293,14 @@ describe('cancelRunOrchestrator — Stop while a pipeline is proposed', () => {
     callId: 'card1'
   }
 
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Deterministic default regardless of what an earlier describe block left
+    // behind on this shared mock (clearAllMocks resets call history, not
+    // return values) -- tests that care about the review-clarify branch set
+    // their own getEvents return explicitly.
+    vi.mocked(getEvents).mockReturnValue([])
+  })
 
   it('marks the proposal stopped, flips its card to denied, and cancels the run', () => {
     vi.mocked(getUrsaPipeline).mockReturnValue(proposed)
@@ -252,6 +322,44 @@ describe('cancelRunOrchestrator — Stop while a pipeline is proposed', () => {
     const sink = makeSink()
     cancelRunOrchestrator('c1', sink)
     expect(setUrsaPipelineStatus).not.toHaveBeenCalled()
+    expect(cancelPendingApproval).toHaveBeenCalledWith('c1')
+  })
+
+  it('IMPORTANT 2: Stop while parked on a review_clarify card resets state out of awaiting-approval', () => {
+    // No pipeline, no pendingApprovals entry -- the clarify card is the last
+    // (and only) event in the transcript, exactly ConversationView.tsx's own
+    // "still pending" contract.
+    vi.mocked(getUrsaPipeline).mockReturnValue(undefined)
+    vi.mocked(cancelPendingApproval).mockReturnValue(undefined)
+    vi.mocked(getEvents).mockReturnValue([
+      {
+        type: 'review_clarify',
+        id: 'clarify1',
+        askLens: true,
+        askScope: true,
+        createdAt: Date.now()
+      }
+    ] as Event[])
+    const sink = makeSink()
+    cancelRunOrchestrator('c1', sink)
+
+    expect(sink.setState).toHaveBeenCalledWith('c1', 'cancelled')
+    const errorEvent = emittedEvents(sink).find((e) => e.type === 'error')
+    expect(errorEvent).toMatchObject({ type: 'error', message: 'Cancelled' })
+    // Never reaches the pendingApprovals fallback -- there is nothing parked there.
+    expect(cancelPendingApproval).not.toHaveBeenCalled()
+  })
+
+  it('does NOT take the review-clarify branch when the last event is not a review_clarify card', () => {
+    vi.mocked(getUrsaPipeline).mockReturnValue(undefined)
+    vi.mocked(cancelPendingApproval).mockReturnValue(undefined)
+    vi.mocked(getEvents).mockReturnValue([
+      { type: 'user_message', id: 'u1', text: 'hi', createdAt: Date.now() }
+    ] as Event[])
+    const sink = makeSink()
+    cancelRunOrchestrator('c1', sink)
+
+    expect(sink.setState).not.toHaveBeenCalledWith('c1', 'cancelled')
     expect(cancelPendingApproval).toHaveBeenCalledWith('c1')
   })
 

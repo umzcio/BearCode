@@ -11,6 +11,7 @@ import {
   type Event,
   type MentionRef,
   type PlanReviewResolveResult,
+  type ReviewLens,
   type SkillProposalResolution,
   type SkillSaveResult
 } from '../../shared/types'
@@ -114,7 +115,13 @@ export async function startRunOrchestrator(
   sink: RunSink,
   command: CommandRef | null = null,
   mentions: MentionRef[] = [],
-  attachments: AttachmentRef[] = []
+  attachments: AttachmentRef[] = [],
+  // Review mode (Phase H, Task 5): a PRE-RESOLVED lens+scope for the
+  // re-dispatched run that answers a review_clarify card. Threaded straight
+  // through to runGraph's own reviewResolved (see its doc comment in
+  // graph.ts) -- everything else about this call is a normal run start.
+  // Undefined for every normal send.
+  reviewResolved?: { lens: ReviewLens; scope: string }
 ): Promise<void> {
   // Persist the model on the conversation row (mirrors the legacy engine's
   // run.ts). Beyond restoring the picker on reopen, crash-resume (A2) needs it:
@@ -132,7 +139,8 @@ export async function startRunOrchestrator(
       signal: controller.signal,
       command,
       mentions,
-      attachments
+      attachments,
+      reviewResolved
     })
     // Paused at a command-approval interrupt (risk 4): the run isn't done,
     // it's parked in graph.ts's pendingApprovals until
@@ -203,6 +211,32 @@ export function cancelRunOrchestrator(conversationId: string, sink?: RunSink): v
     const meta = getConversationMeta(conversationId)
     if (meta) sink.metaChanged(meta)
     return
+  }
+  // Review mode: Stop while parked on a review_clarify card. This park is
+  // ALSO pre-graph -- the turn that raised the clarify card already ran to
+  // completion (see startReviewFromClarification's doc comment above), so
+  // there is no live AbortController awaiting the abort() above, no
+  // pendingApprovals entry, and no Ursa pipeline row. Every branch here would
+  // otherwise fall through and leave the conversation stuck in
+  // 'awaiting-approval' forever with Stop as a permanent no-op. Detection
+  // mirrors ConversationView.tsx's own contract for "still pending" (the
+  // review_clarify card carries no answer/approvalState field of its own):
+  // it is exactly "the clarify card is the last event in the transcript" --
+  // resolving it always appends the next event (a re-dispatched run's
+  // findings or error) right after it.
+  if (sink) {
+    const events = getEvents(conversationId)
+    const last = events[events.length - 1]
+    if (last?.type === 'review_clarify') {
+      aborts.delete(conversationId)
+      const event: Event = { type: 'error', id: randomUUID(), message: 'Cancelled', recoverable: true }
+      sink.emit(conversationId, event)
+      appendEvent(conversationId, event)
+      sink.setState(conversationId, 'cancelled')
+      const meta = getConversationMeta(conversationId)
+      if (meta) sink.metaChanged(meta)
+      return
+    }
   }
   // Ursa Phase 2 (Task 4): Stop while an approved pipeline is RUNNING. Two
   // sub-cases share this mark:
@@ -291,6 +325,66 @@ export function resolveUrsaPipelineOrchestrator(
     setUrsaPipelineStatus(conversationId, 'declined')
     void runDeclinedPipelineSingleRole(conversationId, sink)
   }
+}
+
+// Review mode (Phase H, Task 5): resolve a review_clarify card, wired from
+// bearcode:review:resolve-clarify. Unlike a pipeline proposal, a parked
+// clarify card is NOT a kept-alive AbortController -- the turn that raised it
+// already ran to completion (paused:false, state 'awaiting-approval'; see
+// graph.ts's review-mode branch), so there is nothing to resume. Instead this
+// starts a brand-new run through the SAME startRunOrchestrator path a normal
+// send uses, with reviewResolved set so runGraph skips resolveReviewRequest
+// entirely (an answered field is never re-classified/re-asked).
+//   - userText is read back from the persisted transcript exactly like
+//     runDeclinedPipelineSingleRole's lastUserMessageFull() call above: the
+//     original request that raised the clarify card is still the last
+//     user_message on this conversation (the clarify card itself isn't one).
+//   - modelRef: unlike a pipeline turn, the review branch in graph.ts RETURNS
+//     to park the clarify card BEFORE classification ever runs (see the
+//     `ursaMode === 'review'` branch in graph.ts) -- so a conversation that
+//     has only ever used Review mode has NO last-resolved model at all.
+//     runReview only needs the ROUTER identity (Ursa vs Ursus), which the
+//     conversation's own modelRef sentinel ('ursa/auto' / 'ursus/auto')
+//     already carries -- isUrsaModelRef/isUrsusModelRef treat that sentinel
+//     as a first-class ref, and the reviewResolved opt below bypasses the
+//     classifier entirely, so falling back to the raw conversation modelRef
+//     is correct and sufficient. Prefer the classifier's own last-resolved
+//     ref when one exists (a mixed-mode conversation that previously ran a
+//     normal turn), and only fall back to the conversation's persisted
+//     modelRef when that's missing.
+export function startReviewFromClarification(
+  conversationId: string,
+  lens: ReviewLens,
+  scope: string,
+  sink: RunSink
+): void {
+  const resolvedModelRef = getLastResolvedModelRef(conversationId) ?? getConversationMeta(conversationId)?.modelRef
+  const last = lastUserMessageFull(conversationId)
+  if (!resolvedModelRef) {
+    // Only reachable when the conversation genuinely has no model at all
+    // (neither a classifier-resolved ref nor its own persisted modelRef) --
+    // fail honestly rather than guess a role.
+    const event: Event = {
+      type: 'error',
+      id: randomUUID(),
+      message: 'Could not recover the model for this review. Try sending the message again.',
+      recoverable: true
+    }
+    sink.emit(conversationId, event)
+    appendEvent(conversationId, event)
+    sink.setState(conversationId, 'error')
+    return
+  }
+  void startRunOrchestrator(
+    conversationId,
+    last.text,
+    resolvedModelRef,
+    sink,
+    last.command,
+    last.mentions,
+    last.attachments,
+    { lens, scope }
+  )
 }
 
 // Ursa Phase 2 (Task 4): the step-execution loop for an approved pipeline. Each

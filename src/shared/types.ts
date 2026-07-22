@@ -309,6 +309,19 @@ export interface SourceCitation {
   date?: string
 }
 
+// Review mode (Phase H): categorized audit lenses for panel review findings
+export type ReviewLens = 'code' | 'security' | 'accessibility' | 'performance' | 'comprehensive'
+
+// Review mode: a single audit finding emitted by the review panel
+export interface ReviewFinding {
+  severity: 'critical' | 'important' | 'minor'
+  lens: ReviewLens
+  file: string
+  line?: number
+  title: string
+  detail: string
+}
+
 // The single per-conversation mode (unified-mode-picker design §3/§4.1). Ask
 // and Accept edits both prompt for commands; they differ only on the edit
 // fallback (prompt vs apply). Plan is read-only (both fallbacks block). Auto
@@ -788,6 +801,34 @@ export type Event =
       status: 'done' | 'failed'
       createdAt?: number
     }
+  // Review mode (Phase H, Task 1): opening dialog for the review panel, asking
+  // which audit lens/scope the user wants examined.
+  | {
+      type: 'review_clarify'
+      id: string
+      askLens: boolean
+      askScope: boolean
+      lens?: ReviewLens
+      scope?: string
+      createdAt: number
+    }
+  // Review mode: one finding from the audit panel, emitted as they're generated.
+  | {
+      type: 'review_finding'
+      id: string
+      finding: ReviewFinding
+      createdAt: number
+    }
+  // Review mode: summary of all findings on this turn, emitted when the review
+  // panel concludes. Renderers can also count findings from review_finding events.
+  | {
+      type: 'review_summary'
+      id: string
+      counts: { critical: number; important: number; minor: number }
+      byLens: Partial<Record<ReviewLens, number>>
+      note?: string
+      createdAt: number
+    }
 
 // ---- Provider layer ----
 
@@ -958,7 +999,7 @@ export interface WorktreeInfo {
 // 'council'/'deep-research' are specialized pipelines -- see
 // planning/2026-07-19-ursa-modes-design.md. Persisted per conversation
 // (ursa_mode column), same idiom as effort.
-export type UrsaMode = 'code' | 'council' | 'deep-research'
+export type UrsaMode = 'code' | 'council' | 'deep-research' | 'review'
 
 export interface ConversationMeta {
   id: string
@@ -1346,6 +1387,9 @@ export interface BearcodeApi {
   // conversation's workspace root (see ipc.ts's 'bearcode:shell:open-file').
   shell: {
     openFile(conversationId: string, path: string): Promise<void>
+    // Review mode: read a workspace file's text for the in-app pane (findings
+    // open at their exact line). Jail-validated in main, same as openFile.
+    readFile(conversationId: string, path: string): Promise<string>
   }
   tools: {
     approve(callId: string, approved: boolean): Promise<void>
@@ -1365,6 +1409,14 @@ export interface BearcodeApi {
     // the turn single-role, exactly as Phase 1. Fire-and-forget: progress flows
     // back over bearcode:event, like run:start.
     resolvePipeline(conversationId: string, callId: string, approved: boolean): Promise<void>
+  }
+  review: {
+    // Review mode (Phase H, Task 5): resolve a review_clarify card. Re-dispatches
+    // a normal run for conversationId with the answered lens/scope pre-resolved
+    // (runGraph's reviewResolved), so the already-answered field is never
+    // re-classified. Fire-and-forget: progress flows back over bearcode:event,
+    // like ursa.resolvePipeline.
+    resolveClarify(conversationId: string, lens: ReviewLens, scope: string): Promise<void>
   }
   ursus: {
     requiredProviders(): Promise<ProviderId[]>

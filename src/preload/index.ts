@@ -37,6 +37,7 @@ import type {
   FolderProject,
   ProjectSettings,
   ProviderId,
+  ReviewLens,
   RuleEntry,
   RunState,
   SkillEntry,
@@ -108,7 +109,9 @@ const bearcode: BearcodeApi = {
   },
   shell: {
     openFile: (conversationId: string, path: string): Promise<void> =>
-      ipcRenderer.invoke('bearcode:shell:open-file', conversationId, path)
+      ipcRenderer.invoke('bearcode:shell:open-file', conversationId, path),
+    readFile: (conversationId: string, path: string): Promise<string> =>
+      ipcRenderer.invoke('bearcode:shell:read-file', conversationId, path)
   },
   tools: {
     approve: (callId: string, approved: boolean) =>
@@ -132,6 +135,10 @@ const bearcode: BearcodeApi = {
     requiredProviders: () => ipcRenderer.invoke('bearcode:ursa:required-providers'),
     resolvePipeline: (conversationId: string, callId: string, approved: boolean) =>
       ipcRenderer.invoke('bearcode:ursa:resolve-pipeline', conversationId, callId, approved)
+  },
+  review: {
+    resolveClarify: (conversationId: string, lens: ReviewLens, scope: string) =>
+      ipcRenderer.invoke('bearcode:review:resolve-clarify', conversationId, lens, scope)
   },
   ursus: {
     requiredProviders: () => ipcRenderer.invoke('bearcode:ursus:required-providers')

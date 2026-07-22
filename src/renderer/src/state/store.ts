@@ -22,6 +22,7 @@ import type {
   ProjectSettings,
   ProviderId,
   ProviderModels,
+  ReviewLens,
   RunState,
   SettingsInfo,
   SkillInfo,
@@ -88,6 +89,10 @@ export type AuxSelection =
   // pane just carries which conversation opened it so the placeholder rect
   // reports its bounds for the view to paint over.
   | { kind: 'browser'; conversationId: string }
+  // Review mode: an arbitrary workspace file opened at a finding's exact line.
+  // Unlike 'diff'/'artifact' this target isn't in the deliverable rail -- the
+  // pane fetches the file's text (jailed IPC) and reveals `line` in Monaco.
+  | { kind: 'file'; path: string; line?: number }
 
 // Auto-surface the newest diff group. Returns true when a fresh file_diff
 // arrives for the conversation you're viewing AND the review pane is already
@@ -383,6 +388,10 @@ interface AppState {
   // bearcode:event. Approve runs the steps in order; deny runs the turn
   // single-role, exactly as Phase 1.
   resolvePipeline(convoId: string, callId: string, approved: boolean): void
+  // Review mode (Phase H, Task 5): resolve a review_clarify card. Fire-and-
+  // forget like resolvePipeline; the re-dispatched run's progress flows back
+  // over bearcode:event.
+  resolveReviewClarification(conversationId: string, lens: ReviewLens, scope: string): void
   addPermissionRule(input: AddRuleInput): void
   refreshPermissionRules(): Promise<void>
   deletePermissionRule(id: string): Promise<void>
@@ -444,6 +453,8 @@ interface AppState {
   openReview(diffId: string): void
   openReviewForFile(convoId: string, path: string): void
   openFile(path: string): void
+  // Review mode: open a workspace file in the aux pane at an optional line.
+  openFileInPane(path: string, line?: number): void
   openArtifactPane(artifactId: string, focusFeedback?: boolean): void
   // F4: open the embedded browser pane for a conversation.
   openBrowserPane(conversationId: string): void
@@ -1045,6 +1056,10 @@ export const useAppStore = create<AppState>((set, get) => {
       void window.bearcode.ursa.resolvePipeline(convoId, callId, approved)
     },
 
+    resolveReviewClarification: (conversationId, lens, scope) => {
+      void window.bearcode.review.resolveClarify(conversationId, lens, scope)
+    },
+
     addPermissionRule: (input) => {
       // Fire-and-forget for the approval-card call sites; the chained refresh
       // keeps an already-open manager list current.
@@ -1477,6 +1492,13 @@ export const useAppStore = create<AppState>((set, get) => {
         .openFile(view.id, path)
         .catch(() => get().showToast('Could not open that file'))
     },
+    openFileInPane: (path, line) =>
+      set((s) => ({
+        auxSelection: { kind: 'file', path, line },
+        reviewFocusPath: null,
+        auxPaneOpenTick: s.auxPaneOpenTick + 1
+      })),
+
     openArtifactPane: (artifactId, focusFeedback) =>
       set((s) => ({
         auxSelection: { kind: 'artifact', artifactId },
