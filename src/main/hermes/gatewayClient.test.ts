@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { parseSseBuffer, sendHermesMessage, checkHermesHealth } from './gatewayClient'
+import {
+  parseSseBuffer,
+  sendHermesMessage,
+  checkHermesHealth,
+  resetHermesModelCache
+} from './gatewayClient'
 
 describe('parseSseBuffer', () => {
   it('extracts content from a complete SSE frame and returns the remainder', () => {
@@ -59,6 +64,7 @@ describe('sendHermesMessage', () => {
 
   afterEach(() => {
     global.fetch = originalFetch
+    resetHermesModelCache()
   })
 
   it('streams accumulated deltas via onDelta and sends the session header', async () => {
@@ -129,6 +135,92 @@ describe('sendHermesMessage', () => {
     ).rejects.toMatchObject({ kind: 'network' })
   })
 
+  it('on a 404, resolves the served model from /v1/models and retries with it', async () => {
+    const fetchSpy = vi
+      .fn()
+      // 1st: chat POST with the default model -> 404 (vLLM: unknown model)
+      .mockResolvedValueOnce({ ok: false, status: 404 } as Response)
+      // 2nd: /v1/models lookup -> the real served id
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [{ id: 'NousResearch/Hermes-4' }] })
+      } as unknown as Response)
+      // 3rd: retried chat POST with the resolved model -> 200 stream
+      .mockResolvedValueOnce(
+        fakeStreamResponse(['data: {"choices":[{"delta":{"content":"hey"}}]}\n\ndata: [DONE]\n\n'])
+      )
+    global.fetch = fetchSpy as unknown as typeof fetch
+
+    const deltas: string[] = []
+    await sendHermesMessage({
+      gatewayUrl: 'http://vllm-a:8000/',
+      sessionId: 's',
+      userText: 'hi',
+      signal: new AbortController().signal,
+      onDelta: (d) => deltas.push(d)
+    })
+
+    expect(deltas).toEqual(['hey'])
+    expect(fetchSpy).toHaveBeenCalledTimes(3)
+    const firstBody = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string)
+    const modelsUrl = (fetchSpy.mock.calls[1] as [string, RequestInit])[0]
+    const retryBody = JSON.parse((fetchSpy.mock.calls[2] as [string, RequestInit])[1].body as string)
+    expect(firstBody.model).toBe('hermes')
+    expect(modelsUrl).toBe('http://vllm-a:8000/v1/models')
+    expect(retryBody.model).toBe('NousResearch/Hermes-4')
+  })
+
+  it('caches the resolved model so the next message skips the /v1/models lookup', async () => {
+    const stream = (): Response =>
+      fakeStreamResponse(['data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n'])
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 404 } as Response) // msg1 POST -> 404
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [{ id: 'm1' }] })
+      } as unknown as Response) // /v1/models
+      .mockResolvedValueOnce(stream()) // msg1 retry -> 200
+      .mockResolvedValueOnce(stream()) // msg2 POST -> 200 (uses cached model)
+    global.fetch = fetchSpy as unknown as typeof fetch
+
+    const base = {
+      gatewayUrl: 'http://vllm-b:8000',
+      sessionId: 's',
+      userText: 'hi',
+      signal: new AbortController().signal,
+      onDelta: (): void => {}
+    }
+    await sendHermesMessage(base)
+    await sendHermesMessage(base)
+
+    // msg1: POST(404) + /v1/models + retry = 3; msg2: single POST = 1 -> total 4
+    expect(fetchSpy).toHaveBeenCalledTimes(4)
+    const msg2Body = JSON.parse((fetchSpy.mock.calls[3] as [string, RequestInit])[1].body as string)
+    expect(msg2Body.model).toBe('m1')
+  })
+
+  it('surfaces the original 404 when /v1/models cannot resolve a model', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 404 } as Response) // POST -> 404
+      .mockResolvedValueOnce({ ok: false, status: 404 } as Response) // /v1/models also 404
+    global.fetch = fetchSpy as unknown as typeof fetch
+
+    await expect(
+      sendHermesMessage({
+        gatewayUrl: 'http://vllm-c:8000',
+        sessionId: 's',
+        userText: 'hi',
+        signal: new AbortController().signal,
+        onDelta: () => {}
+      })
+    ).rejects.toMatchObject({ kind: 'http', status: 404 })
+    expect(fetchSpy).toHaveBeenCalledTimes(2) // POST + /v1/models, no retry
+  })
+
   it('throws HermesGatewayError kind "stream" (not "network") when the reader fails mid-stream', async () => {
     const encoder = new TextEncoder()
     let calls = 0
@@ -182,6 +274,22 @@ describe('checkHermesHealth', () => {
   it('reports ok on a healthy response', async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 }) as unknown as typeof fetch
     expect(await checkHermesHealth('http://x:8642')).toEqual({ ok: true, message: 'Connected' })
+  })
+
+  it('probes the authenticated /v1/models (not the unauthenticated /health)', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+    global.fetch = fetchSpy as unknown as typeof fetch
+    await checkHermesHealth('http://x:8642', 'secret')
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('http://x:8642/v1/models')
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer secret')
+  })
+
+  it('reports a token problem on 401 instead of a false "Connected"', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 }) as unknown as typeof fetch
+    const result = await checkHermesHealth('http://x:8642', 'wrong-token')
+    expect(result.ok).toBe(false)
+    expect(result.message).toMatch(/bearer token/i)
   })
 
   it('reports not-ok with the status on a non-2xx response', async () => {
