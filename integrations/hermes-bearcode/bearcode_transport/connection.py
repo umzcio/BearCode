@@ -23,6 +23,7 @@ from .protocol import (
 )
 from .security import validate_outbound_path
 from .transfers import (
+    OutboundSnapshotCleanupOwner,
     UploadTransfer,
     VerifiedUpload,
     create_outbound_snapshot,
@@ -118,6 +119,7 @@ class BearCodeConnection:
         temp_root: Path,
         *,
         outbound_roots=None,
+        snapshot_cleanup_owner=None,
         heartbeat_interval=None,
         heartbeat_timeout=None,
         preturn_timeout=None,
@@ -133,6 +135,11 @@ class BearCodeConnection:
                 if outbound_roots is None
                 else outbound_roots
             )
+        )
+        self._snapshot_cleanup_owner = (
+            OutboundSnapshotCleanupOwner()
+            if snapshot_cleanup_owner is None
+            else snapshot_cleanup_owner
         )
         self.connection_id = uuid4()
         self.state = ConnectionState.CONNECTED
@@ -548,10 +555,12 @@ class BearCodeConnection:
         source = validate_outbound_path(path, self.outbound_roots)
         snapshot = None
         frames = None
+        original_error = None
         try:
             snapshot = create_outbound_snapshot(
                 source,
                 self.temp_root,
+                cleanup_owner=self._snapshot_cleanup_owner,
             )
             attachment = snapshot.metadata(attachment_id)
             frames = iter_download_frames(
@@ -581,11 +590,17 @@ class BearCodeConnection:
                     "payload": {"attachmentId": str(attachment_id)},
                 }
                 await self.websocket.send_str(encode_event(completed))
+        except BaseException as error:
+            original_error = error
+            raise
         finally:
             if frames is not None:
                 frames.close()
             if snapshot is not None:
-                snapshot.close()
+                self._snapshot_cleanup_owner.close_snapshot(
+                    snapshot,
+                    suppress=original_error is not None,
+                )
             else:
                 source.close()
 
@@ -739,6 +754,7 @@ class BearCodeConnection:
     async def _cleanup(self):
         async with self._cleanup_lock:
             if self._cleaned:
+                self._snapshot_cleanup_owner.retry(suppress=True)
                 return
             self._cleaned = True
             try:
@@ -803,4 +819,5 @@ class BearCodeConnection:
                             self,
                         )
                 finally:
+                    self._snapshot_cleanup_owner.retry(suppress=True)
                     self.state = ConnectionState.CLOSED

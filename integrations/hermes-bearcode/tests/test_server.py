@@ -4,13 +4,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from aiohttp import WSServerHandshakeError, WSMsgType
 from aiohttp.test_utils import TestClient, TestServer
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
+from bearcode_transport.security import validate_outbound_path
 from bearcode_transport.server import BearCodeServer
+from bearcode_transport.transfers import create_outbound_snapshot
 
 
 CONVERSATION_ID = "11111111-1111-4111-8111-111111111111"
@@ -173,6 +176,102 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ServerLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stop_retries_retained_snapshot_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outbound_root = root / "outbound"
+            outbound_root.mkdir()
+            path = outbound_root / "secret.txt"
+            path.write_bytes(b"sensitive bytes")
+            server = BearCodeServer(
+                host="127.0.0.1",
+                port=0,
+                platform_key="platform-secret",
+                delegate=FakeDelegate(),
+                temp_root=root / "temp",
+                state_root=root / "state",
+                outbound_roots=[outbound_root],
+            )
+            source = validate_outbound_path(path, [outbound_root])
+            with mock.patch(
+                "bearcode_transport.transfers._unlink_owned_name",
+                return_value=False,
+            ):
+                snapshot = create_outbound_snapshot(
+                    source,
+                    server.temp_root,
+                    cleanup_owner=server.snapshot_cleanup_owner,
+                )
+                server.snapshot_cleanup_owner.close_snapshot(
+                    snapshot,
+                    suppress=True,
+                )
+
+            self.assertEqual(
+                server.snapshot_cleanup_owner.pending_count,
+                1,
+            )
+            retained = list(server.temp_root.iterdir())
+            self.assertEqual(len(retained), 1)
+            self.assertEqual(retained[0].read_bytes(), b"")
+
+            await server.stop()
+
+            self.assertEqual(
+                server.snapshot_cleanup_owner.pending_count,
+                0,
+            )
+            self.assertEqual(list(server.temp_root.iterdir()), [])
+            server.ledger.close()
+
+    async def test_stop_surfaces_still_failing_snapshot_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outbound_root = root / "outbound"
+            outbound_root.mkdir()
+            path = outbound_root / "secret.txt"
+            path.write_bytes(b"sensitive bytes")
+            server = BearCodeServer(
+                host="127.0.0.1",
+                port=0,
+                platform_key="platform-secret",
+                delegate=FakeDelegate(),
+                temp_root=root / "temp",
+                state_root=root / "state",
+                outbound_roots=[outbound_root],
+            )
+            source = validate_outbound_path(path, [outbound_root])
+            with mock.patch(
+                "bearcode_transport.transfers._unlink_owned_name",
+                return_value=False,
+            ):
+                snapshot = create_outbound_snapshot(
+                    source,
+                    server.temp_root,
+                    cleanup_owner=server.snapshot_cleanup_owner,
+                )
+                server.snapshot_cleanup_owner.close_snapshot(
+                    snapshot,
+                    suppress=True,
+                )
+                with self.assertRaises(RuntimeError):
+                    await server.stop()
+
+            self.assertEqual(
+                server.snapshot_cleanup_owner.pending_count,
+                1,
+            )
+            retained = list(server.temp_root.iterdir())
+            self.assertEqual(len(retained), 1)
+            self.assertEqual(retained[0].read_bytes(), b"")
+            await server.stop()
+            self.assertEqual(
+                server.snapshot_cleanup_owner.pending_count,
+                0,
+            )
+            self.assertEqual(list(server.temp_root.iterdir()), [])
+            server.ledger.close()
+
     async def test_start_and_stop_close_active_websockets(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

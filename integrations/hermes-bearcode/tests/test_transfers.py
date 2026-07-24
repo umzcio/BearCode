@@ -1,3 +1,4 @@
+import errno
 import hashlib
 import os
 import sys
@@ -18,6 +19,7 @@ from bearcode_transport.protocol import (
     decode_binary_frame,
 )
 from bearcode_transport.security import validate_outbound_path
+import bearcode_transport.transfers as transfer_module
 from bearcode_transport.transfers import (
     UploadTransfer,
     create_outbound_snapshot,
@@ -461,6 +463,144 @@ class UploadTransferTests(unittest.TestCase):
 
 
 class OutboundSnapshotTests(unittest.TestCase):
+    def test_owned_name_stat_errors_are_not_treated_as_removed(self):
+        for error_number in (errno.EACCES, errno.EIO):
+            with self.subTest(error_number=error_number):
+                with patch(
+                    "bearcode_transport.transfers.os.stat",
+                    side_effect=OSError(error_number, "stat failed"),
+                ):
+                    self.assertFalse(
+                        transfer_module._unlink_owned_name(
+                            123,
+                            "snapshot",
+                            (1, 2),
+                        )
+                    )
+
+    def test_owned_name_unlink_error_is_not_treated_as_removed(self):
+        file_stat = type("FileStat", (), {"st_dev": 1, "st_ino": 2})()
+        with patch(
+            "bearcode_transport.transfers.os.stat",
+            return_value=file_stat,
+        ), patch(
+            "bearcode_transport.transfers.os.unlink",
+            side_effect=OSError(errno.EIO, "unlink failed"),
+        ):
+            self.assertFalse(
+                transfer_module._unlink_owned_name(
+                    123,
+                    "snapshot",
+                    (1, 2),
+                )
+            )
+
+    def test_only_missing_owned_name_is_already_removed(self):
+        with patch(
+            "bearcode_transport.transfers.os.stat",
+            side_effect=FileNotFoundError(),
+        ):
+            self.assertTrue(
+                transfer_module._unlink_owned_name(
+                    123,
+                    "snapshot",
+                    (1, 2),
+                )
+            )
+
+    def test_failed_close_scrubs_bytes_and_retains_retry_ownership(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            source_root = parent / "source"
+            snapshot_root = parent / "snapshots"
+            source_root.mkdir()
+            snapshot_root.mkdir()
+            path = source_root / "secret.txt"
+            secret = b"sensitive snapshot bytes"
+            path.write_bytes(secret)
+            source = validate_outbound_path(path, [source_root])
+            with patch(
+                "bearcode_transport.transfers._unlink_owned_name",
+                return_value=False,
+            ):
+                snapshot = create_outbound_snapshot(
+                    source,
+                    snapshot_root,
+                )
+                active_name = snapshot._active_name
+                with self.assertRaises(RuntimeError):
+                    snapshot.close()
+                with self.assertRaises(RuntimeError):
+                    snapshot.close()
+
+                self.assertEqual(snapshot._active_name, active_name)
+                self.assertIsNotNone(snapshot._root_descriptor)
+                retained_path = snapshot_root / active_name
+                self.assertEqual(retained_path.read_bytes(), b"")
+
+            snapshot.close()
+            self.assertEqual(list(snapshot_root.iterdir()), [])
+            self.assertIsNone(snapshot._active_name)
+            self.assertIsNone(snapshot._root_descriptor)
+
+    def test_construction_failure_is_scrubbed_owned_and_retryable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            source_root = parent / "source"
+            snapshot_root = parent / "snapshots"
+            source_root.mkdir()
+            snapshot_root.mkdir()
+            path = source_root / "secret.txt"
+            path.write_bytes(b"sensitive snapshot bytes")
+            source = validate_outbound_path(path, [source_root])
+            owner = transfer_module.OutboundSnapshotCleanupOwner()
+            real_unlink = transfer_module._unlink_owned_name
+            real_fsync = os.fsync
+            fsync_calls = 0
+
+            def fail_snapshot_fsync_once(descriptor):
+                nonlocal fsync_calls
+                fsync_calls += 1
+                if fsync_calls == 1:
+                    raise OSError(errno.EIO, "copy failed")
+                return real_fsync(descriptor)
+
+            with patch(
+                "bearcode_transport.transfers._unlink_owned_name",
+                return_value=False,
+            ), patch(
+                "bearcode_transport.transfers.os.fsync",
+                side_effect=fail_snapshot_fsync_once,
+            ):
+                with self.assertRaisesRegex(OSError, "copy failed"):
+                    create_outbound_snapshot(
+                        source,
+                        snapshot_root,
+                        cleanup_owner=owner,
+                    )
+
+            self.assertEqual(owner.pending_count, 1)
+            names = list(snapshot_root.iterdir())
+            self.assertEqual(len(names), 1)
+            self.assertEqual(names[0].read_bytes(), b"")
+
+            with patch(
+                "bearcode_transport.transfers._unlink_owned_name",
+                return_value=False,
+            ):
+                with self.assertRaises(RuntimeError):
+                    owner.retry()
+                self.assertEqual(owner.pending_count, 1)
+                self.assertEqual(names[0].read_bytes(), b"")
+
+            with patch(
+                "bearcode_transport.transfers._unlink_owned_name",
+                side_effect=real_unlink,
+            ):
+                owner.retry()
+            self.assertEqual(owner.pending_count, 0)
+            self.assertEqual(list(snapshot_root.iterdir()), [])
+
     def test_snapshot_is_private_and_close_removes_fallback_name(self):
         with tempfile.TemporaryDirectory() as directory:
             parent = Path(directory)

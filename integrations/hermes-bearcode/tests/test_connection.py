@@ -1250,6 +1250,121 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(descriptor_count(), before_error)
         self.assertEqual(list(self.temp_root.iterdir()), [])
 
+    async def test_normal_snapshot_cleanup_failure_surfaces_and_retries(self):
+        outbound_root = self.root / "outbound"
+        outbound_root.mkdir()
+        connection, _, websocket = await self.connect(
+            outbound_roots=[outbound_root]
+        )
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        path = outbound_root / "secret.txt"
+        path.write_bytes(b"sensitive bytes")
+
+        with mock.patch(
+            "bearcode_transport.transfers._unlink_owned_name",
+            return_value=False,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "deletion is unconfirmed",
+            ):
+                await connection.send_attachment(
+                    path,
+                    self.outbound_metadata(ATTACHMENT_ID),
+                )
+
+        self.assertEqual(
+            connection._snapshot_cleanup_owner.pending_count,
+            1,
+        )
+        retained = list(self.temp_root.iterdir())
+        self.assertEqual(len(retained), 1)
+        self.assertEqual(retained[0].read_bytes(), b"")
+
+        await connection.close()
+        self.assertEqual(
+            connection._snapshot_cleanup_owner.pending_count,
+            0,
+        )
+        self.assertEqual(list(self.temp_root.iterdir()), [])
+
+    async def test_snapshot_cleanup_does_not_mask_send_exception(self):
+        outbound_root = self.root / "outbound"
+        outbound_root.mkdir()
+        connection, _, websocket = await self.connect(
+            outbound_roots=[outbound_root]
+        )
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        path = outbound_root / "secret.txt"
+        path.write_bytes(b"sensitive bytes")
+
+        async def fail_send(_raw):
+            raise RuntimeError("original send failed")
+
+        websocket.send_str = fail_send
+        with mock.patch(
+            "bearcode_transport.transfers._unlink_owned_name",
+            return_value=False,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "original send failed",
+            ):
+                await connection.send_attachment(
+                    path,
+                    self.outbound_metadata(ATTACHMENT_ID),
+                )
+
+        self.assertEqual(
+            connection._snapshot_cleanup_owner.pending_count,
+            1,
+        )
+        retained = list(self.temp_root.iterdir())
+        self.assertEqual(len(retained), 1)
+        self.assertEqual(retained[0].read_bytes(), b"")
+        connection._snapshot_cleanup_owner.retry()
+        self.assertEqual(list(self.temp_root.iterdir()), [])
+
+    async def test_snapshot_cleanup_does_not_mask_cancellation(self):
+        outbound_root = self.root / "outbound"
+        outbound_root.mkdir()
+        connection, _, websocket = await self.connect(
+            outbound_roots=[outbound_root]
+        )
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        path = outbound_root / "secret.txt"
+        path.write_bytes(b"sensitive bytes")
+        await connection._send_lock.acquire()
+
+        with mock.patch(
+            "bearcode_transport.transfers._unlink_owned_name",
+            return_value=False,
+        ):
+            task = asyncio.create_task(
+                connection.send_attachment(
+                    path,
+                    self.outbound_metadata(ATTACHMENT_ID),
+                )
+            )
+            await asyncio.sleep(0)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        connection._send_lock.release()
+
+        self.assertEqual(
+            connection._snapshot_cleanup_owner.pending_count,
+            1,
+        )
+        retained = list(self.temp_root.iterdir())
+        self.assertEqual(len(retained), 1)
+        self.assertEqual(retained[0].read_bytes(), b"")
+        connection._snapshot_cleanup_owner.retry()
+        self.assertEqual(list(self.temp_root.iterdir()), [])
+
 
 if __name__ == "__main__":
     unittest.main()

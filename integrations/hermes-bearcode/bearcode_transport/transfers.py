@@ -35,6 +35,7 @@ class OutboundSnapshot:
     mime: str
     size_bytes: int
     sha256: str
+    _cleanup_descriptor: int = None
     _root_descriptor: int = None
     _active_name: str = None
     _file_identity: tuple = None
@@ -55,27 +56,90 @@ class OutboundSnapshot:
 
     def close(self):
         self.source.close()
-        root_descriptor = self._root_descriptor
-        active_name = self._active_name
-        self._root_descriptor = None
-        self._active_name = None
-        if root_descriptor is None:
+        if self._active_name is None:
+            self._close_cleanup_descriptors()
             return
         try:
-            if active_name is not None:
-                _unlink_owned_name(
-                    root_descriptor,
-                    active_name,
-                    self._file_identity,
-                )
-        finally:
+            os.ftruncate(self._cleanup_descriptor, 0)
             try:
-                os.close(root_descriptor)
+                os.fsync(self._cleanup_descriptor)
             except OSError:
-                pass
+                raise
+        except (OSError, TypeError) as error:
+            raise SnapshotCleanupError(
+                "outbound snapshot could not be scrubbed"
+            ) from error
+        if not _unlink_owned_name(
+            self._root_descriptor,
+            self._active_name,
+            self._file_identity,
+        ):
+            raise SnapshotCleanupError(
+                "outbound snapshot deletion is unconfirmed"
+            )
+        self._active_name = None
+        self._close_cleanup_descriptors()
+
+    def _close_cleanup_descriptors(self):
+        cleanup_descriptor = self._cleanup_descriptor
+        root_descriptor = self._root_descriptor
+        self._cleanup_descriptor = None
+        self._root_descriptor = None
+        for descriptor in (cleanup_descriptor, root_descriptor):
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
 
     def __del__(self):
-        self.close()
+        try:
+            self.close()
+        except SnapshotCleanupError:
+            _fallback_snapshot_cleanup_owner.retain(self)
+
+
+class SnapshotCleanupError(RuntimeError):
+    pass
+
+
+class OutboundSnapshotCleanupOwner:
+    def __init__(self):
+        self._pending = {}
+
+    @property
+    def pending_count(self):
+        return len(self._pending)
+
+    def retain(self, snapshot):
+        self._pending[id(snapshot)] = snapshot
+
+    def close_snapshot(self, snapshot, *, suppress=False):
+        try:
+            snapshot.close()
+        except SnapshotCleanupError:
+            self.retain(snapshot)
+            if not suppress:
+                raise
+        else:
+            self._pending.pop(id(snapshot), None)
+
+    def retry(self, *, suppress=False):
+        failures = []
+        for snapshot in tuple(self._pending.values()):
+            try:
+                snapshot.close()
+            except SnapshotCleanupError as error:
+                failures.append(error)
+            else:
+                self._pending.pop(id(snapshot), None)
+        if failures and not suppress:
+            raise SnapshotCleanupError(
+                "outbound snapshot cleanup remains pending"
+            ) from failures[0]
+
+
+_fallback_snapshot_cleanup_owner = OutboundSnapshotCleanupOwner()
 
 
 def _unlink_owned_name(root_descriptor, active_name, file_identity):
@@ -85,8 +149,10 @@ def _unlink_owned_name(root_descriptor, active_name, file_identity):
             dir_fd=root_descriptor,
             follow_symlinks=False,
         )
-    except OSError:
+    except FileNotFoundError:
         return True
+    except OSError:
+        return False
     if (file_stat.st_dev, file_stat.st_ino) != file_identity:
         return False
     try:
@@ -96,7 +162,11 @@ def _unlink_owned_name(root_descriptor, active_name, file_identity):
     return True
 
 
-def create_outbound_snapshot(source, temp_root):
+def create_outbound_snapshot(
+    source,
+    temp_root,
+    cleanup_owner=None,
+):
     """Copy a validated source into one private, immutable owned descriptor."""
     if not isinstance(source, ValidatedOutbound) or source.closed:
         raise ValueError("snapshot source must be a validated outbound file")
@@ -106,6 +176,11 @@ def create_outbound_snapshot(source, temp_root):
     active_name = None
     file_identity = None
     snapshot = None
+    owner = (
+        _fallback_snapshot_cleanup_owner
+        if cleanup_owner is None
+        else cleanup_owner
+    )
     try:
         root_flags = os.O_RDONLY | os.O_DIRECTORY
         if hasattr(os, "O_NOFOLLOW"):
@@ -193,13 +268,13 @@ def create_outbound_snapshot(source, temp_root):
                 )
             mime = "text/plain"
 
+        stream_descriptor = os.dup(snapshot_descriptor)
         validated = ValidatedOutbound(
             path=snapshot_path,
-            _descriptor=snapshot_descriptor,
+            _descriptor=stream_descriptor,
             device=snapshot_stat.st_dev,
             inode=snapshot_stat.st_ino,
         )
-        snapshot_descriptor = None
         name = sanitize_filename(source.path.name)
         if (
             root_descriptor is not None
@@ -218,13 +293,43 @@ def create_outbound_snapshot(source, temp_root):
             mime=mime,
             size_bytes=size_bytes,
             sha256=digest.hexdigest(),
+            _cleanup_descriptor=snapshot_descriptor,
             _root_descriptor=root_descriptor,
             _active_name=active_name,
             _file_identity=file_identity,
         )
+        snapshot_descriptor = None
         root_descriptor = None
         active_name = None
         return snapshot
+    except BaseException:
+        if (
+            snapshot_descriptor is not None
+            and file_identity is not None
+            and active_name is not None
+            and root_descriptor is not None
+        ):
+            cleanup = OutboundSnapshot(
+                source=ValidatedOutbound(
+                    path=root / active_name,
+                    _descriptor=None,
+                    device=file_identity[0],
+                    inode=file_identity[1],
+                ),
+                name="snapshot",
+                mime="application/octet-stream",
+                size_bytes=0,
+                sha256="",
+                _cleanup_descriptor=snapshot_descriptor,
+                _root_descriptor=root_descriptor,
+                _active_name=active_name,
+                _file_identity=file_identity,
+            )
+            snapshot_descriptor = None
+            root_descriptor = None
+            active_name = None
+            owner.close_snapshot(cleanup, suppress=True)
+        raise
     finally:
         source.close()
         if snapshot is None:
