@@ -1,4 +1,5 @@
 """Bounded upload and download streaming for the Hermes transport."""
+import codecs
 import hashlib
 import os
 import stat
@@ -25,6 +26,228 @@ class VerifiedUpload:
     size_bytes: int
     sha256: str
     path: Path
+
+
+@dataclass
+class OutboundSnapshot:
+    source: ValidatedOutbound
+    name: str
+    mime: str
+    size_bytes: int
+    sha256: str
+    _root_descriptor: int = None
+    _active_name: str = None
+    _file_identity: tuple = None
+
+    def metadata(self, attachment_id):
+        return {
+            "id": str(attachment_id),
+            "name": self.name,
+            "mime": self.mime,
+            "kind": (
+                "image"
+                if self.mime.startswith("image/")
+                else "document"
+            ),
+            "sizeBytes": self.size_bytes,
+            "sha256": self.sha256,
+        }
+
+    def close(self):
+        self.source.close()
+        root_descriptor = self._root_descriptor
+        active_name = self._active_name
+        self._root_descriptor = None
+        self._active_name = None
+        if root_descriptor is None:
+            return
+        try:
+            if active_name is not None:
+                _unlink_owned_name(
+                    root_descriptor,
+                    active_name,
+                    self._file_identity,
+                )
+        finally:
+            try:
+                os.close(root_descriptor)
+            except OSError:
+                pass
+
+    def __del__(self):
+        self.close()
+
+
+def _unlink_owned_name(root_descriptor, active_name, file_identity):
+    try:
+        file_stat = os.stat(
+            active_name,
+            dir_fd=root_descriptor,
+            follow_symlinks=False,
+        )
+    except OSError:
+        return True
+    if (file_stat.st_dev, file_stat.st_ino) != file_identity:
+        return False
+    try:
+        os.unlink(active_name, dir_fd=root_descriptor)
+    except OSError:
+        return False
+    return True
+
+
+def create_outbound_snapshot(source, temp_root):
+    """Copy a validated source into one private, immutable owned descriptor."""
+    if not isinstance(source, ValidatedOutbound) or source.closed:
+        raise ValueError("snapshot source must be a validated outbound file")
+    root = Path(os.path.abspath(os.fspath(temp_root)))
+    root_descriptor = None
+    snapshot_descriptor = None
+    active_name = None
+    file_identity = None
+    snapshot = None
+    try:
+        root_flags = os.O_RDONLY | os.O_DIRECTORY
+        if hasattr(os, "O_NOFOLLOW"):
+            root_flags |= os.O_NOFOLLOW
+        root_descriptor = os.open(str(root), root_flags)
+        root_stat = os.fstat(root_descriptor)
+        if not stat.S_ISDIR(root_stat.st_mode):
+            raise ValueError("snapshot root must be a directory")
+
+        active_name = f".{uuid4().hex}.outbound-snapshot"
+        snapshot_flags = os.O_CREAT | os.O_EXCL | os.O_RDWR
+        if hasattr(os, "O_NOFOLLOW"):
+            snapshot_flags |= os.O_NOFOLLOW
+        snapshot_descriptor = os.open(
+            active_name,
+            snapshot_flags,
+            0o600,
+            dir_fd=root_descriptor,
+        )
+        snapshot_path = root / active_name
+        snapshot_stat = os.fstat(snapshot_descriptor)
+        file_identity = (snapshot_stat.st_dev, snapshot_stat.st_ino)
+        if _unlink_owned_name(
+            root_descriptor,
+            active_name,
+            file_identity,
+        ):
+            active_name = None
+            os.close(root_descriptor)
+            root_descriptor = None
+
+        digest = hashlib.sha256()
+        utf8_decoder = codecs.getincrementaldecoder("utf-8")("strict")
+        valid_utf8 = True
+        size_bytes = 0
+        os.lseek(source._descriptor, 0, os.SEEK_SET)
+        while True:
+            remaining = MAX_FILE_BYTES - size_bytes
+            read_size = min(MAX_CHUNK_BYTES, remaining + 1)
+            chunk = os.read(source._descriptor, read_size)
+            if not chunk:
+                break
+            size_bytes += len(chunk)
+            if size_bytes > MAX_FILE_BYTES:
+                raise ValueError("download exceeds maximum file size")
+            view = memoryview(chunk)
+            while view:
+                written = os.write(snapshot_descriptor, view)
+                if written <= 0:
+                    raise OSError("failed to write outbound snapshot")
+                view = view[written:]
+            digest.update(chunk)
+            if valid_utf8:
+                try:
+                    utf8_decoder.decode(chunk, final=False)
+                except UnicodeDecodeError:
+                    valid_utf8 = False
+        if valid_utf8:
+            try:
+                utf8_decoder.decode(b"", final=True)
+            except UnicodeDecodeError:
+                valid_utf8 = False
+        os.fsync(snapshot_descriptor)
+        os.lseek(snapshot_descriptor, 0, os.SEEK_SET)
+
+        sniff_descriptor = os.dup(snapshot_descriptor)
+        try:
+            with os.fdopen(sniff_descriptor, "rb") as handle:
+                sniff_descriptor = None
+                try:
+                    mime = sniff_mime(
+                        handle,
+                        "application/octet-stream",
+                    )
+                except ValueError:
+                    mime = None
+        finally:
+            if sniff_descriptor is not None:
+                os.close(sniff_descriptor)
+            os.lseek(snapshot_descriptor, 0, os.SEEK_SET)
+        if mime is None:
+            if not valid_utf8:
+                raise ValueError(
+                    "unsupported or invalid outbound file type"
+                )
+            mime = "text/plain"
+
+        validated = ValidatedOutbound(
+            path=snapshot_path,
+            _descriptor=snapshot_descriptor,
+            device=snapshot_stat.st_dev,
+            inode=snapshot_stat.st_ino,
+        )
+        snapshot_descriptor = None
+        name = sanitize_filename(source.path.name)
+        if (
+            root_descriptor is not None
+            and _unlink_owned_name(
+                root_descriptor,
+                active_name,
+                file_identity,
+            )
+        ):
+            active_name = None
+            os.close(root_descriptor)
+            root_descriptor = None
+        snapshot = OutboundSnapshot(
+            source=validated,
+            name=name,
+            mime=mime,
+            size_bytes=size_bytes,
+            sha256=digest.hexdigest(),
+            _root_descriptor=root_descriptor,
+            _active_name=active_name,
+            _file_identity=file_identity,
+        )
+        root_descriptor = None
+        active_name = None
+        return snapshot
+    finally:
+        source.close()
+        if snapshot is None:
+            if snapshot_descriptor is not None:
+                try:
+                    os.close(snapshot_descriptor)
+                except OSError:
+                    pass
+            if (
+                root_descriptor is not None
+                and active_name is not None
+                and file_identity is not None
+            ):
+                _unlink_owned_name(
+                    root_descriptor,
+                    active_name,
+                    file_identity,
+                )
+            if root_descriptor is not None:
+                try:
+                    os.close(root_descriptor)
+                except OSError:
+                    pass
 
 
 def _cleanup_owned_name(root_descriptor, active_name, file_identity):

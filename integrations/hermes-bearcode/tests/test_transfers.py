@@ -18,7 +18,11 @@ from bearcode_transport.protocol import (
     decode_binary_frame,
 )
 from bearcode_transport.security import validate_outbound_path
-from bearcode_transport.transfers import UploadTransfer, iter_download_frames
+from bearcode_transport.transfers import (
+    UploadTransfer,
+    create_outbound_snapshot,
+    iter_download_frames,
+)
 
 
 ATTACHMENT_ID = UUID("55555555-5555-4555-8555-555555555555")
@@ -454,6 +458,88 @@ class UploadTransferTests(unittest.TestCase):
                     )
                     transfer.append(upload_chunk(0, data, final=True))
                     self.assertEqual(transfer.complete().mime, expected_mime)
+
+
+class OutboundSnapshotTests(unittest.TestCase):
+    def test_snapshot_is_private_and_close_removes_fallback_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            source_root = parent / "source"
+            snapshot_root = parent / "snapshots"
+            source_root.mkdir()
+            snapshot_root.mkdir()
+            path = source_root / "report.txt"
+            path.write_bytes(b"private snapshot")
+            source = validate_outbound_path(path, [source_root])
+
+            with patch(
+                "bearcode_transport.transfers._unlink_owned_name",
+                return_value=False,
+            ):
+                snapshot = create_outbound_snapshot(
+                    source,
+                    snapshot_root,
+                )
+            descriptor = snapshot.source._descriptor
+            names = list(snapshot_root.iterdir())
+            self.assertEqual(len(names), 1)
+            self.assertEqual(names[0].stat().st_mode & 0o777, 0o600)
+
+            snapshot.close()
+
+            self.assertEqual(list(snapshot_root.iterdir()), [])
+            with self.assertRaises(OSError):
+                os.fstat(descriptor)
+
+    def test_truncation_during_copy_produces_one_consistent_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            source_root = parent / "source"
+            snapshot_root = parent / "snapshots"
+            source_root.mkdir()
+            snapshot_root.mkdir()
+            path = source_root / "report.txt"
+            original = b"a" * (MAX_CHUNK_BYTES + 100)
+            path.write_bytes(original)
+            source = validate_outbound_path(path, [source_root])
+            real_read = os.read
+            truncated = False
+
+            def truncate_after_first_read(descriptor, count):
+                nonlocal truncated
+                chunk = real_read(descriptor, count)
+                if chunk and not truncated:
+                    truncated = True
+                    os.truncate(path, 0)
+                return chunk
+
+            with patch(
+                "bearcode_transport.transfers.os.read",
+                side_effect=truncate_after_first_read,
+            ):
+                snapshot = create_outbound_snapshot(
+                    source,
+                    snapshot_root,
+                )
+            expected = original[:MAX_CHUNK_BYTES]
+            frames = iter_download_frames(
+                snapshot.source,
+                ATTACHMENT_ID,
+            )
+            payload = b"".join(
+                decode_binary_frame(frame).payload
+                for frame in frames
+            )
+
+            self.assertTrue(truncated)
+            self.assertEqual(payload, expected)
+            self.assertEqual(snapshot.size_bytes, len(payload))
+            self.assertEqual(
+                snapshot.sha256,
+                hashlib.sha256(payload).hexdigest(),
+            )
+            self.assertEqual(list(snapshot_root.iterdir()), [])
+            snapshot.close()
 
 
 class DownloadTransferTests(unittest.TestCase):

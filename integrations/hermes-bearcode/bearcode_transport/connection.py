@@ -1,9 +1,6 @@
 """Authenticated BearCode WebSocket connection lifecycle."""
 import asyncio
-import codecs
-import hashlib
 import json
-import os
 import secrets
 from enum import Enum, auto
 from pathlib import Path
@@ -24,14 +21,11 @@ from .protocol import (
     decode_client_event,
     encode_event,
 )
-from .security import (
-    sanitize_filename,
-    sniff_mime,
-    validate_outbound_path,
-)
+from .security import validate_outbound_path
 from .transfers import (
     UploadTransfer,
     VerifiedUpload,
+    create_outbound_snapshot,
     iter_download_frames,
 )
 
@@ -172,6 +166,8 @@ class BearCodeConnection:
         self._send_lock = asyncio.Lock()
         self._terminal_lock = asyncio.Lock()
         self._cleanup_lock = asyncio.Lock()
+        self._outbound_reservation_lock = asyncio.Lock()
+        self._outbound_attachment_ids = set()
         self._cleaned = False
         self._cancel_started = False
 
@@ -547,17 +543,21 @@ class BearCodeConnection:
         path: Path,
         metadata: dict,
     ) -> None:
-        if self.state is not ConnectionState.ACCEPTED:
-            raise ValueError("turn is not active")
         attachment_id = UUID(metadata["id"])
+        await self._reserve_outbound_attachment(attachment_id)
         source = validate_outbound_path(path, self.outbound_roots)
+        snapshot = None
         frames = None
         try:
-            attachment = self._derive_outbound_metadata(
+            snapshot = create_outbound_snapshot(
                 source,
+                self.temp_root,
+            )
+            attachment = snapshot.metadata(attachment_id)
+            frames = iter_download_frames(
+                snapshot.source,
                 attachment_id,
             )
-            frames = iter_download_frames(source, attachment_id)
             async with self._send_lock:
                 if self.state is not ConnectionState.ACCEPTED:
                     raise ValueError("turn is not active")
@@ -584,64 +584,26 @@ class BearCodeConnection:
         finally:
             if frames is not None:
                 frames.close()
-            source.close()
+            if snapshot is not None:
+                snapshot.close()
+            else:
+                source.close()
 
-    @staticmethod
-    def _derive_outbound_metadata(source, attachment_id):
-        descriptor = os.dup(source._descriptor)
-        digest = hashlib.sha256()
-        utf8_decoder = codecs.getincrementaldecoder("utf-8")("strict")
-        valid_utf8 = True
-        try:
-            with os.fdopen(descriptor, "rb") as handle:
-                descriptor = None
-                file_stat = os.fstat(handle.fileno())
-                if file_stat.st_size > MAX_FILE_BYTES:
-                    raise ValueError(
-                        "download exceeds maximum file size"
-                    )
-                try:
-                    mime = sniff_mime(
-                        handle,
-                        "application/octet-stream",
-                    )
-                except ValueError:
-                    mime = None
-                handle.seek(0)
-                while True:
-                    chunk = handle.read(MAX_CHUNK_BYTES)
-                    if not chunk:
-                        break
-                    digest.update(chunk)
-                    if valid_utf8:
-                        try:
-                            utf8_decoder.decode(chunk, final=False)
-                        except UnicodeDecodeError:
-                            valid_utf8 = False
-                if valid_utf8:
-                    try:
-                        utf8_decoder.decode(b"", final=True)
-                    except UnicodeDecodeError:
-                        valid_utf8 = False
-                if mime is None:
-                    if not valid_utf8:
-                        raise ValueError(
-                            "unsupported or invalid outbound file type"
-                        )
-                    mime = "text/plain"
-                handle.seek(0)
-        finally:
-            if descriptor is not None:
-                os.close(descriptor)
-            os.lseek(source._descriptor, 0, os.SEEK_SET)
-        return {
-            "id": str(attachment_id),
-            "name": sanitize_filename(source.path.name),
-            "mime": mime,
-            "kind": "image" if mime.startswith("image/") else "document",
-            "sizeBytes": file_stat.st_size,
-            "sha256": digest.hexdigest(),
-        }
+    async def _reserve_outbound_attachment(self, attachment_id):
+        """Permanently consume one ID and slot for this turn.
+
+        A reservation is intentionally not rolled back when validation,
+        snapshotting, or delivery fails, so concurrent callers observe one
+        deterministic identity/cardinality history.
+        """
+        async with self._outbound_reservation_lock:
+            if self.state is not ConnectionState.ACCEPTED:
+                raise ValueError("turn is not active")
+            if attachment_id in self._outbound_attachment_ids:
+                raise ValueError("outbound attachment ID is already reserved")
+            if len(self._outbound_attachment_ids) >= MAX_FILES:
+                raise ValueError("outbound attachment limit reached")
+            self._outbound_attachment_ids.add(attachment_id)
 
     async def mark_terminal(
         self,

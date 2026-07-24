@@ -9,6 +9,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 from uuid import UUID
 
 from aiohttp import WSMessage, WSMsgType
@@ -24,9 +25,10 @@ from bearcode_transport.ledger import TurnLedger
 from bearcode_transport.protocol import (
     BinaryChunk,
     BinaryDirection,
+    MAX_FILE_BYTES,
+    decode_binary_frame,
     encode_binary_frame,
     encode_event,
-    decode_binary_frame,
 )
 
 
@@ -332,6 +334,7 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
         registry=None,
         delegate=None,
         conversation_id=CONVERSATION_ID,
+        outbound_roots=None,
         heartbeat_interval=3600,
         heartbeat_timeout=3600,
         preturn_timeout=3600,
@@ -342,6 +345,7 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
             registry=self.registry if registry is None else registry,
             delegate=self.delegate if delegate is None else delegate,
             temp_root=self.temp_root,
+            outbound_roots=outbound_roots,
             heartbeat_interval=heartbeat_interval,
             heartbeat_timeout=heartbeat_timeout,
             preturn_timeout=preturn_timeout,
@@ -361,6 +365,13 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0)
 
         return await asyncio.wait_for(find_event(), timeout)
+
+    @staticmethod
+    def outbound_metadata(attachment_id):
+        return {
+            "id": str(attachment_id),
+            "name": "ignored.txt",
+        }
 
     async def test_state_order_is_pinned(self):
         self.assertEqual(
@@ -811,6 +822,120 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("attachment.download.completed", event_types)
         self.assertEqual(len(websocket.sent_bytes), 1)
 
+    async def test_send_attachment_allows_exactly_five_unique_ids(self):
+        connection, _, websocket = await self.connect()
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        path = self.temp_root / "outbound.txt"
+        path.write_bytes(b"outbound")
+
+        for index in range(5):
+            await connection.send_attachment(
+                path,
+                self.outbound_metadata(UUID(int=index + 1)),
+            )
+        with self.assertRaises(ValueError):
+            await connection.send_attachment(
+                path,
+                self.outbound_metadata(UUID(int=6)),
+            )
+
+        begin_events = [
+            event
+            for event in websocket.sent_text
+            if event["type"] == "attachment.download.begin"
+        ]
+        self.assertEqual(len(begin_events), 5)
+
+    async def test_send_attachment_rejects_duplicate_reserved_id(self):
+        connection, _, websocket = await self.connect()
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        path = self.temp_root / "outbound.txt"
+        path.write_bytes(b"outbound")
+        metadata = self.outbound_metadata(ATTACHMENT_ID)
+
+        await connection.send_attachment(path, metadata)
+        with self.assertRaises(ValueError):
+            await connection.send_attachment(path, metadata)
+
+        begin_events = [
+            event
+            for event in websocket.sent_text
+            if event["type"] == "attachment.download.begin"
+        ]
+        self.assertEqual(len(begin_events), 1)
+
+    async def test_send_attachment_reservations_are_atomic(self):
+        connection, _, websocket = await self.connect()
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        path = self.temp_root / "outbound.txt"
+        path.write_bytes(b"outbound")
+        await connection._send_lock.acquire()
+        tasks = [
+            asyncio.create_task(
+                connection.send_attachment(
+                    path,
+                    self.outbound_metadata(UUID(int=index + 1)),
+                )
+            )
+            for index in range(6)
+        ]
+        try:
+            await asyncio.sleep(0)
+        finally:
+            connection._send_lock.release()
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        self.assertEqual(results.count(None), 5)
+        self.assertEqual(
+            sum(isinstance(result, ValueError) for result in results),
+            1,
+        )
+        self.assertEqual(
+            sum(
+                event["type"] == "attachment.download.begin"
+                for event in websocket.sent_text
+            ),
+            5,
+        )
+
+    async def test_failed_outbound_reservations_remain_consumed(self):
+        outbound_root = self.root / "outbound"
+        outbound_root.mkdir()
+        connection, _, websocket = await self.connect(
+            outbound_roots=[outbound_root]
+        )
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        invalid_path = self.root / "outside.txt"
+        invalid_path.write_bytes(b"outside")
+        valid_path = outbound_root / "valid.txt"
+        valid_path.write_bytes(b"valid")
+
+        for index in range(5):
+            with self.assertRaises(ValueError):
+                await connection.send_attachment(
+                    invalid_path,
+                    self.outbound_metadata(UUID(int=index + 1)),
+                )
+        with self.assertRaises(ValueError):
+            await connection.send_attachment(
+                valid_path,
+                self.outbound_metadata(UUID(int=6)),
+            )
+        with self.assertRaises(ValueError):
+            await connection.send_attachment(
+                valid_path,
+                self.outbound_metadata(UUID(int=1)),
+            )
+
+        self.assertNotIn(
+            "attachment.download.begin",
+            [event["type"] for event in websocket.sent_text],
+        )
+
     async def test_send_attachment_rejects_path_outside_configured_root(self):
         connection, _, websocket = await self.connect()
         await websocket.feed_json(turn_start())
@@ -916,6 +1041,214 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
             begin["payload"]["attachment"]["sha256"],
             hashlib.sha256(original).hexdigest(),
         )
+
+    async def test_outbound_snapshot_survives_in_place_mutation_before_send(self):
+        outbound_root = self.root / "outbound"
+        outbound_root.mkdir()
+        connection, _, websocket = await self.connect(
+            outbound_roots=[outbound_root]
+        )
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        original = b"trusted original bytes"
+
+        def overwrite(path):
+            path.write_bytes(b"x" * len(original))
+
+        def truncate(path):
+            os.truncate(path, 3)
+
+        def grow(path):
+            with open(path, "ab") as handle:
+                handle.write(b" untrusted growth")
+
+        for index, (name, mutate) in enumerate(
+            (
+                ("overwrite", overwrite),
+                ("truncate", truncate),
+                ("growth", grow),
+            ),
+            start=1,
+        ):
+            with self.subTest(mutation=name):
+                path = outbound_root / f"{name}.txt"
+                path.write_bytes(original)
+                attachment_id = UUID(int=index)
+                frame_start = len(websocket.sent_bytes)
+                text_start = len(websocket.sent_text)
+                await connection._send_lock.acquire()
+                task = asyncio.create_task(
+                    connection.send_attachment(
+                        path,
+                        self.outbound_metadata(attachment_id),
+                    )
+                )
+                await asyncio.sleep(0)
+                mutate(path)
+                connection._send_lock.release()
+                await task
+
+                emitted = websocket.sent_text[text_start:]
+                begin = next(
+                    event
+                    for event in emitted
+                    if event["type"] == "attachment.download.begin"
+                )
+                frames = [
+                    decode_binary_frame(raw)
+                    for raw in websocket.sent_bytes[frame_start:]
+                ]
+                payload = b"".join(frame.payload for frame in frames)
+                self.assertEqual(payload, original)
+                self.assertEqual(
+                    begin["payload"]["attachment"]["sizeBytes"],
+                    len(original),
+                )
+                self.assertEqual(
+                    begin["payload"]["attachment"]["sha256"],
+                    hashlib.sha256(original).hexdigest(),
+                )
+
+    async def test_snapshot_metadata_and_frames_share_sniffed_bytes(self):
+        outbound_root = self.root / "outbound"
+        outbound_root.mkdir()
+        connection, _, websocket = await self.connect(
+            outbound_roots=[outbound_root]
+        )
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        original = b"\x89PNG\r\n\x1a\n" + b"snapshot image bytes"
+        path = outbound_root / "image.png"
+        path.write_bytes(original)
+        await connection._send_lock.acquire()
+        task = asyncio.create_task(
+            connection.send_attachment(
+                path,
+                self.outbound_metadata(ATTACHMENT_ID),
+            )
+        )
+        await asyncio.sleep(0)
+        path.write_bytes(b"plain text".ljust(len(original), b" "))
+        connection._send_lock.release()
+        await task
+
+        begin = next(
+            event
+            for event in websocket.sent_text
+            if event["type"] == "attachment.download.begin"
+        )
+        attachment = begin["payload"]["attachment"]
+        payload = b"".join(
+            decode_binary_frame(raw).payload
+            for raw in websocket.sent_bytes
+        )
+        self.assertEqual(payload, original)
+        self.assertEqual(attachment["mime"], "image/png")
+        self.assertEqual(attachment["sizeBytes"], len(payload))
+        self.assertEqual(
+            attachment["sha256"],
+            hashlib.sha256(payload).hexdigest(),
+        )
+
+    async def test_snapshot_rejects_source_growth_beyond_ten_mib(self):
+        outbound_root = self.root / "outbound"
+        outbound_root.mkdir()
+        connection, _, websocket = await self.connect(
+            outbound_roots=[outbound_root]
+        )
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        path = outbound_root / "growing.txt"
+        path.write_bytes(b"a" * MAX_FILE_BYTES)
+        real_read = os.read
+        grew = False
+
+        def grow_after_first_read(descriptor, count):
+            nonlocal grew
+            chunk = real_read(descriptor, count)
+            if chunk and not grew:
+                grew = True
+                self.assertEqual(list(self.temp_root.iterdir()), [])
+                with open(path, "ab") as handle:
+                    handle.write(b"x")
+            return chunk
+
+        with mock.patch(
+            "bearcode_transport.transfers.os.read",
+            side_effect=grow_after_first_read,
+        ):
+            with self.assertRaises(ValueError):
+                await connection.send_attachment(
+                    path,
+                    self.outbound_metadata(ATTACHMENT_ID),
+                )
+
+        self.assertTrue(grew)
+        self.assertEqual(list(self.temp_root.iterdir()), [])
+        self.assertNotIn(
+            "attachment.download.begin",
+            [event["type"] for event in websocket.sent_text],
+        )
+
+    async def test_snapshot_cleanup_on_success_cancellation_and_error(self):
+        outbound_root = self.root / "outbound"
+        outbound_root.mkdir()
+        connection, _, websocket = await self.connect(
+            outbound_roots=[outbound_root]
+        )
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+
+        def descriptor_count():
+            return len(os.listdir("/dev/fd"))
+
+        success_path = outbound_root / "success.txt"
+        success_path.write_bytes(b"success")
+        before_success = descriptor_count()
+        await connection.send_attachment(
+            success_path,
+            self.outbound_metadata(UUID(int=1)),
+        )
+        self.assertEqual(descriptor_count(), before_success)
+        self.assertEqual(list(self.temp_root.iterdir()), [])
+
+        cancel_path = outbound_root / "cancel.txt"
+        cancel_path.write_bytes(b"cancel")
+        before_cancel = descriptor_count()
+        await connection._send_lock.acquire()
+        cancel_task = asyncio.create_task(
+            connection.send_attachment(
+                cancel_path,
+                self.outbound_metadata(UUID(int=2)),
+            )
+        )
+        await asyncio.sleep(0)
+        cancel_task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await cancel_task
+        connection._send_lock.release()
+        self.assertEqual(descriptor_count(), before_cancel)
+        self.assertEqual(list(self.temp_root.iterdir()), [])
+
+        error_path = outbound_root / "error.txt"
+        error_path.write_bytes(b"error")
+        real_send = websocket.send_str
+
+        async def fail_download_begin(raw):
+            event = json.loads(raw)
+            if event["type"] == "attachment.download.begin":
+                raise RuntimeError("send failed")
+            await real_send(raw)
+
+        websocket.send_str = fail_download_begin
+        before_error = descriptor_count()
+        with self.assertRaises(RuntimeError):
+            await connection.send_attachment(
+                error_path,
+                self.outbound_metadata(UUID(int=3)),
+            )
+        self.assertEqual(descriptor_count(), before_error)
+        self.assertEqual(list(self.temp_root.iterdir()), [])
 
 
 if __name__ == "__main__":
