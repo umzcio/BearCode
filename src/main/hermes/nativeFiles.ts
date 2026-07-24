@@ -466,62 +466,60 @@ export async function openAttachment(
   let snapshotDirectory: string | undefined
   let snapshotPath: string | undefined
   try {
-    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
-    const descriptorInfo = await handle.stat()
-    if (!descriptorInfo.isFile()) {
-      throw new Error('attachments: stored attachment must be a regular file')
-    }
-    const root = attachmentRoot(userDataDir)
-    snapshotDirectory = resolve(root, `.open-${randomUUID()}`)
-    if (dirname(snapshotDirectory) !== root)
-      throw new Error('attachments: snapshot directory escaped attachment root')
-    await mkdir(snapshotDirectory, { mode: 0o700 })
-    await assertRealDirectory(snapshotDirectory, 'open snapshot directory')
-    snapshotPath = resolve(snapshotDirectory, 'attachment')
-    if (dirname(snapshotPath) !== snapshotDirectory)
-      throw new Error('attachments: snapshot path escaped snapshot directory')
-
-    let snapshot: Awaited<ReturnType<typeof open>> | undefined
     try {
-      snapshot = await open(
-        snapshotPath,
-        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
-        0o600
-      )
-      const buffer = Buffer.allocUnsafe(64 * 1024)
-      let position = 0
-      while (true) {
-        const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
-        if (bytesRead === 0) break
-        let offset = 0
-        while (offset < bytesRead) {
-          const { bytesWritten } = await snapshot.write(
-            buffer,
-            offset,
-            bytesRead - offset,
-            position + offset
-          )
-          if (bytesWritten <= 0) throw new Error('attachments: failed to write open snapshot')
-          offset += bytesWritten
-        }
-        position += bytesRead
+      handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+      const descriptorInfo = await handle.stat()
+      if (!descriptorInfo.isFile()) {
+        throw new Error('attachments: stored attachment must be a regular file')
       }
-      await snapshot.sync()
+      const root = attachmentRoot(userDataDir)
+      snapshotDirectory = resolve(root, `.open-${randomUUID()}`)
+      if (dirname(snapshotDirectory) !== root)
+        throw new Error('attachments: snapshot directory escaped attachment root')
+      await mkdir(snapshotDirectory, { mode: 0o700 })
+      await assertRealDirectory(snapshotDirectory, 'open snapshot directory')
+      snapshotPath = resolve(snapshotDirectory, 'attachment')
+      if (dirname(snapshotPath) !== snapshotDirectory)
+        throw new Error('attachments: snapshot path escaped snapshot directory')
+
+      let snapshot: Awaited<ReturnType<typeof open>> | undefined
+      try {
+        snapshot = await open(
+          snapshotPath,
+          constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+          0o600
+        )
+        const buffer = Buffer.allocUnsafe(64 * 1024)
+        let position = 0
+        while (true) {
+          const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
+          if (bytesRead === 0) break
+          let offset = 0
+          while (offset < bytesRead) {
+            const { bytesWritten } = await snapshot.write(
+              buffer,
+              offset,
+              bytesRead - offset,
+              position + offset
+            )
+            if (bytesWritten <= 0) throw new Error('attachments: failed to write open snapshot')
+            offset += bytesWritten
+          }
+          position += bytesRead
+        }
+        await snapshot.sync()
+      } finally {
+        await snapshot?.close()
+      }
     } finally {
-      await snapshot?.close()
+      await handle?.close()
     }
-  } catch (error) {
-    if (snapshotDirectory) await rm(snapshotDirectory, { recursive: true, force: true })
-    throw error
-  } finally {
-    await handle?.close()
-  }
-  try {
     const result = await openPath(snapshotPath!)
     if (result) throw new Error(`Could not open attachment: ${result}`)
   } finally {
     // shell.openPath has accepted the stable file before resolving. The copy is
-    // only an open handoff and is removed on both success and failure.
-    await rm(snapshotDirectory!, { recursive: true, force: true })
+    // only an open handoff and is removed on every exit, including source-close
+    // failures that happen before the shell handoff.
+    if (snapshotDirectory) await rm(snapshotDirectory, { recursive: true, force: true })
   }
 }

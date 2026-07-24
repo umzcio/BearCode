@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AttachmentRef, HermesAttachment } from '../../shared/types'
 import {
   NativeDownloadWriter,
@@ -372,6 +372,42 @@ describe('openAttachment', () => {
 
     await expect(readFile(snapshotPath)).rejects.toThrow()
     expect(await readFile(path, 'utf8')).toBe('replacement')
+  })
+
+  it('removes a created snapshot when closing the source descriptor fails', async () => {
+    const root = await rootDir()
+    const path = resolveStoredAttachmentPath(root, 'c1', 'a1')
+    await mkdir(join(root, 'attachments', 'c1'), { recursive: true })
+    await writeFile(path, 'verified')
+    vi.resetModules()
+    vi.doMock('fs/promises', async () => {
+      const actual = await vi.importActual<typeof import('fs/promises')>('fs/promises')
+      return {
+        ...actual,
+        open: async (...args: Parameters<typeof actual.open>) => {
+          const handle = await actual.open(...args)
+          if (args[0] === path) {
+            const close = handle.close.bind(handle)
+            handle.close = async () => {
+              await close()
+              throw new Error('source close failed')
+            }
+          }
+          return handle
+        }
+      }
+    })
+
+    try {
+      const { openAttachment: openWithFailingSourceClose } = await import('./nativeFiles')
+      await expect(openWithFailingSourceClose(root, 'c1', 'a1', async () => '')).rejects.toThrow(
+        'source close failed'
+      )
+      await expect(readdir(join(root, 'attachments'))).resolves.toEqual(['c1'])
+    } finally {
+      vi.doUnmock('fs/promises')
+      vi.resetModules()
+    }
   })
 
   it('rejects a symlinked attachment before handing a path to the shell', async () => {
