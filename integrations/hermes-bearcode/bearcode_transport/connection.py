@@ -1,6 +1,9 @@
 """Authenticated BearCode WebSocket connection lifecycle."""
 import asyncio
+import codecs
+import hashlib
 import json
+import os
 import secrets
 from enum import Enum, auto
 from pathlib import Path
@@ -9,7 +12,7 @@ from uuid import UUID, uuid4
 
 from aiohttp import WSCloseCode, WSMsgType
 
-from .ledger import TurnLedger
+from .ledger import LedgerCapacityError, TurnLedger
 from .protocol import (
     MAX_FILES,
     MAX_FILE_BYTES,
@@ -21,7 +24,11 @@ from .protocol import (
     decode_client_event,
     encode_event,
 )
-from .security import validate_outbound_path
+from .security import (
+    sanitize_filename,
+    sniff_mime,
+    validate_outbound_path,
+)
 from .transfers import (
     UploadTransfer,
     VerifiedUpload,
@@ -116,6 +123,7 @@ class BearCodeConnection:
         delegate: TurnDelegate,
         temp_root: Path,
         *,
+        outbound_roots=None,
         heartbeat_interval=None,
         heartbeat_timeout=None,
         preturn_timeout=None,
@@ -124,6 +132,14 @@ class BearCodeConnection:
         self.registry = registry
         self.delegate = delegate
         self.temp_root = Path(temp_root)
+        self.outbound_roots = tuple(
+            Path(root)
+            for root in (
+                [self.temp_root]
+                if outbound_roots is None
+                else outbound_roots
+            )
+        )
         self.connection_id = uuid4()
         self.state = ConnectionState.CONNECTED
         self.conversation_id = None
@@ -157,6 +173,7 @@ class BearCodeConnection:
         self._terminal_lock = asyncio.Lock()
         self._cleanup_lock = asyncio.Lock()
         self._cleaned = False
+        self._cancel_started = False
 
     async def run(self):
         self._loop = asyncio.get_running_loop()
@@ -327,8 +344,7 @@ class BearCodeConnection:
             return
         if event_type == "turn.cancel":
             self._require_active_turn(event)
-            await self.delegate.cancel_turn(self)
-            await self.mark_terminal("turn.cancelled", {})
+            await self._cancel_from_client()
             return
         raise ProtocolViolation("unsupported client event")
 
@@ -379,7 +395,10 @@ class BearCodeConnection:
                 return
             verified = transfer.complete()
         except Exception:
-            self._active_uploads.pop(chunk.attachment_id, None)
+            try:
+                transfer.abort()
+            finally:
+                self._active_uploads.pop(chunk.attachment_id, None)
             if not self._active_uploads:
                 self.state = (
                     ConnectionState.READY
@@ -444,6 +463,12 @@ class BearCodeConnection:
                 turn_id,
                 self.conversation_id,
             )
+        except LedgerCapacityError as error:
+            await self.websocket.close(
+                code=1013,
+                message=error.code.encode("ascii"),
+            )
+            return
         except ValueError as error:
             raise ProtocolViolation(str(error)) from error
 
@@ -451,9 +476,10 @@ class BearCodeConnection:
         self._cancel_preturn_task()
         if not accepted:
             self.state = ConnectionState.TERMINAL
-            await self.send_event(
+            await self._send_turn_event(
                 "turn.duplicate",
                 {"status": record.status},
+                terminal=True,
             )
             await self.websocket.close()
             return
@@ -487,9 +513,25 @@ class BearCodeConnection:
             raise ProtocolViolation("event does not belong to active turn")
 
     async def send_event(self, event_type: str, payload: dict) -> None:
+        await self._send_turn_event(event_type, payload, terminal=False)
+
+    async def _send_turn_event(
+        self,
+        event_type,
+        payload,
+        *,
+        terminal,
+    ):
         if self.turn_id is None:
             raise ValueError("turn has not been accepted")
         async with self._send_lock:
+            required_state = (
+                ConnectionState.TERMINAL
+                if terminal
+                else ConnectionState.ACCEPTED
+            )
+            if self.state is not required_state:
+                raise ValueError("turn no longer accepts this event")
             self._sequence += 1
             event = {
                 "type": event_type,
@@ -508,18 +550,24 @@ class BearCodeConnection:
         if self.state is not ConnectionState.ACCEPTED:
             raise ValueError("turn is not active")
         attachment_id = UUID(metadata["id"])
-        source = validate_outbound_path(path, [Path(path).parent])
+        source = validate_outbound_path(path, self.outbound_roots)
         frames = None
         try:
+            attachment = self._derive_outbound_metadata(
+                source,
+                attachment_id,
+            )
             frames = iter_download_frames(source, attachment_id)
             async with self._send_lock:
+                if self.state is not ConnectionState.ACCEPTED:
+                    raise ValueError("turn is not active")
                 self._sequence += 1
                 begin = {
                     "type": "attachment.download.begin",
                     "version": PROTOCOL_VERSION,
                     "turnId": str(self.turn_id),
                     "sequence": self._sequence,
-                    "payload": {"attachment": dict(metadata)},
+                    "payload": {"attachment": attachment},
                 }
                 await self.websocket.send_str(encode_event(begin))
                 for frame in frames:
@@ -538,6 +586,63 @@ class BearCodeConnection:
                 frames.close()
             source.close()
 
+    @staticmethod
+    def _derive_outbound_metadata(source, attachment_id):
+        descriptor = os.dup(source._descriptor)
+        digest = hashlib.sha256()
+        utf8_decoder = codecs.getincrementaldecoder("utf-8")("strict")
+        valid_utf8 = True
+        try:
+            with os.fdopen(descriptor, "rb") as handle:
+                descriptor = None
+                file_stat = os.fstat(handle.fileno())
+                if file_stat.st_size > MAX_FILE_BYTES:
+                    raise ValueError(
+                        "download exceeds maximum file size"
+                    )
+                try:
+                    mime = sniff_mime(
+                        handle,
+                        "application/octet-stream",
+                    )
+                except ValueError:
+                    mime = None
+                handle.seek(0)
+                while True:
+                    chunk = handle.read(MAX_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+                    if valid_utf8:
+                        try:
+                            utf8_decoder.decode(chunk, final=False)
+                        except UnicodeDecodeError:
+                            valid_utf8 = False
+                if valid_utf8:
+                    try:
+                        utf8_decoder.decode(b"", final=True)
+                    except UnicodeDecodeError:
+                        valid_utf8 = False
+                if mime is None:
+                    if not valid_utf8:
+                        raise ValueError(
+                            "unsupported or invalid outbound file type"
+                        )
+                    mime = "text/plain"
+                handle.seek(0)
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            os.lseek(source._descriptor, 0, os.SEEK_SET)
+        return {
+            "id": str(attachment_id),
+            "name": sanitize_filename(source.path.name),
+            "mime": mime,
+            "kind": "image" if mime.startswith("image/") else "document",
+            "sizeBytes": file_stat.st_size,
+            "sha256": digest.hexdigest(),
+        }
+
     async def mark_terminal(
         self,
         event_type: str,
@@ -551,7 +656,10 @@ class BearCodeConnection:
         if event_type not in status_by_event:
             raise ValueError("invalid terminal event type")
         async with self._terminal_lock:
-            if self.state is ConnectionState.TERMINAL:
+            if self.state in {
+                ConnectionState.TERMINAL,
+                ConnectionState.CLOSED,
+            }:
                 return
             if self.state is not ConnectionState.ACCEPTED:
                 raise ValueError("turn is not active")
@@ -560,10 +668,39 @@ class BearCodeConnection:
                 status_by_event[event_type],
             )
             self.state = ConnectionState.TERMINAL
+        try:
+            await self._send_turn_event(
+                event_type,
+                payload,
+                terminal=True,
+            )
+        finally:
+            await self.close()
+
+    async def _cancel_from_client(self):
+        async with self._terminal_lock:
+            if self.state is not ConnectionState.ACCEPTED:
+                return
+            if self._cancel_started:
+                return
+            self._cancel_started = True
+            self.state = ConnectionState.TERMINAL
+        try:
             try:
-                await self.send_event(event_type, payload)
-            finally:
-                await self.close()
+                await self.delegate.cancel_turn(self)
+            except Exception:
+                pass
+            self.registry.ledger.mark_terminal(
+                self.turn_id,
+                "cancelled",
+            )
+            await self._send_turn_event(
+                "turn.cancelled",
+                {},
+                terminal=True,
+            )
+        finally:
+            await self.close()
 
     def send_event_threadsafe(
         self,
@@ -672,18 +809,30 @@ class BearCodeConnection:
                         pass
                 self._verified_uploads.clear()
 
-                if self.state is ConnectionState.ACCEPTED:
+                should_cancel = False
+                async with self._terminal_lock:
+                    if (
+                        self.state is ConnectionState.ACCEPTED
+                        and not self._cancel_started
+                    ):
+                        self._cancel_started = True
+                        should_cancel = True
+                if should_cancel:
                     try:
                         await self.delegate.cancel_turn(self)
                     except Exception:
                         pass
-                    try:
-                        self.registry.ledger.mark_terminal(
-                            self.turn_id,
-                            "cancelled",
-                        )
-                    except Exception:
-                        pass
+                    async with self._terminal_lock:
+                        if self.state is ConnectionState.ACCEPTED:
+                            try:
+                                self.registry.ledger.mark_terminal(
+                                    self.turn_id,
+                                    "cancelled",
+                                )
+                            except Exception:
+                                pass
+                            else:
+                                self.state = ConnectionState.TERMINAL
             finally:
                 try:
                     if self.conversation_id is not None:

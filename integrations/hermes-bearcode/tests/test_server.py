@@ -212,6 +212,63 @@ class ServerLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 )
             server.ledger.close()
 
+    async def test_stop_rejects_connection_arriving_during_listener_shutdown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            server = BearCodeServer(
+                host="127.0.0.1",
+                port=0,
+                platform_key="platform-secret",
+                delegate=FakeDelegate(),
+                temp_root=root / "temp",
+                state_root=root / "state",
+            )
+            await server.start()
+            socket = server.site._server.sockets[0]
+            port = socket.getsockname()[1]
+            from aiohttp import ClientSession
+
+            async with ClientSession() as session:
+                active = await session.ws_connect(
+                    f"http://127.0.0.1:{port}/v1/bearcode",
+                    headers={"Authorization": "Bearer platform-secret"},
+                )
+                await active.send_json(hello())
+                await active.receive_json(timeout=1)
+                real_site = server.site
+                stop_entered = asyncio.Event()
+                allow_site_stop = asyncio.Event()
+
+                class DelayedSite:
+                    _server = real_site._server
+
+                    async def stop(self):
+                        stop_entered.set()
+                        await allow_site_stop.wait()
+                        await real_site.stop()
+
+                server.site = DelayedSite()
+                stop_task = asyncio.create_task(server.stop())
+                late = None
+                try:
+                    await asyncio.wait_for(stop_entered.wait(), 1)
+                    with self.assertRaises(WSServerHandshakeError) as raised:
+                        late = await session.ws_connect(
+                            f"http://127.0.0.1:{port}/v1/bearcode",
+                            headers={
+                                "Authorization": "Bearer platform-secret"
+                            },
+                        )
+                    self.assertEqual(raised.exception.status, 503)
+                finally:
+                    if late is not None:
+                        await late.close()
+                    allow_site_stop.set()
+                    if not stop_task.done():
+                        await asyncio.wait_for(stop_task, 1)
+                    await active.close()
+            server.ledger.close()
+
 
 if __name__ == "__main__":
     unittest.main()

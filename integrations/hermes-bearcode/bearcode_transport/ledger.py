@@ -22,6 +22,14 @@ class TurnRecord:
     updated_at: int
 
 
+class LedgerCapacityError(RuntimeError):
+    code = "persistence.turn_ledger_full"
+    retryable = True
+
+    def __init__(self):
+        super().__init__("turn ledger has no evictable terminal records")
+
+
 class TurnLedger:
     """SQLite-backed record of turns that may never be executed twice."""
 
@@ -50,7 +58,7 @@ class TurnLedger:
                 )
                 """
             )
-            self._prune_locked(int(time.time()))
+            self._prune_terminal_locked(int(time.time()), _MAX_ROWS)
 
     def _create_restricted_file(self):
         flags = os.O_CREAT | os.O_EXCL | os.O_RDWR
@@ -116,6 +124,12 @@ class TurnLedger:
                     self._connection.execute("COMMIT")
                     return False, record
 
+                self._prune_terminal_locked(now, _MAX_ROWS - 1)
+                row_count = self._connection.execute(
+                    "SELECT COUNT(*) FROM bearcode_turns"
+                ).fetchone()[0]
+                if row_count >= _MAX_ROWS:
+                    raise LedgerCapacityError()
                 self._connection.execute(
                     """
                     INSERT INTO bearcode_turns (
@@ -124,7 +138,6 @@ class TurnLedger:
                     """,
                     (turn_id_text, conversation_id_text, now, now),
                 )
-                self._prune_locked(now)
                 self._connection.execute("COMMIT")
                 return True, TurnRecord(
                     turn_id=turn_id_text,
@@ -152,20 +165,20 @@ class TurnLedger:
             )
             if cursor.rowcount != 1:
                 raise ValueError("turn is not accepted")
-            self._prune_locked(now)
+            self._prune_terminal_locked(now, _MAX_ROWS)
 
     def prune(self, now=None):
         current = int(time.time()) if now is None else int(now)
         with self._lock:
             self._connection.execute("BEGIN IMMEDIATE")
             try:
-                self._prune_locked(current)
+                self._prune_terminal_locked(current, _MAX_ROWS)
                 self._connection.execute("COMMIT")
             except Exception:
                 self._connection.execute("ROLLBACK")
                 raise
 
-    def _prune_locked(self, now):
+    def _prune_terminal_locked(self, now, target_rows):
         cutoff = now - _RETENTION_SECONDS
         terminal_placeholders = ",".join("?" for _ in _TERMINAL_STATUSES)
         self._connection.execute(
@@ -179,7 +192,7 @@ class TurnLedger:
         row_count = self._connection.execute(
             "SELECT COUNT(*) FROM bearcode_turns"
         ).fetchone()[0]
-        excess = row_count - _MAX_ROWS
+        excess = row_count - target_rows
         if excess <= 0:
             return
         self._connection.execute(
@@ -188,15 +201,12 @@ class TurnLedger:
             WHERE turn_id IN (
               SELECT turn_id
               FROM bearcode_turns
-              ORDER BY
-                CASE WHEN status = 'accepted' THEN 1 ELSE 0 END,
-                updated_at ASC,
-                accepted_at ASC,
-                turn_id ASC
+              WHERE status IN ({})
+              ORDER BY updated_at ASC, accepted_at ASC, turn_id ASC
               LIMIT ?
             )
-            """,
-            (excess,),
+            """.format(terminal_placeholders),
+            (*_TERMINAL_STATUSES, excess),
         )
 
     def close(self):

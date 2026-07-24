@@ -22,6 +22,7 @@ class BearCodeServer:
         delegate: TurnDelegate,
         temp_root: Path,
         state_root: Path,
+        outbound_roots=None,
     ):
         self.host = host
         self.port = port
@@ -31,6 +32,14 @@ class BearCodeServer:
         self.temp_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.temp_root.chmod(0o700)
         self.state_root = Path(state_root)
+        self.outbound_roots = tuple(
+            Path(root)
+            for root in (
+                [self.temp_root]
+                if outbound_roots is None
+                else outbound_roots
+            )
+        )
         self.ledger = TurnLedger(self.state_root)
         self.registry = ConnectionRegistry(self.ledger)
         self.rate_limiter = AuthRateLimiter(
@@ -41,6 +50,8 @@ class BearCodeServer:
         self.runner = None
         self.site = None
         self._connections = set()
+        self._stopping = False
+        self._stop_lock = asyncio.Lock()
 
     def create_application(self):
         if self.application is not None:
@@ -55,6 +66,8 @@ class BearCodeServer:
         return application
 
     async def _handle_websocket(self, request):
+        if self._stopping:
+            return web.Response(status=503, text="Service Unavailable")
         remote_address = request.remote or "unknown"
         if not self.rate_limiter.allowed(remote_address):
             return web.Response(status=429, text="Too Many Requests")
@@ -67,11 +80,15 @@ class BearCodeServer:
 
         websocket = web.WebSocketResponse()
         await websocket.prepare(request)
+        if self._stopping:
+            await websocket.close()
+            return websocket
         connection = BearCodeConnection(
             websocket=websocket,
             registry=self.registry,
             delegate=self.delegate,
             temp_root=self.temp_root,
+            outbound_roots=self.outbound_roots,
         )
         self._connections.add(connection)
         try:
@@ -84,6 +101,7 @@ class BearCodeServer:
         if self.runner is not None:
             return
         application = self.create_application()
+        self._stopping = False
         self.runner = web.AppRunner(application, access_log=None)
         try:
             await self.runner.setup()
@@ -101,14 +119,19 @@ class BearCodeServer:
             raise
 
     async def stop(self):
-        connections = list(self._connections)
-        if connections:
-            await asyncio.gather(
-                *(connection.close() for connection in connections),
-                return_exceptions=True,
-            )
-        runner = self.runner
-        self.runner = None
-        self.site = None
-        if runner is not None:
-            await runner.cleanup()
+        async with self._stop_lock:
+            self._stopping = True
+            site = self.site
+            self.site = None
+            if site is not None:
+                await site.stop()
+            connections = list(self._connections)
+            if connections:
+                await asyncio.gather(
+                    *(connection.close() for connection in connections),
+                    return_exceptions=True,
+                )
+            runner = self.runner
+            self.runner = None
+            if runner is not None:
+                await runner.cleanup()

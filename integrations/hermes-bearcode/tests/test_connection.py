@@ -6,6 +6,7 @@ import sqlite3
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from uuid import UUID
@@ -25,6 +26,7 @@ from bearcode_transport.protocol import (
     BinaryDirection,
     encode_binary_frame,
     encode_event,
+    decode_binary_frame,
 )
 
 
@@ -103,6 +105,7 @@ class FakeWebSocket:
         if not self.closed:
             self.closed = True
             self.close_code = code
+            self.close_message = message
             await self.incoming.put(WSMessage(WSMsgType.CLOSE, code, message))
 
     async def feed_json(self, event):
@@ -145,7 +148,24 @@ class FailingCancelDelegate(FakeDelegate):
         raise RuntimeError("cancel failed")
 
 
+class BlockingCancelDelegate(FakeDelegate):
+    def __init__(self):
+        super().__init__()
+        self.cancel_started = asyncio.Event()
+        self.allow_cancel = asyncio.Event()
+
+    async def cancel_turn(self, connection):
+        self.cancelled.append(connection)
+        self.cancel_started.set()
+        await self.allow_cancel.wait()
+
+
 class TurnLedgerTests(unittest.TestCase):
+    @staticmethod
+    def fill_accepted(ledger, count=1024):
+        for index in range(count):
+            ledger.accept(UUID(int=index + 1), CONVERSATION_ID)
+
     def test_ledger_and_parent_have_restricted_modes(self):
         with tempfile.TemporaryDirectory() as directory:
             state_root = Path(directory) / "state"
@@ -181,7 +201,7 @@ class TurnLedgerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             ledger = TurnLedger(Path(directory) / "state")
             try:
-                for index in range(1025):
+                for index in range(1024):
                     ledger.accept(UUID(int=index + 1), CONVERSATION_ID)
                 with sqlite3.connect(ledger.path) as database:
                     count = database.execute(
@@ -190,6 +210,100 @@ class TurnLedgerTests(unittest.TestCase):
                 self.assertEqual(count, 1024)
             finally:
                 ledger.close()
+
+    def test_capacity_never_evicts_accepted_turns(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = TurnLedger(Path(directory) / "state")
+            try:
+                self.fill_accepted(ledger)
+                with self.assertRaises(Exception) as raised:
+                    ledger.accept(UUID(int=2048), CONVERSATION_ID)
+
+                self.assertEqual(
+                    type(raised.exception).__name__,
+                    "LedgerCapacityError",
+                )
+                self.assertTrue(raised.exception.retryable)
+                self.assertEqual(
+                    raised.exception.code,
+                    "persistence.turn_ledger_full",
+                )
+                for index in range(1024):
+                    self.assertIsNotNone(ledger.get(UUID(int=index + 1)))
+                self.assertIsNone(ledger.get(UUID(int=2048)))
+            finally:
+                ledger.close()
+
+    def test_capacity_evicts_oldest_terminal_before_new_acceptance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = TurnLedger(Path(directory) / "state")
+            try:
+                self.fill_accepted(ledger)
+                oldest_terminal = UUID(int=1)
+                newer_terminal = UUID(int=2)
+                ledger.mark_terminal(oldest_terminal, "completed")
+                ledger.mark_terminal(newer_terminal, "failed")
+                now = int(time.time())
+                with sqlite3.connect(ledger.path) as database:
+                    database.execute(
+                        """
+                        UPDATE bearcode_turns
+                        SET updated_at = CASE turn_id
+                          WHEN ? THEN ?
+                          WHEN ? THEN ?
+                          ELSE updated_at
+                        END
+                        """,
+                        (
+                            str(oldest_terminal),
+                            now - 2,
+                            str(newer_terminal),
+                            now - 1,
+                        ),
+                    )
+
+                new_turn = UUID(int=2048)
+                accepted, record = ledger.accept(new_turn, CONVERSATION_ID)
+
+                self.assertTrue(accepted)
+                self.assertEqual(record.turn_id, str(new_turn))
+                self.assertIsNone(ledger.get(oldest_terminal))
+                self.assertEqual(ledger.get(newer_terminal).status, "failed")
+                self.assertEqual(ledger.get(UUID(int=3)).status, "accepted")
+                self.assertEqual(ledger.get(new_turn).status, "accepted")
+            finally:
+                ledger.close()
+
+    def test_capacity_pressure_survives_restart_and_terminal_update(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            ledger = TurnLedger(state_root)
+            self.fill_accepted(ledger)
+            ledger.close()
+
+            replacement = TurnLedger(state_root)
+            try:
+                with self.assertRaises(Exception) as raised:
+                    replacement.accept(UUID(int=2048), CONVERSATION_ID)
+                self.assertEqual(
+                    type(raised.exception).__name__,
+                    "LedgerCapacityError",
+                )
+                replacement.mark_terminal(UUID(int=1), "cancelled")
+                accepted, record = replacement.accept(
+                    UUID(int=2048),
+                    CONVERSATION_ID,
+                )
+
+                self.assertTrue(accepted)
+                self.assertEqual(record.status, "accepted")
+                self.assertIsNone(replacement.get(UUID(int=1)))
+                self.assertEqual(
+                    replacement.get(UUID(int=2)).status,
+                    "accepted",
+                )
+            finally:
+                replacement.close()
 
 
 class ConnectionTests(unittest.IsolatedAsyncioTestCase):
@@ -291,6 +405,25 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(websocket.closed)
         self.assertEqual(self.delegate.started, [])
+
+    async def test_turn_capacity_rejects_before_delegate_execution(self):
+        TurnLedgerTests.fill_accepted(self.ledger)
+        _, task, websocket = await self.connect()
+        await websocket.feed_json(
+            turn_start(turn_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+        )
+        await asyncio.wait_for(task, 1)
+
+        self.assertTrue(websocket.closed)
+        self.assertEqual(websocket.close_code, 1013)
+        self.assertEqual(
+            websocket.close_message,
+            b"persistence.turn_ledger_full",
+        )
+        self.assertEqual(self.delegate.started, [])
+        self.assertIsNone(
+            self.ledger.get("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+        )
 
     async def test_duplicate_turn_reports_known_state_without_reexecution(self):
         first, first_task, first_ws = await self.connect()
@@ -424,6 +557,42 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.delegate.cancelled, [])
         self.assertEqual(list(self.temp_root.iterdir()), [])
 
+    async def test_upload_exception_explicitly_aborts_transfer(self):
+        connection, _, websocket = await self.connect()
+        await websocket.feed_json(upload_begin())
+        await self.wait_for_event(websocket, "attachment.upload.accepted")
+        attachment_id = UUID(ATTACHMENT_ID)
+        transfer = connection._active_uploads[attachment_id]
+        abort_calls = 0
+        real_abort = transfer.abort
+
+        def record_abort():
+            nonlocal abort_calls
+            abort_calls += 1
+            real_abort()
+
+        def fail_without_cleanup(_chunk):
+            raise RuntimeError("lower layer failed before cleanup")
+
+        transfer.abort = record_abort
+        transfer.append = fail_without_cleanup
+        await websocket.feed_binary(
+            encode_binary_frame(
+                BinaryChunk(
+                    BinaryDirection.UPLOAD,
+                    attachment_id,
+                    0,
+                    True,
+                    b"hello",
+                )
+            )
+        )
+        await self.wait_for_event(websocket, "attachment.upload.rejected")
+
+        self.assertEqual(abort_calls, 1)
+        self.assertNotIn(attachment_id, connection._active_uploads)
+        self.assertEqual(list(self.temp_root.iterdir()), [])
+
     async def test_approval_clarification_and_cancel_are_routed(self):
         _, _, websocket = await self.connect()
         await websocket.feed_json(turn_start())
@@ -457,6 +626,105 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
             (REQUEST_ID, "Use quarterly totals."),
         )
         self.assertEqual(len(self.delegate.cancelled), 1)
+
+    async def test_client_cancel_exception_still_emits_one_terminal(self):
+        delegate = FailingCancelDelegate()
+        _, task, websocket = await self.connect(delegate=delegate)
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        await websocket.feed_json(
+            {"type": "turn.cancel", "version": 1, "turnId": TURN_ID}
+        )
+        terminal = await self.wait_for_event(websocket, "turn.cancelled")
+        await asyncio.wait_for(task, 1)
+
+        self.assertEqual(terminal["payload"], {})
+        self.assertEqual(
+            [
+                event["type"]
+                for event in websocket.sent_text
+                if event["type"] == "turn.cancelled"
+            ],
+            ["turn.cancelled"],
+        )
+        self.assertEqual(len(delegate.cancelled), 1)
+        self.assertEqual(self.ledger.get(TURN_ID).status, "cancelled")
+
+    async def test_completion_during_disconnect_cancel_is_not_downgraded(self):
+        delegate = BlockingCancelDelegate()
+        connection, run_task, websocket = await self.connect(delegate=delegate)
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        await websocket.disconnect()
+        await asyncio.wait_for(delegate.cancel_started.wait(), 1)
+
+        completion_task = asyncio.create_task(
+            connection.mark_terminal(
+                "turn.completed",
+                {"sessionId": "session"},
+            )
+        )
+
+        async def completion_persisted():
+            while self.ledger.get(TURN_ID).status != "completed":
+                await asyncio.sleep(0)
+
+        await asyncio.wait_for(completion_persisted(), 1)
+        delegate.allow_cancel.set()
+        await asyncio.wait_for(run_task, 1)
+        await asyncio.gather(completion_task, return_exceptions=True)
+
+        self.assertEqual(len(delegate.cancelled), 1)
+        self.assertEqual(self.ledger.get(TURN_ID).status, "completed")
+        self.assertIsNone(await self.registry.get(CONVERSATION_ID))
+
+    async def test_nonterminal_events_are_rejected_after_terminal_transition(self):
+        connection, _, websocket = await self.connect()
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        connection.state = ConnectionState.TERMINAL
+
+        for event_type in (
+            "assistant.delta",
+            "tool.progress",
+            "approval.requested",
+            "clarification.requested",
+        ):
+            with self.subTest(event_type=event_type):
+                with self.assertRaises(ValueError):
+                    await connection.send_event(event_type, {"late": True})
+
+    async def test_queued_threadsafe_event_cannot_cross_terminal_boundary(self):
+        connection, run_task, websocket = await self.connect()
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        await connection._send_lock.acquire()
+        worker = threading.Thread(
+            target=connection.send_event_threadsafe,
+            args=("tool.progress", {"label": "late"}),
+        )
+        worker.start()
+        worker.join()
+        await asyncio.sleep(0)
+        terminal_task = asyncio.create_task(
+            connection.mark_terminal(
+                "turn.completed",
+                {"sessionId": "session"},
+            )
+        )
+
+        async def terminal_started():
+            while connection.state is ConnectionState.ACCEPTED:
+                await asyncio.sleep(0)
+
+        await asyncio.wait_for(terminal_started(), 1)
+        connection._send_lock.release()
+        await asyncio.wait_for(terminal_task, 1)
+        await asyncio.wait_for(run_task, 1)
+
+        event_types = [event["type"] for event in websocket.sent_text]
+        self.assertNotIn("tool.progress", event_types)
+        self.assertEqual(event_types.count("turn.completed"), 1)
 
     async def test_matching_heartbeat_echo_prevents_timeout(self):
         _, _, websocket = await self.connect(
@@ -542,6 +810,112 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("attachment.download.begin", event_types)
         self.assertIn("attachment.download.completed", event_types)
         self.assertEqual(len(websocket.sent_bytes), 1)
+
+    async def test_send_attachment_rejects_path_outside_configured_root(self):
+        connection, _, websocket = await self.connect()
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        outside_root = self.root / "outside"
+        outside_root.mkdir()
+        path = outside_root / "secret.txt"
+        path.write_bytes(b"secret")
+
+        with self.assertRaises(ValueError):
+            await connection.send_attachment(
+                path,
+                {"id": ATTACHMENT_ID, "name": "secret.txt"},
+            )
+
+        self.assertEqual(websocket.sent_bytes, [])
+        self.assertNotIn(
+            "attachment.download.begin",
+            [event["type"] for event in websocket.sent_text],
+        )
+
+    async def test_send_attachment_derives_allowlisted_metadata(self):
+        connection, _, websocket = await self.connect()
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        path = self.temp_root / "actual.txt"
+        path.write_bytes(b"actual bytes")
+        actual_digest = hashlib.sha256(b"actual bytes").hexdigest()
+
+        await connection.send_attachment(
+            path,
+            {
+                "id": ATTACHMENT_ID,
+                "name": "../../spoof.png",
+                "mime": "image/png",
+                "kind": "image",
+                "sizeBytes": 999,
+                "sha256": "0" * 64,
+                "path": "/private/secret",
+                "unknown": "discard me",
+            },
+        )
+
+        begin = next(
+            event
+            for event in websocket.sent_text
+            if event["type"] == "attachment.download.begin"
+        )
+        self.assertEqual(
+            begin["payload"]["attachment"],
+            {
+                "id": ATTACHMENT_ID,
+                "name": "actual.txt",
+                "mime": "text/plain",
+                "kind": "document",
+                "sizeBytes": 12,
+                "sha256": actual_digest,
+            },
+        )
+        self.assertNotIn("/private/secret", json.dumps(begin))
+        self.assertNotIn("unknown", begin["payload"]["attachment"])
+
+    async def test_send_attachment_streams_the_validated_inode_after_swap(self):
+        connection, _, websocket = await self.connect()
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        path = self.temp_root / "report.txt"
+        original = b"trusted original"
+        replacement = b"replacement"
+        path.write_bytes(original)
+        moved = self.temp_root / "moved.txt"
+        real_send = websocket.send_str
+        swapped = False
+
+        async def swap_after_begin(raw):
+            nonlocal swapped
+            event = json.loads(raw)
+            if event["type"] == "attachment.download.begin" and not swapped:
+                swapped = True
+                path.rename(moved)
+                path.write_bytes(replacement)
+            await real_send(raw)
+
+        websocket.send_str = swap_after_begin
+        await connection.send_attachment(
+            path,
+            {
+                "id": ATTACHMENT_ID,
+                "name": "spoofed.txt",
+                "sizeBytes": len(replacement),
+                "sha256": hashlib.sha256(replacement).hexdigest(),
+            },
+        )
+
+        frames = [decode_binary_frame(raw) for raw in websocket.sent_bytes]
+        self.assertEqual(b"".join(frame.payload for frame in frames), original)
+        begin = next(
+            event
+            for event in websocket.sent_text
+            if event["type"] == "attachment.download.begin"
+        )
+        self.assertEqual(
+            begin["payload"]["attachment"]["sha256"],
+            hashlib.sha256(original).hexdigest(),
+        )
 
 
 if __name__ == "__main__":
