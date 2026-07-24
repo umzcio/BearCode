@@ -60,6 +60,16 @@ describe('describeNativeUpload', () => {
     })
   })
 
+  it('defaults a legacy attachment with no kind to image', async () => {
+    const root = await rootDir()
+    const path = resolveStoredAttachmentPath(root, 'c1', 'a1')
+    await mkdir(join(root, 'attachments', 'c1'), { recursive: true })
+    await writeFile(path, 'data')
+    const ref = { id: 'a1', name: 'legacy.png', mime: 'image/png' } as AttachmentRef
+
+    await expect(describeNativeUpload(root, 'c1', ref)).resolves.toMatchObject({ kind: 'image' })
+  })
+
   it('rejects traversal identifiers before resolving a path', async () => {
     const root = await rootDir()
     const ref: AttachmentRef = { id: '../a1', name: 'note.txt', mime: 'text/plain', kind: 'text' }
@@ -124,6 +134,53 @@ describe('NativeDownloadWriter', () => {
     await expect(readdir(join(root, 'attachments', 'c1'))).resolves.toEqual([])
   })
 
+  it('serializes concurrent same-index appends and cleans the conflicted transfer', async () => {
+    const root = await rootDir()
+    const writer = new NativeDownloadWriter(root, 'c1')
+    const value = attachment({ sizeBytes: 2, sha256: sha256('aa') })
+    await writer.begin(value)
+
+    const outcomes = await Promise.all([
+      writer.append(value.id, 0, Buffer.from('a')).then(
+        () => 'first fulfilled',
+        () => 'first rejected'
+      ),
+      writer.append(value.id, 0, Buffer.from('a')).then(
+        () => 'second fulfilled',
+        () => 'second rejected'
+      )
+    ])
+
+    expect(outcomes).toEqual(['first fulfilled', 'second rejected'])
+    await expect(readdir(join(root, 'attachments', 'c1'))).resolves.toEqual([])
+  })
+
+  it('serializes an append before a concurrently requested completion', async () => {
+    const root = await rootDir()
+    const writer = new NativeDownloadWriter(root, 'c1')
+    const value = attachment()
+    await writer.begin(value)
+
+    const [, completed] = await Promise.all([
+      writer.append(value.id, 0, Buffer.from('data')),
+      writer.complete(value.id)
+    ])
+
+    expect(completed).toEqual(value)
+    expect(await readFile(resolveStoredAttachmentPath(root, 'c1', value.id), 'utf8')).toBe('data')
+  })
+
+  it('serializes an append before a concurrently requested abort and cleans it up', async () => {
+    const root = await rootDir()
+    const writer = new NativeDownloadWriter(root, 'c1')
+    const value = attachment()
+    await writer.begin(value)
+
+    await Promise.all([writer.append(value.id, 0, Buffer.from('data')), writer.abort(value.id)])
+
+    await expect(readdir(join(root, 'attachments', 'c1'))).resolves.toEqual([])
+  })
+
   it('removes the partial file when declared size is not met', async () => {
     const root = await rootDir()
     const writer = new NativeDownloadWriter(root, 'c1')
@@ -153,6 +210,27 @@ describe('NativeDownloadWriter', () => {
     await writer.begin(value)
 
     await expect(writer.begin(value)).rejects.toThrow(/duplicate|already/i)
+    await writer.abort()
+    await expect(readdir(join(root, 'attachments', 'c1'))).resolves.toEqual([])
+  })
+
+  it('reserves an attachment ID before concurrent begin calls can create two partials', async () => {
+    const root = await rootDir()
+    const writer = new NativeDownloadWriter(root, 'c1')
+    const value = attachment()
+
+    const outcomes = await Promise.all([
+      writer.begin(value).then(
+        () => 'first fulfilled',
+        () => 'first rejected'
+      ),
+      writer.begin(value).then(
+        () => 'second fulfilled',
+        () => 'second rejected'
+      )
+    ])
+
+    expect(outcomes).toEqual(['first fulfilled', 'second rejected'])
     await writer.abort()
     await expect(readdir(join(root, 'attachments', 'c1'))).resolves.toEqual([])
   })
@@ -209,7 +287,34 @@ describe('NativeDownloadWriter', () => {
 
     await writer.append(expected.id, 0, Buffer.from('data'))
     await expect(writer.complete(expected.id)).resolves.toEqual(expected)
-    expect(await readFile(resolveStoredAttachmentPath(root, 'c1', expected.id), 'utf8')).toBe('data')
+    expect(await readFile(resolveStoredAttachmentPath(root, 'c1', expected.id), 'utf8')).toBe(
+      'data'
+    )
+  })
+
+  it('returns a frozen exact metadata snapshot after completion', async () => {
+    const root = await rootDir()
+    const writer = new NativeDownloadWriter(root, 'c1')
+    const value = attachment()
+    await writer.begin(value)
+    await writer.append(value.id, 0, Buffer.from('data'))
+
+    const completed = await writer.complete(value.id)
+
+    expect(completed).not.toBe(value)
+    expect(Object.keys(completed).sort()).toEqual([
+      'id',
+      'kind',
+      'mime',
+      'name',
+      'sha256',
+      'sizeBytes'
+    ])
+    expect(Object.isFrozen(completed)).toBe(true)
+    expect(() => {
+      completed.name = 'mutated.txt'
+    }).toThrow()
+    expect(completed.name).toBe('note.txt')
   })
 })
 
@@ -250,6 +355,25 @@ describe('deleteConversationAttachments', () => {
 })
 
 describe('openAttachment', () => {
+  it('hands the shell a cleaned-up snapshot whose bytes survive a canonical-path swap', async () => {
+    const root = await rootDir()
+    const path = resolveStoredAttachmentPath(root, 'c1', 'a1')
+    await mkdir(join(root, 'attachments', 'c1'), { recursive: true })
+    await writeFile(path, 'verified')
+    let snapshotPath = ''
+
+    await openAttachment(root, 'c1', 'a1', async (shellPath) => {
+      snapshotPath = shellPath
+      await writeFile(path, 'replacement')
+      expect(shellPath).not.toBe(path)
+      expect(await readFile(shellPath, 'utf8')).toBe('verified')
+      return ''
+    })
+
+    await expect(readFile(snapshotPath)).rejects.toThrow()
+    expect(await readFile(path, 'utf8')).toBe('replacement')
+  })
+
   it('rejects a symlinked attachment before handing a path to the shell', async () => {
     const root = await rootDir()
     const outside = join(root, 'outside.txt')
@@ -268,6 +392,8 @@ describe('openAttachment', () => {
     await mkdir(join(root, 'attachments', 'c1'), { recursive: true })
     await writeFile(path, 'data')
 
-    await expect(openAttachment(root, 'c1', 'a1', async () => 'No application')).rejects.toThrow(/No application/)
+    await expect(openAttachment(root, 'c1', 'a1', async () => 'No application')).rejects.toThrow(
+      /No application/
+    )
   })
 })
