@@ -1,4 +1,5 @@
 import errno
+import gc
 import hashlib
 import os
 import sys
@@ -360,10 +361,86 @@ class UploadTransferTests(unittest.TestCase):
             self.assertEqual(verified.path.stat().st_mode & 0o777, 0o600)
             self.assertFalse(verified.path.name.endswith(".partial"))
             self.assertEqual(list(root.glob("*.partial")), [])
-            with self.assertRaises(OSError):
-                os.fstat(root_descriptor)
+            self.assertEqual(verified._root_descriptor, root_descriptor)
+            self.assertEqual(
+                (
+                    os.fstat(verified._descriptor).st_dev,
+                    os.fstat(verified._descriptor).st_ino,
+                ),
+                verified._file_identity,
+            )
+            self.assertEqual(
+                verified._active_name,
+                verified.path.name,
+            )
             with self.assertRaises(OSError):
                 os.fstat(upload_descriptor)
+            verified.close()
+            self.assertEqual(list(root.iterdir()), [])
+            with self.assertRaises(OSError):
+                os.fstat(root_descriptor)
+
+    def test_verified_upload_ownership_is_one_shot_and_close_is_fallback(self):
+        data = b"owned"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transfer = UploadTransfer.begin(root, metadata(data))
+            transfer.append(upload_chunk(0, data, final=True))
+            verified = transfer.complete()
+            ownership = verified.take_ownership()
+
+            with self.assertRaises(ValueError):
+                verified.take_ownership()
+            descriptor, root_descriptor, name, identity = ownership
+            self.assertEqual(os.read(descriptor, len(data)), data)
+            self.assertEqual(
+                (os.fstat(descriptor).st_dev, os.fstat(descriptor).st_ino),
+                identity,
+            )
+            self.assertEqual(name, verified.path.name)
+            os.ftruncate(descriptor, 0)
+            os.unlink(name, dir_fd=root_descriptor)
+            os.close(descriptor)
+            os.close(root_descriptor)
+            self.assertEqual(list(root.iterdir()), [])
+
+    def test_unconsumed_verified_upload_destructor_closes_owned_fds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transfer = UploadTransfer.begin(root, metadata(b"x"))
+            transfer.append(upload_chunk(0, b"x", final=True))
+            verified = transfer.complete()
+            descriptor = verified._descriptor
+            root_descriptor = verified._root_descriptor
+
+            del verified
+            gc.collect()
+
+            self.assertEqual(list(root.iterdir()), [])
+            for owned_descriptor in (descriptor, root_descriptor):
+                with self.assertRaises(OSError):
+                    os.fstat(owned_descriptor)
+
+    def test_verified_upload_construction_failure_closes_new_ownership_fds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transfer = UploadTransfer.begin(root, metadata(b"x"))
+            transfer.append(upload_chunk(0, b"x", final=True))
+            before = len(os.listdir("/dev/fd"))
+
+            with patch.object(
+                transfer_module,
+                "VerifiedUpload",
+                side_effect=RuntimeError("construction failed"),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "construction failed",
+                ):
+                    transfer.complete()
+
+            self.assertEqual(len(os.listdir("/dev/fd")), before - 2)
+            self.assertEqual(list(root.iterdir()), [])
 
     def test_fdopen_failure_closes_read_descriptor_and_aborts_upload(self):
         data = b"content"

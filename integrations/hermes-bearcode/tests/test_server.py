@@ -1,10 +1,13 @@
 import asyncio
+import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from uuid import UUID
 
 from aiohttp import WSServerHandshakeError, WSMsgType
 from aiohttp.test_utils import TestClient, TestServer
@@ -13,7 +16,11 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from bearcode_transport.security import validate_outbound_path
 from bearcode_transport.server import BearCodeServer
-from bearcode_transport.transfers import create_outbound_snapshot
+from bearcode_transport.transfers import (
+    VerifiedUpload,
+    VerifiedUploadCleanupError,
+    create_outbound_snapshot,
+)
 
 
 CONVERSATION_ID = "11111111-1111-4111-8111-111111111111"
@@ -176,6 +183,60 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ServerLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stop_surfaces_retained_verified_upload_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            server = BearCodeServer(
+                host="127.0.0.1",
+                port=0,
+                platform_key="platform-secret",
+                delegate=FakeDelegate(),
+                temp_root=root / "temp",
+                state_root=root / "state",
+            )
+            path = server.temp_root / "retained.verified"
+            path.write_bytes(b"sensitive")
+            root_descriptor = os.open(
+                server.temp_root,
+                os.O_RDONLY | os.O_DIRECTORY,
+            )
+            descriptor = os.open(path, os.O_RDWR)
+            file_info = os.fstat(descriptor)
+            upload = VerifiedUpload(
+                attachment_id=UUID(
+                    "55555555-5555-4555-8555-555555555555"
+                ),
+                name="retained.txt",
+                mime="text/plain",
+                size_bytes=9,
+                sha256=hashlib.sha256(b"sensitive").hexdigest(),
+                path=path,
+                _descriptor=descriptor,
+                _root_descriptor=root_descriptor,
+                _active_name=path.name,
+                _file_identity=(file_info.st_dev, file_info.st_ino),
+            )
+            server.verified_upload_cleanup_owner.retain(upload)
+
+            with mock.patch(
+                "bearcode_transport.transfers.os.ftruncate",
+                side_effect=OSError("persistent EIO"),
+            ):
+                with self.assertRaises(VerifiedUploadCleanupError):
+                    await server.stop()
+
+            self.assertEqual(
+                server.verified_upload_cleanup_owner.pending_count,
+                1,
+            )
+            await server.stop()
+            self.assertEqual(
+                server.verified_upload_cleanup_owner.pending_count,
+                0,
+            )
+            self.assertEqual(list(server.temp_root.iterdir()), [])
+            server.ledger.close()
+
     async def test_stop_retries_retained_snapshot_cleanup(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

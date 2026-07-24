@@ -11,7 +11,10 @@ from .connection import (
 )
 from .ledger import TurnLedger
 from .security import AuthRateLimiter, verify_bearer
-from .transfers import OutboundSnapshotCleanupOwner
+from .transfers import (
+    OutboundSnapshotCleanupOwner,
+    VerifiedUploadCleanupOwner,
+)
 
 
 class BearCodeServer:
@@ -44,6 +47,7 @@ class BearCodeServer:
         self.ledger = TurnLedger(self.state_root)
         self.registry = ConnectionRegistry(self.ledger)
         self.snapshot_cleanup_owner = OutboundSnapshotCleanupOwner()
+        self.verified_upload_cleanup_owner = VerifiedUploadCleanupOwner()
         self.rate_limiter = AuthRateLimiter(
             max_failures=5,
             window_seconds=60,
@@ -92,6 +96,9 @@ class BearCodeServer:
             temp_root=self.temp_root,
             outbound_roots=self.outbound_roots,
             snapshot_cleanup_owner=self.snapshot_cleanup_owner,
+            verified_upload_cleanup_owner=(
+                self.verified_upload_cleanup_owner
+            ),
         )
         self._connections.add(connection)
         try:
@@ -138,4 +145,7 @@ class BearCodeServer:
             self.runner = None
             if runner is not None:
                 await runner.cleanup()
-            self.snapshot_cleanup_owner.retry()
+            try:
+                self.snapshot_cleanup_owner.retry()
+            finally:
+                self.verified_upload_cleanup_owner.retry()

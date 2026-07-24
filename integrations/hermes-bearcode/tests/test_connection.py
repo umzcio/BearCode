@@ -30,6 +30,7 @@ from bearcode_transport.protocol import (
     encode_binary_frame,
     encode_event,
 )
+from bearcode_transport.transfers import VerifiedUploadCleanupError
 
 
 CONVERSATION_ID = "11111111-1111-4111-8111-111111111111"
@@ -566,6 +567,82 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.wait_for(task, 1)
 
         self.assertEqual(self.delegate.cancelled, [])
+        self.assertEqual(list(self.temp_root.iterdir()), [])
+
+    async def test_preturn_verified_upload_cleanup_retries_transient_eio(self):
+        connection, task, websocket = await self.connect()
+        await websocket.feed_json(upload_begin())
+        await self.wait_for_event(websocket, "attachment.upload.accepted")
+        await websocket.feed_binary(
+            encode_binary_frame(
+                BinaryChunk(
+                    BinaryDirection.UPLOAD,
+                    UUID(ATTACHMENT_ID),
+                    0,
+                    True,
+                    b"hello",
+                )
+            )
+        )
+        await self.wait_for_event(websocket, "attachment.upload.completed")
+        real_ftruncate = os.ftruncate
+        calls = 0
+
+        def fail_once(descriptor, length):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError("simulated transient EIO")
+            return real_ftruncate(descriptor, length)
+
+        with mock.patch(
+            "bearcode_transport.transfers.os.ftruncate",
+            side_effect=fail_once,
+        ):
+            await websocket.disconnect()
+            await asyncio.wait_for(task, 1)
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(
+            connection._verified_upload_cleanup_owner.pending_count,
+            0,
+        )
+        self.assertEqual(list(self.temp_root.iterdir()), [])
+
+    async def test_preturn_persistent_cleanup_failure_is_visible_and_retained(self):
+        connection, task, websocket = await self.connect()
+        await websocket.feed_json(upload_begin())
+        await self.wait_for_event(websocket, "attachment.upload.accepted")
+        await websocket.feed_binary(
+            encode_binary_frame(
+                BinaryChunk(
+                    BinaryDirection.UPLOAD,
+                    UUID(ATTACHMENT_ID),
+                    0,
+                    True,
+                    b"hello",
+                )
+            )
+        )
+        await self.wait_for_event(websocket, "attachment.upload.completed")
+
+        with mock.patch(
+            "bearcode_transport.transfers.os.ftruncate",
+            side_effect=OSError("persistent EIO"),
+        ):
+            await websocket.disconnect()
+            with self.assertRaises(VerifiedUploadCleanupError):
+                await asyncio.wait_for(task, 1)
+
+        self.connections = [
+            entry for entry in self.connections if entry[1] is not task
+        ]
+        self.assertEqual(connection.state, ConnectionState.CLOSED)
+        self.assertEqual(
+            connection._verified_upload_cleanup_owner.pending_count,
+            1,
+        )
+        connection._verified_upload_cleanup_owner.retry()
         self.assertEqual(list(self.temp_root.iterdir()), [])
 
     async def test_upload_exception_explicitly_aborts_transfer(self):

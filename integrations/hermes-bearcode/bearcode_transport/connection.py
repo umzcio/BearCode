@@ -26,6 +26,7 @@ from .transfers import (
     OutboundSnapshotCleanupOwner,
     UploadTransfer,
     VerifiedUpload,
+    VerifiedUploadCleanupOwner,
     create_outbound_snapshot,
     iter_download_frames,
 )
@@ -120,6 +121,7 @@ class BearCodeConnection:
         *,
         outbound_roots=None,
         snapshot_cleanup_owner=None,
+        verified_upload_cleanup_owner=None,
         heartbeat_interval=None,
         heartbeat_timeout=None,
         preturn_timeout=None,
@@ -140,6 +142,11 @@ class BearCodeConnection:
             OutboundSnapshotCleanupOwner()
             if snapshot_cleanup_owner is None
             else snapshot_cleanup_owner
+        )
+        self._verified_upload_cleanup_owner = (
+            VerifiedUploadCleanupOwner()
+            if verified_upload_cleanup_owner is None
+            else verified_upload_cleanup_owner
         )
         self.connection_id = uuid4()
         self.state = ConnectionState.CONNECTED
@@ -755,6 +762,9 @@ class BearCodeConnection:
         async with self._cleanup_lock:
             if self._cleaned:
                 self._snapshot_cleanup_owner.retry(suppress=True)
+                self._verified_upload_cleanup_owner.retry(
+                    suppress=False
+                )
                 return
             self._cleaned = True
             try:
@@ -779,12 +789,10 @@ class BearCodeConnection:
                     transfer.abort()
                 self._active_uploads.clear()
                 for upload in self._verified_uploads.values():
-                    try:
-                        upload.path.unlink()
-                    except FileNotFoundError:
-                        pass
-                    except OSError:
-                        pass
+                    self._verified_upload_cleanup_owner.close_upload(
+                        upload,
+                        suppress=True,
+                    )
                 self._verified_uploads.clear()
 
                 should_cancel = False
@@ -819,5 +827,12 @@ class BearCodeConnection:
                             self,
                         )
                 finally:
-                    self._snapshot_cleanup_owner.retry(suppress=True)
-                    self.state = ConnectionState.CLOSED
+                    try:
+                        self._snapshot_cleanup_owner.retry(
+                            suppress=True
+                        )
+                        self._verified_upload_cleanup_owner.retry(
+                            suppress=False
+                        )
+                    finally:
+                        self.state = ConnectionState.CLOSED

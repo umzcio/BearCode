@@ -18,7 +18,7 @@ from .protocol import (
 from .security import ValidatedOutbound, sanitize_filename, sniff_mime
 
 
-@dataclass(frozen=True)
+@dataclass
 class VerifiedUpload:
     attachment_id: UUID
     name: str
@@ -26,6 +26,130 @@ class VerifiedUpload:
     size_bytes: int
     sha256: str
     path: Path
+    _descriptor: int = None
+    _root_descriptor: int = None
+    _active_name: str = None
+    _file_identity: tuple = None
+    _scrubbed: bool = False
+    _unlinked: bool = False
+
+    def take_ownership(self):
+        if (
+            self._descriptor is None
+            or self._root_descriptor is None
+            or self._active_name is None
+            or self._file_identity is None
+        ):
+            raise ValueError("verified upload ownership is unavailable")
+        ownership = (
+            self._descriptor,
+            self._root_descriptor,
+            self._active_name,
+            self._file_identity,
+        )
+        self._descriptor = None
+        self._root_descriptor = None
+        self._active_name = None
+        self._file_identity = None
+        return ownership
+
+    def close(self):
+        if self._descriptor is None and self._root_descriptor is None:
+            return
+        try:
+            if not self._scrubbed:
+                os.ftruncate(self._descriptor, 0)
+                os.fsync(self._descriptor)
+                self._scrubbed = True
+            if not self._unlinked:
+                try:
+                    named = os.stat(
+                        self._active_name,
+                        dir_fd=self._root_descriptor,
+                        follow_symlinks=False,
+                    )
+                except FileNotFoundError:
+                    named = None
+                if (
+                    named is not None
+                    and (named.st_dev, named.st_ino)
+                    == self._file_identity
+                ):
+                    os.unlink(
+                        self._active_name,
+                        dir_fd=self._root_descriptor,
+                    )
+                self._unlinked = True
+        except OSError as error:
+            raise VerifiedUploadCleanupError(
+                "verified upload cleanup is incomplete"
+            ) from error
+
+        close_error = None
+        for attribute in ("_descriptor", "_root_descriptor"):
+            owned_descriptor = getattr(self, attribute)
+            setattr(self, attribute, None)
+            if owned_descriptor is None:
+                continue
+            try:
+                os.close(owned_descriptor)
+            except OSError as error:
+                close_error = close_error or error
+        self._active_name = None
+        self._file_identity = None
+        if close_error is not None:
+            raise VerifiedUploadCleanupError(
+                "verified upload descriptor close was unconfirmed"
+            ) from close_error
+
+    def __del__(self):
+        try:
+            self.close()
+        except VerifiedUploadCleanupError:
+            _fallback_verified_upload_cleanup_owner.retain(self)
+
+
+class VerifiedUploadCleanupError(RuntimeError):
+    pass
+
+
+class VerifiedUploadCleanupOwner:
+    def __init__(self):
+        self._pending = {}
+
+    @property
+    def pending_count(self):
+        return len(self._pending)
+
+    def retain(self, upload):
+        self._pending[id(upload)] = upload
+
+    def close_upload(self, upload, *, suppress=False):
+        try:
+            upload.close()
+        except VerifiedUploadCleanupError:
+            self.retain(upload)
+            if not suppress:
+                raise
+        else:
+            self._pending.pop(id(upload), None)
+
+    def retry(self, *, suppress=False):
+        failures = []
+        for upload in tuple(self._pending.values()):
+            try:
+                upload.close()
+            except VerifiedUploadCleanupError as error:
+                failures.append(error)
+            else:
+                self._pending.pop(id(upload), None)
+        if failures and not suppress:
+            raise VerifiedUploadCleanupError(
+                "verified upload cleanup remains pending"
+            ) from failures[0]
+
+
+_fallback_verified_upload_cleanup_owner = VerifiedUploadCleanupOwner()
 
 
 @dataclass
@@ -647,6 +771,7 @@ class UploadTransfer:
             raise
 
     def complete(self) -> VerifiedUpload:
+        owned_descriptor = None
         try:
             if self._finished or self._descriptor is None:
                 raise ValueError("upload is no longer active")
@@ -696,21 +821,45 @@ class UploadTransfer:
             if not self._active_file_is_original():
                 raise ValueError("verified file changed")
             final_path = self._anchored_root_path() / final_name
+            owned_flags = os.O_RDWR | os.O_NOFOLLOW
+            owned_descriptor = os.open(
+                final_name,
+                owned_flags,
+                dir_fd=self._root_descriptor,
+            )
+            owned_stat = os.fstat(owned_descriptor)
+            if (
+                owned_stat.st_dev,
+                owned_stat.st_ino,
+            ) != self._file_identity:
+                os.close(owned_descriptor)
+                raise ValueError("verified file changed")
             descriptor = self._descriptor
-            os.close(descriptor)
             self._descriptor = None
-            self._active_name = None
-            self._finished = True
-            self._close_root()
-            return VerifiedUpload(
+            os.close(descriptor)
+            verified = VerifiedUpload(
                 attachment_id=self.attachment_id,
                 name=sanitize_filename(self.metadata["name"]),
                 mime=mime,
                 size_bytes=self._received_bytes,
                 sha256=digest,
                 path=final_path,
+                _descriptor=owned_descriptor,
+                _root_descriptor=self._root_descriptor,
+                _active_name=final_name,
+                _file_identity=self._file_identity,
             )
+            owned_descriptor = None
+            self._root_descriptor = None
+            self._active_name = None
+            self._finished = True
+            return verified
         except Exception:
+            if owned_descriptor is not None:
+                try:
+                    os.close(owned_descriptor)
+                except OSError:
+                    pass
             self.abort()
             raise
 

@@ -169,18 +169,7 @@ class BasePlatformAdapter(ABC):
             return None
         if not resolved.is_file():
             return None
-        for root in (
-            get_image_cache_dir(),
-            get_audio_cache_dir(),
-            get_video_cache_dir(),
-            get_document_cache_dir(),
-        ):
-            try:
-                resolved.relative_to(root.resolve())
-                return str(resolved)
-            except ValueError:
-                continue
-        return None
+        return str(resolved)
 
     @abstractmethod
     async def connect(self, *, is_reconnect=False):
