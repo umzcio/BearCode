@@ -1,6 +1,7 @@
 """Bounded upload and download streaming for the Hermes transport."""
 import hashlib
 import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -26,12 +27,24 @@ class VerifiedUpload:
 
 
 class UploadTransfer:
-    def __init__(self, temp_root, metadata, attachment_id, partial_path, descriptor):
+    def __init__(
+        self,
+        temp_root,
+        root_descriptor,
+        metadata,
+        attachment_id,
+        partial_name,
+        descriptor,
+        file_identity,
+    ):
         self.temp_root = temp_root
+        self._root_descriptor = root_descriptor
         self.metadata = metadata
         self.attachment_id = attachment_id
-        self.partial_path = partial_path
+        self._active_name = partial_name
+        self.partial_path = temp_root / partial_name
         self._descriptor = descriptor
+        self._file_identity = file_identity
         self._hasher = hashlib.sha256()
         self._received_bytes = 0
         self._next_chunk_index = 0
@@ -40,7 +53,6 @@ class UploadTransfer:
 
     @classmethod
     def begin(cls, temp_root: Path, metadata: dict):
-        root = Path(temp_root)
         if not isinstance(metadata, dict):
             raise ValueError("upload metadata must be an object")
         try:
@@ -67,12 +79,106 @@ class UploadTransfer:
         if not isinstance(metadata.get("declaredMime"), str):
             raise ValueError("declared MIME must be a string")
 
-        partial_path = root / f"{attachment_id}.{uuid4().hex}.partial"
+        requested_root = Path(temp_root)
+        try:
+            if requested_root.is_symlink():
+                raise ValueError("temporary root must not be a symlink")
+            root = requested_root.resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise ValueError("temporary root does not exist") from error
+        if not root.is_dir():
+            raise ValueError("temporary root must be a directory")
+
+        root_flags = os.O_RDONLY
+        if hasattr(os, "O_DIRECTORY"):
+            root_flags |= os.O_DIRECTORY
+        if hasattr(os, "O_NOFOLLOW"):
+            root_flags |= os.O_NOFOLLOW
+        try:
+            root_descriptor = os.open(str(root), root_flags)
+        except OSError as error:
+            raise ValueError("temporary root is not safely accessible") from error
+        try:
+            root_stat = os.fstat(root_descriptor)
+        except Exception:
+            try:
+                os.close(root_descriptor)
+            except OSError:
+                pass
+            raise
+        if not stat.S_ISDIR(root_stat.st_mode):
+            os.close(root_descriptor)
+            raise ValueError("temporary root must be a directory")
+
+        partial_name = f"{attachment_id}.{uuid4().hex}.partial"
         flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
-        descriptor = os.open(str(partial_path), flags, 0o600)
-        return cls(root, dict(metadata), attachment_id, partial_path, descriptor)
+        descriptor = None
+        try:
+            descriptor = os.open(partial_name, flags, 0o600, dir_fd=root_descriptor)
+            descriptor_stat = os.fstat(descriptor)
+            file_identity = (descriptor_stat.st_dev, descriptor_stat.st_ino)
+            return cls(
+                root,
+                root_descriptor,
+                dict(metadata),
+                attachment_id,
+                partial_name,
+                descriptor,
+                file_identity,
+            )
+        except Exception:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+            try:
+                os.unlink(partial_name, dir_fd=root_descriptor)
+            except OSError:
+                pass
+            try:
+                os.close(root_descriptor)
+            except OSError:
+                pass
+            raise
+
+    def _root_is_stable(self):
+        if self._root_descriptor is None:
+            return False
+        try:
+            path_stat = os.stat(str(self.temp_root), follow_symlinks=False)
+            root_stat = os.fstat(self._root_descriptor)
+        except OSError:
+            return False
+        return (
+            stat.S_ISDIR(path_stat.st_mode)
+            and path_stat.st_dev == root_stat.st_dev
+            and path_stat.st_ino == root_stat.st_ino
+        )
+
+    def _active_file_is_original(self):
+        if self._root_descriptor is None or self._active_name is None:
+            return False
+        try:
+            file_stat = os.stat(
+                self._active_name,
+                dir_fd=self._root_descriptor,
+                follow_symlinks=False,
+            )
+        except OSError:
+            return False
+        return (file_stat.st_dev, file_stat.st_ino) == self._file_identity
+
+    def _close_root(self):
+        descriptor = self._root_descriptor
+        self._root_descriptor = None
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
 
     def append(self, chunk: BinaryChunk) -> None:
         try:
@@ -94,6 +200,8 @@ class UploadTransfer:
                 raise ValueError("upload chunk final flag is invalid")
             if not isinstance(chunk.payload, bytes) or len(chunk.payload) > MAX_CHUNK_BYTES:
                 raise ValueError("upload chunk payload is invalid")
+            if not chunk.payload and not chunk.final:
+                raise ValueError("non-final upload chunk must contain bytes")
             next_size = self._received_bytes + len(chunk.payload)
             if next_size > self.metadata["sizeBytes"] or next_size > MAX_FILE_BYTES:
                 raise ValueError("upload exceeds declared size")
@@ -123,14 +231,43 @@ class UploadTransfer:
             digest = self._hasher.hexdigest()
             if digest != self.metadata["sha256"]:
                 raise ValueError("upload SHA-256 does not match declaration")
+            if not self._root_is_stable() or not self._active_file_is_original():
+                raise ValueError("temporary root or partial file changed")
 
             os.fsync(self._descriptor)
-            os.close(self._descriptor)
+            descriptor = self._descriptor
             self._descriptor = None
-            mime = sniff_mime(self.partial_path, self.metadata["declaredMime"])
-            final_path = self.temp_root / f"{self.attachment_id}.{uuid4().hex}.verified"
-            os.rename(str(self.partial_path), str(final_path))
+            os.close(descriptor)
+            read_flags = os.O_RDONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                read_flags |= os.O_NOFOLLOW
+            read_descriptor = os.open(
+                self._active_name,
+                read_flags,
+                dir_fd=self._root_descriptor,
+            )
+            with os.fdopen(read_descriptor, "rb") as handle:
+                read_stat = os.fstat(handle.fileno())
+                if (read_stat.st_dev, read_stat.st_ino) != self._file_identity:
+                    raise ValueError("partial upload file changed")
+                mime = sniff_mime(handle, self.metadata["declaredMime"])
+            if not self._root_is_stable() or not self._active_file_is_original():
+                raise ValueError("temporary root or partial file changed")
+
+            final_name = f"{self.attachment_id}.{uuid4().hex}.verified"
+            os.rename(
+                self._active_name,
+                final_name,
+                src_dir_fd=self._root_descriptor,
+                dst_dir_fd=self._root_descriptor,
+            )
+            self._active_name = final_name
+            if not self._root_is_stable() or not self._active_file_is_original():
+                raise ValueError("temporary root or verified file changed")
+            final_path = self.temp_root / final_name
+            self._active_name = None
             self._finished = True
+            self._close_root()
             return VerifiedUpload(
                 attachment_id=self.attachment_id,
                 name=sanitize_filename(self.metadata["name"]),
@@ -144,15 +281,20 @@ class UploadTransfer:
             raise
 
     def abort(self) -> None:
-        if self._descriptor is not None:
+        descriptor = self._descriptor
+        self._descriptor = None
+        if descriptor is not None:
             try:
-                os.close(self._descriptor)
-            finally:
-                self._descriptor = None
-        try:
-            self.partial_path.unlink()
-        except FileNotFoundError:
-            pass
+                os.close(descriptor)
+            except OSError:
+                pass
+        if self._root_descriptor is not None and self._active_name is not None:
+            try:
+                os.unlink(self._active_name, dir_fd=self._root_descriptor)
+            except OSError:
+                pass
+        self._active_name = None
+        self._close_root()
         self._finished = True
 
 

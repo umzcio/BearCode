@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
@@ -45,6 +46,58 @@ class UploadTransferTests(unittest.TestCase):
                 UploadTransfer.begin(root, metadata(b"", size=MAX_FILE_BYTES + 1))
             self.assertEqual(list(root.iterdir()), [])
 
+    def test_temp_root_must_be_existing_real_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            regular_file = parent / "file"
+            regular_file.touch()
+            real_directory = parent / "real"
+            real_directory.mkdir()
+            symlink = parent / "link"
+            symlink.symlink_to(real_directory, target_is_directory=True)
+            for invalid_root in (parent / "missing", regular_file, symlink):
+                with self.subTest(root=invalid_root):
+                    with self.assertRaises(ValueError):
+                        UploadTransfer.begin(invalid_root, metadata(b""))
+            self.assertEqual(list(real_directory.iterdir()), [])
+
+    def test_temp_root_swap_cannot_redirect_verification_or_rename(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            root = parent / "root"
+            moved_root = parent / "moved-root"
+            outside = parent / "outside"
+            root.mkdir()
+            outside.mkdir()
+            transfer = UploadTransfer.begin(root, metadata(b"x"))
+            root.rename(moved_root)
+            root.symlink_to(outside, target_is_directory=True)
+
+            transfer.append(upload_chunk(0, b"x", final=True))
+            with self.assertRaises(ValueError):
+                transfer.complete()
+
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertEqual(list(moved_root.iterdir()), [])
+
+    def test_begin_cleans_partial_when_file_identity_check_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            real_fstat = os.fstat
+            call_count = 0
+
+            def fail_second_fstat(descriptor):
+                nonlocal call_count
+                call_count += 1
+                if call_count == 2:
+                    raise OSError("fstat failed")
+                return real_fstat(descriptor)
+
+            with patch("bearcode_transport.transfers.os.fstat", side_effect=fail_second_fstat):
+                with self.assertRaisesRegex(OSError, "fstat failed"):
+                    UploadTransfer.begin(root, metadata(b""))
+            self.assertEqual(list(root.iterdir()), [])
+
     def test_chunks_must_be_contiguous_and_match_upload(self):
         bad_chunks = (
             upload_chunk(1, b"x"),
@@ -76,6 +129,20 @@ class UploadTransferTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 transfer.append(chunk)
             self.assertEqual(list(root.glob("*.partial")), [])
+
+    def test_non_final_empty_chunk_is_rejected_but_empty_final_upload_is_allowed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transfer = UploadTransfer.begin(root, metadata(b""))
+            with self.assertRaises(ValueError):
+                transfer.append(upload_chunk(0, b""))
+            self.assertEqual(list(root.iterdir()), [])
+
+        with tempfile.TemporaryDirectory() as directory:
+            transfer = UploadTransfer.begin(Path(directory), metadata(b""))
+            transfer.append(upload_chunk(0, b"", final=True))
+            verified = transfer.complete()
+            self.assertEqual(verified.path.read_bytes(), b"")
 
     def test_stream_cannot_exceed_declared_size_and_failure_cleans_partial(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -113,6 +180,25 @@ class UploadTransferTests(unittest.TestCase):
             transfer.abort()
             self.assertEqual(list(root.iterdir()), [])
 
+    def test_append_failure_is_preserved_and_partial_unlinked_when_close_raises(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transfer = UploadTransfer.begin(root, metadata(b"x"))
+            real_close = os.close
+            upload_descriptor = transfer._descriptor
+
+            def close_with_reported_failure(descriptor):
+                real_close(descriptor)
+                if descriptor == upload_descriptor:
+                    raise OSError("close failed")
+
+            with patch("bearcode_transport.transfers.os.write", side_effect=OSError("write failed")):
+                with patch("bearcode_transport.transfers.os.close", side_effect=close_with_reported_failure):
+                    with self.assertRaisesRegex(OSError, "write failed"):
+                        transfer.append(upload_chunk(0, b"x", final=True))
+            self.assertEqual(list(root.iterdir()), [])
+            transfer.abort()
+
     def test_completion_returns_verified_metadata_and_atomically_renamed_path(self):
         data = b"hello, Hermes"
         with tempfile.TemporaryDirectory() as directory:
@@ -141,6 +227,41 @@ class UploadTransferTests(unittest.TestCase):
             )
             transfer.append(upload_chunk(0, png, final=True))
             self.assertEqual(transfer.complete().mime, "image/png")
+
+    def test_remaining_allowlisted_binary_signatures_are_sniffed(self):
+        cases = (
+            (b"\xff\xd8\xff\xe0payload", "image/jpeg"),
+            (b"RIFF\x04\x00\x00\x00WEBPpayload", "image/webp"),
+            (b"GIF89apayload", "image/gif"),
+            (b"%PDF-1.7\npayload", "application/pdf"),
+        )
+        for data, expected_mime in cases:
+            with self.subTest(mime=expected_mime):
+                with tempfile.TemporaryDirectory() as directory:
+                    transfer = UploadTransfer.begin(
+                        Path(directory),
+                        metadata(data, declared_mime="application/octet-stream"),
+                    )
+                    transfer.append(upload_chunk(0, data, final=True))
+                    self.assertEqual(transfer.complete().mime, expected_mime)
+
+    def test_malformed_text_media_types_are_rejected(self):
+        for declared_mime in (
+            "text/",
+            "text/pl ain",
+            "text/plain\x00evil",
+            "text/\tplain",
+            "\ttext/plain",
+            "text/plain\n",
+        ):
+            with self.subTest(mime=declared_mime):
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    transfer = UploadTransfer.begin(root, metadata(b"safe text", declared_mime=declared_mime))
+                    transfer.append(upload_chunk(0, b"safe text", final=True))
+                    with self.assertRaises(ValueError):
+                        transfer.complete()
+                    self.assertEqual(list(root.iterdir()), [])
 
     def test_invalid_utf8_text_and_unsupported_binary_are_rejected(self):
         for data, declared in ((b"\xff", "text/plain"), (b"untyped", "application/octet-stream")):

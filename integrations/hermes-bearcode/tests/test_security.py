@@ -21,6 +21,10 @@ class SecurityTests(unittest.TestCase):
         self.assertFalse(verify_bearer("Bearer ", "alpha"))
         self.assertFalse(verify_bearer("Basic alpha", "alpha"))
 
+    def test_bearer_compare_rejects_non_ascii_without_raising(self):
+        self.assertFalse(verify_bearer("Bearer álpha", "álpha"))
+        self.assertFalse(verify_bearer("Bearer alpha", "álpha"))
+
     def test_rate_limiter_blocks_after_five_failures(self):
         limiter = AuthRateLimiter(max_failures=5, window_seconds=60)
         for _ in range(5):
