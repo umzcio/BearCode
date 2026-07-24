@@ -54,6 +54,9 @@ const permissions = {
 
 const conversations = {
   create: vi.fn(() => Promise.resolve(convoMeta)),
+  createHermes: vi.fn(() =>
+    Promise.resolve({ ...convoMeta, id: 'hermes-1', modelRef: HERMES_MODEL_REF })
+  ),
   setMode: vi.fn(() => Promise.resolve()),
   setEffort: vi.fn(() => Promise.resolve()),
   setThinking: vi.fn(() => Promise.resolve()),
@@ -133,7 +136,8 @@ const convoMeta: ConversationMeta = {
   environment: 'local',
   worktrees: [],
   ursaMode: 'code',
-  hermesSessionId: null
+  hermesSessionId: null,
+  hermesMode: 'legacy'
 }
 
 const convo = (over: Partial<Convo> = {}): Convo => ({
@@ -153,6 +157,7 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   thinking: true,
   webSearch: false,
   ursaMode: 'code',
+  hermesMode: 'legacy',
   projectId: null,
   pinned: false,
   archived: false,
@@ -878,6 +883,18 @@ describe('folder = project: settings store actions', () => {
 })
 
 describe('pin/archive + newConversationInProject store actions', () => {
+  it('creates Hermes conversations with the explicitly configured native mode', async () => {
+    useAppStore.setState({
+      conversations: {},
+      view: { kind: 'home' },
+      settings: { hermesConnectionMode: 'native' } as never
+    })
+
+    await useAppStore.getState().newHermesConversation()
+
+    expect(window.bearcode.conversations.createHermes).toHaveBeenCalledWith('native')
+  })
+
   it('setPinned updates the convo + persists', () => {
     useAppStore.setState({ conversations: { c1: convo() } })
     useAppStore.getState().setPinned('c1', true)

@@ -10,6 +10,7 @@ import type {
   CustomModel,
   EffortLevel,
   Event,
+  HermesConnectionMode,
   ManageableProvider,
   ManualRuleInfo,
   MentionRef,
@@ -50,6 +51,7 @@ export interface Convo {
   thinking: boolean
   webSearch: boolean
   ursaMode: UrsaMode
+  hermesMode: HermesConnectionMode
   projectId: string | null
   pinned: boolean
   archived: boolean
@@ -218,6 +220,7 @@ function fromMeta(meta: ConversationMeta): Convo {
     thinking: meta.thinking,
     webSearch: meta.webSearch,
     ursaMode: meta.ursaMode,
+    hermesMode: meta.hermesMode,
     projectId: meta.projectId,
     pinned: meta.pinned,
     archived: meta.archived,
@@ -430,7 +433,10 @@ interface AppState {
   // Hermes: mints a project-less conversation pinned to HERMES_MODEL_REF and
   // opens it (Task 7 IPC does the DB work; this just reflects it into state).
   newHermesConversation(): Promise<void>
-  testHermesConnection(gatewayUrl: string, token?: string): Promise<{ ok: boolean; message: string }>
+  testHermesConnection(
+    gatewayUrl: string,
+    token?: string
+  ): Promise<{ ok: boolean; message: string }>
   saveHermesToken(token: string): Promise<void>
   togglePermMenu(): void
   pickWorkspace(): Promise<void>
@@ -1333,7 +1339,8 @@ export const useAppStore = create<AppState>((set, get) => {
       // defaults from (createHermes already seeds sensible ones main-side), so
       // this only mirrors newConversationInProject's state-write tail: build
       // the Convo from the returned meta and switch the active view to it.
-      const meta = await window.bearcode.conversations.createHermes()
+      const mode = get().settings?.hermesConnectionMode === 'native' ? 'native' : 'legacy'
+      const meta = await window.bearcode.conversations.createHermes(mode)
       const convo = { ...fromMeta(meta), loaded: true }
       set((s) => {
         const conversations = { ...s.conversations, [meta.id]: convo }

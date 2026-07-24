@@ -22,7 +22,8 @@ const hermesMeta: ConversationMeta = {
   environment: 'local',
   worktrees: [],
   ursaMode: 'code',
-  hermesSessionId: 'sess-1'
+  hermesSessionId: 'sess-1',
+  hermesMode: 'legacy'
 }
 
 const conversations = {

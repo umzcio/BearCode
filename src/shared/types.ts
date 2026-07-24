@@ -1000,6 +1000,7 @@ export interface WorktreeInfo {
 // planning/2026-07-19-ursa-modes-design.md. Persisted per conversation
 // (ursa_mode column), same idiom as effort.
 export type UrsaMode = 'code' | 'council' | 'deep-research' | 'review'
+export type HermesConnectionMode = 'native' | 'legacy'
 
 export interface ConversationMeta {
   id: string
@@ -1028,6 +1029,9 @@ export interface ConversationMeta {
   // Hermes session ID: only meaningful when modelRef is the Hermes sentinel.
   // Persisted per conversation to maintain thread continuity with remote Hermes agent.
   hermesSessionId: string | null
+  // Hermes transport is explicit per conversation. Older/unknown rows resolve
+  // to legacy in the database migration layer.
+  hermesMode: HermesConnectionMode
   // The project this conversation belongs to (E4), or null when unassigned.
   projectId: string | null
   // Pin/archive flags (E7). Pinned conversations float to the top of their
@@ -1221,6 +1225,8 @@ export interface AppSettings {
   // never render an empty section header.
   hermesEnabled?: boolean
   hermesGatewayUrl?: string
+  hermesConnectionMode?: HermesConnectionMode
+  hermesNativeUrl?: string
   hermesLabel?: string
   hermesIcon?: string
   // F8 Agent Settings (global defaults; per-project overrides = F9). Optional &
@@ -1435,7 +1441,7 @@ export interface BearcodeApi {
     // Hermes: mints a project-less conversation pinned to HERMES_MODEL_REF with
     // a fresh session id, so the Gateway SSE client (Task 4/5) has a stable
     // session to resume against.
-    createHermes(): Promise<ConversationMeta>
+    createHermes(mode: HermesConnectionMode): Promise<ConversationMeta>
     delete(id: string): Promise<void>
     clear(): Promise<void>
     setMode(id: string, mode: PermissionMode): Promise<void>

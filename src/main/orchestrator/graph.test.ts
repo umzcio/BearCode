@@ -2133,7 +2133,8 @@ describe('runGraph — Ursa Modes: code mode routes through the classifier', () 
       archived: false,
       environment: 'local',
       worktrees: [],
-      hermesSessionId: null
+      hermesSessionId: null,
+      hermesMode: 'legacy' as const
     })
     vi.mocked(resolveUrsaModelRef).mockResolvedValue({
       modelRef: 'openai/gpt-5.6-sol',
@@ -2175,7 +2176,8 @@ describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {
     archived: false,
     environment: 'local' as const,
     worktrees: [],
-    hermesSessionId: null
+    hermesSessionId: null,
+    hermesMode: 'legacy' as const
   })
 
   it("routes an Ursa turn to runCouncil (no classifier, no agent) when mode is 'council'", async () => {
@@ -2318,7 +2320,8 @@ describe('runGraph — Ursa Modes: deep research (Task 6)', () => {
     archived: false,
     environment: 'local' as const,
     worktrees: [],
-    hermesSessionId: null
+    hermesSessionId: null,
+    hermesMode: 'legacy' as const
   })
 
   it('auto-starts the preset pipeline (running, no consent card) and parks paused:true', async () => {
@@ -2473,7 +2476,8 @@ describe('runGraph — Ursa Modes: review dispatch (Task 4)', () => {
     archived: false,
     environment: 'local' as const,
     worktrees: [],
-    hermesSessionId: null
+    hermesSessionId: null,
+    hermesMode: 'legacy' as const
   })
 
   it('review mode with a resolved lens+scope routes to runReview (Ursa panel)', async () => {

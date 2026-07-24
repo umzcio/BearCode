@@ -40,7 +40,8 @@ import type {
   SkillProposalResolution,
   SkillSaveResult,
   TranscribeMeta,
-  WorktreeInfo
+  WorktreeInfo,
+  HermesConnectionMode
 } from '../shared/types'
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
@@ -604,10 +605,14 @@ export function registerIpc(): void {
     if (id !== undefined) assertValidConversationId(id)
     return db.createConversation(projectPath, id)
   })
-  ipcMain.handle('bearcode:conversations:create-hermes', () => {
+  ipcMain.handle('bearcode:conversations:create-hermes', (_e, mode: unknown) => {
+    if (mode !== 'native' && mode !== 'legacy') {
+      throw new Error(`Invalid Hermes connection mode: ${String(mode)}`)
+    }
     const meta = db.createConversation(null)
     db.setModelRef(meta.id, HERMES_MODEL_REF)
     db.setHermesSessionId(meta.id, randomUUID())
+    db.setHermesMode(meta.id, mode as HermesConnectionMode)
     return db.getConversationMeta(meta.id)
   })
   ipcMain.handle('bearcode:conversations:delete', async (_e, id: string) => {

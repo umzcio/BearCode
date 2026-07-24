@@ -40,6 +40,7 @@ vi.mock('./db', () => ({
   createConversation: vi.fn(),
   setModelRef: vi.fn(),
   setHermesSessionId: vi.fn(),
+  setHermesMode: vi.fn(),
   getConversationMeta: vi.fn(),
   listConversations: vi.fn(() => []),
   getEvents: vi.fn(() => []),
@@ -91,12 +92,19 @@ beforeEach(() => {
 })
 
 describe('bearcode:conversations:create-hermes', () => {
-  it('creates a project-less conversation, sets the sentinel modelRef, and assigns a session id', async () => {
-    const meta = await handlers.get('bearcode:conversations:create-hermes')!({})
+  it('creates a project-less conversation, sets the sentinel modelRef, session id, and native mode', async () => {
+    const meta = await handlers.get('bearcode:conversations:create-hermes')!({}, 'native')
     expect(db.createConversation).toHaveBeenCalledWith(null)
     expect(db.setModelRef).toHaveBeenCalledWith('new-convo-id', HERMES_MODEL_REF)
     expect(db.setHermesSessionId).toHaveBeenCalledWith('new-convo-id', expect.any(String))
+    expect(db.setHermesMode).toHaveBeenCalledWith('new-convo-id', 'native')
     expect(meta).toMatchObject({ id: 'new-convo-id' })
+  })
+
+  it('rejects an unknown connection mode', () => {
+    expect(() => handlers.get('bearcode:conversations:create-hermes')!({}, 'unknown')).toThrow(
+      'Invalid Hermes connection mode'
+    )
   })
 })
 

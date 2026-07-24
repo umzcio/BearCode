@@ -9,6 +9,7 @@ import type {
   ConversationMeta,
   EffortLevel,
   Event,
+  HermesConnectionMode,
   GithubDeviceStart,
   HookAuthoringInput,
   HookEvent,
@@ -155,8 +156,8 @@ const bearcode: BearcodeApi = {
     get: (id: string) => ipcRenderer.invoke('bearcode:conversations:get', id),
     create: (projectPath: string | null, id?: string) =>
       ipcRenderer.invoke('bearcode:conversations:create', projectPath, id),
-    createHermes: (): Promise<ConversationMeta> =>
-      ipcRenderer.invoke('bearcode:conversations:create-hermes'),
+    createHermes: (mode: HermesConnectionMode): Promise<ConversationMeta> =>
+      ipcRenderer.invoke('bearcode:conversations:create-hermes', mode),
     delete: (id: string) => ipcRenderer.invoke('bearcode:conversations:delete', id),
     clear: () => ipcRenderer.invoke('bearcode:conversations:clear'),
     setMode: (id: string, mode: PermissionMode): Promise<void> =>
