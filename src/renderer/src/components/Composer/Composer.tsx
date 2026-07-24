@@ -6,7 +6,7 @@ import type {
   MentionRef,
   PickedAttachmentWire
 } from '@shared/types'
-import { URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
+import { HERMES_MODEL_REF, URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
 import { EffortPicker } from '../EffortPicker/EffortPicker'
@@ -90,7 +90,9 @@ export function Composer({
     useShallow((s) => {
       if (!conversationId) return undefined
       const c = s.conversations[conversationId]
-      return c ? { eventsLen: c.events.length, environment: c.environment } : undefined
+      return c
+        ? { eventsLen: c.events.length, environment: c.environment, modelRef: c.modelRef }
+        : undefined
     })
   )
   // Scoped to id/title (primitives, so shallow-compare actually catches
@@ -135,6 +137,17 @@ export function Composer({
 
   const modelReady = refConfigured(providers, modelRef)
   const showNotice = providers.length > 0 && !modelReady
+  // Hermes conversations are project-less and talk to a self-hosted agent,
+  // not this app's local model/permission/effort machinery -- hide those
+  // picker controls entirely (Task 11 lean mode). Checked against both the
+  // transient top-level `modelRef` (what Ursa/Ursus keys off above) AND the
+  // active conversation's own persisted modelRef: unlike Ursa/Ursus,
+  // HERMES_MODEL_REF isn't special-cased in refConfigured, so openConvo's
+  // `refConfigured(...)` guard silently skips syncing the top-level field
+  // when opening (or, via newHermesConversation, creating) a Hermes
+  // conversation. Falling back to the per-conversation value keeps lean mode
+  // correct even when that top-level sync is stale.
+  const isHermesConvo = modelRef === HERMES_MODEL_REF || activeConvo?.modelRef === HERMES_MODEL_REF
   // The pill makes trailing text optional (design 5.2): a bare workflow/goal
   // send is valid, only an empty composer with no pill is not.
   const hasContent =
@@ -155,9 +168,12 @@ export function Composer({
   // entirely -- there is only ever one command per turn. An open resume
   // picker also suppresses it: the two popovers share the spot above the
   // composer and both react to arrows/enter/escape, so they must never
-  // render stacked.
+  // render stacked. A Hermes conversation has no add-context affordance to
+  // reach slash commands (see the .add-context gate below), but typing "/"
+  // directly is a second, independent entry point -- runHermes never forwards
+  // commands (only plain text), so it must stay suppressed here too.
   const menuOpen =
-    command === null && !menuDismissed && !resumePickerOpen && value.length > 0 && value[0] === '/'
+    command === null && !menuDismissed && !resumePickerOpen && value.length > 0 && value[0] === '/' && !isHermesConvo
   const filtered = menuOpen ? filterSlashCommands(value.slice(1), commands) : []
   const safeIndex = Math.min(highlightedIndex, Math.max(0, filtered.length - 1))
 
@@ -552,7 +568,13 @@ export function Composer({
           const next = e.target.value
           setValue(next)
           setMenuDismissed(false)
-          setMentionQuery(activeMentionQuery(next, e.target.selectionStart ?? next.length))
+          // A Hermes conversation has no add-context affordance to reach this
+          // (see the .add-context gate above), but typing "@" directly is a
+          // second, independent entry point into the same picker -- runHermes
+          // never forwards mentions, so it must stay suppressed here too.
+          setMentionQuery(
+            isHermesConvo ? null : activeMentionQuery(next, e.target.selectionStart ?? next.length)
+          )
           setMentionIndex(0)
         }}
         onKeyDown={(e) => {
@@ -647,28 +669,37 @@ export function Composer({
       />
       <div className="composer-controls">
         <div className="controls-left">
-          <div className="add-context">
-            <Hint label="Add context" side="top" disabled={addMenuOpen}>
-              <button
-                ref={addMenuBtnRef}
-                className="icon-btn"
-                aria-label="Add context"
-                onClick={() => setAddMenuOpen((o) => !o)}
-              >
-                <IconPlus />
-              </button>
-            </Hint>
-            <Menu
-              anchorRef={addMenuBtnRef}
-              open={addMenuOpen}
-              onClose={() => setAddMenuOpen(false)}
-              groups={addContextGroups}
-              onSelect={onAddContextSelect}
-              placement="top-start"
-              ariaLabel="Add context"
-            />
-          </div>
-          <ModePicker />
+          {/* Media/Mentions/Actions/Browser all end up as fields (attachments/
+              mentions/command) that runHermes never forwards to the Gateway --
+              only the plain text is sent (see hermes.ts). Showing this affordance
+              for a Hermes conversation would let a user attach a file or pick a
+              mention/command, watch it appear as a pill, and have it silently
+              vanish. Hidden entirely, same gating pattern as the model/mode/
+              effort pickers below. */}
+          {!isHermesConvo && (
+            <div className="add-context">
+              <Hint label="Add context" side="top" disabled={addMenuOpen}>
+                <button
+                  ref={addMenuBtnRef}
+                  className="icon-btn"
+                  aria-label="Add context"
+                  onClick={() => setAddMenuOpen((o) => !o)}
+                >
+                  <IconPlus />
+                </button>
+              </Hint>
+              <Menu
+                anchorRef={addMenuBtnRef}
+                open={addMenuOpen}
+                onClose={() => setAddMenuOpen(false)}
+                groups={addContextGroups}
+                onSelect={onAddContextSelect}
+                placement="top-start"
+                ariaLabel="Add context"
+              />
+            </div>
+          )}
+          {!isHermesConvo && <ModePicker />}
           <Hint
             label={voice.status === 'recording' ? 'Stop recording' : 'Voice input'}
             keys="⌃M"
@@ -688,11 +719,13 @@ export function Composer({
         </div>
         <div className="controls-right">
           <ContextMeter />
-          <ModelPicker />
+          {!isHermesConvo && <ModelPicker />}
           {/* Effort is meaningless for a router: BOTH router conversations swap
               the Effort control for the per-conversation Mode picker (Code /
-              Council / Deep Research). Concrete models keep EffortPicker as-is. */}
-          {modelRef === URSA_MODEL_REF ? (
+              Council / Deep Research). Concrete models keep EffortPicker as-is.
+              Hermes lean mode (Task 11) drops this control entirely, along
+              with the web-search toggle that lives inside EffortPicker. */}
+          {isHermesConvo ? null : modelRef === URSA_MODEL_REF ? (
             <UrsaModePicker />
           ) : modelRef === URSUS_MODEL_REF ? (
             <UrsaModePicker router="ursus" />

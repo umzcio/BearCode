@@ -277,6 +277,11 @@ function getDb(): Database.Database {
   } catch {
     // column already exists
   }
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN hermes_session_id TEXT`)
+  } catch {
+    // column already exists
+  }
   backfillEventFts(db)
   zombieRunIds = cancelZombieRuns(db)
   return db
@@ -408,6 +413,7 @@ interface ConversationRow {
   environment: string | null
   worktrees: string | null
   ursa_mode: string | null
+  hermes_session_id: string | null
 }
 
 // A malformed active_rules value (hand-edited DB, partial write) must never
@@ -455,6 +461,7 @@ function toMeta(
     environment: row.environment === 'worktree' ? 'worktree' : 'local',
     worktrees: parseWorktrees(row.worktrees),
     ursaMode: isUrsaMode(row.ursa_mode) ? row.ursa_mode : 'code',
+    hermesSessionId: row.hermes_session_id,
     preview: preview ?? null
   }
 }
@@ -478,7 +485,8 @@ export function createConversation(projectPath: string | null, id?: string): Con
     archived: null,
     environment: null,
     worktrees: null,
-    ursa_mode: null
+    ursa_mode: null,
+    hermes_session_id: null
   }
   getDb()
     .prepare(
@@ -931,6 +939,12 @@ export function setUrsaMode(conversationId: string, mode: UrsaMode): void {
   getDb()
     .prepare(`UPDATE conversations SET ursa_mode = ?, updated_at = ? WHERE id = ?`)
     .run(mode, Date.now(), conversationId)
+}
+
+export function setHermesSessionId(conversationId: string, sessionId: string): void {
+  getDb()
+    .prepare(`UPDATE conversations SET hermes_session_id = ?, updated_at = ? WHERE id = ?`)
+    .run(sessionId, Date.now(), conversationId)
 }
 
 export function setThinking(conversationId: string, thinking: boolean): void {

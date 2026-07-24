@@ -17,7 +17,7 @@ import {
   type Convo
 } from './store'
 import type { ProviderModels } from '@shared/types'
-import { URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
+import { HERMES_MODEL_REF, URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 
 const info: PermissionRulesInfo = {
   userRules: [
@@ -132,7 +132,8 @@ const convoMeta: ConversationMeta = {
   archived: false,
   environment: 'local',
   worktrees: [],
-  ursaMode: 'code'
+  ursaMode: 'code',
+  hermesSessionId: null
 }
 
 const convo = (over: Partial<Convo> = {}): Convo => ({
@@ -849,6 +850,20 @@ describe('effort/thinking store actions', () => {
     expect(useAppStore.getState().effort).toBe('low')
     expect(useAppStore.getState().thinking).toBe(false)
   })
+
+  it('opening a Hermes conversation syncs the top-level modelRef to HERMES_MODEL_REF', () => {
+    // Regression: refConfigured previously had no HERMES_MODEL_REF exception,
+    // so this sync was blocked -- send()/retryRun() (which read the top-level
+    // modelRef) would dispatch under whatever concrete model was last active
+    // instead of routing to Hermes. Mirrors the Ursa/Ursus case.
+    useAppStore.setState({
+      conversations: { c1: convo({ modelRef: HERMES_MODEL_REF }) },
+      view: { kind: 'home' },
+      modelRef: 'anthropic/claude-sonnet-5'
+    })
+    useAppStore.getState().openConvo('c1')
+    expect(useAppStore.getState().modelRef).toBe(HERMES_MODEL_REF)
+  })
 })
 
 describe('folder = project: settings store actions', () => {
@@ -1006,6 +1021,16 @@ describe('refConfigured (F7 opt-out)', () => {
     // not re-derive a false negative.
     expect(refConfigured(providers, URSUS_MODEL_REF)).toBe(true)
     expect(refConfigured([], URSUS_MODEL_REF)).toBe(true)
+  })
+
+  it('is always true for the Hermes sentinel, even with no matching provider entry', () => {
+    // Regression: without this exception, openConvo's refConfigured guard never
+    // synced the store's top-level modelRef to HERMES_MODEL_REF, so send()/
+    // retryRun() (which read the top-level modelRef) dispatched Hermes turns
+    // under whatever concrete model was last active instead of routing to
+    // Hermes -- see openConvo test below.
+    expect(refConfigured(providers, HERMES_MODEL_REF)).toBe(true)
+    expect(refConfigured([], HERMES_MODEL_REF)).toBe(true)
   })
 })
 

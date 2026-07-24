@@ -93,10 +93,36 @@
   display: flex;
   gap: 2px;
 }
+/* Icon + label as ONE flex child, so a header with an icon (Hermes section)
+   keeps .projects-head at two children -- otherwise justify-content:
+   space-between distributes icon/label/actions as left/center/right and the
+   label ends up centered. The group also spaces the icon from the label and
+   truncates a long custom label instead of shoving the action button off. */
+.projects-head .head-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.projects-head .head-label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .projects-scroll {
   overflow-y: auto;
   min-height: 0;
+}
+/* The Hermes conversation list is a SECONDARY scroll region above the main
+   Projects list. Left as a plain .projects-scroll it competes with Projects
+   for vertical space (both flex-shrink:1, min-height:0) and collapses to a
+   ~9px sliver -- all you see is its scrollbar. Pin it to its content instead:
+   don't shrink, cap the height so a long list scrolls internally rather than
+   crowding out Projects. Projects stays the one space-absorbing scroll region. */
+.hermes-scroll {
+  flex-shrink: 0;
+  max-height: 30vh;
 }
 
 .proj-group {

@@ -124,6 +124,15 @@ vi.mock('./council', () => ({
   URSA_COUNCIL: { seats: ['ursa/seat'], chair: 'ursa/chair', unavailable: 'ursa' }
 }))
 
+// Hermes integration: the Gateway relay runner is a self-contained module
+// (hermes.test.ts covers it directly); mock it here so runGraph's Hermes-
+// dispatch seam can be asserted without a real Gateway SSE call. Mirrors the
+// ./council mock above.
+vi.mock('./hermes', () => ({
+  isHermesModelRef: (ref: string) => ref === 'hermes/agent',
+  runHermes: vi.fn(async () => ({ paused: false }))
+}))
+
 import {
   textOfMessage,
   buildUserMessageContent,
@@ -179,6 +188,7 @@ import {
 } from './ursus'
 import { makeModel } from './models'
 import { runCouncil, URSA_COUNCIL } from './council'
+import { runHermes } from './hermes'
 import {
   getLastResolvedModelRef,
   getLastUrsaRole,
@@ -2122,7 +2132,8 @@ describe('runGraph — Ursa Modes: code mode routes through the classifier', () 
       pinned: false,
       archived: false,
       environment: 'local',
-      worktrees: []
+      worktrees: [],
+      hermesSessionId: null
     })
     vi.mocked(resolveUrsaModelRef).mockResolvedValue({
       modelRef: 'openai/gpt-5.6-sol',
@@ -2163,7 +2174,8 @@ describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {
     pinned: false,
     archived: false,
     environment: 'local' as const,
-    worktrees: []
+    worktrees: [],
+    hermesSessionId: null
   })
 
   it("routes an Ursa turn to runCouncil (no classifier, no agent) when mode is 'council'", async () => {
@@ -2243,6 +2255,43 @@ describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {
   })
 })
 
+describe('Hermes dispatch seam', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
+
+  it('routes a Hermes-model turn to runHermes and never classifies or builds an agent', async () => {
+    vi.mocked(runHermes).mockResolvedValue({ paused: false })
+    const sink = makeSink()
+    const signal = new AbortController().signal
+    const result = await runGraph({
+      conversationId: 'c1',
+      userText: 'hi',
+      modelRef: 'hermes/agent',
+      sink,
+      signal
+    })
+    expect(result).toEqual({ paused: false })
+    expect(runHermes).toHaveBeenCalledWith('c1', 'hi', sink, signal)
+    // Hermes never classifies and never builds an agent.
+    expect(resolveUrsaModelRef).not.toHaveBeenCalled()
+    expect(resolveUrsusModelRef).not.toHaveBeenCalled()
+    expect(makeModel).not.toHaveBeenCalled()
+  })
+
+  it('does NOT route a concrete (non-Hermes) model to runHermes', async () => {
+    const sink = makeSink()
+    await runGraph({
+      conversationId: 'c1',
+      userText: 'hi',
+      modelRef: 'anthropic/claude-sonnet-5',
+      sink,
+      signal: new AbortController().signal
+    }).catch(() => {})
+    expect(runHermes).not.toHaveBeenCalled()
+  })
+})
+
 describe('runGraph — Ursa Modes: deep research (Task 6)', () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -2268,7 +2317,8 @@ describe('runGraph — Ursa Modes: deep research (Task 6)', () => {
     pinned: false,
     archived: false,
     environment: 'local' as const,
-    worktrees: []
+    worktrees: [],
+    hermesSessionId: null
   })
 
   it('auto-starts the preset pipeline (running, no consent card) and parks paused:true', async () => {
@@ -2422,7 +2472,8 @@ describe('runGraph — Ursa Modes: review dispatch (Task 4)', () => {
     pinned: false,
     archived: false,
     environment: 'local' as const,
-    worktrees: []
+    worktrees: [],
+    hermesSessionId: null
   })
 
   it('review mode with a resolved lens+scope routes to runReview (Ursa panel)', async () => {

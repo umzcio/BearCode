@@ -25,6 +25,7 @@ import {
 import { GeneralPage } from './pages/GeneralPage'
 import { UrsaPage } from './pages/UrsaPage'
 import { UrsusPage } from './pages/UrsusPage'
+import { HermesPage } from './pages/HermesPage'
 import { ProvidersPage } from './pages/ProvidersPage'
 import { ModelsPage } from './pages/ModelsPage'
 import { VoicePage } from './pages/VoicePage'
@@ -343,6 +344,8 @@ function SettingsPanel({
           {page === 'ursa' ? <UrsaPage /> : null}
 
           {page === 'ursus' ? <UrsusPage /> : null}
+
+          {page === 'hermes' ? <HermesPage /> : null}
 
           {page === 'browser' ? <BrowserPage /> : null}
 

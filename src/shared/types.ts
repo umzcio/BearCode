@@ -864,6 +864,11 @@ export const URSA_MODEL_REF = 'ursa/auto'
 // following the same 'provider/modelId'-shaped namespace convention.
 export const URSUS_MODEL_REF = 'ursus/auto'
 
+// The sentinel modelRef that marks a conversation as Hermes-routed (self-hosted agent).
+// Same rationale as URSA_MODEL_REF: lives here so the renderer can reference it
+// without crossing the Electron process boundary.
+export const HERMES_MODEL_REF = 'hermes/agent'
+
 // A named model assignment Ursa's classifier can dispatch a turn to. The set
 // of roles is curated in code (main/orchestrator/ursa.ts's CURATED_ROLES),
 // never user-editable -- this type exists so the renderer's turn_meta badge
@@ -1020,6 +1025,9 @@ export interface ConversationMeta {
   // Resolved from the ursa_mode column, coercing unknown/NULL to 'code'
   // (db toMeta) -- never falls back to a settings default like effort does.
   ursaMode: UrsaMode
+  // Hermes session ID: only meaningful when modelRef is the Hermes sentinel.
+  // Persisted per conversation to maintain thread continuity with remote Hermes agent.
+  hermesSessionId: string | null
   // The project this conversation belongs to (E4), or null when unassigned.
   projectId: string | null
   // Pin/archive flags (E7). Pinned conversations float to the top of their
@@ -1208,6 +1216,13 @@ export interface AppSettings {
   // read by Ursus's own classifier. Optional & additive: coerced to '' on read,
   // capped at 2000 chars.
   ursusInstructions?: string
+  // Hermes integration: enable gate defaults to off; label/icon are cosmetic
+  // sidebar customization with safe fallbacks so a blank/garbage value can
+  // never render an empty section header.
+  hermesEnabled?: boolean
+  hermesGatewayUrl?: string
+  hermesLabel?: string
+  hermesIcon?: string
   // F8 Agent Settings (global defaults; per-project overrides = F9). Optional &
   // additive: absent → behavior-preserving defaults (custom / deny / auto).
   securityPreset?: SecurityPreset
@@ -1383,6 +1398,10 @@ export interface BearcodeApi {
     set(provider: ProviderId, key: string): Promise<void>
     status(): Promise<Record<ProviderId, boolean>>
   }
+  hermes: {
+    testConnection(gatewayUrl: string, token?: string): Promise<{ ok: boolean; message: string }>
+    setToken(token: string): Promise<void>
+  }
   ursa: {
     requiredProviders(): Promise<ProviderId[]>
     // Ursa Phase 2: approve/deny a proposed pipeline (the synthetic
@@ -1413,6 +1432,10 @@ export interface BearcodeApi {
     list(): Promise<ConversationMeta[]>
     get(id: string): Promise<Event[]>
     create(projectPath: string | null, id?: string): Promise<ConversationMeta>
+    // Hermes: mints a project-less conversation pinned to HERMES_MODEL_REF with
+    // a fresh session id, so the Gateway SSE client (Task 4/5) has a stable
+    // session to resume against.
+    createHermes(): Promise<ConversationMeta>
     delete(id: string): Promise<void>
     clear(): Promise<void>
     setMode(id: string, mode: PermissionMode): Promise<void>

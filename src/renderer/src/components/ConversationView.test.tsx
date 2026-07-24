@@ -504,3 +504,86 @@ describe('ConversationView pinned approval', () => {
     expect(screen.queryByText('Allow running this command?')).toBeNull()
   })
 })
+
+// Task 12: pre-events EmptyState for a not-yet-configured Hermes conversation,
+// plus verification that runHermes's standard `{ type: 'error', recoverable }`
+// events (Task 5) render inline via the same generic ErrorCard path every
+// other conversation type uses -- no new error-rendering code needed.
+describe('Hermes conversation empty/error states', () => {
+  const baseHermesConvo = {
+    id: 'h1',
+    projectPath: '/p',
+    title: 'Hermes',
+    modelRef: 'hermes/agent',
+    permissionMode: 'accept-edits',
+    updatedAt: 1,
+    loaded: true,
+    runState: 'idle'
+  }
+
+  it('shows a setup EmptyState for a Hermes conversation when Hermes is disabled', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'h1' },
+      modelRef: 'hermes/agent',
+      providers: [],
+      settings: { hermesEnabled: false },
+      conversations: { h1: { ...baseHermesConvo, events: [] } },
+      convoOrder: ['h1']
+    } as never)
+    const { container } = render(<ConversationView convoId="h1" />)
+    expect(screen.getByText(/set up hermes/i)).toBeInTheDocument()
+    expect(container.querySelector('.composer-wrap')).toBeNull()
+  })
+
+  it('renders a normal transcript when Hermes is enabled and events exist', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'h1' },
+      modelRef: 'hermes/agent',
+      providers: [],
+      settings: { hermesEnabled: true },
+      conversations: {
+        h1: { ...baseHermesConvo, events: [{ type: 'user_message', id: 'e1', text: 'hi' }] }
+      },
+      convoOrder: ['h1']
+    } as never)
+    render(<ConversationView convoId="h1" />)
+    expect(screen.getByText('hi')).toBeInTheDocument()
+    expect(screen.queryByText(/set up hermes/i)).toBeNull()
+  })
+
+  it('does not show the setup EmptyState once a turn has started, even if it failed', () => {
+    // The realistic "unreachable gateway" shape: runHermes (Task 5) always
+    // emits through the same sink/appendEvent pipeline as every other
+    // conversation type, so the failing turn still opens with a persisted
+    // user_message before its error -- an orphan `error` event with no
+    // preceding user_message never happens in practice (groupTurns only
+    // buckets events into the turn a user_message opened).
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'h1' },
+      modelRef: 'hermes/agent',
+      providers: [],
+      settings: { hermesEnabled: true },
+      conversations: {
+        h1: {
+          ...baseHermesConvo,
+          events: [
+            { type: 'user_message', id: 'u1', text: 'hi' },
+            {
+              type: 'error',
+              id: 'e1',
+              message: 'Could not reach the Hermes gateway: fetch failed',
+              recoverable: true
+            }
+          ]
+        }
+      },
+      convoOrder: ['h1']
+    } as never)
+    const { container } = render(<ConversationView convoId="h1" />)
+    expect(screen.queryByText(/set up hermes/i)).toBeNull()
+    expect(screen.getByText('Could not reach the Hermes gateway: fetch failed')).toBeInTheDocument()
+    // Renders via the plain, generic ErrorCard -- not a fatal crash screen.
+    expect(container.querySelector('.error-card')).not.toBeNull()
+    expect(container.querySelector('.retry-btn')).not.toBeNull()
+  })
+})

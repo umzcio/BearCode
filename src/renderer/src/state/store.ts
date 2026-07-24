@@ -31,7 +31,7 @@ import type {
   UrsaMode,
   WorktreeInfo
 } from '@shared/types'
-import { URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
+import { HERMES_MODEL_REF, URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
 import { describeError } from '../lib/errors'
 import { mergeEvent } from '../lib/mergeEvent'
@@ -427,6 +427,11 @@ interface AppState {
   setArchived(id: string, archived: boolean): void
   renameConversation(id: string, title: string): void
   newConversationInProject(path: string): Promise<void>
+  // Hermes: mints a project-less conversation pinned to HERMES_MODEL_REF and
+  // opens it (Task 7 IPC does the DB work; this just reflects it into state).
+  newHermesConversation(): Promise<void>
+  testHermesConnection(gatewayUrl: string, token?: string): Promise<{ ok: boolean; message: string }>
+  saveHermesToken(token: string): Promise<void>
   togglePermMenu(): void
   pickWorkspace(): Promise<void>
   setWorkspace(path: string | null): void
@@ -505,7 +510,10 @@ export function refConfigured(providers: ProviderModels[], ref: ModelRef | null)
   // provider, so a conversation that has it selected is inherently ready.
   // Per-turn eligibility is re-checked server-side by resolveUrsaModelRef;
   // a failure there surfaces as its own error event, not this composer notice.
-  if (ref === URSA_MODEL_REF || ref === URSUS_MODEL_REF) return true
+  // Same rationale for the Hermes sentinel: it routes to the Hermes Gateway,
+  // not a provider/model pair, so it's always "configured" here -- the Hermes
+  // settings page gates whether the Gateway itself is reachable/enabled.
+  if (ref === URSA_MODEL_REF || ref === URSUS_MODEL_REF || ref === HERMES_MODEL_REF) return true
   const slash = ref.indexOf('/')
   const providerId = ref.slice(0, slash)
   const modelId = ref.slice(slash + 1)
@@ -1319,6 +1327,32 @@ export const useAppStore = create<AppState>((set, get) => {
         }
       })
     },
+
+    newHermesConversation: async () => {
+      // Hermes conversations are project-less -- there is no folder to inherit
+      // defaults from (createHermes already seeds sensible ones main-side), so
+      // this only mirrors newConversationInProject's state-write tail: build
+      // the Convo from the returned meta and switch the active view to it.
+      const meta = await window.bearcode.conversations.createHermes()
+      const convo = { ...fromMeta(meta), loaded: true }
+      set((s) => {
+        const conversations = { ...s.conversations, [meta.id]: convo }
+        return {
+          conversations,
+          convoOrder: orderByRecency(conversations),
+          view: { kind: 'conversation', id: meta.id },
+          // Mirror newConversationInProject/openConvo: the composer's transient
+          // top-level modelRef must be synced to the sentinel immediately, or
+          // send()/retryRun() dispatch under whatever model was last active
+          // (and corrupt the conversation's persisted modelRef) until the
+          // conversation is closed and reopened.
+          modelRef: HERMES_MODEL_REF
+        }
+      })
+    },
+    testHermesConnection: (gatewayUrl, token) =>
+      window.bearcode.hermes.testConnection(gatewayUrl, token),
+    saveHermesToken: (token) => window.bearcode.hermes.setToken(token),
 
     togglePermMenu: () => set((s) => ({ permMenuTick: s.permMenuTick + 1 })),
 

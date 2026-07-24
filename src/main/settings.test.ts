@@ -142,6 +142,39 @@ describe('migrateSettings Ursus coercion', () => {
   })
 })
 
+describe('hermes settings', () => {
+  it('defaults hermesEnabled to false', () => {
+    expect(migrateSettings({}).hermesEnabled).toBe(false)
+  })
+  it('defaults hermesGatewayUrl to an empty string', () => {
+    expect(migrateSettings({}).hermesGatewayUrl).toBe('')
+  })
+  it('defaults hermesLabel to "Hermes"', () => {
+    expect(migrateSettings({}).hermesLabel).toBe('Hermes')
+  })
+  it('falls back to "Hermes" for a blank/whitespace label', () => {
+    expect(migrateSettings({ hermesLabel: '   ' }).hermesLabel).toBe('Hermes')
+  })
+  it('defaults hermesIcon to IconChat', () => {
+    expect(migrateSettings({}).hermesIcon).toBe('IconChat')
+  })
+  it('preserves a stored gateway URL, label, and icon across load', () => {
+    const merged = migrateSettings({
+      hermesEnabled: true,
+      hermesGatewayUrl: 'https://spark.tail1234.ts.net:8642',
+      hermesLabel: 'Assistant',
+      hermesIcon: 'IconBrain'
+    })
+    expect(merged.hermesEnabled).toBe(true)
+    expect(merged.hermesGatewayUrl).toBe('https://spark.tail1234.ts.net:8642')
+    expect(merged.hermesLabel).toBe('Assistant')
+    expect(merged.hermesIcon).toBe('IconBrain')
+  })
+  it('coerces a non-string gateway URL to empty', () => {
+    expect(migrateSettings({ hermesGatewayUrl: 12345 }).hermesGatewayUrl).toBe('')
+  })
+})
+
 describe('setSettings Ursus validation', () => {
   it('persists ursusEnabled as a coerced boolean', () => {
     expect(setSettings({ ursusEnabled: true }).ursusEnabled).toBe(true)

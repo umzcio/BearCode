@@ -1,5 +1,6 @@
 import { useMemo, useRef, useLayoutEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { HERMES_MODEL_REF } from '@shared/types'
 import { useAppStore, type Convo } from '../../state/store'
 import { relativeAge } from '../../lib/time'
 import bearMark from '../../assets/bear.svg'
@@ -29,7 +30,8 @@ function toConvoLike(c: Convo): ConvoLike {
       archived: c.archived,
       runState: c.runState,
       environment: c.environment,
-      worktrees: c.worktrees
+      worktrees: c.worktrees,
+      modelRef: c.modelRef
     }
     convoLikeCache.set(c, cached)
   }
@@ -72,10 +74,30 @@ export function Sidebar(): React.JSX.Element {
   const sort = useAppStore((s) => s.settings?.sidebarSort ?? 'updated')
   const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
   const subtitle = useAppStore((s) => s.settings?.sidebarSubtitle ?? 'none')
+  const hermesEnabled = useAppStore((s) => s.settings?.hermesEnabled ?? false)
+  const hermesLabel = useAppStore((s) => s.settings?.hermesLabel)
+  const hermesIcon = useAppStore((s) => s.settings?.hermesIcon)
+  const newHermesConversation = useAppStore((s) => s.newHermesConversation)
+
+  // Hermes conversations are project-less (projectPath: null), so they'd
+  // otherwise land in the "No folder" project group. Pull them out into their
+  // own recency-sorted list and drop them from what groupConversations sees,
+  // so a Hermes conversation never renders twice.
+  const hermesConvoIds = useMemo(
+    () =>
+      convoOrder
+        .filter((id) => conversations[id]?.modelRef === HERMES_MODEL_REF)
+        .sort((a, b) => (conversations[b]?.updatedAt ?? 0) - (conversations[a]?.updatedAt ?? 0)),
+    [convoOrder, conversations]
+  )
+  const projectConvoOrder = useMemo(
+    () => convoOrder.filter((id) => conversations[id]?.modelRef !== HERMES_MODEL_REF),
+    [convoOrder, conversations]
+  )
 
   const groups = useMemo(
-    () => groupConversations(convoOrder, conversations, { groupBy, sort, showArchived }),
-    [convoOrder, conversations, groupBy, sort, showArchived]
+    () => groupConversations(projectConvoOrder, conversations, { groupBy, sort, showArchived }),
+    [projectConvoOrder, conversations, groupBy, sort, showArchived]
   )
 
   // FLIP collapse animation (apple-design §11): margin-left has already snapped
@@ -152,6 +174,66 @@ export function Sidebar(): React.JSX.Element {
         <IconHistory />
         Conversation History
       </button>
+
+      {hermesEnabled ? (
+        <>
+          <div className="projects-head">
+            <span className="head-label">
+              {(() => {
+                const HermesIcon = projectIcon(hermesIcon)
+                return <HermesIcon size={14} />
+              })()}
+              <span className="head-label-text">{hermesLabel || 'Hermes'}</span>
+            </span>
+            <div className="actions">
+              <Hint label="New Hermes conversation" side="bottom">
+                <button
+                  type="button"
+                  className="chrome-btn"
+                  aria-label="New Hermes conversation"
+                  onClick={() => void newHermesConversation()}
+                >
+                  <IconPlus size={13} />
+                </button>
+              </Hint>
+            </div>
+          </div>
+          <div className="projects-scroll hermes-scroll">
+            {hermesConvoIds.length === 0 ? (
+              <div className="sidebar-empty">
+                <EmptyState title="No Hermes conversations yet" />
+              </div>
+            ) : null}
+            {hermesConvoIds.map((id) => {
+              const convo = conversations[id]
+              if (!convo) return null
+              const selected = view.kind === 'conversation' && view.id === id
+              return (
+                <div
+                  key={id}
+                  className={'convo' + (selected ? ' selected' : '')}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openConvo(id)}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      openConvo(id)
+                    }
+                  }}
+                >
+                  <span className="name-wrap">
+                    <span className="name">{convo.title}</span>
+                  </span>
+                  <span className="age">{relativeAge(convo.updatedAt)}</span>
+                  <ConvoRowMenu convoId={id} title={convo.title} />
+                </div>
+              )
+            })}
+          </div>
+        </>
+      ) : null}
 
       <div className="projects-head">
         Projects

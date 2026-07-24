@@ -10,6 +10,12 @@ export type ConvoLike = {
   runState: string
   environment: 'local' | 'worktree'
   worktrees: { branch: string }[]
+  // Hermes: the sidebar needs this to split Hermes conversations into their
+  // own section instead of the "No folder" project bucket (they're
+  // project-less, so groupConversations would otherwise fold them in).
+  // Optional so callers that don't care about Hermes (e.g. grouping's own
+  // structurally-typed test fixtures) don't have to supply it.
+  modelRef?: string | null
 }
 
 // F9 (folder = project): every distinct workspace folder is a project group,

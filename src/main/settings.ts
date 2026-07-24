@@ -80,7 +80,11 @@ const DEFAULTS: AppSettings = {
   ursaEnabled: false,
   ursaInstructions: '',
   ursusEnabled: false,
-  ursusInstructions: ''
+  ursusInstructions: '',
+  hermesEnabled: false,
+  hermesGatewayUrl: '',
+  hermesLabel: 'Hermes',
+  hermesIcon: 'IconChat'
 }
 
 // Ursa custom instructions are capped so a hand-edited settings.json can't bloat
@@ -314,6 +318,17 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
     typeof s['ursusInstructions'] === 'string'
       ? (s['ursusInstructions'] as string).slice(0, URSUS_INSTRUCTIONS_MAX)
       : ''
+  // Hermes integration: enable gate defaults to off; label/icon are cosmetic
+  // sidebar customization with safe fallbacks so a blank/garbage value can
+  // never render an empty section header.
+  merged.hermesEnabled = s['hermesEnabled'] === true
+  merged.hermesGatewayUrl =
+    typeof s['hermesGatewayUrl'] === 'string' ? (s['hermesGatewayUrl'] as string).slice(0, 500) : ''
+  merged.hermesLabel =
+    typeof s['hermesLabel'] === 'string' && (s['hermesLabel'] as string).trim()
+      ? (s['hermesLabel'] as string).slice(0, 40)
+      : 'Hermes'
+  merged.hermesIcon = typeof s['hermesIcon'] === 'string' ? (s['hermesIcon'] as string) : 'IconChat'
   return merged
 }
 

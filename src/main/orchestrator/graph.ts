@@ -116,6 +116,7 @@ import {
   URSUS_REVIEW_PANEL
 } from './ursus'
 import { runCouncil, URSA_COUNCIL } from './council'
+import { isHermesModelRef, runHermes } from './hermes'
 import { runReview, resolveReviewRequest, URSA_REVIEW_PANEL } from './review'
 import { compactionAdvanced } from './compaction'
 import {
@@ -3154,6 +3155,13 @@ export async function runGraph(opts: {
   // Both routers dispatch modes here: Ursa and Ursus are the same mechanism with
   // different models, so each mode picks the matching router's council config /
   // deep-research resolver rather than being Ursa-only.
+  // Hermes integration: a Hermes conversation is relayed to the external
+  // Gateway API and never touches classification, agent-building, or
+  // LangGraph -- same "decide before any of that runs" seam as Council.
+  if (!ursaResolved && !ursaStep && isHermesModelRef(modelRef)) {
+    return runHermes(conversationId, userText, sink, signal)
+  }
+
   if (!ursaResolved && !ursaStep && (isUrsaModelRef(modelRef) || isUrsusModelRef(modelRef))) {
     const isUrsusRouter = isUrsusModelRef(modelRef)
     const ursaMode = getConversationMeta(conversationId)?.ursaMode
