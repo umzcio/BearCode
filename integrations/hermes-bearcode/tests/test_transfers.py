@@ -108,6 +108,35 @@ class UploadTransferTests(unittest.TestCase):
             self.assertEqual(list(outside.iterdir()), [])
             self.assertEqual(list(moved.iterdir()), [])
 
+    def test_begin_fstat_failure_closes_descriptors_and_removes_partial(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            real_open = os.open
+            real_fstat = os.fstat
+            opened = []
+            fstat_calls = 0
+
+            def recording_open(*args, **kwargs):
+                descriptor = real_open(*args, **kwargs)
+                opened.append(descriptor)
+                return descriptor
+
+            def fail_file_fstat(descriptor):
+                nonlocal fstat_calls
+                fstat_calls += 1
+                if fstat_calls == 2:
+                    raise OSError("file fstat failed")
+                return real_fstat(descriptor)
+
+            with patch("bearcode_transport.transfers.os.open", side_effect=recording_open):
+                with patch("bearcode_transport.transfers.os.fstat", side_effect=fail_file_fstat):
+                    with self.assertRaisesRegex(OSError, "file fstat failed"):
+                        UploadTransfer.begin(root, metadata(b""))
+            self.assertEqual(list(root.iterdir()), [])
+            for descriptor in opened:
+                with self.assertRaises(OSError):
+                    os.fstat(descriptor)
+
     def test_chunks_must_be_contiguous_and_match_upload(self):
         bad_chunks = (
             upload_chunk(1, b"x"),
@@ -204,6 +233,7 @@ class UploadTransferTests(unittest.TestCase):
             transfer.partial_path.write_bytes(b"replacement")
             transfer.abort()
             self.assertEqual(transfer.partial_path.read_bytes(), b"replacement")
+            self.assertEqual(transfer.recovery_paths, [])
 
     def test_abort_does_not_unlink_name_substituted_after_identity_check(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -227,6 +257,63 @@ class UploadTransferTests(unittest.TestCase):
             ):
                 transfer.abort()
             self.assertEqual(transfer.partial_path.read_bytes(), b"replacement")
+            self.assertEqual(transfer.recovery_paths, [])
+
+    def test_abort_truncates_owned_inode_moved_outside_active_name(self):
+        data = b"secret transfer bytes"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            survivor = root / "survivor"
+            transfer = UploadTransfer.begin(root, metadata(data))
+            transfer.append(upload_chunk(0, data))
+            transfer.partial_path.rename(survivor)
+            transfer.abort()
+            self.assertEqual(survivor.read_bytes(), b"")
+
+    def test_directory_replacement_is_preserved_under_recovery_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transfer = UploadTransfer.begin(root, metadata(b"x"))
+            transfer.partial_path.rename(root / "owned")
+            transfer.partial_path.mkdir()
+            (transfer.partial_path / "marker").write_text("replacement", encoding="utf-8")
+            transfer.abort()
+
+            self.assertEqual(len(transfer.recovery_paths), 1)
+            recovered = transfer.recovery_paths[0]
+            self.assertTrue(recovered.name.startswith("recovery-"))
+            self.assertFalse(recovered.name.endswith(".partial"))
+            self.assertEqual((recovered / "marker").read_text(encoding="utf-8"), "replacement")
+
+    def test_occupied_original_preserves_replacement_and_original_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transfer = UploadTransfer.begin(root, metadata(b"x"))
+            transfer.partial_path.rename(root / "owned")
+            transfer.partial_path.write_bytes(b"replacement")
+
+            def occupy_original_then_fail(source, destination, *args, **kwargs):
+                transfer.partial_path.write_bytes(b"occupied")
+                raise FileExistsError("occupied")
+
+            with patch("bearcode_transport.transfers.os.link", side_effect=occupy_original_then_fail):
+                with self.assertRaisesRegex(ValueError, "contiguous"):
+                    transfer.append(upload_chunk(1, b"x"))
+            self.assertEqual(transfer.partial_path.read_bytes(), b"occupied")
+            self.assertEqual(len(transfer.recovery_paths), 1)
+            self.assertEqual(transfer.recovery_paths[0].read_bytes(), b"replacement")
+
+    def test_hard_link_failure_preserves_replacement_under_recovery_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transfer = UploadTransfer.begin(root, metadata(b"x"))
+            transfer.partial_path.rename(root / "owned")
+            transfer.partial_path.write_bytes(b"replacement")
+
+            with patch("bearcode_transport.transfers.os.link", side_effect=OSError("link failed")):
+                transfer.abort()
+            self.assertEqual(len(transfer.recovery_paths), 1)
+            self.assertEqual(transfer.recovery_paths[0].read_bytes(), b"replacement")
 
     def test_append_failure_is_preserved_and_partial_unlinked_when_close_raises(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -271,6 +358,26 @@ class UploadTransferTests(unittest.TestCase):
                 os.fstat(root_descriptor)
             with self.assertRaises(OSError):
                 os.fstat(upload_descriptor)
+
+    def test_fdopen_failure_closes_read_descriptor_and_aborts_upload(self):
+        data = b"content"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transfer = UploadTransfer.begin(root, metadata(data))
+            transfer.append(upload_chunk(0, data, final=True))
+            opened_read_descriptor = []
+
+            def fail_fdopen(descriptor, _mode):
+                opened_read_descriptor.append(descriptor)
+                raise OSError("fdopen failed")
+
+            with patch("bearcode_transport.transfers.os.fdopen", side_effect=fail_fdopen):
+                with self.assertRaisesRegex(OSError, "fdopen failed"):
+                    transfer.complete()
+            self.assertEqual(len(opened_read_descriptor), 1)
+            with self.assertRaises(OSError):
+                os.fstat(opened_read_descriptor[0])
+            self.assertEqual(list(root.iterdir()), [])
 
     def test_mime_is_sniffed_instead_of_trusting_declaration(self):
         png = b"\x89PNG\r\n\x1a\n" + b"payload"

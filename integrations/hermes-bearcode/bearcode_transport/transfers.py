@@ -37,7 +37,7 @@ def _cleanup_owned_name(root_descriptor, active_name, file_identity):
             dst_dir_fd=root_descriptor,
         )
     except OSError:
-        return
+        return None
     try:
         quarantined_stat = os.stat(
             quarantine_name,
@@ -45,13 +45,13 @@ def _cleanup_owned_name(root_descriptor, active_name, file_identity):
             follow_symlinks=False,
         )
     except OSError:
-        return
+        return quarantine_name
     if (quarantined_stat.st_dev, quarantined_stat.st_ino) == file_identity:
         try:
             os.unlink(quarantine_name, dir_fd=root_descriptor)
         except OSError:
             pass
-        return
+        return None
 
     try:
         os.link(
@@ -62,11 +62,40 @@ def _cleanup_owned_name(root_descriptor, active_name, file_identity):
             follow_symlinks=False,
         )
     except OSError:
-        return
+        recovery_base = (
+            f"recovery-{quarantined_stat.st_dev:x}-"
+            f"{quarantined_stat.st_ino:x}.preserved"
+        )
+        recovery_name = recovery_base
+        suffix = 0
+        while True:
+            try:
+                os.stat(
+                    recovery_name,
+                    dir_fd=root_descriptor,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                break
+            except OSError:
+                return quarantine_name
+            suffix += 1
+            recovery_name = f"{recovery_base}.{suffix}"
+        try:
+            os.rename(
+                quarantine_name,
+                recovery_name,
+                src_dir_fd=root_descriptor,
+                dst_dir_fd=root_descriptor,
+            )
+        except OSError:
+            return quarantine_name
+        return recovery_name
     try:
         os.unlink(quarantine_name, dir_fd=root_descriptor)
     except OSError:
         pass
+    return None
 
 
 class UploadTransfer:
@@ -93,6 +122,7 @@ class UploadTransfer:
         self._next_chunk_index = 0
         self._received_final = False
         self._finished = False
+        self.recovery_paths = []
 
     @classmethod
     def begin(cls, temp_root: Path, metadata: dict):
@@ -169,6 +199,11 @@ class UploadTransfer:
                     pass
             if file_identity is not None:
                 _cleanup_owned_name(root_descriptor, partial_name, file_identity)
+            elif descriptor is not None:
+                try:
+                    os.unlink(partial_name, dir_fd=root_descriptor)
+                except OSError:
+                    pass
             try:
                 os.close(root_descriptor)
             except OSError:
@@ -213,11 +248,35 @@ class UploadTransfer:
     def _cleanup_active_file(self):
         if self._root_descriptor is None or self._active_name is None:
             return
-        _cleanup_owned_name(
+        recovery_name = _cleanup_owned_name(
             self._root_descriptor,
             self._active_name,
             self._file_identity,
         )
+        if recovery_name is not None:
+            try:
+                root_path = self._anchored_root_path()
+            except ValueError:
+                root_path = self.temp_root
+            self.recovery_paths.append(root_path / recovery_name)
+
+    def _truncate_and_close_upload(self):
+        descriptor = self._descriptor
+        self._descriptor = None
+        if descriptor is None:
+            return
+        try:
+            os.ftruncate(descriptor, 0)
+            try:
+                os.fsync(descriptor)
+            except OSError:
+                pass
+        except OSError:
+            pass
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
 
     def append(self, chunk: BinaryChunk) -> None:
         try:
@@ -274,9 +333,6 @@ class UploadTransfer:
                 raise ValueError("partial file changed")
 
             os.fsync(self._descriptor)
-            descriptor = self._descriptor
-            self._descriptor = None
-            os.close(descriptor)
             read_flags = os.O_RDONLY
             if hasattr(os, "O_NOFOLLOW"):
                 read_flags |= os.O_NOFOLLOW
@@ -285,7 +341,15 @@ class UploadTransfer:
                 read_flags,
                 dir_fd=self._root_descriptor,
             )
-            with os.fdopen(read_descriptor, "rb") as handle:
+            try:
+                handle = os.fdopen(read_descriptor, "rb")
+            except Exception:
+                try:
+                    os.close(read_descriptor)
+                except OSError:
+                    pass
+                raise
+            with handle:
                 read_stat = os.fstat(handle.fileno())
                 if (read_stat.st_dev, read_stat.st_ino) != self._file_identity:
                     raise ValueError("partial upload file changed")
@@ -304,6 +368,9 @@ class UploadTransfer:
             if not self._active_file_is_original():
                 raise ValueError("verified file changed")
             final_path = self._anchored_root_path() / final_name
+            descriptor = self._descriptor
+            os.close(descriptor)
+            self._descriptor = None
             self._active_name = None
             self._finished = True
             self._close_root()
@@ -320,13 +387,7 @@ class UploadTransfer:
             raise
 
     def abort(self) -> None:
-        descriptor = self._descriptor
-        self._descriptor = None
-        if descriptor is not None:
-            try:
-                os.close(descriptor)
-            except OSError:
-                pass
+        self._truncate_and_close_upload()
         self._cleanup_active_file()
         self._active_name = None
         self._close_root()
