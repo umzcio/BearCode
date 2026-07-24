@@ -55,9 +55,34 @@ class ProtocolTests(unittest.TestCase):
                 decode_binary_frame(invalid)
 
     def test_rejects_invalid_control_frames(self):
-        for event in ({"type": "turn.start", "version": 2}, {"type": "turn.start", "version": 1, "turnId": "not-a-uuid"}):
+        for event in ({"type": "turn.start", "version": 2},):
             with self.assertRaises(ProtocolViolation):
                 decode_client_event(encode_event(event))
+
+    def test_rejects_invalid_uuid_fields_in_fully_shaped_client_events(self):
+        cases = [
+            ("attachment.upload.begin", ("attachment", "id")),
+            ("turn.start", ("turnId",)),
+            ("turn.start", ("conversationId",)),
+            ("turn.start", ("attachmentIds", 0)),
+            ("approval.resolve", ("requestId",)),
+            ("clarification.resolve", ("requestId",)),
+            ("turn.cancel", ("turnId",)),
+        ]
+        fixtures = {event["type"]: event for event in self.events["clientEvents"]}
+        for event_type, path in cases:
+            event = json.loads(json.dumps(fixtures[event_type]))
+            target = event
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = "not-a-uuid"
+            with self.subTest(event_type=event_type, path=path), self.assertRaisesRegex(ProtocolViolation, "UUID"):
+                decode_client_event(encode_event(event))
+
+    def test_rejects_non_boolean_binary_final_flag(self):
+        chunk = BinaryChunk(BinaryDirection.UPLOAD, UUID("55555555-5555-4555-8555-555555555555"), 0, "yes", b"")
+        with self.assertRaisesRegex(ProtocolViolation, "final"):
+            encode_binary_frame(chunk)
 
 
 if __name__ == "__main__":

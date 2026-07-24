@@ -106,6 +106,7 @@ function binaryUuid(value: string): Buffer {
 export function encodeBinaryFrame(chunk: BinaryChunk): Buffer {
   if (chunk.direction !== 'upload' && chunk.direction !== 'download') throw new ProtocolViolation('invalid binary direction')
   if (!Number.isInteger(chunk.chunkIndex) || chunk.chunkIndex < 0 || chunk.chunkIndex > 0xffffffff) throw new ProtocolViolation('invalid chunk index')
+  if (typeof chunk.final !== 'boolean') throw new ProtocolViolation('final must be a boolean')
   if (!Buffer.isBuffer(chunk.payload) || chunk.payload.length > HERMES_MAX_CHUNK_BYTES) throw new ProtocolViolation('payload exceeds maximum chunk size')
   const frame = Buffer.alloc(HEADER_BYTES + chunk.payload.length)
   MAGIC.copy(frame); frame[4] = HERMES_PROTOCOL_VERSION; frame[5] = chunk.direction === 'upload' ? 1 : 2; frame[6] = chunk.final ? 1 : 0

@@ -101,6 +101,8 @@ def encode_binary_frame(chunk):
         raise ProtocolViolation("invalid binary direction")
     if not isinstance(chunk.attachment_id, UUID):
         raise ProtocolViolation("attachment_id must be a UUID")
+    if not isinstance(chunk.final, bool):
+        raise ProtocolViolation("final must be a boolean")
     if not isinstance(chunk.payload, bytes) or len(chunk.payload) > MAX_CHUNK_BYTES:
         raise ProtocolViolation("payload exceeds maximum chunk size")
     if not isinstance(chunk.chunk_index, int) or not 0 <= chunk.chunk_index <= 0xFFFFFFFF:
