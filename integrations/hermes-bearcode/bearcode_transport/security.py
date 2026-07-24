@@ -1,10 +1,13 @@
 """Authentication and file-validation helpers for the Hermes transport."""
 import hmac
+import os
 import re
+import stat
 import time
 import unicodedata
 import zipfile
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -22,6 +25,45 @@ _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.doc
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _SNIFF_BYTES = 64 * 1024
 _TEXT_MIME = re.compile(r"text/[a-z0-9][a-z0-9!#$&^_.+-]*", re.ASCII)
+
+
+@dataclass
+class ValidatedOutbound:
+    path: Path
+    _descriptor: int
+    device: int
+    inode: int
+
+    @property
+    def closed(self):
+        return self._descriptor is None
+
+    def take_descriptor(self):
+        if self._descriptor is None:
+            raise ValueError("validated outbound file is closed")
+        descriptor = self._descriptor
+        self._descriptor = None
+        return descriptor
+
+    def close(self):
+        descriptor = self._descriptor
+        self._descriptor = None
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+    def __enter__(self):
+        if self.closed:
+            raise ValueError("validated outbound file is closed")
+        return self
+
+    def __exit__(self, _error_type, _error, _traceback):
+        self.close()
+
+    def __del__(self):
+        self.close()
 
 
 def verify_bearer(authorization, expected_secret):
@@ -76,19 +118,68 @@ def sanitize_filename(filename):
 
 
 def validate_outbound_path(path, allowed_roots):
-    try:
-        candidate = Path(path).resolve(strict=True)
-    except (FileNotFoundError, OSError) as error:
-        raise ValueError("outbound path does not exist") from error
-    if not candidate.is_file():
-        raise ValueError("outbound path must be a regular file")
+    if not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
+        raise RuntimeError("platform lacks race-free file acquisition")
+    candidate = Path(os.path.abspath(os.fspath(path)))
+    matched_root = False
     for allowed_root in allowed_roots:
-        root = Path(allowed_root).resolve(strict=True)
+        root = Path(os.path.abspath(os.fspath(allowed_root)))
         try:
-            candidate.relative_to(root)
+            relative = candidate.relative_to(root)
         except ValueError:
             continue
-        return candidate
+        matched_root = True
+        if not relative.parts:
+            continue
+
+        directory_descriptors = []
+        file_descriptor = None
+        try:
+            root_descriptor = os.open(
+                str(root),
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+            directory_descriptors.append(root_descriptor)
+            current_descriptor = root_descriptor
+            for component in relative.parts[:-1]:
+                next_descriptor = os.open(
+                    component,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=current_descriptor,
+                )
+                directory_descriptors.append(next_descriptor)
+                current_descriptor = next_descriptor
+            file_descriptor = os.open(
+                relative.parts[-1],
+                os.O_RDONLY | os.O_NOFOLLOW,
+                dir_fd=current_descriptor,
+            )
+            file_stat = os.fstat(file_descriptor)
+            if not stat.S_ISREG(file_stat.st_mode):
+                raise ValueError("outbound path must be a regular file")
+            validated = ValidatedOutbound(
+                path=candidate,
+                _descriptor=file_descriptor,
+                device=file_stat.st_dev,
+                inode=file_stat.st_ino,
+            )
+            file_descriptor = None
+            return validated
+        except (OSError, ValueError):
+            continue
+        finally:
+            if file_descriptor is not None:
+                try:
+                    os.close(file_descriptor)
+                except OSError:
+                    pass
+            for descriptor in reversed(directory_descriptors):
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+    if matched_root:
+        raise ValueError("outbound path is not a safe regular file")
     raise ValueError("outbound path escapes allowed roots")
 
 

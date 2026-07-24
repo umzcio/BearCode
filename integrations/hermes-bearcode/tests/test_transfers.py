@@ -17,6 +17,7 @@ from bearcode_transport.protocol import (
     BinaryDirection,
     decode_binary_frame,
 )
+from bearcode_transport.security import validate_outbound_path
 from bearcode_transport.transfers import UploadTransfer, iter_download_frames
 
 
@@ -74,29 +75,38 @@ class UploadTransferTests(unittest.TestCase):
             root.symlink_to(outside, target_is_directory=True)
 
             transfer.append(upload_chunk(0, b"x", final=True))
-            with self.assertRaises(ValueError):
-                transfer.complete()
+            verified = transfer.complete()
 
             self.assertEqual(list(outside.iterdir()), [])
-            self.assertEqual(list(moved_root.iterdir()), [])
+            verified_files = list(moved_root.glob("*.verified"))
+            self.assertEqual(len(verified_files), 1)
+            self.assertEqual(verified_files[0].read_bytes(), b"x")
+            self.assertEqual(verified.path.read_bytes(), b"x")
 
-    def test_begin_cleans_partial_when_file_identity_check_fails(self):
+    def test_temp_root_is_opened_atomically_without_following_last_symlink(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            real_fstat = os.fstat
-            call_count = 0
+            parent = Path(directory)
+            root = parent / "root"
+            moved = parent / "moved"
+            outside = parent / "outside"
+            root.mkdir()
+            outside.mkdir()
+            real_open = os.open
+            swapped = False
 
-            def fail_second_fstat(descriptor):
-                nonlocal call_count
-                call_count += 1
-                if call_count == 2:
-                    raise OSError("fstat failed")
-                return real_fstat(descriptor)
+            def swap_before_root_open(path, flags, *args, **kwargs):
+                nonlocal swapped
+                if not swapped and path == str(root):
+                    swapped = True
+                    root.rename(moved)
+                    root.symlink_to(outside, target_is_directory=True)
+                return real_open(path, flags, *args, **kwargs)
 
-            with patch("bearcode_transport.transfers.os.fstat", side_effect=fail_second_fstat):
-                with self.assertRaisesRegex(OSError, "fstat failed"):
+            with patch("bearcode_transport.transfers.os.open", side_effect=swap_before_root_open):
+                with self.assertRaises(ValueError):
                     UploadTransfer.begin(root, metadata(b""))
-            self.assertEqual(list(root.iterdir()), [])
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertEqual(list(moved.iterdir()), [])
 
     def test_chunks_must_be_contiguous_and_match_upload(self):
         bad_chunks = (
@@ -148,9 +158,14 @@ class UploadTransferTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             transfer = UploadTransfer.begin(root, metadata(b"x"))
+            root_descriptor = transfer._root_descriptor
+            upload_descriptor = transfer._descriptor
             with self.assertRaises(ValueError):
                 transfer.append(upload_chunk(0, b"xx", final=True))
             self.assertEqual(list(root.glob("*.partial")), [])
+            for descriptor in (root_descriptor, upload_descriptor):
+                with self.assertRaises(OSError):
+                    os.fstat(descriptor)
 
     def test_final_length_and_sha256_must_match(self):
         cases = (
@@ -180,6 +195,39 @@ class UploadTransferTests(unittest.TestCase):
             transfer.abort()
             self.assertEqual(list(root.iterdir()), [])
 
+    def test_abort_does_not_unlink_replacement_for_owned_partial_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transfer = UploadTransfer.begin(root, metadata(b"x"))
+            original = root / "original"
+            transfer.partial_path.rename(original)
+            transfer.partial_path.write_bytes(b"replacement")
+            transfer.abort()
+            self.assertEqual(transfer.partial_path.read_bytes(), b"replacement")
+
+    def test_abort_does_not_unlink_name_substituted_after_identity_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transfer = UploadTransfer.begin(root, metadata(b"x"))
+            displaced = root / "displaced"
+            real_rename = os.rename
+            substituted = False
+
+            def substitute_before_cleanup_rename(source, destination, *args, **kwargs):
+                nonlocal substituted
+                if not substituted and source == transfer._active_name:
+                    substituted = True
+                    transfer.partial_path.rename(displaced)
+                    transfer.partial_path.write_bytes(b"replacement")
+                return real_rename(source, destination, *args, **kwargs)
+
+            with patch(
+                "bearcode_transport.transfers.os.rename",
+                side_effect=substitute_before_cleanup_rename,
+            ):
+                transfer.abort()
+            self.assertEqual(transfer.partial_path.read_bytes(), b"replacement")
+
     def test_append_failure_is_preserved_and_partial_unlinked_when_close_raises(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -206,6 +254,8 @@ class UploadTransferTests(unittest.TestCase):
             transfer = UploadTransfer.begin(root, metadata(data))
             transfer.append(upload_chunk(0, data[:5]))
             transfer.append(upload_chunk(1, data[5:], final=True))
+            root_descriptor = transfer._root_descriptor
+            upload_descriptor = transfer._descriptor
             verified = transfer.complete()
 
             self.assertEqual(verified.attachment_id, ATTACHMENT_ID)
@@ -217,6 +267,10 @@ class UploadTransferTests(unittest.TestCase):
             self.assertEqual(verified.path.stat().st_mode & 0o777, 0o600)
             self.assertFalse(verified.path.name.endswith(".partial"))
             self.assertEqual(list(root.glob("*.partial")), [])
+            with self.assertRaises(OSError):
+                os.fstat(root_descriptor)
+            with self.assertRaises(OSError):
+                os.fstat(upload_descriptor)
 
     def test_mime_is_sniffed_instead_of_trusting_declaration(self):
         png = b"\x89PNG\r\n\x1a\n" + b"payload"
@@ -301,32 +355,85 @@ class DownloadTransferTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "download.bin"
             path.write_bytes(data)
-            chunks = [decode_binary_frame(frame) for frame in iter_download_frames(path, ATTACHMENT_ID)]
+            source = validate_outbound_path(path, [Path(directory)])
+            descriptor = source._descriptor
+            chunks = [decode_binary_frame(frame) for frame in iter_download_frames(source, ATTACHMENT_ID)]
 
             self.assertEqual(b"".join(chunk.payload for chunk in chunks), data)
             self.assertEqual([chunk.chunk_index for chunk in chunks], [0, 1, 2])
             self.assertTrue(all(chunk.direction is BinaryDirection.DOWNLOAD for chunk in chunks))
             self.assertTrue(all(len(chunk.payload) <= MAX_CHUNK_BYTES for chunk in chunks))
             self.assertEqual([chunk.final for chunk in chunks], [False, False, True])
+            self.assertTrue(source.closed)
+            with self.assertRaises(OSError):
+                os.fstat(descriptor)
+
+    def test_download_reads_validated_inode_after_path_substitution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "download.txt"
+            displaced = root / "displaced.txt"
+            path.write_bytes(b"original")
+            source = validate_outbound_path(path, [root])
+            path.rename(displaced)
+            path.write_bytes(b"replacement")
+
+            chunks = [decode_binary_frame(frame) for frame in iter_download_frames(source, ATTACHMENT_ID)]
+            self.assertEqual(b"".join(chunk.payload for chunk in chunks), b"original")
+            self.assertTrue(source.closed)
+
+    def test_download_generator_close_closes_validated_descriptor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "download.bin"
+            path.write_bytes(b"x" * (MAX_CHUNK_BYTES + 1))
+            source = validate_outbound_path(path, [root])
+            descriptor = source._descriptor
+            frames = iter_download_frames(source, ATTACHMENT_ID)
+            next(frames)
+            frames.close()
+            self.assertTrue(source.closed)
+            with self.assertRaises(OSError):
+                os.fstat(descriptor)
+
+    def test_download_close_before_first_frame_closes_validated_descriptor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "download.bin"
+            path.write_bytes(b"x")
+            source = validate_outbound_path(path, [root])
+            descriptor = source._descriptor
+            frames = iter_download_frames(source, ATTACHMENT_ID)
+            frames.close()
+            self.assertTrue(source.closed)
+            with self.assertRaises(OSError):
+                os.fstat(descriptor)
 
     def test_oversize_download_rejects_before_first_frame(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "large.bin"
             with path.open("wb") as handle:
                 handle.truncate(MAX_FILE_BYTES + 1)
-            frames = iter_download_frames(path, ATTACHMENT_ID)
+            source = validate_outbound_path(path, [Path(directory)])
+            descriptor = source._descriptor
+            frames = iter_download_frames(source, ATTACHMENT_ID)
             with self.assertRaises(ValueError):
                 next(frames)
+            self.assertTrue(source.closed)
+            with self.assertRaises(OSError):
+                os.fstat(descriptor)
 
     def test_empty_download_has_one_zero_byte_final_frame(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "empty.txt"
             path.touch()
-            chunks = [decode_binary_frame(frame) for frame in iter_download_frames(path, ATTACHMENT_ID)]
+            source = validate_outbound_path(path, [Path(directory)])
+            chunks = [decode_binary_frame(frame) for frame in iter_download_frames(source, ATTACHMENT_ID)]
             self.assertEqual(len(chunks), 1)
             self.assertEqual(chunks[0].payload, b"")
             self.assertTrue(chunks[0].final)
             self.assertEqual(chunks[0].chunk_index, 0)
+            self.assertTrue(source.closed)
 
 
 if __name__ == "__main__":

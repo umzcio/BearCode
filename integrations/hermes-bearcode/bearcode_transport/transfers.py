@@ -2,6 +2,7 @@
 import hashlib
 import os
 import stat
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -13,7 +14,7 @@ from .protocol import (
     BinaryDirection,
     encode_binary_frame,
 )
-from .security import sanitize_filename, sniff_mime
+from .security import ValidatedOutbound, sanitize_filename, sniff_mime
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,48 @@ class VerifiedUpload:
     size_bytes: int
     sha256: str
     path: Path
+
+
+def _cleanup_owned_name(root_descriptor, active_name, file_identity):
+    quarantine_name = f".{uuid4().hex}.cleanup"
+    try:
+        os.rename(
+            active_name,
+            quarantine_name,
+            src_dir_fd=root_descriptor,
+            dst_dir_fd=root_descriptor,
+        )
+    except OSError:
+        return
+    try:
+        quarantined_stat = os.stat(
+            quarantine_name,
+            dir_fd=root_descriptor,
+            follow_symlinks=False,
+        )
+    except OSError:
+        return
+    if (quarantined_stat.st_dev, quarantined_stat.st_ino) == file_identity:
+        try:
+            os.unlink(quarantine_name, dir_fd=root_descriptor)
+        except OSError:
+            pass
+        return
+
+    try:
+        os.link(
+            quarantine_name,
+            active_name,
+            src_dir_fd=root_descriptor,
+            dst_dir_fd=root_descriptor,
+            follow_symlinks=False,
+        )
+    except OSError:
+        return
+    try:
+        os.unlink(quarantine_name, dir_fd=root_descriptor)
+    except OSError:
+        pass
 
 
 class UploadTransfer:
@@ -79,21 +122,10 @@ class UploadTransfer:
         if not isinstance(metadata.get("declaredMime"), str):
             raise ValueError("declared MIME must be a string")
 
-        requested_root = Path(temp_root)
-        try:
-            if requested_root.is_symlink():
-                raise ValueError("temporary root must not be a symlink")
-            root = requested_root.resolve(strict=True)
-        except (OSError, RuntimeError) as error:
-            raise ValueError("temporary root does not exist") from error
-        if not root.is_dir():
-            raise ValueError("temporary root must be a directory")
-
-        root_flags = os.O_RDONLY
-        if hasattr(os, "O_DIRECTORY"):
-            root_flags |= os.O_DIRECTORY
-        if hasattr(os, "O_NOFOLLOW"):
-            root_flags |= os.O_NOFOLLOW
+        if not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
+            raise RuntimeError("platform lacks race-free directory acquisition")
+        root = Path(os.path.abspath(os.fspath(temp_root)))
+        root_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         try:
             root_descriptor = os.open(str(root), root_flags)
         except OSError as error:
@@ -115,6 +147,7 @@ class UploadTransfer:
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         descriptor = None
+        file_identity = None
         try:
             descriptor = os.open(partial_name, flags, 0o600, dir_fd=root_descriptor)
             descriptor_stat = os.fstat(descriptor)
@@ -134,29 +167,13 @@ class UploadTransfer:
                     os.close(descriptor)
                 except OSError:
                     pass
-            try:
-                os.unlink(partial_name, dir_fd=root_descriptor)
-            except OSError:
-                pass
+            if file_identity is not None:
+                _cleanup_owned_name(root_descriptor, partial_name, file_identity)
             try:
                 os.close(root_descriptor)
             except OSError:
                 pass
             raise
-
-    def _root_is_stable(self):
-        if self._root_descriptor is None:
-            return False
-        try:
-            path_stat = os.stat(str(self.temp_root), follow_symlinks=False)
-            root_stat = os.fstat(self._root_descriptor)
-        except OSError:
-            return False
-        return (
-            stat.S_ISDIR(path_stat.st_mode)
-            and path_stat.st_dev == root_stat.st_dev
-            and path_stat.st_ino == root_stat.st_ino
-        )
 
     def _active_file_is_original(self):
         if self._root_descriptor is None or self._active_name is None:
@@ -171,6 +188,19 @@ class UploadTransfer:
             return False
         return (file_stat.st_dev, file_stat.st_ino) == self._file_identity
 
+    def _anchored_root_path(self):
+        if self._root_descriptor is None:
+            raise ValueError("temporary root is closed")
+        try:
+            if sys.platform == "darwin":
+                import fcntl
+
+                raw_path = fcntl.fcntl(self._root_descriptor, 50, b"\0" * 1024)
+                return Path(raw_path.split(b"\0", 1)[0].decode())
+            return Path(os.readlink(f"/proc/self/fd/{self._root_descriptor}"))
+        except (OSError, UnicodeDecodeError) as error:
+            raise ValueError("cannot identify anchored temporary root") from error
+
     def _close_root(self):
         descriptor = self._root_descriptor
         self._root_descriptor = None
@@ -179,6 +209,15 @@ class UploadTransfer:
                 os.close(descriptor)
             except OSError:
                 pass
+
+    def _cleanup_active_file(self):
+        if self._root_descriptor is None or self._active_name is None:
+            return
+        _cleanup_owned_name(
+            self._root_descriptor,
+            self._active_name,
+            self._file_identity,
+        )
 
     def append(self, chunk: BinaryChunk) -> None:
         try:
@@ -231,8 +270,8 @@ class UploadTransfer:
             digest = self._hasher.hexdigest()
             if digest != self.metadata["sha256"]:
                 raise ValueError("upload SHA-256 does not match declaration")
-            if not self._root_is_stable() or not self._active_file_is_original():
-                raise ValueError("temporary root or partial file changed")
+            if not self._active_file_is_original():
+                raise ValueError("partial file changed")
 
             os.fsync(self._descriptor)
             descriptor = self._descriptor
@@ -251,8 +290,8 @@ class UploadTransfer:
                 if (read_stat.st_dev, read_stat.st_ino) != self._file_identity:
                     raise ValueError("partial upload file changed")
                 mime = sniff_mime(handle, self.metadata["declaredMime"])
-            if not self._root_is_stable() or not self._active_file_is_original():
-                raise ValueError("temporary root or partial file changed")
+            if not self._active_file_is_original():
+                raise ValueError("partial file changed")
 
             final_name = f"{self.attachment_id}.{uuid4().hex}.verified"
             os.rename(
@@ -262,9 +301,9 @@ class UploadTransfer:
                 dst_dir_fd=self._root_descriptor,
             )
             self._active_name = final_name
-            if not self._root_is_stable() or not self._active_file_is_original():
-                raise ValueError("temporary root or verified file changed")
-            final_path = self.temp_root / final_name
+            if not self._active_file_is_original():
+                raise ValueError("verified file changed")
+            final_path = self._anchored_root_path() / final_name
             self._active_name = None
             self._finished = True
             self._close_root()
@@ -288,38 +327,99 @@ class UploadTransfer:
                 os.close(descriptor)
             except OSError:
                 pass
-        if self._root_descriptor is not None and self._active_name is not None:
-            try:
-                os.unlink(self._active_name, dir_fd=self._root_descriptor)
-            except OSError:
-                pass
+        self._cleanup_active_file()
         self._active_name = None
         self._close_root()
         self._finished = True
 
 
-def iter_download_frames(path: Path, attachment_id: UUID):
-    source = Path(path)
-    size = source.stat().st_size
-    if size > MAX_FILE_BYTES:
-        raise ValueError("download exceeds maximum file size")
-    if not source.is_file():
-        raise ValueError("download path must be a regular file")
-    if not isinstance(attachment_id, UUID):
-        raise ValueError("attachment_id must be a UUID")
+class _DownloadFrameIterator:
+    def __init__(self, source, attachment_id):
+        self._attachment_id = attachment_id
+        self._handle = None
+        self._error = None
+        self._index = 0
+        self._remaining = 0
+        self._empty_pending = False
+        descriptor = source.take_descriptor()
+        try:
+            source_stat = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(source_stat.st_mode)
+                or source_stat.st_dev != source.device
+                or source_stat.st_ino != source.inode
+            ):
+                raise ValueError("validated outbound file identity changed")
+            if source_stat.st_size > MAX_FILE_BYTES:
+                raise ValueError("download exceeds maximum file size")
+            if not isinstance(attachment_id, UUID):
+                raise ValueError("attachment_id must be a UUID")
+            self._handle = os.fdopen(descriptor, "rb")
+            descriptor = None
+            self._remaining = source_stat.st_size
+            self._empty_pending = self._remaining == 0
+        except Exception as error:
+            self._error = error
+        finally:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
 
-    with source.open("rb") as handle:
-        if size == 0:
-            yield encode_binary_frame(BinaryChunk(BinaryDirection.DOWNLOAD, attachment_id, 0, True, b""))
-            return
-        index = 0
-        remaining = size
-        while remaining:
-            payload = handle.read(min(MAX_CHUNK_BYTES, remaining))
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._error is not None:
+            error = self._error
+            self._error = None
+            raise error
+        if self._handle is None:
+            raise StopIteration
+        try:
+            if self._empty_pending:
+                self._empty_pending = False
+                frame = encode_binary_frame(
+                    BinaryChunk(BinaryDirection.DOWNLOAD, self._attachment_id, 0, True, b"")
+                )
+                self.close()
+                return frame
+            payload = self._handle.read(min(MAX_CHUNK_BYTES, self._remaining))
             if not payload:
                 raise ValueError("download changed while streaming")
-            remaining -= len(payload)
-            yield encode_binary_frame(
-                BinaryChunk(BinaryDirection.DOWNLOAD, attachment_id, index, remaining == 0, payload)
+            self._remaining -= len(payload)
+            frame = encode_binary_frame(
+                BinaryChunk(
+                    BinaryDirection.DOWNLOAD,
+                    self._attachment_id,
+                    self._index,
+                    self._remaining == 0,
+                    payload,
+                )
             )
-            index += 1
+            self._index += 1
+            if self._remaining == 0:
+                self.close()
+            return frame
+        except Exception:
+            self.close()
+            raise
+
+    def close(self):
+        handle = self._handle
+        self._handle = None
+        if handle is not None:
+            try:
+                handle.close()
+            except OSError:
+                pass
+
+    def __del__(self):
+        self.close()
+
+
+def iter_download_frames(source: ValidatedOutbound, attachment_id: UUID):
+    if not isinstance(source, ValidatedOutbound):
+        raise ValueError("download source must be a validated outbound file")
+    return _DownloadFrameIterator(source, attachment_id)
