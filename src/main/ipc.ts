@@ -131,6 +131,7 @@ import {
   ingestPickedFiles,
   readAttachmentDataUrl
 } from './attachments/ingest'
+import { deleteConversationAttachments, openAttachment } from './hermes/nativeFiles'
 import {
   assertValidAttachments,
   assertValidCommand,
@@ -369,6 +370,12 @@ export function registerIpc(): void {
   // this promise) on a mismatch instead of ever touching the filesystem.
   ipcMain.handle('bearcode:attachments:read', (_e, conversationId: string, id: string) =>
     readAttachmentDataUrl(conversationId, id)
+  )
+  // Native Hermes downloads and locally picked files share the same validated
+  // attachment store. The renderer can request only opaque IDs; nativeFiles
+  // resolves/validates the store path and surfaces shell.openPath failures.
+  ipcMain.handle('bearcode:attachments:open', (_e, conversationId: string, id: string) =>
+    openAttachment(app.getPath('userData'), conversationId, id, shell.openPath)
   )
 
   ipcMain.handle('bearcode:diffs:get', (_e, diffId: string) => getDiff(diffId))
@@ -628,6 +635,7 @@ export function registerIpc(): void {
     }
     void pruneCheckpoints(id)
     db.deleteConversation(id)
+    await deleteConversationAttachments(app.getPath('userData'), id)
   })
   ipcMain.handle('bearcode:conversations:set-mode', (_e, id: string, mode: unknown) => {
     if (!isPermissionMode(mode)) {
@@ -819,12 +827,16 @@ export function registerIpc(): void {
     }
     db.setTitle(id, title.trim())
   })
-  ipcMain.handle('bearcode:conversations:clear', () => {
+  ipcMain.handle('bearcode:conversations:clear', async () => {
     clearRunsOrchestrator()
     // Prune each conversation's checkpoints before the rows are gone, so
     // checkpoints.db doesn't retain orphaned execution state after a wipe.
-    for (const c of db.listConversations()) void pruneCheckpoints(c.id)
+    const conversationIds = db.listConversations().map((c) => c.id)
+    for (const id of conversationIds) void pruneCheckpoints(id)
     db.clearAll()
+    await Promise.all(
+      conversationIds.map((id) => deleteConversationAttachments(app.getPath('userData'), id))
+    )
   })
 
   ipcMain.handle('bearcode:permissions:add-rule', (_e, rule: AddRuleInput) => {

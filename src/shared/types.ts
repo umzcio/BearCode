@@ -57,6 +57,24 @@ export interface AttachmentRef {
   kind?: AttachmentKind
 }
 
+// Hermes Native transfers deliberately use a smaller, transport-neutral set
+// than the local picker lanes. PDF/Office inputs are both documents on the
+// gateway wire; `other` leaves room for a gateway-produced file that BearCode
+// does not otherwise classify.
+export type HermesAttachmentKind = 'image' | 'document' | 'text' | 'other'
+
+// Verified attachment metadata. This is the exact object persisted on the
+// transcript by the native Hermes turn; the storage layer neither adds paths
+// nor derives display names from it.
+export interface HermesAttachment {
+  id: string
+  name: string
+  mime: string
+  kind: HermesAttachmentKind
+  sizeBytes: number
+  sha256: string
+}
+
 // The four byte-sniffed image mimes (D4). Kept under the original name so the
 // image byte-sniff (ingest sniffImageMime) and the wire guard never drift.
 export const ATTACHMENT_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
@@ -1381,6 +1399,9 @@ export interface BearcodeApi {
     // the persisted AttachmentRef (id/name/mime), not bytes. Returns null if
     // the file is gone or not a recognized image.
     read(conversationId: string, id: string): Promise<string | null>
+    // Opens a verified stored attachment with the operating system's default
+    // app. The renderer cannot provide a filesystem path.
+    open(conversationId: string, id: string): Promise<void>
   }
   diffs: {
     get(diffId: string): Promise<FileDiff>

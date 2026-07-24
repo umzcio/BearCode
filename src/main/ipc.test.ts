@@ -11,11 +11,17 @@ type Handler = (event: unknown, ...args: unknown[]) => unknown
 
 const handlers = new Map<string, Handler>()
 
+const { shellOpenPath, deleteConversationAttachments, openAttachment } = vi.hoisted(() => ({
+  shellOpenPath: vi.fn(),
+  deleteConversationAttachments: vi.fn(),
+  openAttachment: vi.fn()
+}))
+
 vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => '/tmp/bearcode-ipc-test') },
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
   dialog: { showOpenDialog: vi.fn() },
-  shell: { openPath: vi.fn() },
+  shell: { openPath: shellOpenPath },
   ipcMain: {
     handle: (channel: string, fn: Handler) => {
       handlers.set(channel, fn)
@@ -44,12 +50,14 @@ vi.mock('./db', () => ({
   })),
   listConversations: vi.fn(() => []),
   getEvents: vi.fn(() => []),
+  getConversationMeta: vi.fn(() => ({ worktrees: [] })),
   deleteConversation: vi.fn(),
   setPermissionMode: vi.fn(),
   clearAll: vi.fn(),
   insertArtifactComment: vi.fn(),
   listArtifactComments: vi.fn(() => [])
 }))
+vi.mock('./hermes/nativeFiles', () => ({ deleteConversationAttachments, openAttachment }))
 vi.mock('./agentsDir', () => ({ loadAgentsContent: vi.fn() }))
 vi.mock('./orchestrator/commands', () => ({ listCommands: vi.fn() }))
 vi.mock('./orchestrator/mentionSuggest', () => ({
@@ -109,5 +117,54 @@ describe('conversations:create optional draft id (D4)', () => {
     expect(result).toEqual([
       { id: 'anthropic', displayName: 'Anthropic', color: '#d97757', models: [] }
     ])
+  })
+})
+
+describe('native attachment IPC and cleanup', () => {
+  beforeEach(() => {
+    handlers.clear()
+    vi.clearAllMocks()
+    vi.mocked(db.getConversationMeta).mockReturnValue({ worktrees: [] } as never)
+    vi.mocked(db.listConversations).mockReturnValue([])
+    registerIpc()
+  })
+
+  it('opens only through the native attachment storage helper', async () => {
+    const handler = handlers.get('bearcode:attachments:open')
+    expect(handler).toBeTypeOf('function')
+
+    await handler!(null, 'c1', 'a1')
+
+    expect(openAttachment).toHaveBeenCalledWith(
+      '/tmp/bearcode-ipc-test',
+      'c1',
+      'a1',
+      shellOpenPath
+    )
+  })
+
+  it('deletes a conversation row before reclaiming only that conversation attachment directory', async () => {
+    const handler = handlers.get('bearcode:conversations:delete')
+    expect(handler).toBeTypeOf('function')
+
+    await handler!(null, 'c1')
+
+    expect(db.deleteConversation).toHaveBeenCalledWith('c1')
+    expect(deleteConversationAttachments).toHaveBeenCalledWith('/tmp/bearcode-ipc-test', 'c1')
+    expect(vi.mocked(db.deleteConversation).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(deleteConversationAttachments).mock.invocationCallOrder[0]
+    )
+  })
+
+  it('captures all conversation IDs before clear and reclaims each attachment directory', async () => {
+    vi.mocked(db.listConversations).mockReturnValue([{ id: 'c1' }, { id: 'c2' }] as never)
+    const handler = handlers.get('bearcode:conversations:clear')
+    expect(handler).toBeTypeOf('function')
+
+    await handler!(null)
+
+    expect(db.clearAll).toHaveBeenCalledOnce()
+    expect(deleteConversationAttachments).toHaveBeenCalledWith('/tmp/bearcode-ipc-test', 'c1')
+    expect(deleteConversationAttachments).toHaveBeenCalledWith('/tmp/bearcode-ipc-test', 'c2')
   })
 })
