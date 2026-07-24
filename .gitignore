@@ -30,3 +30,6 @@ scripts/.notary-config.local
 
 # Superpowers SDD scratch (progress ledger, etc.) — never commit
 .superpowers/
+
+# Local feature worktrees
+.worktrees/
