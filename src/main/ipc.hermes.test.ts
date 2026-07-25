@@ -167,6 +167,71 @@ describe('bearcode:conversations:create-hermes', () => {
 })
 
 describe('bearcode:hermes:test-connection', () => {
+  it.each([
+    ['empty legacy URL', 'legacy', '', 'Hermes connection URL is required'],
+    ['whitespace native URL', 'native', '   ', 'Hermes connection URL is required'],
+    ['unparsable legacy URL', 'legacy', 'not a url', 'Invalid Hermes connection URL'],
+    [
+      'legacy WebSocket URL',
+      'legacy',
+      'ws://x:8642',
+      'Legacy Hermes URL must use http or https'
+    ],
+    [
+      'native file URL',
+      'native',
+      'file:///tmp/hermes',
+      'Native Hermes URL must use http, https, ws, or wss'
+    ],
+    [
+      'legacy URL credentials',
+      'legacy',
+      'https://user:pass@x:8642',
+      'Hermes connection URL must not include credentials'
+    ],
+    [
+      'native URL credentials',
+      'native',
+      'wss://user:pass@x:8643',
+      'Hermes connection URL must not include credentials'
+    ]
+  ])('rejects %s before reading vault state or dispatching health', async (_label, mode, url, message) => {
+    await expect(
+      handlers.get('bearcode:hermes:test-connection')!({}, mode, url)
+    ).rejects.toThrow(message)
+
+    expect(getHermesToken).not.toHaveBeenCalled()
+    expect(getHermesPlatformKey).not.toHaveBeenCalled()
+    expect(getOrCreateHermesInstallationId).not.toHaveBeenCalled()
+    expect(checkHermesHealth).not.toHaveBeenCalled()
+    expect(checkHermesNativeHealth).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['legacy', 'https://legacy.example.test:8642'],
+    ['native', 'http://native.example.test:8643'],
+    ['native', 'https://native.example.test:8643'],
+    ['native', 'wss://native.example.test:8643']
+  ] as const)('preserves an allowed %s URL exactly when dispatching health', async (mode, url) => {
+    vi.mocked(checkHermesHealth).mockResolvedValue({ ok: true, message: 'Connected' })
+    vi.mocked(checkHermesNativeHealth).mockResolvedValue({ ok: true, message: 'Connected' })
+    vi.mocked(getOrCreateHermesInstallationId).mockReturnValue('installation-main-only')
+
+    await handlers.get('bearcode:hermes:test-connection')!({}, mode, url, 'draft-secret')
+
+    if (mode === 'legacy') {
+      expect(checkHermesHealth).toHaveBeenCalledWith(url, 'draft-secret')
+      expect(checkHermesNativeHealth).not.toHaveBeenCalled()
+    } else {
+      expect(checkHermesNativeHealth).toHaveBeenCalledWith(
+        url,
+        'draft-secret',
+        'installation-main-only'
+      )
+      expect(checkHermesHealth).not.toHaveBeenCalled()
+    }
+  })
+
   it('routes legacy mode to /v1/models health with the supplied draft token', async () => {
     vi.mocked(checkHermesHealth).mockResolvedValue({ ok: true, message: 'Connected' })
     const result = await handlers.get('bearcode:hermes:test-connection')!(

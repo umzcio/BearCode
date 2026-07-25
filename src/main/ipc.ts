@@ -540,6 +540,34 @@ export function registerIpc(): void {
   })
   ipcMain.handle('bearcode:keys:status', () => keyStatus())
 
+  const assertHermesConnectionUrl = (
+    mode: HermesConnectionMode,
+    value: string
+  ): void => {
+    if (!value.trim()) throw new Error('Hermes connection URL is required')
+    if (value !== value.trim()) throw new Error('Invalid Hermes connection URL')
+    let parsed: URL
+    try {
+      parsed = new URL(value)
+    } catch {
+      throw new Error('Invalid Hermes connection URL')
+    }
+    if (parsed.username || parsed.password) {
+      throw new Error('Hermes connection URL must not include credentials')
+    }
+    const allowed =
+      mode === 'legacy'
+        ? new Set(['http:', 'https:'])
+        : new Set(['http:', 'https:', 'ws:', 'wss:'])
+    if (!allowed.has(parsed.protocol)) {
+      throw new Error(
+        mode === 'legacy'
+          ? 'Legacy Hermes URL must use http or https'
+          : 'Native Hermes URL must use http, https, ws, or wss'
+      )
+    }
+  }
+
   ipcMain.handle(
     'bearcode:hermes:test-connection',
     async (_e, mode: unknown, url: unknown, secret?: unknown) => {
@@ -550,6 +578,7 @@ export function registerIpc(): void {
       if (secret !== undefined && typeof secret !== 'string') {
         throw new Error('Hermes connection secret must be a string')
       }
+      assertHermesConnectionUrl(mode, url)
 
       if (mode === 'legacy') {
         return checkHermesHealth(url, secret || getHermesToken())
