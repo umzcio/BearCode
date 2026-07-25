@@ -1120,9 +1120,12 @@ export function registerIpc(): void {
     return mcpManager.statusOf(name)
   })
 
-  // Task 13: read-only discovery of MCP servers already configured elsewhere
-  // (a project's `.mcp.json`, the Claude Desktop config). Pure read -- never
-  // mutates the source files, degrades to [] on missing/malformed JSON.
+  // Task 13: read-only discovery of MCP servers already configured elsewhere:
+  // the Claude Desktop config, a project's `.mcp.json`, `.claude/settings.json`'s
+  // `mcpServers` key, Cursor's `.cursor/mcp.json`, and Windsurf's
+  // `.windsurf/mcp.json` (see discoverLocalServers, mcp/store.ts). Pure read --
+  // never mutates any of the source files, degrades to [] on missing/malformed
+  // JSON.
   ipcMain.handle('bearcode:mcp:discover', (_e, projectPath: unknown) => {
     return discoverLocalServers(asProjectPath(projectPath))
   })
@@ -1131,19 +1134,39 @@ export function registerIpc(): void {
   // path (design §11). Secrets are NEVER auto-copied from a foreign config:
   // header/env VALUES are dropped (keys kept) so the user must fill each one
   // in via mcp.setSecret before the server can actually authenticate. Imported
-  // servers land under the SAME trust/consent/enable gates as any other: a
-  // project-mcp-json-origin import is written project-scoped (so it starts
-  // `untrusted` like any committed-project server), a stdio server still
-  // needs spawn consent on first enable, and nothing here touches
+  // servers land under the SAME trust/consent/enable gates as any other: any
+  // origin except `claude-desktop` (a machine-level config, not detected IN
+  // this project) is written project-scoped when a project is open, so it
+  // starts `untrusted` like any committed-project server; a stdio server
+  // still needs spawn consent on first enable; and nothing here touches
   // mcpEnabledServers.
+  // The known DiscoveredMcpServer['origin'] literals (shared/types.ts) --
+  // duplicated here rather than derived, same idiom as the other wire-boundary
+  // guards in this file, since TypeScript unions aren't available at runtime.
+  const KNOWN_MCP_ORIGINS: ReadonlySet<DiscoveredMcpServer['origin']> = new Set([
+    'claude-desktop',
+    'project-mcp-json',
+    'claude-settings-json',
+    'cursor-mcp-json',
+    'windsurf-mcp-json'
+  ])
   ipcMain.handle('bearcode:mcp:import', (_e, servers: unknown, projectPath: unknown) => {
     if (!Array.isArray(servers)) {
       throw new Error(`Invalid discovered servers: ${String(servers)}`)
     }
     const proj = asProjectPath(projectPath)
+    // The type predicate below asserts the FULL DiscoveredMcpServer shape, so
+    // it must actually check every field that shape promises -- `origin` in
+    // particular now drives the project/global scoping decision
+    // (importDiscoveredServers, mcp/store.ts), so an unvalidated bogus origin
+    // could previously slip through and be trusted as one of the known
+    // literals downstream (final whole-branch review, Finding 4).
     const validated = (servers as unknown[]).filter(
       (raw): raw is DiscoveredMcpServer =>
-        raw != null && typeof raw === 'object' && typeof (raw as { name?: unknown }).name === 'string'
+        raw != null &&
+        typeof raw === 'object' &&
+        typeof (raw as { name?: unknown }).name === 'string' &&
+        KNOWN_MCP_ORIGINS.has((raw as { origin?: unknown }).origin as DiscoveredMcpServer['origin'])
     )
     const imported = importDiscoveredServers(validated, proj)
     return imported.map((cfg) => mcpServerView(cfg, proj))
