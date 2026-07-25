@@ -83,6 +83,21 @@ describe('attachments:preview IPC', () => {
     expect(JSON.stringify(result)).not.toContain(userDataDir)
   })
 
+  it('returns the stable unsupported payload when rendering rejects asynchronously', async () => {
+    renderPreviewPayload.mockRejectedValueOnce(new Error('Office rendering failed'))
+
+    const result = await handlers.get('bearcode:attachments:preview')!(
+      {},
+      'conv_123',
+      'att_123'
+    )
+
+    expect(result).toEqual({
+      kind: 'unsupported',
+      note: 'Attachment could not be loaded'
+    })
+  })
+
   it.each([
     new Error('Attachment is no longer available'),
     new Error('Attachment could not be verified')

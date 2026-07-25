@@ -196,6 +196,17 @@ describe('diffs:preview IPC', () => {
     })
   })
 
+  it('a rejected shared renderer returns the stable read-failure payload', async () => {
+    filePathFor.mockReturnValue('/ws/report.docx')
+    statSync.mockReturnValue({ size: 10 })
+    readFileSync.mockReturnValue(Buffer.from('docxbytes'))
+    vi.mocked(renderPreviewPayload).mockRejectedValueOnce(new Error('Office rendering failed'))
+
+    const result = await handlers.get('bearcode:diffs:preview')!({}, 'render-failure')
+
+    expect(result).toEqual({ kind: 'unsupported', note: 'Could not read file' })
+  })
+
   it('an unknown fileId (filePathFor -> null) is unsupported', async () => {
     filePathFor.mockReturnValue(null)
 

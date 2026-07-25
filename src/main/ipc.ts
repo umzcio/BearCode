@@ -401,7 +401,7 @@ export function registerIpc(): void {
           attachmentId,
           db.getEvents(conversationId)
         )
-        return renderPreviewPayload({
+        return await renderPreviewPayload({
           name: verified.attachment.name,
           mime: verified.attachment.mime,
           bytes: verified.bytes,
@@ -445,7 +445,7 @@ export function registerIpc(): void {
     if (size > 10 * 1024 * 1024) return { kind: 'unsupported', note: 'File too large to preview' }
     try {
       const bytes = readFileSync(path)
-      return renderPreviewPayload({
+      return await renderPreviewPayload({
         name: path,
         mime: mimeFor(path),
         bytes,
