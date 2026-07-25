@@ -187,6 +187,43 @@ class CompatibilityScriptTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("validate_media_delivery_path", result.stderr)
 
+    def test_missing_package_entrypoint_refuses_before_installation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime = root / "runtime"
+            plugin = root / "plugin"
+            _fake_runtime(runtime)
+            (plugin / "scripts").mkdir(parents=True)
+            shutil.copy2(
+                COMPATIBILITY_SCRIPT,
+                plugin / "scripts/check-compatibility.py",
+            )
+            shutil.copy2(PLUGIN_ROOT / "adapter.py", plugin / "adapter.py")
+            shutil.copytree(
+                PLUGIN_ROOT / "bearcode_transport",
+                plugin / "bearcode_transport",
+            )
+            environment = os.environ.copy()
+            environment["PYTHONPATH"] = os.pathsep.join(
+                (str(runtime), str(plugin))
+            )
+
+            result = subprocess.run(
+                (
+                    sys.executable,
+                    str(plugin / "scripts/check-compatibility.py"),
+                ),
+                cwd=plugin,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("__init__.py", result.stderr)
+
 
 class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
     async def _run_probe(
@@ -926,6 +963,10 @@ class InstallerScriptTests(unittest.TestCase):
         (stage / "scripts").mkdir(parents=True)
         if manifest:
             _write(stage / "plugin.yaml", "name: bearcode-platform\n")
+        _write(
+            stage / "__init__.py",
+            "from .adapter import register\n\n__all__ = ['register']\n",
+        )
         _write(stage / "adapter.py", "def register(ctx): pass\n")
         _write(stage / "VERSION", f"{name}\n")
         for script in ("check-compatibility.py", "healthcheck.py"):
@@ -1144,6 +1185,19 @@ class InstallerScriptTests(unittest.TestCase):
         self.assertFalse(any(line.startswith("hermes ") for line in commands))
         self.assertFalse(
             any(line.startswith("systemctl ") for line in commands)
+        )
+
+    def test_missing_package_entrypoint_stops_before_tests_or_copy(self):
+        stage = self._make_stage("missing-entrypoint")
+        (stage / "__init__.py").unlink()
+
+        result = self._run(stage)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("__init__.py", result.stderr)
+        self.assertEqual(self._command_lines(), [])
+        self.assertFalse(
+            (self.home / "plugins/platforms/bearcode.next").exists()
         )
 
     def test_stage_special_files_are_rejected_before_tests_or_copy(self):

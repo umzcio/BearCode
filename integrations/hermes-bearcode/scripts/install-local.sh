@@ -115,7 +115,7 @@ for root in (stage, home):
         raise SystemExit(f"path is not owned by service user: {root}")
 
 inspect_tree(stage, reject_writable=True)
-for required in ("plugin.yaml", "adapter.py"):
+for required in ("plugin.yaml", "__init__.py", "adapter.py"):
     path = stage / required
     try:
         info = os.lstat(path)

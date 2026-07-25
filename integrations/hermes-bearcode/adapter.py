@@ -26,8 +26,12 @@ from gateway.session import build_session_key
 from tools.approval import resolve_gateway_approval
 from tools.clarify_gateway import resolve_gateway_clarify
 
-from bearcode_transport.protocol import MAX_CHUNK_BYTES, MAX_FILE_BYTES
-from bearcode_transport.server import BearCodeServer
+if __package__:
+    from .bearcode_transport.protocol import MAX_CHUNK_BYTES, MAX_FILE_BYTES
+    from .bearcode_transport.server import BearCodeServer
+else:
+    from bearcode_transport.protocol import MAX_CHUNK_BYTES, MAX_FILE_BYTES
+    from bearcode_transport.server import BearCodeServer
 
 
 DEFAULT_HOST = "127.0.0.1"

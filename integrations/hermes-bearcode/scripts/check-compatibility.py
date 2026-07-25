@@ -42,19 +42,19 @@ def _require_callable(owner: object, name: str, source: str) -> None:
         raise CompatibilityError(f"{source} is missing required hook {name}")
 
 
-def _load_adapter(plugin_root: Path) -> ModuleType:
-    adapter_path = plugin_root / "adapter.py"
-    if not adapter_path.is_file() or adapter_path.is_symlink():
-        raise CompatibilityError("staged adapter.py is missing or unsafe")
-    if str(plugin_root) not in sys.path:
-        sys.path.insert(0, str(plugin_root))
+def _load_plugin_entrypoint(plugin_root: Path) -> ModuleType:
+    entrypoint_path = plugin_root / "__init__.py"
+    if not entrypoint_path.is_file() or entrypoint_path.is_symlink():
+        raise CompatibilityError("staged __init__.py is missing or unsafe")
     spec = importlib.util.spec_from_file_location(
-        "bearcode_compatibility_adapter",
-        adapter_path,
+        "bearcode_compatibility_plugin",
+        entrypoint_path,
+        submodule_search_locations=[str(plugin_root)],
     )
     if spec is None or spec.loader is None:
-        raise CompatibilityError("could not load staged adapter.py")
+        raise CompatibilityError("could not load staged plugin entry point")
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -99,10 +99,10 @@ def check(plugin_root: Path) -> None:
                 f"Hermes is missing required public symbol {name}"
             )
 
-    adapter = _load_adapter(plugin_root)
-    _require_callable(adapter, "register", "adapter.py")
+    plugin = _load_plugin_entrypoint(plugin_root)
+    _require_callable(plugin, "register", "__init__.py")
     context = RecordingContext()
-    adapter.register(context)
+    plugin.register(context)
     if len(context.registrations) != 1:
         raise CompatibilityError(
             "adapter.py must register exactly one platform"
