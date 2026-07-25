@@ -6,6 +6,13 @@ import { useAppStore } from '../state/store'
 import { useAnimatedUnmount } from '../lib/useAnimatedUnmount'
 import { EmptyState } from './ui/EmptyState'
 
+// "1 rule" / "3 rules" -- mirrors store.ts's `plural` (not exported, so
+// duplicated here rather than reaching into the store module for a private
+// helper). Every noun it is applied to takes a plain -s plural.
+function plural(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`
+}
+
 const KIND_LABEL: Record<ImportCandidate['kind'], string> = {
   rule: 'Import as Rule',
   workflow: 'Import as Workflow',
@@ -104,9 +111,16 @@ export function ImportConfigReviewModal(): JSX.Element | null {
     void applySelection(selection)
       .then((summary) => {
         setImporting(false)
-        setSummaryText(
-          `Imported ${summary.rulesImported} rule(s), ${summary.workflowsImported} workflow(s), ${summary.skillsImported} skill(s), ${summary.mcpServersImported} connector(s).`
-        )
+        // Skip zero counts (final whole-branch review, Finding 3), matching
+        // the store's own applyImportSelection toast -- otherwise a
+        // rules-only import read as "Imported 1 rule(s), 0 workflow(s), 0
+        // skill(s), 0 connector(s)."
+        const parts: string[] = []
+        if (summary.rulesImported > 0) parts.push(plural(summary.rulesImported, 'rule'))
+        if (summary.workflowsImported > 0) parts.push(plural(summary.workflowsImported, 'workflow'))
+        if (summary.skillsImported > 0) parts.push(plural(summary.skillsImported, 'skill'))
+        if (summary.mcpServersImported > 0) parts.push(plural(summary.mcpServersImported, 'connector'))
+        setSummaryText(parts.length === 0 ? 'Nothing was imported.' : `Imported ${parts.join(', ')}.`)
       })
       // Without this the button stayed "Importing…" forever on any rejection,
       // with nothing shown to the user (final review Finding 5).
