@@ -521,9 +521,12 @@ export class HermesNativeTurn {
   }
 
   private handleConnectionClose(connection: WebSocket): void {
-    if (this.settled || this.connection !== connection) return
-    if (this.cancelled) return
-    this.handleConnectionFailure(new Error('Native Hermes connection closed'))
+    const messagesBeforeClose = this.messageChain
+    void messagesBeforeClose.then(() => {
+      if (this.settled || this.connection !== connection) return
+      if (this.cancelled) return
+      this.handleConnectionFailure(new Error('Native Hermes connection closed'))
+    })
   }
 
   private rejectPendingOperations(error: Error): void {

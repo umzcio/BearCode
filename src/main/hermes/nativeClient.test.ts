@@ -551,6 +551,7 @@ describe('HermesNativeTurn connection state machine', () => {
     await Promise.resolve()
     await Promise.resolve()
     socket.disconnect()
+    await vi.advanceTimersByTimeAsync(0)
     const retry = sockets[1]!
     retry.open()
     retry.server(helloAccepted())
@@ -569,6 +570,20 @@ describe('HermesNativeTurn connection state machine', () => {
     await eventually(() => turn.accepted ? true : undefined)
     socket.disconnect()
     await expect(result).rejects.toMatchObject({ kind: 'network', code: 'network.disconnected' })
+    expect(sockets).toHaveLength(1)
+  })
+
+  it('drains an already queued terminal message before handling synchronous close', async () => {
+    const { turn, socket, sockets } = testHarness()
+    const result = start(turn, socket)
+    socket.server(helloAccepted())
+    socket.server(serverEvent('turn.accepted', 1, {}))
+    await eventually(() => turn.accepted ? true : undefined)
+
+    socket.server(serverEvent('turn.completed', 2, { sessionId: 'session-1' }))
+    socket.disconnect()
+
+    await expect(result).resolves.toBe('completed')
     expect(sockets).toHaveLength(1)
   })
 
