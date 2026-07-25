@@ -71,7 +71,11 @@ export async function runHermes(
   }
 
   const meta = getConversationMeta(conversationId)
-  if (meta?.hermesMode === 'native') {
+  if (!meta) {
+    return fail(conversationId, sink, 'Hermes conversation metadata is missing.')
+  }
+
+  if (meta.hermesMode === 'native') {
     if (!settings.hermesNativeUrl) {
       return fail(
         conversationId,
@@ -90,6 +94,10 @@ export async function runHermes(
       return fail(conversationId, sink, 'Native Hermes could not establish an installation ID.')
     }
     return runHermesNative(conversationId, userText, attachments, sink, signal)
+  }
+
+  if (meta.hermesMode !== 'legacy') {
+    return fail(conversationId, sink, 'Hermes conversation has an invalid connection mode.')
   }
 
   if (!settings.hermesGatewayUrl) {

@@ -93,6 +93,13 @@ export async function runHermesNative(
   let completedSessionId: string | undefined
   let active!: ActiveNativeTurn
 
+  const invalidateInteractions = (): void => {
+    active.pendingApprovals.clear()
+    active.pendingClarifications.clear()
+    active.approvalToolCallIds.clear()
+    active.clarifications.clear()
+  }
+
   const persistAssistant = (messageId: string): void => {
     const assistant = assistants.get(messageId)
     if (!assistant || assistant.persisted || !assistant.text) return
@@ -218,12 +225,17 @@ export async function runHermesNative(
         return
       }
       case 'turn.completed':
+        invalidateInteractions()
         completedSessionId = wire.payload.sessionId
         setHermesSessionId(conversationId, wire.payload.sessionId)
         {
           const meta = getConversationMeta(conversationId)
           if (meta) sink.metaChanged(meta)
         }
+        return
+      case 'turn.failed':
+      case 'turn.cancelled':
+        invalidateInteractions()
         return
       default:
         return
@@ -302,6 +314,8 @@ export function cancelHermesNative(conversationId: string): boolean {
   active.turn.cancel()
   active.pendingApprovals.clear()
   active.pendingClarifications.clear()
+  active.approvalToolCallIds.clear()
+  active.clarifications.clear()
   return true
 }
 

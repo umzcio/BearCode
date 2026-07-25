@@ -97,13 +97,53 @@ beforeEach(() => {
 })
 
 describe('bearcode:conversations:create-hermes', () => {
-  it('creates a project-less conversation, sets the sentinel modelRef, session id, and native mode', async () => {
+  it('creates native without a local session id and returns refreshed native metadata', async () => {
+    const refreshed = {
+      id: 'new-convo-id',
+      hermesSessionId: null,
+      hermesMode: 'native'
+    }
+    vi.mocked(db.getConversationMeta).mockReturnValue(refreshed as never)
+
     const meta = await handlers.get('bearcode:conversations:create-hermes')!({}, 'native')
+
+    expect(db.createConversation).toHaveBeenCalledWith(null)
+    expect(db.setModelRef).toHaveBeenCalledWith('new-convo-id', HERMES_MODEL_REF)
+    expect(db.setHermesSessionId).not.toHaveBeenCalled()
+    expect(db.setHermesMode).toHaveBeenCalledWith('new-convo-id', 'native')
+    expect(meta).toBe(refreshed)
+    expect(vi.mocked(db.setModelRef).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(db.setHermesMode).mock.invocationCallOrder[0]
+    )
+    expect(vi.mocked(db.setHermesMode).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(db.getConversationMeta).mock.invocationCallOrder[0]
+    )
+  })
+
+  it('creates legacy with a local session id before returning refreshed legacy metadata', async () => {
+    const refreshed = {
+      id: 'new-convo-id',
+      hermesSessionId: 'legacy-session',
+      hermesMode: 'legacy'
+    }
+    vi.mocked(db.getConversationMeta).mockReturnValue(refreshed as never)
+
+    const meta = await handlers.get('bearcode:conversations:create-hermes')!({}, 'legacy')
+
     expect(db.createConversation).toHaveBeenCalledWith(null)
     expect(db.setModelRef).toHaveBeenCalledWith('new-convo-id', HERMES_MODEL_REF)
     expect(db.setHermesSessionId).toHaveBeenCalledWith('new-convo-id', expect.any(String))
-    expect(db.setHermesMode).toHaveBeenCalledWith('new-convo-id', 'native')
-    expect(meta).toMatchObject({ id: 'new-convo-id' })
+    expect(db.setHermesMode).toHaveBeenCalledWith('new-convo-id', 'legacy')
+    expect(meta).toBe(refreshed)
+    expect(vi.mocked(db.setModelRef).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(db.setHermesSessionId).mock.invocationCallOrder[0]
+    )
+    expect(vi.mocked(db.setHermesSessionId).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(db.setHermesMode).mock.invocationCallOrder[0]
+    )
+    expect(vi.mocked(db.setHermesMode).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(db.getConversationMeta).mock.invocationCallOrder[0]
+    )
   })
 
   it('rejects an unknown connection mode', () => {

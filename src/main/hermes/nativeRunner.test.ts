@@ -20,7 +20,8 @@ interface FakeTurn {
 }
 
 const native = vi.hoisted(() => ({
-  turns: [] as FakeTurn[]
+  turns: [] as FakeTurn[],
+  constructorErrors: [] as Error[]
 }))
 
 vi.mock('./nativeClient', () => ({
@@ -41,6 +42,8 @@ vi.mock('./nativeClient', () => ({
     readonly fail = (error: Error): void => this.reject(error)
 
     constructor(readonly options: HermesNativeTurnOptions) {
+      const error = native.constructorErrors.shift()
+      if (error) throw error
       native.turns.push(this as unknown as FakeTurn)
     }
   }
@@ -78,7 +81,11 @@ const ids = {
   message: '22222222-2222-4222-8222-222222222222',
   tool: '33333333-3333-4333-8333-333333333333',
   request: '44444444-4444-4444-8444-444444444444',
-  attachment: '55555555-5555-4555-8555-555555555555'
+  attachment: '55555555-5555-4555-8555-555555555555',
+  clarification: '88888888-8888-4888-8888-888888888888',
+  conversationTwo: '99999999-9999-4999-8999-999999999999',
+  requestTwo: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  clarificationTwo: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 }
 
 const attachmentRef: AttachmentRef = {
@@ -110,12 +117,13 @@ const serverEvent = (
     payload
   }) as HermesServerEvent
 
-function begin(
+function beginFor(
+  conversationId: string,
   sink = makeSink(),
   attachments: AttachmentRef[] = []
 ): { promise: ReturnType<typeof runHermesNative>; sink: RunSink; turn: FakeTurn } {
   const promise = runHermesNative(
-    ids.conversation,
+    conversationId,
     'do the work',
     attachments,
     sink,
@@ -126,9 +134,17 @@ function begin(
   return { promise, sink, turn }
 }
 
+function begin(
+  sink = makeSink(),
+  attachments: AttachmentRef[] = []
+): { promise: ReturnType<typeof runHermesNative>; sink: RunSink; turn: FakeTurn } {
+  return beginFor(ids.conversation, sink, attachments)
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   native.turns.length = 0
+  native.constructorErrors.length = 0
   vi.mocked(getSettings).mockReturnValue({
     hermesNativeUrl: 'https://hermes.example.test'
   } as never)
@@ -365,6 +381,26 @@ describe('runHermesNative tools and interactions', () => {
     turn.complete('cancelled')
     await promise
   })
+
+  it('persists duration zero when tool completion has no matching start', async () => {
+    const { promise, turn } = begin()
+    turn.options.onEvent(
+      serverEvent('tool.completed', { toolCallId: ids.tool, status: 'failed' })
+    )
+    turn.options.onEvent(serverEvent('turn.completed', { sessionId: 'session-new' }, 2))
+    turn.complete('completed')
+    await promise
+
+    expect(appendEvent).toHaveBeenCalledWith(
+      ids.conversation,
+      expect.objectContaining({
+        type: 'hermes_tool_result',
+        callId: ids.tool,
+        status: 'failed',
+        durationMs: 0
+      })
+    )
+  })
 })
 
 describe('runHermesNative terminal behavior', () => {
@@ -412,6 +448,21 @@ describe('runHermesNative terminal behavior', () => {
       endedAt: 10_250
     })
     expect(sink.setState).toHaveBeenLastCalledWith(ids.conversation, 'done')
+
+    const sessionOrder = vi.mocked(setHermesSessionId).mock.invocationCallOrder[0]
+    const metaOrder = vi.mocked(sink.metaChanged).mock.invocationCallOrder[0]
+    const turnMetaAppendOrder = vi.mocked(appendEvent).mock.invocationCallOrder.find(
+      (_, index) => vi.mocked(appendEvent).mock.calls[index][1].type === 'turn_meta'
+    )
+    const turnMetaEmitOrder = vi.mocked(sink.emit).mock.invocationCallOrder.find(
+      (_, index) => vi.mocked(sink.emit).mock.calls[index][1].type === 'turn_meta'
+    )
+    const doneOrder = vi.mocked(sink.setState).mock.invocationCallOrder.at(-1)
+    expect(sessionOrder).toBeLessThan(metaOrder)
+    expect(metaOrder).toBeLessThan(turnMetaAppendOrder!)
+    expect(metaOrder).toBeLessThan(turnMetaEmitOrder!)
+    expect(turnMetaAppendOrder!).toBeLessThan(doneOrder!)
+    expect(turnMetaEmitOrder!).toBeLessThan(doneOrder!)
   })
 
   it('persists partial assistant text before failing a completion that omitted the session id', async () => {
@@ -490,5 +541,161 @@ describe('runHermesNative terminal behavior', () => {
     first.turn.options.onEvent(serverEvent('turn.cancelled', {}))
     first.turn.complete('cancelled')
     await first.promise
+  })
+
+  it('allows simultaneous active turns for two different conversations', async () => {
+    const first = beginFor(ids.conversation)
+    const second = beginFor(ids.conversationTwo)
+
+    expect(native.turns).toHaveLength(2)
+    expect(first.turn.options.conversationId).toBe(ids.conversation)
+    expect(second.turn.options.conversationId).toBe(ids.conversationTwo)
+
+    first.turn.options.onEvent(serverEvent('turn.completed', { sessionId: 'session-one' }))
+    second.turn.options.onEvent(serverEvent('turn.completed', { sessionId: 'session-two' }))
+    first.turn.complete('completed')
+    second.turn.complete('completed')
+    await expect(Promise.all([first.promise, second.promise])).resolves.toEqual([
+      { paused: false },
+      { paused: false }
+    ])
+  })
+
+  it('does not resolve approval or clarification ownership through the wrong conversation', async () => {
+    const first = beginFor(ids.conversation)
+    const second = beginFor(ids.conversationTwo)
+    first.turn.options.onEvent(
+      serverEvent('tool.started', { toolCallId: ids.tool, name: 'terminal', label: 'First' })
+    )
+    first.turn.options.onEvent(
+      serverEvent('approval.requested', {
+        requestId: ids.request,
+        toolCallId: ids.tool,
+        command: 'first',
+        description: 'First approval',
+        allowSession: true,
+        allowPermanent: false,
+        smartDenied: false
+      }, 2)
+    )
+    first.turn.options.onEvent(
+      serverEvent('clarification.requested', {
+        requestId: ids.clarification,
+        question: 'First question?',
+        choices: []
+      }, 3)
+    )
+    second.turn.options.onEvent(
+      serverEvent('tool.started', {
+        toolCallId: ids.attachment,
+        name: 'terminal',
+        label: 'Second'
+      })
+    )
+    second.turn.options.onEvent(
+      serverEvent('approval.requested', {
+        requestId: ids.requestTwo,
+        toolCallId: ids.attachment,
+        command: 'second',
+        description: 'Second approval',
+        allowSession: false,
+        allowPermanent: false,
+        smartDenied: false
+      }, 2)
+    )
+    second.turn.options.onEvent(
+      serverEvent('clarification.requested', {
+        requestId: ids.clarificationTwo,
+        question: 'Second question?',
+        choices: []
+      }, 3)
+    )
+
+    expect(resolveHermesApproval(ids.conversation, ids.requestTwo, 'once')).toBe(false)
+    expect(resolveHermesApproval(ids.conversationTwo, ids.request, 'once')).toBe(false)
+    expect(
+      resolveHermesClarification(ids.conversation, ids.clarificationTwo, 'wrong')
+    ).toBe(false)
+    expect(
+      resolveHermesClarification(ids.conversationTwo, ids.clarification, 'wrong')
+    ).toBe(false)
+    expect(first.turn.resolveApproval).not.toHaveBeenCalled()
+    expect(second.turn.resolveApproval).not.toHaveBeenCalled()
+    expect(first.turn.resolveClarification).not.toHaveBeenCalled()
+    expect(second.turn.resolveClarification).not.toHaveBeenCalled()
+
+    first.turn.options.onEvent(serverEvent('turn.cancelled', {}, 4))
+    second.turn.options.onEvent(serverEvent('turn.cancelled', {}, 4))
+    first.turn.complete('cancelled')
+    second.turn.complete('cancelled')
+    await Promise.all([first.promise, second.promise])
+  })
+
+  it.each([
+    ['turn.completed', { sessionId: 'session-new' }, 'completed'],
+    ['turn.failed', { error: { code: 'agent.failed', message: 'failed', retryable: false } }, 'failed'],
+    ['turn.cancelled', {}, 'cancelled']
+  ] as const)(
+    'invalidates interaction ownership immediately on %s before run settlement',
+    async (type, payload, settlement) => {
+      const { promise, turn } = begin()
+      turn.options.onEvent(
+        serverEvent('tool.started', { toolCallId: ids.tool, name: 'terminal', label: 'Run' })
+      )
+      turn.options.onEvent(
+        serverEvent('approval.requested', {
+          requestId: ids.request,
+          toolCallId: ids.tool,
+          command: 'npm test',
+          description: 'Run tests',
+          allowSession: true,
+          allowPermanent: false,
+          smartDenied: false
+        }, 2)
+      )
+      turn.options.onEvent(
+        serverEvent('clarification.requested', {
+          requestId: ids.clarification,
+          question: 'Which?',
+          choices: ['one']
+        }, 3)
+      )
+
+      turn.options.onEvent(serverEvent(type, payload, 4))
+
+      expect(resolveHermesApproval(ids.conversation, ids.request, 'once')).toBe(false)
+      expect(resolveHermesClarification(ids.conversation, ids.clarification, 'one')).toBe(false)
+      expect(turn.resolveApproval).not.toHaveBeenCalled()
+      expect(turn.resolveClarification).not.toHaveBeenCalled()
+
+      if (settlement === 'completed') turn.complete('completed')
+      else if (settlement === 'cancelled') turn.complete('cancelled')
+      else turn.fail(new Error('failed'))
+      await promise
+    }
+  )
+
+  it('allows a later turn after constructor failure and after run rejection', async () => {
+    native.constructorErrors.push(new Error('constructor failed'))
+    await expect(
+      runHermesNative(
+        ids.conversation,
+        'first',
+        [],
+        makeSink(),
+        new AbortController().signal
+      )
+    ).rejects.toThrow('constructor failed')
+
+    const afterConstructor = begin()
+    afterConstructor.turn.fail(new Error('run rejected'))
+    await expect(afterConstructor.promise).resolves.toEqual({ paused: false, failed: true })
+
+    const afterRejection = begin()
+    afterRejection.turn.options.onEvent(
+      serverEvent('turn.completed', { sessionId: 'session-after-rejection' })
+    )
+    afterRejection.turn.complete('completed')
+    await expect(afterRejection.promise).resolves.toEqual({ paused: false })
   })
 })

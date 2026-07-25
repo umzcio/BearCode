@@ -93,7 +93,11 @@ describe('runHermes', () => {
   })
 
   it('emits a recoverable error when the conversation has no session id', async () => {
-    vi.mocked(getConversationMeta).mockReturnValue({ id: 'c1', hermesSessionId: null } as never)
+    vi.mocked(getConversationMeta).mockReturnValue({
+      id: 'c1',
+      hermesSessionId: null,
+      hermesMode: 'legacy'
+    } as never)
     const sink = makeSink()
     const result = await runHermes('c1', 'hi', [], sink, new AbortController().signal)
 
@@ -189,5 +193,29 @@ describe('runHermes', () => {
       expect.objectContaining({ type: 'error', message: expect.stringMatching(/platform key/i) })
     )
     expect(runHermesNative).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['missing metadata', null],
+    [
+      'unknown persisted mode',
+      { id: 'c1', hermesSessionId: 'sess-1', hermesMode: 'future-mode' }
+    ]
+  ])('fails closed for %s without calling either Hermes transport', async (_label, meta) => {
+    vi.mocked(getConversationMeta).mockReturnValue(meta as never)
+    const sink = makeSink()
+
+    const result = await runHermes('c1', 'hi', [], sink, new AbortController().signal)
+
+    expect(result).toEqual({ paused: false, failed: true })
+    expect(emitted(sink)).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        message: expect.stringMatching(/metadata|mode/i),
+        recoverable: true
+      })
+    )
+    expect(runHermesNative).not.toHaveBeenCalled()
+    expect(sendHermesMessage).not.toHaveBeenCalled()
   })
 })

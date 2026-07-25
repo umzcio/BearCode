@@ -674,7 +674,7 @@ export function registerIpc(): void {
     }
     const meta = db.createConversation(null)
     db.setModelRef(meta.id, HERMES_MODEL_REF)
-    db.setHermesSessionId(meta.id, randomUUID())
+    if (mode === 'legacy') db.setHermesSessionId(meta.id, randomUUID())
     db.setHermesMode(meta.id, mode as HermesConnectionMode)
     return db.getConversationMeta(meta.id)
   })
