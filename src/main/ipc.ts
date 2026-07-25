@@ -127,6 +127,7 @@ import { validateHookEvent, validateHookName } from './hooks/validate'
 import { COMMAND_NAME_PATTERN, HERMES_MODEL_REF } from '../shared/types'
 import { scanImportableConfig, shouldShowImportBanner } from './configImport/scan'
 import { buildCandidateViews } from './configImport/candidateViews'
+import { buildMcpCandidates } from './configImport/mcpCandidates'
 import { applyImportSelection, type ImportSelection } from './configImport/importer'
 import {
   checkSourceForUpdate,
@@ -1170,7 +1171,8 @@ export function registerIpc(): void {
     return {
       rules: asStringArray(r.rules, 'import selection rules'),
       workflows: asStringArray(r.workflows, 'import selection workflows'),
-      skills: asStringArray(r.skills, 'import selection skills')
+      skills: asStringArray(r.skills, 'import selection skills'),
+      mcpServers: asStringArray(r.mcpServers, 'import selection mcp servers')
     }
   }
 
@@ -1192,7 +1194,20 @@ export function registerIpc(): void {
     // read is capped at 64KB, only not-yet-imported sources are described, and
     // buildCandidateViews itself caps the NUMBER fully described per call
     // (MAX_PREVIEWED, candidateViews.ts) since this runs on every folder open.
-    const candidates = buildCandidateViews(projectPath, remaining, db.getOutsidePolicy(projectPath))
+    const ruleCandidates = buildCandidateViews(
+      projectPath,
+      remaining,
+      db.getOutsidePolicy(projectPath)
+    )
+    // MCP servers are discovered independently of scanImportableConfig (they
+    // live in mcpServers blocks inside JSON configs, not standalone rule/
+    // workflow/skill files), so they're merged in here rather than flowing
+    // through `remaining`. Same already-imported filter applies so a server
+    // sitting in .agents/mcp.json isn't re-offered on every folder open.
+    const mcpCandidates = buildMcpCandidates(projectPath).filter(
+      (c) => !importedPaths.has(c.sourcePath)
+    )
+    const candidates = [...ruleCandidates, ...mcpCandidates]
     // Only something the user could actually act on drives the banner: an
     // 'unsupported' source (Finding 2) or one that cannot translate at all
     // would otherwise nag on every folder open with nothing to offer.

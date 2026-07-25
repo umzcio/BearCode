@@ -96,7 +96,7 @@ describe('checkSourceForUpdate', () => {
     store.clear()
     dir = mkdtempSync(join(tmpdir(), 'bearcode-checkupdate-'))
     writeFileSync(join(dir, 'CLAUDE.md'), 'Original content.')
-    applyImportSelection(dir, { rules: ['CLAUDE.md'], workflows: [], skills: [] })
+    applyImportSelection(dir, { rules: ['CLAUDE.md'], workflows: [], skills: [], mcpServers: [] })
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
@@ -179,7 +179,7 @@ describe('checkSourceForUpdate for a skill source (directory sourcePath)', () =>
     dir = mkdtempSync(join(tmpdir(), 'bearcode-checkupdate-skill-'))
     mkdirSync(join(dir, sp), { recursive: true })
     writeFileSync(skillMd(), '---\ndescription: Export docs to PDF\n---\nBody.')
-    applyImportSelection(dir, { rules: [], workflows: [], skills: [sp] })
+    applyImportSelection(dir, { rules: [], workflows: [], skills: [sp], mcpServers: [] })
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
@@ -233,7 +233,7 @@ describe('applySourceUpdate resilience', () => {
     store.clear()
     const dir = mkdtempSync(join(tmpdir(), 'bearcode-checkupdate-mkdir-'))
     writeFileSync(join(dir, 'CLAUDE.md'), 'Original content.')
-    applyImportSelection(dir, { rules: ['CLAUDE.md'], workflows: [], skills: [] })
+    applyImportSelection(dir, { rules: ['CLAUDE.md'], workflows: [], skills: [], mcpServers: [] })
     rmSync(join(dir, '.agents'), { recursive: true, force: true })
     writeFileSync(join(dir, 'CLAUDE.md'), 'Updated content.')
     expect(() => applySourceUpdate(dir, 'CLAUDE.md')).not.toThrow()
