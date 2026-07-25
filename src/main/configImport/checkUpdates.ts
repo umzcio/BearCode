@@ -53,7 +53,9 @@ export function applySourceUpdate(projectPath: string, sourcePath: string): void
 }
 
 export function ignoreSourceUpdate(projectPath: string, sourcePath: string): void {
-  const rawText = readFileSync(join(projectPath, sourcePath), 'utf8')
+  const abs = join(projectPath, sourcePath)
+  if (!existsSync(abs)) return
+  const rawText = readFileSync(abs, 'utf8')
   upsertImportedConfig(projectPath, sourcePath, { sourceHash: hashOf(rawText) })
 }
 

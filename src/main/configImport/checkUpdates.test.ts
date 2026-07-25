@@ -129,6 +129,14 @@ describe('checkSourceForUpdate', () => {
     expect(readFileSync(join(dir, '.agents', 'rules', 'claude.md'), 'utf8')).toBe('Original content.')
   })
 
+  it('ignoreSourceUpdate is a silent no-op when the source file no longer exists', () => {
+    const before = getImportedConfig(dir, 'CLAUDE.md')
+    rmSync(join(dir, 'CLAUDE.md'))
+    expect(() => ignoreSourceUpdate(dir, 'CLAUDE.md')).not.toThrow()
+    const after = getImportedConfig(dir, 'CLAUDE.md')
+    expect(after?.sourceHash).toBe(before?.sourceHash)
+  })
+
   it('detachSource removes the tracking row without touching the imported file', () => {
     detachSource(dir, 'CLAUDE.md')
     expect(getImportedConfig(dir, 'CLAUDE.md')).toBeNull()
