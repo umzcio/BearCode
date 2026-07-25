@@ -45,6 +45,21 @@ export function ImportConfigReviewModal(): JSX.Element | null {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [closeReview])
 
+  // This component is mounted once for the app's lifetime (see the outer-gate
+  // note above) -- it is never truly unmounted/remounted by App, so the
+  // `useState` lazy initializers below only ever run once, at true first
+  // mount. Re-derive the per-open local state every time the modal transitions
+  // to open, so a stale selection/summary from a prior open doesn't leak into
+  // the next one.
+  useEffect(() => {
+    if (importReviewOpen) {
+      setSelected(new Set(importable.map((c) => c.sourcePath)))
+      setSummaryText(null)
+      setImporting(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally re-derives only on open, not on every `importable`/`candidates` change while already open
+  }, [importReviewOpen])
+
   if (!mounted) return null
 
   const toggle = (sourcePath: string): void => {
