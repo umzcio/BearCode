@@ -1,6 +1,7 @@
 """Behavior tests for upgrade-safe BearCode plugin deployment tooling."""
 import asyncio
 import getpass
+import importlib.util
 import os
 from pathlib import Path
 import re
@@ -25,6 +26,19 @@ SCRIPTS_ROOT = PLUGIN_ROOT / "scripts"
 COMPATIBILITY_SCRIPT = SCRIPTS_ROOT / "check-compatibility.py"
 HEALTHCHECK_SCRIPT = SCRIPTS_ROOT / "healthcheck.py"
 INSTALL_SCRIPT = SCRIPTS_ROOT / "install-local.sh"
+
+
+def _load_healthcheck_module():
+    module_name = f"_bearcode_healthcheck_test_{time.monotonic_ns()}"
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        HEALTHCHECK_SCRIPT,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("could not load healthcheck module")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _write(path, contents, mode=0o644):
@@ -180,7 +194,6 @@ class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
         response,
         *,
         environment_updates=None,
-        startup_delay=0,
         http_status=None,
         raw_response=None,
         close_after_hello=False,
@@ -210,15 +223,9 @@ class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
         application.router.add_get("/v1/bearcode", handler)
         runner = web.AppRunner(application)
         await runner.setup()
-        if startup_delay:
-            with socket.socket() as reservation:
-                reservation.bind(("127.0.0.1", 0))
-                port = reservation.getsockname()[1]
-            site = web.TCPSite(runner, "127.0.0.1", port)
-        else:
-            site = web.TCPSite(runner, "127.0.0.1", 0)
-            await site.start()
-            port = site._server.sockets[0].getsockname()[1]
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
         environment = os.environ.copy()
         environment.update(
             {
@@ -245,9 +252,6 @@ class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            if startup_delay:
-                await asyncio.sleep(startup_delay)
-                await asyncio.wait_for(site.start(), timeout=2)
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
                 timeout=5,
@@ -275,7 +279,7 @@ class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
             observed,
         )
 
-    async def test_retries_until_delayed_listener_accepts_connection(self):
+    async def test_retries_after_observed_refusal_on_owned_socket(self):
         response = {
             "type": "hello.accepted",
             "protocol": "bearcode-hermes",
@@ -295,18 +299,119 @@ class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
                 },
             },
         }
+        observed = {}
 
-        returncode, stdout, stderr, observed = await self._run_probe(
-            response,
-            startup_delay=0.25,
+        async def handler(request):
+            observed["authorization"] = request.headers.get(
+                "Authorization"
+            )
+            socket = web.WebSocketResponse()
+            await socket.prepare(request)
+            observed["hello"] = await socket.receive_json()
+            await socket.send_json(response)
+            await socket.close()
+            return socket
+
+        application = web.Application()
+        application.router.add_get("/v1/bearcode", handler)
+        runner = web.AppRunner(application)
+        await runner.setup()
+        reservation = socket.socket()
+        reservation.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+        site = web.SockSite(runner, reservation)
+
+        healthcheck = _load_healthcheck_module()
+        healthcheck.STARTUP_GRACE_SECONDS = 2
+        healthcheck.STARTUP_RETRY_SECONDS = 0.02
+        healthcheck.CONNECT_ATTEMPT_SECONDS = 0.2
+        refused = asyncio.Event()
+        probe_once = healthcheck._probe_once
+        loop = asyncio.get_running_loop()
+        sock_connect = loop.sock_connect
+        refuse_next_connection = True
+
+        async def sock_connect_with_initial_refusal(
+            *args,
+            **kwargs,
+        ):
+            nonlocal refuse_next_connection
+            if refuse_next_connection:
+                refuse_next_connection = False
+                raise OSError(
+                    healthcheck.errno.ECONNREFUSED,
+                    "test transport refused connection",
+                )
+            return await sock_connect(*args, **kwargs)
+
+        async def observed_probe_once(*args):
+            try:
+                await probe_once(*args)
+            except healthcheck.aiohttp.ClientConnectorError as error:
+                if (
+                    getattr(error.os_error, "errno", None)
+                    == healthcheck.errno.ECONNREFUSED
+                ):
+                    refused.set()
+                raise
+
+        healthcheck._probe_once = observed_probe_once
+        # A bound, non-listening socket stalls connects on macOS instead of
+        # rejecting them. Inject the equivalent kernel errno at asyncio's
+        # transport boundary; the real aiohttp ws_connect path must wrap it
+        # as ClientConnectorError before the production retry can proceed.
+        loop.sock_connect = sock_connect_with_initial_refusal
+        probe_task = asyncio.create_task(
+            healthcheck.probe(
+                f"ws://127.0.0.1:{port}/v1/bearcode",
+                "probe-secret",
+            )
         )
+        try:
+            await asyncio.wait_for(refused.wait(), timeout=1)
+            self.assertFalse(probe_task.done())
+            await asyncio.wait_for(site.start(), timeout=2)
+            await asyncio.wait_for(probe_task, timeout=2)
+        finally:
+            if not probe_task.done():
+                probe_task.cancel()
+            await asyncio.gather(probe_task, return_exceptions=True)
+            loop.sock_connect = sock_connect
+            await asyncio.wait_for(runner.cleanup(), timeout=2)
+            if reservation.fileno() != -1:
+                reservation.close()
 
-        self.assertEqual(returncode, 0, stderr)
-        self.assertIn("protocol 1", stdout)
         self.assertEqual(
             observed["authorization"],
             "Bearer probe-secret",
         )
+        self.assertEqual(observed["hello"]["type"], "hello")
+
+    async def test_absolute_deadline_bounds_a_stalled_attempt(self):
+        healthcheck = _load_healthcheck_module()
+        healthcheck.STARTUP_GRACE_SECONDS = 0.05
+
+        async def stalled_probe_once(*_args):
+            await asyncio.sleep(1)
+
+        healthcheck._probe_once = stalled_probe_once
+        started_at = time.monotonic()
+        caught = None
+        try:
+            await asyncio.wait_for(
+                healthcheck.probe(
+                    "ws://127.0.0.1:1/v1/bearcode",
+                    "probe-secret",
+                ),
+                timeout=0.5,
+            )
+        except Exception as error:
+            caught = error
+        elapsed = time.monotonic() - started_at
+
+        self.assertIsInstance(caught, healthcheck.HealthcheckError)
+        self.assertLess(elapsed, 0.2)
 
     async def test_does_not_retry_established_or_rejected_handshakes(self):
         canonical = {

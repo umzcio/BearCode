@@ -29,7 +29,7 @@ EXPECTED_CAPABILITIES = {
     "approvals": True,
     "clarifications": True,
 }
-CONNECT_TIMEOUT_SECONDS = 3
+CONNECT_ATTEMPT_SECONDS = 3
 MESSAGE_TIMEOUT_SECONDS = 10
 STARTUP_GRACE_SECONDS = 45
 STARTUP_RETRY_SECONDS = 0.5
@@ -180,13 +180,26 @@ async def probe(url: str, key: str) -> None:
     deadline = loop.time() + STARTUP_GRACE_SECONDS
     timeout = aiohttp.ClientTimeout(
         total=None,
-        sock_connect=CONNECT_TIMEOUT_SECONDS,
+        connect=CONNECT_ATTEMPT_SECONDS,
+        sock_connect=CONNECT_ATTEMPT_SECONDS,
     )
     async with aiohttp.ClientSession(timeout=timeout) as session:
         while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise HealthcheckError(
+                    "plugin startup deadline exceeded"
+                )
             try:
-                await _probe_once(session, url, key)
+                await asyncio.wait_for(
+                    _probe_once(session, url, key),
+                    timeout=remaining,
+                )
                 return
+            except asyncio.TimeoutError as error:
+                raise HealthcheckError(
+                    "plugin startup deadline exceeded"
+                ) from error
             except aiohttp.ClientConnectorError as error:
                 if (
                     getattr(error.os_error, "errno", None)
@@ -195,12 +208,12 @@ async def probe(url: str, key: str) -> None:
                     raise
                 remaining = deadline - loop.time()
                 if remaining <= 0:
-                    raise
+                    raise HealthcheckError(
+                        "plugin startup deadline exceeded"
+                    ) from error
                 await asyncio.sleep(
                     min(STARTUP_RETRY_SECONDS, remaining)
                 )
-                if loop.time() >= deadline:
-                    raise
 
 
 def main() -> int:
