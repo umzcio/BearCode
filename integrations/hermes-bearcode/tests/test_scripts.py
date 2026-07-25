@@ -7,6 +7,7 @@ import re
 import shutil
 import shlex
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -174,16 +175,34 @@ class CompatibilityScriptTests(unittest.TestCase):
 
 
 class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
-    async def _run_probe(self, response, *, environment_updates=None):
-        observed = {}
+    async def _run_probe(
+        self,
+        response,
+        *,
+        environment_updates=None,
+        startup_delay=0,
+        http_status=None,
+        raw_response=None,
+        close_after_hello=False,
+    ):
+        observed = {"attempts": 0}
 
         async def handler(request):
+            observed["attempts"] += 1
             observed["authorization"] = request.headers.get("Authorization")
+            if http_status is not None:
+                return web.Response(status=http_status)
             socket = web.WebSocketResponse()
             await socket.prepare(request)
             message = await socket.receive_json()
             observed["hello"] = message
-            await socket.send_json(response)
+            if close_after_hello:
+                await socket.close()
+                return socket
+            if raw_response is not None:
+                await socket.send_str(raw_response)
+            else:
+                await socket.send_json(response)
             await socket.close()
             return socket
 
@@ -191,9 +210,15 @@ class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
         application.router.add_get("/v1/bearcode", handler)
         runner = web.AppRunner(application)
         await runner.setup()
-        site = web.TCPSite(runner, "127.0.0.1", 0)
-        await site.start()
-        port = site._server.sockets[0].getsockname()[1]
+        if startup_delay:
+            with socket.socket() as reservation:
+                reservation.bind(("127.0.0.1", 0))
+                port = reservation.getsockname()[1]
+            site = web.TCPSite(runner, "127.0.0.1", port)
+        else:
+            site = web.TCPSite(runner, "127.0.0.1", 0)
+            await site.start()
+            port = site._server.sockets[0].getsockname()[1]
         environment = os.environ.copy()
         environment.update(
             {
@@ -209,6 +234,8 @@ class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
                     environment.pop(name, None)
                 else:
                     environment[name] = str(value)
+        process = None
+        started_at = time.monotonic()
         try:
             process = await asyncio.create_subprocess_exec(
                 sys.executable,
@@ -218,18 +245,120 @@ class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+            if startup_delay:
+                await asyncio.sleep(startup_delay)
+                await asyncio.wait_for(site.start(), timeout=2)
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
-                timeout=10,
+                timeout=5,
             )
         finally:
-            await runner.cleanup()
+            if process is not None and process.returncode is None:
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    pass
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=1)
+                except asyncio.TimeoutError:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                    await asyncio.wait_for(process.wait(), timeout=1)
+            await asyncio.wait_for(runner.cleanup(), timeout=2)
+        observed["elapsed_seconds"] = time.monotonic() - started_at
         return (
             process.returncode,
             stdout.decode(),
             stderr.decode(),
             observed,
         )
+
+    async def test_retries_until_delayed_listener_accepts_connection(self):
+        response = {
+            "type": "hello.accepted",
+            "protocol": "bearcode-hermes",
+            "version": 1,
+            "connectionId": "33333333-3333-4333-8333-333333333333",
+            "capabilities": {
+                "streaming": True,
+                "toolProgress": True,
+                "approvals": True,
+                "clarifications": True,
+                "attachments": {
+                    "upload": True,
+                    "download": True,
+                    "maxFiles": 5,
+                    "maxBytesPerFile": 10485760,
+                    "maxChunkBytes": 262144,
+                },
+            },
+        }
+
+        returncode, stdout, stderr, observed = await self._run_probe(
+            response,
+            startup_delay=0.25,
+        )
+
+        self.assertEqual(returncode, 0, stderr)
+        self.assertIn("protocol 1", stdout)
+        self.assertEqual(
+            observed["authorization"],
+            "Bearer probe-secret",
+        )
+
+    async def test_does_not_retry_established_or_rejected_handshakes(self):
+        canonical = {
+            "type": "hello.accepted",
+            "protocol": "bearcode-hermes",
+            "version": 1,
+            "connectionId": "33333333-3333-4333-8333-333333333333",
+            "capabilities": {
+                "streaming": True,
+                "toolProgress": True,
+                "approvals": True,
+                "clarifications": True,
+                "attachments": {
+                    "upload": True,
+                    "download": True,
+                    "maxFiles": 5,
+                    "maxBytesPerFile": 10485760,
+                    "maxChunkBytes": 262144,
+                },
+            },
+        }
+        wrong_capabilities = {
+            **canonical,
+            "capabilities": {
+                **canonical["capabilities"],
+                "attachments": {
+                    **canonical["capabilities"]["attachments"],
+                    "maxChunkBytes": 1,
+                },
+            },
+        }
+        cases = (
+            ("unauthorized", canonical, {"http_status": 401}),
+            ("wrong capabilities", wrong_capabilities, {}),
+            ("invalid response", canonical, {"raw_response": "{"}),
+            (
+                "established close",
+                canonical,
+                {"close_after_hello": True},
+            ),
+        )
+
+        for label, response, options in cases:
+            with self.subTest(label=label):
+                returncode, stdout, stderr, observed = (
+                    await self._run_probe(response, **options)
+                )
+
+                self.assertNotEqual(returncode, 0)
+                self.assertEqual(observed["attempts"], 1)
+                self.assertLess(observed["elapsed_seconds"], 2)
+                self.assertNotIn("probe-secret", stdout + stderr)
 
     async def test_authenticated_probe_uses_canonical_hello_and_env_secret(self):
         response = {

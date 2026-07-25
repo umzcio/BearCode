@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import os
 from pathlib import Path
 import shlex
@@ -28,8 +29,10 @@ EXPECTED_CAPABILITIES = {
     "approvals": True,
     "clarifications": True,
 }
-CONNECT_TIMEOUT_SECONDS = 10
+CONNECT_TIMEOUT_SECONDS = 3
 MESSAGE_TIMEOUT_SECONDS = 10
+STARTUP_GRACE_SECONDS = 45
+STARTUP_RETRY_SECONDS = 0.5
 
 
 class HealthcheckError(RuntimeError):
@@ -137,37 +140,67 @@ def _validate_accepted(message: object) -> None:
             )
 
 
+async def _probe_once(
+    session: aiohttp.ClientSession,
+    url: str,
+    key: str,
+) -> None:
+    async with session.ws_connect(
+        url,
+        headers={"Authorization": f"Bearer {key}"},
+        autoclose=True,
+        autoping=True,
+    ) as socket:
+        await socket.send_json(_canonical_hello())
+        try:
+            message = await asyncio.wait_for(
+                socket.receive(),
+                timeout=MESSAGE_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as error:
+            raise HealthcheckError(
+                "incompatible plugin handshake timeout"
+            ) from error
+        if message.type is not aiohttp.WSMsgType.TEXT:
+            raise HealthcheckError(
+                "incompatible non-text handshake response"
+            )
+        try:
+            payload = message.json()
+        except (TypeError, ValueError) as error:
+            raise HealthcheckError(
+                "incompatible invalid JSON handshake response"
+            ) from error
+        _validate_accepted(payload)
+        await socket.close()
+
+
 async def probe(url: str, key: str) -> None:
-    timeout = aiohttp.ClientTimeout(total=CONNECT_TIMEOUT_SECONDS)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + STARTUP_GRACE_SECONDS
+    timeout = aiohttp.ClientTimeout(
+        total=None,
+        sock_connect=CONNECT_TIMEOUT_SECONDS,
+    )
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.ws_connect(
-            url,
-            headers={"Authorization": f"Bearer {key}"},
-            autoclose=True,
-            autoping=True,
-        ) as socket:
-            await socket.send_json(_canonical_hello())
+        while True:
             try:
-                message = await asyncio.wait_for(
-                    socket.receive(),
-                    timeout=MESSAGE_TIMEOUT_SECONDS,
+                await _probe_once(session, url, key)
+                return
+            except aiohttp.ClientConnectorError as error:
+                if (
+                    getattr(error.os_error, "errno", None)
+                    != errno.ECONNREFUSED
+                ):
+                    raise
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise
+                await asyncio.sleep(
+                    min(STARTUP_RETRY_SECONDS, remaining)
                 )
-            except asyncio.TimeoutError as error:
-                raise HealthcheckError(
-                    "incompatible plugin handshake timeout"
-                ) from error
-            if message.type is not aiohttp.WSMsgType.TEXT:
-                raise HealthcheckError(
-                    "incompatible non-text handshake response"
-                )
-            try:
-                payload = message.json()
-            except (TypeError, ValueError) as error:
-                raise HealthcheckError(
-                    "incompatible invalid JSON handshake response"
-                ) from error
-            _validate_accepted(payload)
-            await socket.close()
+                if loop.time() >= deadline:
+                    raise
 
 
 def main() -> int:
