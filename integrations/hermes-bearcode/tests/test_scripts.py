@@ -1340,6 +1340,8 @@ class InstallerScriptTests(unittest.TestCase):
         result = subprocess.run(
             (
                 "git",
+                "-c",
+                "tar.umask=0022",
                 "archive",
                 "--format=tar.gz",
                 f"--output={archive}",
@@ -1367,6 +1369,18 @@ class InstallerScriptTests(unittest.TestCase):
             self.assertNotEqual(path.suffix, ".pyc")
             self.assertFalse(path.is_symlink())
             self.assertTrue(path.is_dir() or path.is_file())
+            mode = stat.S_IMODE(path.stat().st_mode)
+            self.assertEqual(
+                mode & 0o022,
+                0,
+                f"{relative} is writable by group or other: {mode:o}",
+            )
+            if path.is_dir():
+                self.assertEqual(mode, 0o755, relative)
+            elif relative.parts[0] == "scripts":
+                self.assertEqual(mode, 0o755, relative)
+            else:
+                self.assertLessEqual(mode, 0o644, relative)
 
 
 if __name__ == "__main__":

@@ -39,7 +39,7 @@ Deploy from a clean BearCode workspace. The current route is a two-hop copy thro
 followed by installation as the Hermes service user (`root` on the current host):
 
 ```bash
-git archive --format=tar.gz \
+git -c tar.umask=0022 archive --format=tar.gz \
   --output=/tmp/hermes-bearcode-plugin.tgz \
   HEAD:integrations/hermes-bearcode
 scp -o ProxyJump=umzcaio /tmp/hermes-bearcode-plugin.tgz zach@umzspark:/tmp/hermes-bearcode-plugin.tgz
@@ -87,9 +87,10 @@ The command itself contains no secret, so shell history records no key. Do not p
 into repository files, terminal commands, chat, or issue trackers. Enter it directly into the
 Native Platform key field in BearCode Settings.
 
-`git archive` packages tracked source from the committed integration tree only. It excludes the
-plugin-local `.venv`, Python caches, ignored files, and other untracked/build artifacts that the
-installer correctly rejects.
+`git archive` packages tracked source from the committed integration tree only. The explicit
+archive umask produces non-writable group/other modes accepted by the installer while preserving
+executable scripts. The archive excludes the plugin-local `.venv`, Python caches, ignored files,
+and other untracked/build artifacts that the installer correctly rejects.
 
 For a direct post-deploy probe, point the health check at `.env`. It extracts only the unique
 literal platform-key assignment without evaluating any other line and keeps the key out of
