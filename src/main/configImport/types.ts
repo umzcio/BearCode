@@ -1,5 +1,5 @@
 export type ImportTool = 'claude-code' | 'codex' | 'cursor' | 'windsurf'
-export type ImportKind = 'rule' | 'workflow' | 'skill' | 'unsupported'
+export type ImportKind = 'rule' | 'workflow' | 'skill' | 'unsupported' | 'mcp'
 
 export interface DetectedSource {
   sourcePath: string

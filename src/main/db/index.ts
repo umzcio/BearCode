@@ -1201,7 +1201,7 @@ export interface ImportedConfigRow {
   projectPath: string
   sourcePath: string
   sourceHash: string | null
-  importedAsType: 'rule' | 'workflow' | 'skill' | null
+  importedAsType: 'rule' | 'workflow' | 'skill' | 'mcp' | null
   importedAsName: string | null
   status: ImportedConfigStatus
   dismissedAt: number | null

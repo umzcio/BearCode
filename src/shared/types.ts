@@ -402,7 +402,7 @@ export interface McpServerConfig {
 // came from so the picker can label it and import can pick a target scope.
 export interface DiscoveredMcpServer {
   name: string
-  origin: 'claude-desktop' | 'project-mcp-json'
+  origin: 'claude-desktop' | 'project-mcp-json' | 'claude-settings-json' | 'cursor-mcp-json' | 'windsurf-mcp-json'
   transport: McpTransport
   url?: string
   headers?: Record<string, string>
@@ -1321,7 +1321,7 @@ export interface UpdaterStatus {
 // main/db/index.ts's ImportedConfigRow field-for-field -- kept as a separate
 // declaration since main-only modules must not be imported by the renderer.
 export type ImportTool = 'claude-code' | 'codex' | 'cursor' | 'windsurf'
-export type ImportKind = 'rule' | 'workflow' | 'skill' | 'unsupported'
+export type ImportKind = 'rule' | 'workflow' | 'skill' | 'unsupported' | 'mcp'
 export interface DetectedSource {
   sourcePath: string
   kind: ImportKind
@@ -1351,11 +1351,13 @@ export interface ImportSelection {
   rules: string[]
   workflows: string[]
   skills: string[]
+  mcpServers: string[]
 }
 export interface ImportSummary {
   rulesImported: number
   workflowsImported: number
   skillsImported: number
+  mcpServersImported: number
 }
 export type UpdateCheck =
   | { state: 'up-to-date' }
@@ -1366,7 +1368,7 @@ export interface ImportedConfigRow {
   projectPath: string
   sourcePath: string
   sourceHash: string | null
-  importedAsType: 'rule' | 'workflow' | 'skill' | null
+  importedAsType: 'rule' | 'workflow' | 'skill' | 'mcp' | null
   importedAsName: string | null
   status: 'imported' | 'dismissed'
   dismissedAt: number | null

@@ -38,6 +38,10 @@ function importedDirFor(
       // Skills are folders, not a single .md body -- diffed/updated as whole
       // directories, which the text-diff update flow does not handle.
       return null
+    case 'mcp':
+      // MCP servers are import-once in this plan (Global Constraints) --
+      // "Check for updates" is not built for them, matching Skills above.
+      return null
   }
 }
 

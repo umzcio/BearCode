@@ -88,7 +88,7 @@ import {
   detachSource,
   dismissDetectedSources
 } from './checkUpdates'
-import { getImportedConfig } from '../db'
+import { getImportedConfig, upsertImportedConfig } from '../db'
 
 describe('checkSourceForUpdate', () => {
   let dir: string
@@ -141,6 +141,21 @@ describe('checkSourceForUpdate', () => {
     detachSource(dir, 'CLAUDE.md')
     expect(getImportedConfig(dir, 'CLAUDE.md')).toBeNull()
     expect(readFileSync(join(dir, '.agents', 'rules', 'claude.md'), 'utf8')).toBe('Original content.')
+  })
+
+  it('candidateBody returns null for an mcp-tracked row (out of scope, no throw)', () => {
+    // An MCP-tracked row's sourcePath is a synthetic key, not a real file path on
+    // disk, and never matches anything scanImportableConfig() finds — so
+    // checkSourceForUpdate must degrade gracefully, not throw, when called on one.
+    const mcpDir = mkdtempSync(join(tmpdir(), 'bearcode-mcp-checkupdate-'))
+    upsertImportedConfig(mcpDir, '.claude/settings.json#filesystem', {
+      importedAsType: 'mcp',
+      importedAsName: 'filesystem',
+      status: 'imported',
+      createdAt: Date.now()
+    })
+    expect(() => checkSourceForUpdate(mcpDir, '.claude/settings.json#filesystem')).not.toThrow()
+    rmSync(mcpDir, { recursive: true, force: true })
   })
 })
 
