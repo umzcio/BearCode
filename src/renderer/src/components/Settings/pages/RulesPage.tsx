@@ -34,10 +34,14 @@ export function RulesPage(): JSX.Element | null {
 
   const scanForImportableConfig = (): void => {
     setScanning(true)
-    void refreshImportBannerState(workspacePath).then(() => {
-      setScanning(false)
-      openImportReview()
-    })
+    void refreshImportBannerState(workspacePath)
+      .then(() => {
+        setScanning(false)
+        openImportReview()
+      })
+      .catch(() => {
+        setScanning(false)
+      })
   }
 
   if (!settings) return null
@@ -49,9 +53,11 @@ export function RulesPage(): JSX.Element | null {
         Standing instructions the agent always follows or applies by name/glob/description. Edited
         as files under <code>.agents/rules/</code> — this page shows what&apos;s live.
       </div>
-      <button className="pill-btn" disabled={!workspacePath || scanning} onClick={scanForImportableConfig}>
-        {scanning ? 'Scanning…' : 'Scan for importable config…'}
-      </button>
+      <div className="rules-page-actions">
+        <button className="pill-btn" disabled={!workspacePath || scanning} onClick={scanForImportableConfig}>
+          {scanning ? 'Scanning…' : 'Scan for importable config…'}
+        </button>
+      </div>
 
       <div className="set-group-title">Active rules</div>
       <div className="set-card">

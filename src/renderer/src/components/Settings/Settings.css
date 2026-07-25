@@ -1354,6 +1354,12 @@
   cursor: default;
 }
 
+/* --- Rules page --- */
+.rules-page-actions .pill-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* --- Hermes page --- */
 .hermes-field {
   display: flex;
