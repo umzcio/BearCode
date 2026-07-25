@@ -31,6 +31,7 @@ import { filePathFor } from '../diffs'
 import { assertValidAttachmentId, assertValidConversationId } from '../attachments/ingest'
 import {
   readVerifiedStoredAttachment,
+  sanitizeAttachmentName,
   type VerifiedStoredAttachment
 } from '../hermes/attachmentAccess'
 import * as db from '../db'
@@ -106,7 +107,8 @@ export function attachmentPreviewUrlFor(
   attachmentId: string,
   displayName: string
 ): string {
-  return `${PREVIEW_SCHEME}://${ATTACHMENT_HOST}/${encodeURIComponent(conversationId)}/${encodeURIComponent(attachmentId)}/${encodeURIComponent(displayName)}`
+  const name = encodeURIComponent(sanitizeAttachmentName(displayName))
+  return `${PREVIEW_SCHEME}://${ATTACHMENT_HOST}/${encodeURIComponent(conversationId)}/${encodeURIComponent(attachmentId)}/${name}`
 }
 
 // PURE-ish resolution (fs reads only): URL pathname -> jailed absolute file
