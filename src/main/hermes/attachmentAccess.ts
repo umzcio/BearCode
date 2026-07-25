@@ -95,8 +95,9 @@ function immutableMetadataSnapshot(attachment: HermesAttachment): Readonly<Herme
 
 export function sanitizeAttachmentName(name: string): string {
   if (typeof name !== 'string') return 'attachment'
-  const leaf = name.slice(name.lastIndexOf('/') + 1)
-  const sanitized = leaf.replace(/[\\\u0000-\u001f\u007f-\u009f]/g, '')
+  const separator = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'))
+  const leaf = name.slice(separator + 1).replace(/^[a-z]:/i, '')
+  const sanitized = leaf.replace(/[:\u0000-\u001f\u007f-\u009f]/g, '')
   return sanitized.length === 0 || /^\.+$/.test(sanitized) ? 'attachment' : sanitized
 }
 

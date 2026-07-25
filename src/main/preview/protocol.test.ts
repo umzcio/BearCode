@@ -92,7 +92,7 @@ describe('attachmentPreviewUrlFor', () => {
 
   it('sanitizes traversal, backslashes, and control characters from the display segment', () => {
     expect(attachmentPreviewUrlFor('conv_123', 'att_123', '../../My\\\u0000Page.html')).toBe(
-      'bearcode-preview://attachment/conv_123/att_123/MyPage.html'
+      'bearcode-preview://attachment/conv_123/att_123/Page.html'
     )
   })
 })

@@ -128,4 +128,22 @@ describe('attachments:save IPC', () => {
     expect(JSON.stringify(vi.mocked(showSaveDialog).mock.calls)).not.toContain('..')
     expect(JSON.stringify(vi.mocked(showSaveDialog).mock.calls)).not.toContain('/')
   })
+
+  it.each(['C:\\unsafe\\report.pdf', 'C:report.pdf'])(
+    'uses a plain safe leaf for Windows-style stored name %s',
+    async (storedName) => {
+      readVerifiedStoredAttachment.mockResolvedValueOnce({
+        attachment: { ...attachment, name: storedName },
+        bytes
+      })
+
+      await handlers.get('bearcode:attachments:save')!({}, 'conv_123', 'att_123')
+
+      const options = vi.mocked(showSaveDialog).mock.calls[0]?.[0] as {
+        defaultPath: string
+      }
+      expect(options).toEqual({ defaultPath: 'report.pdf' })
+      expect(options.defaultPath).not.toMatch(/[\\/:]/)
+    }
+  )
 })

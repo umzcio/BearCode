@@ -266,8 +266,16 @@ describe('sanitizeAttachmentName', () => {
     expect(sanitizeAttachmentName('../../CAIRN.md')).toBe('CAIRN.md')
   })
 
-  it('removes backslashes and control characters', () => {
-    expect(sanitizeAttachmentName('CAIRN\\project\u0000plan.md')).toBe('CAIRNprojectplan.md')
+  it('keeps only the leaf name after Windows separators', () => {
+    expect(sanitizeAttachmentName('C:\\unsafe\\report.pdf')).toBe('report.pdf')
+  })
+
+  it('removes a Windows drive-relative prefix from a leaf name', () => {
+    expect(sanitizeAttachmentName('C:report.pdf')).toBe('report.pdf')
+  })
+
+  it('treats backslashes as separators and removes control characters from the leaf', () => {
+    expect(sanitizeAttachmentName('CAIRN\\project\u0000plan.md')).toBe('projectplan.md')
   })
 
   it('falls back when sanitization leaves no usable name', () => {
