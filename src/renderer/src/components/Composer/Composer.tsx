@@ -91,7 +91,12 @@ export function Composer({
       if (!conversationId) return undefined
       const c = s.conversations[conversationId]
       return c
-        ? { eventsLen: c.events.length, environment: c.environment, modelRef: c.modelRef }
+        ? {
+            eventsLen: c.events.length,
+            environment: c.environment,
+            modelRef: c.modelRef,
+            hermesMode: c.hermesMode
+          }
         : undefined
     })
   )
@@ -148,6 +153,7 @@ export function Composer({
   // conversation. Falling back to the per-conversation value keeps lean mode
   // correct even when that top-level sync is stale.
   const isHermesConvo = modelRef === HERMES_MODEL_REF || activeConvo?.modelRef === HERMES_MODEL_REF
+  const isNativeHermes = isHermesConvo && activeConvo?.hermesMode === 'native'
   // The pill makes trailing text optional (design 5.2): a bare workflow/goal
   // send is valid, only an empty composer with no pill is not.
   const hasContent =
@@ -356,6 +362,20 @@ export function Composer({
       ]
     }
   ]
+  const addContextGroupsForConversation: MenuGroup[] = isNativeHermes
+    ? [
+        {
+          items: [
+            {
+              value: 'media',
+              label: 'Media',
+              icon: <IconImage size={16} />,
+              title: 'Attach images'
+            }
+          ]
+        }
+      ]
+    : addContextGroups
   const onAddContextSelect = (v: string): void => {
     if (v === 'media') void onMedia()
     else if (v === 'mentions') onMentions()
@@ -669,14 +689,10 @@ export function Composer({
       />
       <div className="composer-controls">
         <div className="controls-left">
-          {/* Media/Mentions/Actions/Browser all end up as fields (attachments/
-              mentions/command) that runHermes never forwards to the Gateway --
-              only the plain text is sent (see hermes.ts). Showing this affordance
-              for a Hermes conversation would let a user attach a file or pick a
-              mention/command, watch it appear as a pill, and have it silently
-              vanish. Hidden entirely, same gating pattern as the model/mode/
-              effort pickers below. */}
-          {!isHermesConvo && (
+          {/* Native Hermes accepts attachments but not local mentions/actions/
+              browser commands, so its Add Context menu is Media-only. Legacy
+              Hermes remains text-only. Both keep the local voice control. */}
+          {(!isHermesConvo || isNativeHermes) && (
             <div className="add-context">
               <Hint label="Add context" side="top" disabled={addMenuOpen}>
                 <button
@@ -692,7 +708,7 @@ export function Composer({
                 anchorRef={addMenuBtnRef}
                 open={addMenuOpen}
                 onClose={() => setAddMenuOpen(false)}
-                groups={addContextGroups}
+                groups={addContextGroupsForConversation}
                 onSelect={onAddContextSelect}
                 placement="top-start"
                 ariaLabel="Add context"

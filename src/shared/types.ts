@@ -1464,8 +1464,13 @@ export interface BearcodeApi {
     status(): Promise<Record<ProviderId, boolean>>
   }
   hermes: {
-    testConnection(gatewayUrl: string, token?: string): Promise<{ ok: boolean; message: string }>
-    setToken(token: string): Promise<void>
+    testConnection(
+      mode: HermesConnectionMode,
+      url: string,
+      secret?: string
+    ): Promise<{ ok: boolean; message: string }>
+    setLegacyToken(token: string): Promise<void>
+    setPlatformKey(key: string): Promise<void>
     resolveApproval(
       conversationId: string,
       requestId: string,

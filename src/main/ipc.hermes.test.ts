@@ -22,10 +22,16 @@ vi.mock('./keys', () => ({
   keyStatus: vi.fn(),
   setKey: vi.fn(),
   setHermesToken: vi.fn(),
-  getHermesToken: vi.fn()
+  getHermesToken: vi.fn(),
+  setHermesPlatformKey: vi.fn(),
+  getHermesPlatformKey: vi.fn(),
+  getOrCreateHermesInstallationId: vi.fn()
 }))
 vi.mock('./hermes/gatewayClient', () => ({
   checkHermesHealth: vi.fn()
+}))
+vi.mock('./hermes/nativeClient', () => ({
+  checkHermesNativeHealth: vi.fn()
 }))
 vi.mock('./hermes/nativeRunner', () => ({
   resolveHermesApproval: vi.fn(),
@@ -80,8 +86,15 @@ vi.mock('./orchestrator', () => ({
 
 import { registerIpc } from './ipc'
 import * as db from './db'
-import { setHermesToken } from './keys'
+import {
+  getHermesPlatformKey,
+  getHermesToken,
+  getOrCreateHermesInstallationId,
+  setHermesPlatformKey,
+  setHermesToken
+} from './keys'
 import { checkHermesHealth } from './hermes/gatewayClient'
+import { checkHermesNativeHealth } from './hermes/nativeClient'
 import { resolveHermesApproval, resolveHermesClarification } from './hermes/nativeRunner'
 import { HERMES_MODEL_REF } from '../shared/types'
 
@@ -154,22 +167,127 @@ describe('bearcode:conversations:create-hermes', () => {
 })
 
 describe('bearcode:hermes:test-connection', () => {
-  it('delegates to checkHermesHealth with the given url and token', async () => {
+  it('routes legacy mode to /v1/models health with the supplied draft token', async () => {
     vi.mocked(checkHermesHealth).mockResolvedValue({ ok: true, message: 'Connected' })
     const result = await handlers.get('bearcode:hermes:test-connection')!(
       {},
+      'legacy',
       'http://x:8642',
       'tok'
     )
     expect(checkHermesHealth).toHaveBeenCalledWith('http://x:8642', 'tok')
     expect(result).toEqual({ ok: true, message: 'Connected' })
   })
+
+  it('uses the vaulted legacy token when the draft secret is blank or omitted', async () => {
+    vi.mocked(getHermesToken).mockReturnValue('stored-legacy')
+    vi.mocked(checkHermesHealth).mockResolvedValue({ ok: true, message: 'Connected' })
+
+    await handlers.get('bearcode:hermes:test-connection')!({}, 'legacy', 'http://x:8642', '')
+    await handlers.get('bearcode:hermes:test-connection')!({}, 'legacy', 'http://x:8642')
+
+    expect(checkHermesHealth).toHaveBeenNthCalledWith(1, 'http://x:8642', 'stored-legacy')
+    expect(checkHermesHealth).toHaveBeenNthCalledWith(2, 'http://x:8642', 'stored-legacy')
+  })
+
+  it('routes native mode with the main-only installation id and supplied platform key', async () => {
+    vi.mocked(getOrCreateHermesInstallationId).mockReturnValue('installation-main-only')
+    vi.mocked(checkHermesNativeHealth).mockResolvedValue({ ok: true, message: 'Connected' })
+
+    const result = await handlers.get('bearcode:hermes:test-connection')!(
+      {},
+      'native',
+      'ws://x:8643',
+      'platform-draft'
+    )
+
+    expect(checkHermesNativeHealth).toHaveBeenCalledWith(
+      'ws://x:8643',
+      'platform-draft',
+      'installation-main-only'
+    )
+    expect(result).toEqual({ ok: true, message: 'Connected' })
+  })
+
+  it('uses the vaulted native platform key when the draft secret is blank', async () => {
+    vi.mocked(getHermesPlatformKey).mockReturnValue('stored-native')
+    vi.mocked(getOrCreateHermesInstallationId).mockReturnValue('installation-main-only')
+    vi.mocked(checkHermesNativeHealth).mockResolvedValue({ ok: true, message: 'Connected' })
+
+    await handlers.get('bearcode:hermes:test-connection')!({}, 'native', 'ws://x:8643', '')
+
+    expect(checkHermesNativeHealth).toHaveBeenCalledWith(
+      'ws://x:8643',
+      'stored-native',
+      'installation-main-only'
+    )
+  })
+
+  it('reports a missing native plugin separately from key, protocol, and network failures', async () => {
+    vi.mocked(getOrCreateHermesInstallationId).mockReturnValue('installation-main-only')
+    vi.mocked(checkHermesNativeHealth)
+      .mockResolvedValueOnce({ ok: false, message: 'Unexpected server response: 404' })
+      .mockResolvedValueOnce({
+        ok: false,
+        message: 'Rejected — check the platform key in Settings'
+      })
+      .mockResolvedValueOnce({ ok: false, message: 'Incompatible native Hermes protocol' })
+      .mockResolvedValueOnce({ ok: false, message: 'ECONNREFUSED' })
+
+    const invoke = () =>
+      handlers.get('bearcode:hermes:test-connection')!(
+        {},
+        'native',
+        'ws://x:8643',
+        'platform-key'
+      )
+
+    await expect(invoke()).resolves.toEqual({
+      ok: false,
+      message: 'Native platform unavailable — install and enable the BearCode plugin on Hermes'
+    })
+    await expect(invoke()).resolves.toEqual({
+      ok: false,
+      message: 'Rejected — check the platform key in Settings'
+    })
+    await expect(invoke()).resolves.toEqual({
+      ok: false,
+      message: 'Incompatible native Hermes protocol'
+    })
+    await expect(invoke()).resolves.toEqual({ ok: false, message: 'ECONNREFUSED' })
+  })
+
+  it.each([
+    ['bad mode', 'unknown', 'http://x', undefined],
+    ['non-string url', 'legacy', 42, undefined],
+    ['non-string secret', 'native', 'ws://x', 42]
+  ])('rejects %s before any health call', async (_label, mode, url, secret) => {
+    await expect(
+      handlers.get('bearcode:hermes:test-connection')!({}, mode, url, secret)
+    ).rejects.toThrow()
+    expect(checkHermesHealth).not.toHaveBeenCalled()
+    expect(checkHermesNativeHealth).not.toHaveBeenCalled()
+  })
 })
 
-describe('bearcode:hermes:set-token', () => {
-  it('delegates to setHermesToken', () => {
-    handlers.get('bearcode:hermes:set-token')!({}, 'new-token')
+describe('Hermes credential setters', () => {
+  it('stores the legacy token in its dedicated vault entry', () => {
+    handlers.get('bearcode:hermes:set-legacy-token')!({}, 'new-token')
     expect(setHermesToken).toHaveBeenCalledWith('new-token')
+  })
+
+  it('stores the native platform key in its dedicated vault entry', () => {
+    handlers.get('bearcode:hermes:set-platform-key')!({}, 'new-platform-key')
+    expect(setHermesPlatformKey).toHaveBeenCalledWith('new-platform-key')
+  })
+
+  it.each([
+    ['bearcode:hermes:set-legacy-token', 42],
+    ['bearcode:hermes:set-platform-key', null]
+  ])('rejects a non-string credential on %s', (channel, value) => {
+    expect(() => handlers.get(channel)!({}, value)).toThrow()
+    expect(setHermesToken).not.toHaveBeenCalled()
+    expect(setHermesPlatformKey).not.toHaveBeenCalled()
   })
 })
 

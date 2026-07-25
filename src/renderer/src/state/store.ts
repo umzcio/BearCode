@@ -445,10 +445,12 @@ interface AppState {
   // opens it (Task 7 IPC does the DB work; this just reflects it into state).
   newHermesConversation(): Promise<void>
   testHermesConnection(
-    gatewayUrl: string,
-    token?: string
+    mode: HermesConnectionMode,
+    url: string,
+    secret?: string
   ): Promise<{ ok: boolean; message: string }>
   saveHermesToken(token: string): Promise<void>
+  saveHermesPlatformKey(key: string): Promise<void>
   togglePermMenu(): void
   pickWorkspace(): Promise<void>
   setWorkspace(path: string | null): void
@@ -1376,9 +1378,10 @@ export const useAppStore = create<AppState>((set, get) => {
         }
       })
     },
-    testHermesConnection: (gatewayUrl, token) =>
-      window.bearcode.hermes.testConnection(gatewayUrl, token),
-    saveHermesToken: (token) => window.bearcode.hermes.setToken(token),
+    testHermesConnection: (mode, url, secret) =>
+      window.bearcode.hermes.testConnection(mode, url, secret),
+    saveHermesToken: (token) => window.bearcode.hermes.setLegacyToken(token),
+    saveHermesPlatformKey: (key) => window.bearcode.hermes.setPlatformKey(key),
 
     togglePermMenu: () => set((s) => ({ permMenuTick: s.permMenuTick + 1 })),
 

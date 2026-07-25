@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { Composer } from './Composer'
+import { HERMES_MODEL_REF } from '@shared/types'
 
 afterEach(() => {
   cleanup()
@@ -9,6 +10,9 @@ afterEach(() => {
 })
 
 const pickAttachments = vi.fn(async () => ({ picked: [], errors: [] }))
+const storeState = vi.hoisted(() => ({
+  current: {} as Record<string, unknown>
+}))
 vi.mock('../../state/store', () => ({
   refConfigured: () => true,
   modelDisplay: () => 'Claude',
@@ -35,9 +39,14 @@ vi.mock('../../state/store', () => ({
       modelMenuTick: 0,
       permMenuTick: 0,
       permissionMode: 'accept-edits',
-      settings: { defaultPermissionMode: 'accept-edits' }
+      settings: { defaultPermissionMode: 'accept-edits' },
+      ...storeState.current
     })
 }))
+
+beforeEach(() => {
+  storeState.current = {}
+})
 
 describe('Add Context menu', () => {
   it('opens on + and shows the four entries', () => {
@@ -61,5 +70,49 @@ describe('Add Context menu', () => {
     fireEvent.click(screen.getByLabelText('Add context'))
     fireEvent.click(screen.getByText('Media'))
     expect(pickAttachments).toHaveBeenCalledWith(0)
+  })
+
+  it('native Hermes exposes only Media and uses the existing picker', () => {
+    storeState.current = {
+      modelRef: HERMES_MODEL_REF,
+      conversations: {
+        native: {
+          events: [],
+          environment: 'local',
+          modelRef: HERMES_MODEL_REF,
+          hermesMode: 'native'
+        }
+      }
+    }
+    render(<Composer conversationId="native" onSend={vi.fn()} />)
+
+    fireEvent.click(screen.getByLabelText('Add context'))
+    expect(screen.getByText('Media')).toBeInTheDocument()
+    expect(screen.queryByText('Mentions')).toBeNull()
+    expect(screen.queryByText('Actions')).toBeNull()
+    expect(screen.queryByText('Browser')).toBeNull()
+    fireEvent.click(screen.getByText('Media'))
+
+    expect(pickAttachments).toHaveBeenCalledWith(0)
+    expect(screen.getByLabelText('Voice input (⌃M)')).toBeInTheDocument()
+  })
+
+  it('legacy Hermes has no attachment entry point and retains voice input', () => {
+    storeState.current = {
+      modelRef: HERMES_MODEL_REF,
+      conversations: {
+        legacy: {
+          events: [],
+          environment: 'local',
+          modelRef: HERMES_MODEL_REF,
+          hermesMode: 'legacy'
+        }
+      }
+    }
+    render(<Composer conversationId="legacy" onSend={vi.fn()} />)
+
+    expect(screen.queryByLabelText('Add context')).toBeNull()
+    expect(screen.getByLabelText('Voice input (⌃M)')).toBeInTheDocument()
+    expect(pickAttachments).not.toHaveBeenCalled()
   })
 })

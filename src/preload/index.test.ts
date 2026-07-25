@@ -131,6 +131,43 @@ describe('preload updater bridge', () => {
 })
 
 describe('preload native Hermes interaction bridge', () => {
+  it('forwards mode-specific health checks and credential writes without exposing stored secrets', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      hermes: {
+        testConnection: (mode: string, url: string, secret?: string) => Promise<unknown>
+        setLegacyToken: (token: string) => Promise<void>
+        setPlatformKey: (key: string) => Promise<void>
+      }
+    }
+    invoke.mockClear()
+
+    await bearcode.hermes.testConnection('native', 'ws://x:8643', 'draft-platform-key')
+    await bearcode.hermes.setLegacyToken('legacy-token')
+    await bearcode.hermes.setPlatformKey('platform-key')
+
+    expect(invoke).toHaveBeenNthCalledWith(
+      1,
+      'bearcode:hermes:test-connection',
+      'native',
+      'ws://x:8643',
+      'draft-platform-key'
+    )
+    expect(invoke).toHaveBeenNthCalledWith(
+      2,
+      'bearcode:hermes:set-legacy-token',
+      'legacy-token'
+    )
+    expect(invoke).toHaveBeenNthCalledWith(
+      3,
+      'bearcode:hermes:set-platform-key',
+      'platform-key'
+    )
+    expect(Object.keys(bearcode.hermes)).not.toContain('getPlatformKey')
+    expect(Object.keys(bearcode.hermes)).not.toContain('getLegacyToken')
+    expect(Object.keys(bearcode.hermes)).not.toContain('installationId')
+  })
+
   it('forwards approval resolution without exposing native credentials', async () => {
     await import('./index')
     const bearcode = exposed as unknown as {

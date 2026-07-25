@@ -31,7 +31,8 @@ const conversations = {
 }
 const hermes = {
   testConnection: vi.fn(() => Promise.resolve({ ok: true, message: 'Connected' })),
-  setToken: vi.fn(() => Promise.resolve())
+  setLegacyToken: vi.fn(() => Promise.resolve()),
+  setPlatformKey: vi.fn(() => Promise.resolve())
 }
 
 beforeEach(() => {
@@ -70,20 +71,29 @@ describe('newHermesConversation', () => {
 
 describe('testHermesConnection', () => {
   it('delegates to window.bearcode.hermes.testConnection', async () => {
-    const result = await useAppStore.getState().testHermesConnection('http://x:8642', 'tok')
-    expect(hermes.testConnection).toHaveBeenCalledWith('http://x:8642', 'tok')
+    const result = await useAppStore
+      .getState()
+      .testHermesConnection('legacy', 'http://x:8642', 'tok')
+    expect(hermes.testConnection).toHaveBeenCalledWith('legacy', 'http://x:8642', 'tok')
     expect(result).toEqual({ ok: true, message: 'Connected' })
   })
 
-  it('works without a token', async () => {
-    await useAppStore.getState().testHermesConnection('http://x:8642')
-    expect(hermes.testConnection).toHaveBeenCalledWith('http://x:8642', undefined)
+  it('forwards an omitted native draft key for main-side vault lookup', async () => {
+    await useAppStore.getState().testHermesConnection('native', 'ws://x:8643')
+    expect(hermes.testConnection).toHaveBeenCalledWith('native', 'ws://x:8643', undefined)
   })
 })
 
 describe('saveHermesToken', () => {
-  it('delegates to window.bearcode.hermes.setToken', async () => {
+  it('delegates to window.bearcode.hermes.setLegacyToken', async () => {
     await useAppStore.getState().saveHermesToken('new-token')
-    expect(hermes.setToken).toHaveBeenCalledWith('new-token')
+    expect(hermes.setLegacyToken).toHaveBeenCalledWith('new-token')
+  })
+})
+
+describe('saveHermesPlatformKey', () => {
+  it('delegates to window.bearcode.hermes.setPlatformKey', async () => {
+    await useAppStore.getState().saveHermesPlatformKey('new-platform-key')
+    expect(hermes.setPlatformKey).toHaveBeenCalledWith('new-platform-key')
   })
 })

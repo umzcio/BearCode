@@ -47,8 +47,18 @@ import type {
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
 import { isUrsaMode } from '../shared/ursaMode'
-import { keyStatus, setKey, setVaultSecret, setHermesToken } from './keys'
+import {
+  getHermesPlatformKey,
+  getHermesToken,
+  getOrCreateHermesInstallationId,
+  keyStatus,
+  setHermesPlatformKey,
+  setHermesToken,
+  setKey,
+  setVaultSecret
+} from './keys'
 import { checkHermesHealth } from './hermes/gatewayClient'
+import { checkHermesNativeHealth } from './hermes/nativeClient'
 import {
   resolveHermesApproval,
   resolveHermesClarification
@@ -530,11 +540,42 @@ export function registerIpc(): void {
   })
   ipcMain.handle('bearcode:keys:status', () => keyStatus())
 
-  ipcMain.handle('bearcode:hermes:test-connection', (_e, gatewayUrl: string, token?: string) =>
-    checkHermesHealth(gatewayUrl, token)
+  ipcMain.handle(
+    'bearcode:hermes:test-connection',
+    async (_e, mode: unknown, url: unknown, secret?: unknown) => {
+      if (mode !== 'native' && mode !== 'legacy') {
+        throw new Error('Invalid Hermes connection mode')
+      }
+      if (typeof url !== 'string') throw new Error('Hermes connection URL must be a string')
+      if (secret !== undefined && typeof secret !== 'string') {
+        throw new Error('Hermes connection secret must be a string')
+      }
+
+      if (mode === 'legacy') {
+        return checkHermesHealth(url, secret || getHermesToken())
+      }
+
+      const result = await checkHermesNativeHealth(
+        url,
+        secret || getHermesPlatformKey() || '',
+        getOrCreateHermesInstallationId()
+      )
+      return !result.ok && /unexpected server response:\s*404/i.test(result.message)
+        ? {
+            ok: false,
+            message:
+              'Native platform unavailable — install and enable the BearCode plugin on Hermes'
+          }
+        : result
+    }
   )
-  ipcMain.handle('bearcode:hermes:set-token', (_e, token: string) => {
+  ipcMain.handle('bearcode:hermes:set-legacy-token', (_e, token: unknown) => {
+    if (typeof token !== 'string') throw new Error('Hermes legacy token must be a string')
     setHermesToken(token)
+  })
+  ipcMain.handle('bearcode:hermes:set-platform-key', (_e, key: unknown) => {
+    if (typeof key !== 'string') throw new Error('Hermes platform key must be a string')
+    setHermesPlatformKey(key)
   })
   const hermesIdPattern =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i

@@ -128,12 +128,15 @@ const bearcode: BearcodeApi = {
   },
   hermes: {
     testConnection: (
-      gatewayUrl: string,
-      token?: string
+      mode: HermesConnectionMode,
+      url: string,
+      secret?: string
     ): Promise<{ ok: boolean; message: string }> =>
-      ipcRenderer.invoke('bearcode:hermes:test-connection', gatewayUrl, token),
-    setToken: (token: string): Promise<void> =>
-      ipcRenderer.invoke('bearcode:hermes:set-token', token),
+      ipcRenderer.invoke('bearcode:hermes:test-connection', mode, url, secret),
+    setLegacyToken: (token: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:hermes:set-legacy-token', token),
+    setPlatformKey: (key: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:hermes:set-platform-key', key),
     resolveApproval: (
       conversationId: string,
       requestId: string,
