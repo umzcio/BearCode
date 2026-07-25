@@ -5,8 +5,14 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AttachmentRef, HermesAttachment } from '../../shared/types'
+import { NativeDownloadWriter } from './nativeFiles'
 import { decodeBinaryFrame, encodeBinaryFrame, type HermesServerEvent } from './protocol'
-import { checkHermesNativeHealth, HermesNativeTurn, type NativeClientDeps } from './nativeClient'
+import {
+  checkHermesNativeHealth,
+  HermesNativeClientError,
+  HermesNativeTurn,
+  type NativeClientDeps
+} from './nativeClient'
 
 const ids = {
   installation: '22222222-2222-4222-8222-222222222222',
@@ -121,8 +127,24 @@ function start(turn: HermesNativeTurn, socket: FakeWebSocket): Promise<'complete
   return result
 }
 
+const socketEvents = ['open', 'message', 'error', 'close'] as const
+
+type SocketListener = (...args: unknown[]) => void
+
+function addUnrelatedSocketListeners(socket: FakeWebSocket): Record<(typeof socketEvents)[number], SocketListener> {
+  const listeners = {
+    open: vi.fn((..._args: unknown[]) => {}),
+    message: vi.fn((..._args: unknown[]) => {}),
+    error: vi.fn((..._args: unknown[]) => {}),
+    close: vi.fn((..._args: unknown[]) => {})
+  }
+  for (const event of socketEvents) socket.on(event, listeners[event])
+  return listeners
+}
+
 afterEach(async () => {
   vi.useRealTimers()
+  vi.restoreAllMocks()
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
@@ -396,6 +418,88 @@ describe('HermesNativeTurn connection state machine', () => {
     expect(await readdir(join(root, 'attachments', ids.conversation))).toEqual([])
   })
 
+  it('detaches terminal turn callbacks before deferred download cleanup and ignores late socket events', async () => {
+    let releaseAbort!: () => void
+    const abortBlocked = new Promise<void>((resolve) => {
+      releaseAbort = resolve
+    })
+    const abortSpy = vi.spyOn(NativeDownloadWriter.prototype, 'abort').mockReturnValue(abortBlocked)
+    const events: HermesServerEvent[] = []
+    const { turn, socket } = testHarness({ onEvent: (event) => events.push(event) })
+    const unrelated = addUnrelatedSocketListeners(socket)
+    const result = start(turn, socket)
+    let resultSettled = false
+    void result.then(
+      () => { resultSettled = true },
+      () => { resultSettled = true }
+    )
+
+    socket.server(helloAccepted())
+    socket.server(serverEvent('turn.accepted', 1, {}))
+    socket.server(serverEvent('turn.completed', 2, { sessionId: 'session-1' }))
+    await eventually(() => abortSpy.mock.calls.length === 1 ? true : undefined)
+
+    expect(socket.closed).toBe(true)
+    for (const event of socketEvents) expect(socket.listeners(event)).toEqual([unrelated[event]])
+
+    socket.open()
+    socket.server(serverEvent('assistant.delta', 3, { messageId: ids.message, text: 'too late' }))
+    socket.emit('error', new Error('late socket error'))
+    socket.disconnect()
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(resultSettled).toBe(false)
+    expect(turn.accepted).toBe(true)
+    expect(events.map((event) => event.type)).toEqual(['turn.accepted', 'turn.completed'])
+    expect(abortSpy).toHaveBeenCalledTimes(1)
+    for (const event of socketEvents) {
+      expect(socket.listeners(event)).toEqual([unrelated[event]])
+      socket.off(event, unrelated[event])
+      expect(socket.listenerCount(event)).toBe(0)
+    }
+
+    releaseAbort()
+    await expect(result).resolves.toBe('completed')
+  })
+
+  it('preserves the primary native error and both causes when download cleanup also fails', async () => {
+    const originalCause = new Error('original transport detail')
+    const primary = new HermesNativeClientError('primary failure', 'network', 'network.primary', false) as HermesNativeClientError & { cause?: unknown }
+    primary.cause = originalCause
+    const cleanupError = new HermesNativeClientError('cleanup failure', 'file', 'file.cleanup_failed', false)
+    vi.spyOn(NativeDownloadWriter.prototype, 'abort').mockRejectedValue(cleanupError)
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown): void => { unhandled.push(reason) }
+    process.on('unhandledRejection', onUnhandled)
+
+    try {
+      const { turn, socket } = testHarness({
+        onEvent: () => { throw primary }
+      })
+      const result = start(turn, socket)
+      const rejection = result.then(
+        () => undefined,
+        (error: unknown) => error
+      )
+      socket.server(helloAccepted())
+      socket.server(serverEvent('turn.accepted', 1, {}))
+
+      const actual = await rejection
+      expect(actual).toBe(primary)
+      expect(actual).toBeInstanceOf(HermesNativeClientError)
+      expect(actual).toMatchObject({ kind: 'network', code: 'network.primary', retryable: false })
+      expect(primary.cause).toBeInstanceOf(AggregateError)
+      const aggregate = primary.cause as AggregateError
+      expect(aggregate.errors).toHaveLength(2)
+      expect(aggregate.errors[0]).toBe(originalCause)
+      expect(aggregate.errors[1]).toBe(cleanupError)
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(unhandled).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
+
   it('rejects a hash-mismatched completed download only after removing its partial', async () => {
     const root = await rootDir()
     const { turn, socket } = testHarness({}, root)
@@ -574,6 +678,41 @@ describe('HermesNativeTurn connection state machine', () => {
     expect((socket as unknown as { url: string }).url).toBe('ws://hermes.example.test/v1/bearcode')
     expect(sentJson(socket)).toHaveLength(1)
     expect(sentJson(socket)[0]).toMatchObject({ type: 'hello', installationId: ids.installation })
+  })
+
+  it('detaches only health-owned callbacks from every socket event after terminal success', async () => {
+    const socket = new FakeWebSocket()
+    const unrelated = addUnrelatedSocketListeners(socket)
+    const result = checkHermesNativeHealth('ws://hermes.example.test', 'platform-secret', ids.installation, {
+      createWebSocket: () => socket as never
+    })
+    socket.open()
+    socket.server(helloAccepted())
+
+    await expect(result).resolves.toEqual({ ok: true, message: 'Connected' })
+    expect(socket.closed).toBe(true)
+    for (const event of socketEvents) {
+      expect(socket.listeners(event)).toEqual([unrelated[event]])
+      socket.off(event, unrelated[event])
+      expect(socket.listenerCount(event)).toBe(0)
+    }
+  })
+
+  it('detaches only health-owned callbacks from every socket event after terminal network failure', async () => {
+    const socket = new FakeWebSocket()
+    const unrelated = addUnrelatedSocketListeners(socket)
+    const result = checkHermesNativeHealth('ws://hermes.example.test', 'platform-secret', ids.installation, {
+      createWebSocket: () => socket as never
+    })
+    socket.emit('error', new Error('ECONNREFUSED'))
+
+    await expect(result).resolves.toEqual({ ok: false, message: 'ECONNREFUSED' })
+    expect(socket.closed).toBe(true)
+    for (const event of socketEvents) {
+      expect(socket.listeners(event)).toEqual([unrelated[event]])
+      socket.off(event, unrelated[event])
+      expect(socket.listenerCount(event)).toBe(0)
+    }
   })
 
   it.each([
