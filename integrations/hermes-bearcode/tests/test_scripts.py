@@ -653,6 +653,26 @@ class InstallerScriptTests(unittest.TestCase):
             """,
             0o755,
         )
+        _write(
+            self.commands / "id",
+            r"""
+            #!/bin/sh
+            if [ -n "${FAKE_ID_UID:-}" ]; then
+              case "${1:-}" in
+                -u)
+                  printf '%s\n' "$FAKE_ID_UID"
+                  exit 0
+                  ;;
+                -un)
+                  printf '%s\n' "$FAKE_ID_USER"
+                  exit 0
+                  ;;
+              esac
+            fi
+            exec /usr/bin/id "$@"
+            """,
+            0o755,
+        )
         self.bash_environment = self.root / "bash-environment"
         _write(
             self.bash_environment,
@@ -758,8 +778,12 @@ class InstallerScriptTests(unittest.TestCase):
             (
                 "service user mismatch",
                 stage,
-                {"HERMES_SERVICE_USER": "__not_the_current_user__"},
-                "service user",
+                {
+                    "FAKE_ID_UID": "12345",
+                    "FAKE_ID_USER": "synthetic-service-user",
+                    "HERMES_SERVICE_USER": "__not_the_current_user__",
+                },
+                "current service user does not match",
             ),
         )
         (self.home / "stage").mkdir()
@@ -1335,6 +1359,43 @@ class InstallerScriptTests(unittest.TestCase):
                 )
 
     def test_git_archive_is_source_only_and_passes_stage_entry_policy(self):
+        repository = self.root / "archive-repository"
+        repository.mkdir()
+        repository_plugin = (
+            repository / "integrations/hermes-bearcode"
+        )
+        shutil.copytree(
+            PLUGIN_ROOT,
+            repository_plugin,
+            ignore=shutil.ignore_patterns(
+                ".venv",
+                "__pycache__",
+                "*.pyc",
+            ),
+        )
+        git_commands = (
+            ("init", "-q"),
+            ("add", "integrations/hermes-bearcode"),
+            (
+                "-c",
+                "user.name=BearCode Test",
+                "-c",
+                "user.email=bearcode-test@example.invalid",
+                "commit",
+                "-qm",
+                "test fixture",
+            ),
+        )
+        for command in git_commands:
+            result = subprocess.run(
+                ("git", *command),
+                cwd=repository,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
         archive = self.root / "plugin.tgz"
         extracted = self.root / "archive-stage"
         result = subprocess.run(
@@ -1347,7 +1408,7 @@ class InstallerScriptTests(unittest.TestCase):
                 f"--output={archive}",
                 "HEAD:integrations/hermes-bearcode",
             ),
-            cwd=PLUGIN_ROOT.parents[1],
+            cwd=repository,
             capture_output=True,
             text=True,
             timeout=10,
