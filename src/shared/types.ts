@@ -1314,6 +1314,17 @@ export interface UpdaterStatus {
   checkedAt?: number
 }
 
+// Embedded Terminal (2026-07-25 design): one real pty per tab, scoped to a
+// project path (shared across every conversation open on that folder, not
+// tied to any one chat thread).
+export interface TerminalSessionView {
+  id: string
+  projectPath: string
+  title: string
+  createdAt: number
+  exited: boolean
+}
+
 export interface BearcodeApi {
   ping(): Promise<PingResult>
   run: {
