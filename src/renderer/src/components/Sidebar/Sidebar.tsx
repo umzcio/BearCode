@@ -3,7 +3,6 @@ import { useShallow } from 'zustand/react/shallow'
 import { HERMES_MODEL_REF } from '@shared/types'
 import { useAppStore, type Convo } from '../../state/store'
 import { relativeAge } from '../../lib/time'
-import bearMark from '../../assets/bear.svg'
 import { Hint } from '../Hint'
 import { EmptyState } from '../ui/EmptyState'
 import { groupConversations, type ConvoLike } from './grouping'
@@ -39,7 +38,15 @@ function toConvoLike(c: Convo): ConvoLike {
 }
 import { DisplayOptions } from './DisplayOptions'
 import { ConvoRowMenu } from './ConvoRowMenu'
-import { IconArchive, IconHistory, IconPanel, IconPin, IconPlus, IconSettings, IconTerminal } from '../icons'
+import {
+  IconArchive,
+  IconPanel,
+  IconPin,
+  IconPlus,
+  IconSearch,
+  IconSettings,
+  IconTerminal
+} from '../icons'
 import { projectIcon } from '../ProjectSettings/projectIcons'
 import './Sidebar.css'
 
@@ -61,7 +68,6 @@ export function Sidebar(): React.JSX.Element {
     })
   )
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
-  const goHome = useAppStore((s) => s.goHome)
   const openHistory = useAppStore((s) => s.openHistory)
   const openConvo = useAppStore((s) => s.openConvo)
   const openSettings = useAppStore((s) => s.openSettings)
@@ -156,25 +162,12 @@ export function Sidebar(): React.JSX.Element {
             <IconPanel />
           </button>
         </Hint>
-        <span className="wordmark">
-          <img src={bearMark} alt="" />
-          BearCode
-        </span>
+        <Hint label="History" side="bottom">
+          <button className="chrome-btn" onClick={openHistory} aria-label="History">
+            <IconSearch />
+          </button>
+        </Hint>
       </div>
-
-      <Hint label="New Conversation" keys="⌘N" side="right">
-        <button className={'nav-item' + (view.kind === 'home' ? ' selected' : '')} onClick={goHome}>
-          <IconPlus />
-          New Conversation
-        </button>
-      </Hint>
-      <button
-        className={'nav-item' + (view.kind === 'history' ? ' selected' : '')}
-        onClick={openHistory}
-      >
-        <IconHistory />
-        Conversation History
-      </button>
 
       {hermesEnabled ? (
         <>

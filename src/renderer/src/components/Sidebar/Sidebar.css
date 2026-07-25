@@ -30,23 +30,8 @@
   padding: 2px 4px 16px 78px;
   -webkit-app-region: drag;
 }
-
-.wordmark {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  color: var(--text-mid);
-  padding-right: 4px;
+.chrome .chrome-btn {
   -webkit-app-region: no-drag;
-}
-.wordmark img {
-  width: 17px;
-  height: 17px;
-  flex-shrink: 0;
 }
 
 .nav-item {
