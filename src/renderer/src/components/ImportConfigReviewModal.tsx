@@ -42,7 +42,14 @@ export function ImportConfigReviewModal(): JSX.Element | null {
 
   // Esc closes only this modal, not whatever else is open behind it. Intercept
   // in the CAPTURE phase and stop propagation, matching BrowseSmitheryModal.
+  // Unlike BrowseSmitheryModal (freshly mounted only while open), this
+  // component is a permanent singleton (see the outer-gate note above), so
+  // the listener must be gated on `importReviewOpen` itself -- otherwise it
+  // stays registered for the app's entire lifetime and swallows every Escape
+  // keypress everywhere (e.g. it silently blocked SettingsModal's own Escape
+  // handler from ever firing while this modal was closed).
   useEffect(() => {
+    if (!importReviewOpen) return
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         e.stopPropagation()
@@ -51,7 +58,7 @@ export function ImportConfigReviewModal(): JSX.Element | null {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [closeReview])
+  }, [importReviewOpen, closeReview])
 
   // This component is mounted once for the app's lifetime (see the outer-gate
   // note above) -- it is never truly unmounted/remounted by App, so the
