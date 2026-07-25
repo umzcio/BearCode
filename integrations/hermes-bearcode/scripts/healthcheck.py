@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
+import shlex
 import sys
 from typing import Any
 from uuid import uuid4
@@ -20,6 +22,12 @@ EXPECTED_ATTACHMENTS = {
     "maxBytesPerFile": 10 * 1024 * 1024,
     "maxChunkBytes": 256 * 1024,
 }
+EXPECTED_CAPABILITIES = {
+    "streaming": True,
+    "toolProgress": True,
+    "approvals": True,
+    "clarifications": True,
+}
 CONNECT_TIMEOUT_SECONDS = 10
 MESSAGE_TIMEOUT_SECONDS = 10
 
@@ -33,6 +41,55 @@ def _required_environment(name: str) -> str:
     if not value:
         raise HealthcheckError(f"{name} is required")
     return value
+
+
+def _parse_literal(raw: str) -> str:
+    raw = raw.strip()
+    if not raw:
+        return ""
+    if raw[0] in {"'", '"'}:
+        try:
+            values = shlex.split(raw, comments=False, posix=True)
+        except ValueError as error:
+            raise HealthcheckError("invalid quoted environment value") from error
+        if len(values) != 1:
+            raise HealthcheckError("invalid quoted environment value")
+        return values[0]
+    return raw
+
+
+def _read_unique_env_value(path: Path, name: str) -> str:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise HealthcheckError("could not read environment file") from error
+    matches = []
+    for line in text.splitlines():
+        candidate = line.lstrip()
+        if candidate.startswith("export "):
+            candidate = candidate[7:].lstrip()
+        if "=" not in candidate:
+            continue
+        key, raw = candidate.split("=", 1)
+        if key == name:
+            matches.append(_parse_literal(raw))
+    if len(matches) != 1 or not matches[0]:
+        raise HealthcheckError(
+            f"environment file must contain one non-empty {name}"
+        )
+    return matches[0]
+
+
+def _platform_key() -> str:
+    if "BEARCODE_PLATFORM_KEY" in os.environ:
+        key = os.environ["BEARCODE_PLATFORM_KEY"]
+        if not key:
+            raise HealthcheckError("BEARCODE_PLATFORM_KEY is required")
+        return key
+    env_file = os.environ.get("BEARCODE_ENV_FILE", "").strip()
+    if not env_file:
+        raise HealthcheckError("BEARCODE_PLATFORM_KEY is required")
+    return _read_unique_env_value(Path(env_file), "BEARCODE_PLATFORM_KEY")
 
 
 def _canonical_hello() -> dict[str, Any]:
@@ -55,17 +112,26 @@ def _validate_accepted(message: object) -> None:
     if (
         message.get("type") != "hello.accepted"
         or message.get("protocol") != PROTOCOL_NAME
+        or type(message.get("version")) is not int
         or message.get("version") != PROTOCOL_VERSION
     ):
         raise HealthcheckError("incompatible protocol handshake")
     capabilities = message.get("capabilities")
     if not isinstance(capabilities, dict):
         raise HealthcheckError("incompatible capability response")
+    for name, expected in EXPECTED_CAPABILITIES.items():
+        if capabilities.get(name) is not expected:
+            raise HealthcheckError(f"incompatible capability {name}")
     attachments = capabilities.get("attachments")
     if not isinstance(attachments, dict):
         raise HealthcheckError("incompatible attachment capabilities")
     for name, expected in EXPECTED_ATTACHMENTS.items():
-        if attachments.get(name) != expected:
+        actual = attachments.get(name)
+        if isinstance(expected, bool):
+            compatible = actual is expected
+        else:
+            compatible = type(actual) is int and actual == expected
+        if not compatible:
             raise HealthcheckError(
                 f"incompatible attachment capability {name}"
             )
@@ -107,7 +173,7 @@ async def probe(url: str, key: str) -> None:
 def main() -> int:
     try:
         url = _required_environment("BEARCODE_NATIVE_URL")
-        key = _required_environment("BEARCODE_PLATFORM_KEY")
+        key = _platform_key()
         asyncio.run(probe(url, key))
     except Exception:
         # Deliberately avoid rendering exceptions: request errors can retain

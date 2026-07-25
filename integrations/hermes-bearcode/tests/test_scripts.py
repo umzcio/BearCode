@@ -5,10 +5,12 @@ import os
 from pathlib import Path
 import re
 import shutil
+import shlex
 import signal
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import textwrap
 import time
@@ -172,7 +174,7 @@ class CompatibilityScriptTests(unittest.TestCase):
 
 
 class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
-    async def _run_probe(self, response):
+    async def _run_probe(self, response, *, environment_updates=None):
         observed = {}
 
         async def handler(request):
@@ -201,6 +203,12 @@ class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
                 "BEARCODE_PLATFORM_KEY": "probe-secret",
             }
         )
+        if environment_updates:
+            for name, value in environment_updates.items():
+                if value is None:
+                    environment.pop(name, None)
+                else:
+                    environment[name] = str(value)
         try:
             process = await asyncio.create_subprocess_exec(
                 sys.executable,
@@ -270,6 +278,52 @@ class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("probe-secret", stdout + stderr)
 
+    async def test_env_file_extracts_only_unique_literal_platform_key(self):
+        response = {
+            "type": "hello.accepted",
+            "protocol": "bearcode-hermes",
+            "version": 1,
+            "connectionId": "33333333-3333-4333-8333-333333333333",
+            "capabilities": {
+                "streaming": True,
+                "toolProgress": True,
+                "approvals": True,
+                "clarifications": True,
+                "attachments": {
+                    "upload": True,
+                    "download": True,
+                    "maxFiles": 5,
+                    "maxBytesPerFile": 10485760,
+                    "maxChunkBytes": 262144,
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "marker"
+            env_file = Path(temporary) / ".env"
+            env_file.write_text(
+                (
+                    "BEARCODE_PLATFORM_KEY='literal secret'\n"
+                    f"UNRELATED=$(touch {marker})\n"
+                ),
+                encoding="utf-8",
+            )
+
+            returncode, _, stderr, observed = await self._run_probe(
+                response,
+                environment_updates={
+                    "BEARCODE_PLATFORM_KEY": None,
+                    "BEARCODE_ENV_FILE": env_file,
+                },
+            )
+
+            self.assertEqual(returncode, 0, stderr)
+            self.assertEqual(
+                observed["authorization"],
+                "Bearer literal secret",
+            )
+            self.assertFalse(marker.exists())
+
     async def test_incorrect_attachment_limits_fail_without_leaking_key(self):
         response = {
             "type": "hello.accepted",
@@ -297,11 +351,118 @@ class HealthcheckScriptTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("incompatible", stderr.lower())
         self.assertNotIn("probe-secret", stdout + stderr)
 
+    async def test_every_required_capability_is_present_and_exact(self):
+        canonical = {
+            "type": "hello.accepted",
+            "protocol": "bearcode-hermes",
+            "version": 1,
+            "connectionId": "33333333-3333-4333-8333-333333333333",
+            "capabilities": {
+                "streaming": True,
+                "toolProgress": True,
+                "approvals": True,
+                "clarifications": True,
+                "attachments": {
+                    "upload": True,
+                    "download": True,
+                    "maxFiles": 5,
+                    "maxBytesPerFile": 10485760,
+                    "maxChunkBytes": 262144,
+                },
+            },
+        }
+        mutations = []
+        for name in (
+            "streaming",
+            "toolProgress",
+            "approvals",
+            "clarifications",
+        ):
+            mutations.extend(
+                (
+                    (f"missing {name}", ("capabilities", name), None),
+                    (f"false {name}", ("capabilities", name), False),
+                    (f"integer {name}", ("capabilities", name), 1),
+                )
+            )
+        for name in ("upload", "download"):
+            mutations.extend(
+                (
+                    (
+                        f"missing attachments.{name}",
+                        ("capabilities", "attachments", name),
+                        None,
+                    ),
+                    (
+                        f"false attachments.{name}",
+                        ("capabilities", "attachments", name),
+                        False,
+                    ),
+                    (
+                        f"integer attachments.{name}",
+                        ("capabilities", "attachments", name),
+                        1,
+                    ),
+                )
+            )
+        for name, wrong in (
+            ("maxFiles", 4),
+            ("maxBytesPerFile", 1),
+            ("maxChunkBytes", 1),
+        ):
+            mutations.extend(
+                (
+                    (
+                        f"missing attachments.{name}",
+                        ("capabilities", "attachments", name),
+                        None,
+                    ),
+                    (
+                        f"wrong attachments.{name}",
+                        ("capabilities", "attachments", name),
+                        wrong,
+                    ),
+                    (
+                        f"boolean attachments.{name}",
+                        ("capabilities", "attachments", name),
+                        True,
+                    ),
+                )
+            )
+        mutations.append(("boolean version", ("version",), True))
+
+        for label, path, replacement in mutations:
+            with self.subTest(label=label):
+                response = {
+                    **canonical,
+                    "capabilities": {
+                        **canonical["capabilities"],
+                        "attachments": {
+                            **canonical["capabilities"]["attachments"]
+                        },
+                    },
+                }
+                owner = response
+                for component in path[:-1]:
+                    owner = owner[component]
+                if replacement is None:
+                    owner.pop(path[-1])
+                else:
+                    owner[path[-1]] = replacement
+
+                returncode, stdout, stderr, _ = await self._run_probe(
+                    response
+                )
+
+                self.assertNotEqual(returncode, 0)
+                self.assertIn("incompatible", stderr.lower())
+                self.assertNotIn("probe-secret", stdout + stderr)
+
 
 class InstallerScriptTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.home = self.root / "hermes-home"
         self.home.mkdir(mode=0o700)
         self.commands = self.root / "commands"
@@ -335,6 +496,16 @@ class InstallerScriptTests(unittest.TestCase):
                 if [ "${FAKE_HEALTH_FAIL:-0}" = "1" ]; then
                   exit 43
                 fi
+                case "${FAKE_HEALTH_COMMIT_MODE:-}" in
+                  fault)
+                    exit 93
+                    ;;
+                  signal)
+                    kill -TERM "$PPID"
+                    sleep 0.1
+                    exit 143
+                    ;;
+                esac
                 ;;
             esac
             exit 0
@@ -379,6 +550,85 @@ class InstallerScriptTests(unittest.TestCase):
             """,
             0o755,
         )
+        _write(
+            self.commands / "mv",
+            r"""
+            #!/bin/bash
+            source_path=$1
+            destination_path=$2
+            point=
+            if [[ "$destination_path" == */bearcode.previous ]]; then
+              point=active-previous
+            elif [[ "$source_path" == */bearcode.next &&
+                    "$destination_path" == */bearcode ]]; then
+              point=next-active
+            fi
+            act() {
+              case "${FAKE_BOUNDARY_MODE:-}" in
+                fault-*)
+                  exit 91
+                  ;;
+                signal-*)
+                  kill -TERM "$PPID"
+                  sleep 0.1
+                  exit 143
+                  ;;
+              esac
+            }
+            if [[ "$point" == "${FAKE_BOUNDARY:-}" &&
+                  "${FAKE_BOUNDARY_MODE:-}" == *-before ]]; then
+              act
+            fi
+            /bin/mv "$@"
+            status=$?
+            if [[ "$status" -ne 0 ]]; then
+              exit "$status"
+            fi
+            if [[ "$point" == "${FAKE_BOUNDARY:-}" &&
+                  "${FAKE_BOUNDARY_MODE:-}" == *-after ]]; then
+              act
+            fi
+            """,
+            0o755,
+        )
+        _write(
+            self.commands / "env-python",
+            r"""
+            #!/bin/bash
+            point=
+            if [[ "$#" -eq 3 &&
+                  "$1" == "-" &&
+                  "$2" == */.bearcode-env-backup.* ]]; then
+              point=env-discard
+            fi
+            act() {
+              case "${FAKE_BOUNDARY_MODE:-}" in
+                fault-*)
+                  exit 92
+                  ;;
+                signal-*)
+                  kill -TERM "$PPID"
+                  sleep 0.1
+                  exit 143
+                  ;;
+              esac
+            }
+            if [[ "$point" == "${FAKE_BOUNDARY:-}" &&
+                  "${FAKE_BOUNDARY_MODE:-}" == *-before ]]; then
+              act
+            fi
+            "$REAL_ENV_PYTHON" "$@"
+            status=$?
+            if [[ "$status" -ne 0 ]]; then
+              exit "$status"
+            fi
+            if [[ "$point" == "${FAKE_BOUNDARY:-}" &&
+                  "${FAKE_BOUNDARY_MODE:-}" == *-after ]]; then
+              act
+            fi
+            """,
+            0o755,
+        )
 
     def _make_stage(self, name="new", *, manifest=True):
         stage = self.root / f"stage-{name}"
@@ -415,8 +665,15 @@ class InstallerScriptTests(unittest.TestCase):
                 "HERMES_TAILSCALE": str(
                     self.commands / "tailscale"
                 ),
-                "HERMES_ENV_PYTHON": sys.executable,
+                "HERMES_ENV_PYTHON": str(
+                    self.commands / "env-python"
+                ),
                 "HERMES_SERVICE_USER": getpass.getuser(),
+                "REAL_ENV_PYTHON": sys.executable,
+                "PATH": (
+                    f"{self.commands}{os.pathsep}"
+                    f"{environment.get('PATH', '')}"
+                ),
                 "FAKE_COMMAND_LOG": str(self.command_log),
                 "FAKE_HEALTH_STARTED": str(self.health_started),
                 "FAKE_RESTART_COUNT": str(self.restart_count),
@@ -475,6 +732,43 @@ class InstallerScriptTests(unittest.TestCase):
         for label, candidate, updates, expected in cases:
             with self.subTest(label=label):
                 result = self._run(candidate, **updates)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(expected, result.stderr.lower())
+
+        self.assertEqual(self._command_lines(), [])
+
+    def test_rejects_symlinked_root_arguments_and_path_components(self):
+        real_stage = self._make_stage("real")
+        stage_link = self.root / "stage-link"
+        stage_link.symlink_to(real_stage, target_is_directory=True)
+        real_home = self.home
+        home_link = self.root / "home-link"
+        home_link.symlink_to(real_home, target_is_directory=True)
+        component_root = self.root / "component-root"
+        component_root.mkdir()
+        component_link = self.root / "component-link"
+        component_link.symlink_to(component_root, target_is_directory=True)
+        component_stage = component_root / "stage"
+        shutil.copytree(real_stage, component_stage)
+
+        cases = (
+            ("stage root", stage_link, {}, "symlink"),
+            (
+                "home root",
+                real_stage,
+                {"HERMES_HOME": str(home_link)},
+                "symlink",
+            ),
+            (
+                "stage component",
+                component_link / "stage",
+                {},
+                "symlink",
+            ),
+        )
+        for label, stage, updates, expected in cases:
+            with self.subTest(label=label):
+                result = self._run(stage, **updates)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(expected, result.stderr.lower())
 
@@ -605,6 +899,74 @@ class InstallerScriptTests(unittest.TestCase):
         command_text = "\n".join(self._command_lines())
         self.assertNotIn(secret, command_text)
 
+    def test_hostile_existing_env_values_remain_inert_and_shell_quoted(self):
+        self._seed_current()
+        marker = self.root / "must-not-exist"
+        key = f"$(touch {marker}) quote'\" value"
+        unrelated = f"UNRELATED=$(touch {marker})"
+        environment_file = self.home / ".env"
+        _write(
+            environment_file,
+            (
+                f"BEARCODE_PLATFORM_KEY={shlex.quote(key)}\n"
+                f"{unrelated}\n"
+                "QUOTED='literal $HOME and spaces'\n"
+            ),
+            0o600,
+        )
+
+        result = self._run(self._make_stage("hostile"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists())
+        rendered = environment_file.read_text(encoding="utf-8")
+        key_line = next(
+            line
+            for line in rendered.splitlines()
+            if line.startswith("BEARCODE_PLATFORM_KEY=")
+        )
+        self.assertEqual(
+            shlex.split(key_line.split("=", 1)[1]),
+            [key],
+        )
+        self.assertIn(unrelated, rendered)
+        self.assertIn("QUOTED='literal $HOME and spaces'", rendered)
+
+    def test_empty_multiline_and_duplicate_keys_fail_without_mutation(self):
+        cases = (
+            ("empty", "BEARCODE_PLATFORM_KEY=\n"),
+            (
+                "multiline",
+                "BEARCODE_PLATFORM_KEY='first\nsecond'\n",
+            ),
+            (
+                "duplicate",
+                "BEARCODE_PLATFORM_KEY=first\n"
+                "BEARCODE_PLATFORM_KEY=second\n",
+            ),
+        )
+        for label, contents in cases:
+            with self.subTest(label=label):
+                case_home = self.root / f"home-{label}"
+                case_home.mkdir(mode=0o700)
+                environment_file = case_home / ".env"
+                marker = self.root / f"marker-{label}"
+                payload = contents + f"UNRELATED=$(touch {marker})\n"
+                _write(environment_file, payload, 0o600)
+                result = self._run(
+                    self._make_stage(f"env-{label}"),
+                    HERMES_HOME=str(case_home),
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(environment_file.read_text(), payload)
+                self.assertFalse(marker.exists())
+                self.assertFalse(
+                    (
+                        case_home
+                        / "plugins/platforms/bearcode"
+                    ).exists()
+                )
+
     def test_health_failure_restores_plugin_and_environment_then_restarts(self):
         current = self._seed_current()
         environment_file = self.home / ".env"
@@ -698,6 +1060,173 @@ class InstallerScriptTests(unittest.TestCase):
         self.assertEqual((current / "VERSION").read_text(), "old\n")
         self.assertFalse(current.with_name("bearcode.previous").exists())
         self.assertFalse(current.with_name("bearcode.next").exists())
+
+    def test_faults_and_signals_around_both_renames_restore_one_old_tree(self):
+        cases = tuple(
+            (boundary, mode)
+            for boundary in ("active-previous", "next-active")
+            for mode in (
+                "fault-before",
+                "fault-after",
+                "signal-before",
+                "signal-after",
+            )
+        )
+        for index, (boundary, mode) in enumerate(cases):
+            with self.subTest(boundary=boundary, mode=mode):
+                case_home = self.root / f"rename-home-{index}"
+                case_home.mkdir(mode=0o700)
+                current = (
+                    case_home / "plugins/platforms/bearcode"
+                )
+                current.mkdir(parents=True)
+                _write(current / "VERSION", "old\n")
+                environment_file = case_home / ".env"
+                original_environment = (
+                    "BEARCODE_PLATFORM_KEY=stable\nOTHER=old\n"
+                )
+                _write(environment_file, original_environment, 0o600)
+
+                result = self._run(
+                    self._make_stage(f"rename-{index}"),
+                    HERMES_HOME=str(case_home),
+                    FAKE_BOUNDARY=boundary,
+                    FAKE_BOUNDARY_MODE=mode,
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(
+                    (current / "VERSION").read_text(),
+                    "old\n",
+                )
+                self.assertEqual(
+                    environment_file.read_text(),
+                    original_environment,
+                )
+                self.assertFalse(
+                    current.with_name("bearcode.previous").exists()
+                )
+                self.assertFalse(
+                    current.with_name("bearcode.next").exists()
+                )
+
+    def test_faults_and_signals_at_env_commit_leave_consistent_state(self):
+        for index, mode in enumerate(
+            (
+                "fault-before",
+                "fault-after",
+                "signal-before",
+                "signal-after",
+            )
+        ):
+            with self.subTest(mode=mode):
+                case_home = self.root / f"commit-home-{index}"
+                case_home.mkdir(mode=0o700)
+                current = (
+                    case_home / "plugins/platforms/bearcode"
+                )
+                current.mkdir(parents=True)
+                _write(current / "VERSION", "old\n")
+                environment_file = case_home / ".env"
+                original_environment = (
+                    "BEARCODE_PLATFORM_KEY=stable\nOTHER=old\n"
+                )
+                _write(environment_file, original_environment, 0o600)
+
+                result = self._run(
+                    self._make_stage(f"commit-{index}"),
+                    HERMES_HOME=str(case_home),
+                    FAKE_BOUNDARY="env-discard",
+                    FAKE_BOUNDARY_MODE=mode,
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    (current / "VERSION").read_text(),
+                    f"commit-{index}\n",
+                )
+                self.assertIn(
+                    "BEARCODE_PLATFORM_KEY=stable",
+                    environment_file.read_text(),
+                )
+                self.assertTrue(
+                    current.with_name("bearcode.previous").is_dir()
+                )
+                self.assertFalse(
+                    current.with_name("bearcode.next").exists()
+                )
+
+    def test_fault_or_signal_immediately_before_commit_rolls_back(self):
+        for index, mode in enumerate(("fault", "signal")):
+            with self.subTest(mode=mode):
+                case_home = self.root / f"precommit-home-{index}"
+                case_home.mkdir(mode=0o700)
+                current = (
+                    case_home / "plugins/platforms/bearcode"
+                )
+                current.mkdir(parents=True)
+                _write(current / "VERSION", "old\n")
+                environment_file = case_home / ".env"
+                original_environment = (
+                    "BEARCODE_PLATFORM_KEY=stable\nOTHER=old\n"
+                )
+                _write(environment_file, original_environment, 0o600)
+
+                result = self._run(
+                    self._make_stage(f"precommit-{index}"),
+                    HERMES_HOME=str(case_home),
+                    FAKE_HEALTH_COMMIT_MODE=mode,
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(
+                    (current / "VERSION").read_text(),
+                    "old\n",
+                )
+                self.assertEqual(
+                    environment_file.read_text(),
+                    original_environment,
+                )
+                self.assertFalse(
+                    current.with_name("bearcode.previous").exists()
+                )
+                self.assertFalse(
+                    current.with_name("bearcode.next").exists()
+                )
+
+    def test_git_archive_is_source_only_and_passes_stage_entry_policy(self):
+        archive = self.root / "plugin.tgz"
+        extracted = self.root / "archive-stage"
+        result = subprocess.run(
+            (
+                "git",
+                "archive",
+                "--format=tar.gz",
+                f"--output={archive}",
+                "HEAD:integrations/hermes-bearcode",
+            ),
+            cwd=PLUGIN_ROOT.parents[1],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        extracted.mkdir()
+        with tarfile.open(archive, "r:gz") as package:
+            package.extractall(extracted)
+        self.assertTrue(
+            (extracted / "plugin.yaml").is_file(),
+            list(extracted.rglob("*")),
+        )
+        self.assertTrue((extracted / "adapter.py").is_file())
+        for path in extracted.rglob("*"):
+            relative = path.relative_to(extracted)
+            self.assertNotIn(".venv", relative.parts)
+            self.assertNotIn("__pycache__", relative.parts)
+            self.assertNotEqual(path.suffix, ".pyc")
+            self.assertFalse(path.is_symlink())
+            self.assertTrue(path.is_dir() or path.is_file())
 
 
 if __name__ == "__main__":

@@ -39,7 +39,9 @@ Deploy from a clean BearCode workspace. The current route is a two-hop copy thro
 followed by installation as the Hermes service user (`root` on the current host):
 
 ```bash
-tar -C integrations/hermes-bearcode -czf /tmp/hermes-bearcode-plugin.tgz .
+git archive --format=tar.gz \
+  --output=/tmp/hermes-bearcode-plugin.tgz \
+  HEAD:integrations/hermes-bearcode
 scp -o ProxyJump=umzcaio /tmp/hermes-bearcode-plugin.tgz zach@umzspark:/tmp/hermes-bearcode-plugin.tgz
 ssh -o BatchMode=yes umzcaio
 sudo -i
@@ -62,22 +64,40 @@ argument. To display the generated key once for manual entry in BearCode Setting
 `umzspark`:
 
 ```bash
-awk -F= '$1 == "BEARCODE_PLATFORM_KEY" { print substr($0, index($0, "=") + 1); exit }' /root/.hermes/.env
+/usr/local/lib/hermes-agent/venv/bin/python - <<'PY'
+from pathlib import Path
+import shlex
+
+matches = []
+for line in Path("/root/.hermes/.env").read_text(encoding="utf-8").splitlines():
+    candidate = line.lstrip()
+    if candidate.startswith("export "):
+        candidate = candidate[7:].lstrip()
+    if candidate.startswith("BEARCODE_PLATFORM_KEY="):
+        matches.append(
+            shlex.split(candidate.split("=", 1)[1], comments=False, posix=True)
+        )
+if len(matches) != 1 or len(matches[0]) != 1 or not matches[0][0]:
+    raise SystemExit("expected one non-empty BEARCODE_PLATFORM_KEY")
+print(matches[0][0])
+PY
 ```
 
 The command itself contains no secret, so shell history records no key. Do not paste the output
 into repository files, terminal commands, chat, or issue trackers. Enter it directly into the
 Native Platform key field in BearCode Settings.
 
-For a direct post-deploy probe, load the environment without putting the key in command
-arguments:
+`git archive` packages tracked source from the committed integration tree only. It excludes the
+plugin-local `.venv`, Python caches, ignored files, and other untracked/build artifacts that the
+installer correctly rejects.
+
+For a direct post-deploy probe, point the health check at `.env`. It extracts only the unique
+literal platform-key assignment without evaluating any other line and keeps the key out of
+command arguments:
 
 ```bash
-set -a
-. /root/.hermes/.env
-set +a
-HERMES_HOME=/root/.hermes \
 BEARCODE_NATIVE_URL="ws://$(tailscale ip -4):8643/v1/bearcode" \
+BEARCODE_ENV_FILE=/root/.hermes/.env \
 /usr/local/lib/hermes-agent/venv/bin/python \
 /root/.hermes/plugins/platforms/bearcode/scripts/healthcheck.py
 ```

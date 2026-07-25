@@ -12,6 +12,25 @@ stage_argument=${1:-}
 [[ -d "$stage_argument" ]] || die "stage directory does not exist"
 [[ -d "$HERMES_HOME" ]] || die "HERMES_HOME does not exist"
 
+env_python=${HERMES_ENV_PYTHON:-python3}
+command -v "$env_python" >/dev/null 2>&1 ||
+  die "environment Python is not executable"
+"$env_python" - "$stage_argument" "$HERMES_HOME" <<'PY'
+import os
+from pathlib import Path
+import stat
+import sys
+
+for raw in sys.argv[1:]:
+    absolute = Path(os.path.abspath(raw))
+    current = Path(absolute.anchor)
+    for component in absolute.parts[1:]:
+        current = current / component
+        info = os.lstat(current)
+        if stat.S_ISLNK(info.st_mode):
+            raise SystemExit(f"symlinked path component is unsafe: {current}")
+PY
+
 stage=$(realpath "$stage_argument") ||
   die "stage directory could not be resolved"
 hermes_home=$(realpath "$HERMES_HOME") ||
@@ -39,15 +58,12 @@ if [[ -n "${HERMES_SERVICE_USER:-}" &&
 fi
 
 hermes_python=${HERMES_PYTHON:-/usr/local/lib/hermes-agent/venv/bin/python}
-env_python=${HERMES_ENV_PYTHON:-python3}
 hermes_cli=${HERMES_CLI:-hermes}
 systemctl_command=${HERMES_SYSTEMCTL:-systemctl}
 tailscale_command=${HERMES_TAILSCALE:-tailscale}
 hermes_agent_root=${HERMES_AGENT_ROOT:-/usr/local/lib/hermes-agent}
 
 [[ -x "$hermes_python" ]] || die "Hermes Python is not executable"
-command -v "$env_python" >/dev/null 2>&1 ||
-  die "environment Python is not executable"
 command -v "$hermes_cli" >/dev/null 2>&1 ||
   die "Hermes CLI is not executable"
 command -v "$systemctl_command" >/dev/null 2>&1 ||
@@ -200,15 +216,14 @@ PY
 }
 
 environment_existed=0
-environment_changed=0
-previous_moved=0
-activated=0
+environment_transaction_started=0
+plugin_mutation_started=0
 had_current=0
 enable_attempted=0
 finished=0
 
 restore_environment() {
-  if [[ "$environment_changed" != "1" ]]; then
+  if [[ "$environment_transaction_started" != "1" ]]; then
     return
   fi
   "$env_python" - \
@@ -226,7 +241,10 @@ backup = Path(sys.argv[2])
 existed = sys.argv[3] == "1"
 expected_uid = int(sys.argv[4])
 if existed:
-    info = os.lstat(backup)
+    try:
+        info = os.lstat(backup)
+    except FileNotFoundError:
+        raise SystemExit(0)
     if (
         stat.S_ISLNK(info.st_mode)
         or not stat.S_ISREG(info.st_mode)
@@ -253,7 +271,7 @@ else:
     except FileNotFoundError:
         pass
 PY
-  environment_changed=0
+  environment_transaction_started=0
 }
 
 discard_environment_backup() {
@@ -285,17 +303,21 @@ rollback() {
   trap - ERR INT TERM HUP
   set +e
 
-  if [[ "$activated" == "1" || "$previous_moved" == "1" ]]; then
+  if [[ "$plugin_mutation_started" == "1" ]]; then
     needs_restart=1
   fi
   restore_environment
-  if [[ "$activated" == "1" ]]; then
-    remove_owned_tree "$active"
-    activated=0
-  fi
-  if [[ "$previous_moved" == "1" && -d "$previous" ]]; then
-    mv "$previous" "$active"
-    previous_moved=0
+  if [[ "$plugin_mutation_started" == "1" ]]; then
+    if [[ "$had_current" == "1" ]]; then
+      if [[ -d "$previous" ]]; then
+        if [[ -d "$active" ]]; then
+          remove_owned_tree "$active"
+        fi
+        mv "$previous" "$active"
+      fi
+    elif [[ -d "$active" ]]; then
+      remove_owned_tree "$active"
+    fi
   fi
   remove_owned_tree "$next"
   if [[ "$enable_attempted" == "1" && "$had_current" == "0" ]]; then
@@ -342,7 +364,7 @@ chmod 0700 "$next"
 if [[ -e "$environment_file" || -L "$environment_file" ]]; then
   environment_existed=1
 fi
-environment_changed=1
+environment_transaction_started=1
 if ! environment_values=$(
   ENVIRONMENT_FILE="$environment_file" \
   ENVIRONMENT_BACKUP="$environment_backup" \
@@ -355,6 +377,7 @@ if ! environment_values=$(
 import os
 from pathlib import Path
 import secrets
+import shlex
 import stat
 
 environment = Path(os.environ["ENVIRONMENT_FILE"])
@@ -399,26 +422,50 @@ try:
 except UnicodeDecodeError:
     raise SystemExit(".env is not valid UTF-8")
 lines = text.splitlines()
-values = {}
-for line in lines:
-    if "=" not in line or line.lstrip().startswith("#"):
-        continue
-    name, value = line.split("=", 1)
-    if name in {
-        "BEARCODE_PLATFORM_KEY",
-        "BEARCODE_LISTEN_HOST",
-        "BEARCODE_LISTEN_PORT",
-    } and name not in values:
-        normalized = value.strip()
-        if (
-            len(normalized) >= 2
-            and normalized[0] == normalized[-1]
-            and normalized[0] in {"'", '"'}
-        ):
-            normalized = normalized[1:-1]
-        values[name] = normalized
+managed_names = {
+    "BEARCODE_PLATFORM_KEY",
+    "BEARCODE_LISTEN_HOST",
+    "BEARCODE_LISTEN_PORT",
+    "BEARCODE_ALLOW_ALL_USERS",
+}
+occurrences = {}
 
-key = values.get("BEARCODE_PLATFORM_KEY") or secrets.token_hex(32)
+
+def parse_literal(raw):
+    raw = raw.strip()
+    if not raw:
+        return ""
+    if raw[0] in {"'", '"'}:
+        try:
+            parsed = shlex.split(raw, comments=False, posix=True)
+        except ValueError:
+            raise SystemExit("managed .env value has invalid quoting")
+        if len(parsed) != 1:
+            raise SystemExit("managed .env value has invalid quoting")
+        return parsed[0]
+    return raw
+
+
+for line in lines:
+    candidate = line.lstrip()
+    if candidate.startswith("export "):
+        candidate = candidate[7:].lstrip()
+    if "=" not in candidate or candidate.startswith("#"):
+        continue
+    name, raw = candidate.split("=", 1)
+    if name in managed_names:
+        occurrences.setdefault(name, []).append(parse_literal(raw))
+for name, found in occurrences.items():
+    if len(found) != 1:
+        raise SystemExit(f".env contains duplicate {name}")
+values = {name: found[0] for name, found in occurrences.items()}
+
+if "BEARCODE_PLATFORM_KEY" in values:
+    key = values["BEARCODE_PLATFORM_KEY"]
+    if not key:
+        raise SystemExit("BEARCODE_PLATFORM_KEY is explicitly empty")
+else:
+    key = secrets.token_hex(32)
 if "\n" in key or "\r" in key or not key:
     raise SystemExit("BEARCODE_PLATFORM_KEY is invalid")
 host = (
@@ -453,17 +500,20 @@ updates = {
 rendered = []
 written = set()
 for line in lines:
-    if "=" in line and not line.lstrip().startswith("#"):
-        name = line.split("=", 1)[0]
+    candidate = line.lstrip()
+    if candidate.startswith("export "):
+        candidate = candidate[7:].lstrip()
+    if "=" in candidate and not candidate.startswith("#"):
+        name = candidate.split("=", 1)[0]
         if name in updates:
             if name not in written:
-                rendered.append(f"{name}={updates[name]}")
+                rendered.append(f"{name}={shlex.quote(updates[name])}")
                 written.add(name)
             continue
     rendered.append(line)
 for name, value in updates.items():
     if name not in written:
-        rendered.append(f"{name}={value}")
+        rendered.append(f"{name}={shlex.quote(value)}")
 payload = ("\n".join(rendered) + "\n").encode("utf-8")
 temporary = environment.with_name(f".{environment.name}.{secrets.token_hex(8)}")
 descriptor = os.open(
@@ -500,11 +550,12 @@ fi
 remove_owned_tree "$previous"
 if [[ -d "$active" ]]; then
   had_current=1
+  plugin_mutation_started=1
   mv "$active" "$previous"
-  previous_moved=1
+else
+  plugin_mutation_started=1
 fi
 mv "$next" "$active"
-activated=1
 
 enable_attempted=1
 "$hermes_cli" plugins enable bearcode-platform
@@ -513,14 +564,19 @@ BEARCODE_NATIVE_URL="ws://$listen_host:$listen_port/v1/bearcode" \
 BEARCODE_PLATFORM_KEY="$platform_key" \
   "$hermes_python" "$active/scripts/healthcheck.py"
 
-if [[ "$previous_moved" == "1" ]]; then
+trap '' HUP INT TERM
+trap - ERR
+finished=1
+environment_transaction_started=0
+set +e
+if ! discard_environment_backup; then
+  printf 'Warning: committed deployment left a secure .env backup.\n' >&2
+fi
+if [[ "$had_current" == "1" && -d "$previous" ]]; then
   deployment_timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
   printf '%s\n' "$deployment_timestamp" \
     > "$previous/.bearcode-deployment-timestamp"
   chmod 0600 "$previous/.bearcode-deployment-timestamp"
 fi
-discard_environment_backup
-environment_changed=0
-finished=1
 trap - ERR INT TERM HUP
 printf 'Hermes BearCode platform deployed successfully.\n'
