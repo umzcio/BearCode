@@ -15,4 +15,10 @@ export interface ImportCandidate extends DetectedSource {
   buildable: boolean
   preview?: string
   warnings?: string[]
+  // Set when this source was never even attempted -- the per-scan preview cap
+  // (MAX_PREVIEWED in candidateViews.ts) was already spent on earlier sources.
+  // Distinct from a genuine `buildable: false` (couldn't parse): the modal
+  // must not tell the user their file is broken when it was simply never
+  // looked at.
+  notPreviewed?: boolean
 }

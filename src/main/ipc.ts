@@ -1215,7 +1215,9 @@ export function registerIpc(): void {
     // Attempt each translation now (final review Finding 6) so the review
     // modal can disable what cannot parse, preview what can, and surface the
     // translators' warnings instead of discarding them. Bounded work: every
-    // read is capped at 64KB and only not-yet-imported sources are described.
+    // read is capped at 64KB, only not-yet-imported sources are described, and
+    // buildCandidateViews itself caps the NUMBER fully described per call
+    // (MAX_PREVIEWED, candidateViews.ts) since this runs on every folder open.
     const candidates = buildCandidateViews(projectPath, remaining, db.getOutsidePolicy(projectPath))
     // Only something the user could actually act on drives the banner: an
     // 'unsupported' source (Finding 2) or one that cannot translate at all

@@ -25,6 +25,21 @@ import type { DetectedSource, ImportCandidate } from './types'
 
 const PREVIEW_CHARS = 150
 
+// Full-parse describe work (buildRuleCandidate/buildWorkflowCandidate/
+// buildSkillCandidate, each of which can itself inline up to MAX_INCLUSIONS
+// referenced files at up to MAX_REF_BYTES each -- see agentsDir/index.ts) runs
+// on EVERY detected source, on EVERY folder open (setWorkspace ->
+// refreshImportBannerState), before the user has trusted the folder or even
+// opened the review modal (final whole-branch review, perf finding). Nothing
+// here caps the NUMBER of sources scan.ts can find, so a repo with a large
+// `.cursor/rules/` tree or a `.claude/skills/` directory with thousands of
+// entries could turn a folder open into a synchronous main-process stall.
+// Cap how many sources get fully described per call; real CLAUDE.md/AGENTS.md/
+// .cursorrules/.windsurfrules/.claude setups are single-digit to low-double-
+// digit file counts, so 200 is generous headroom while still bounding worst
+// case to ~200 * (up to 65 file reads each) instead of unbounded.
+const MAX_PREVIEWED = 200
+
 // Short single-line excerpt of the translated text. Collapses all whitespace
 // (rule bodies are multi-line markdown; the modal renders one line) and drops a
 // leading frontmatter block, which would otherwise fill the whole preview with
@@ -45,7 +60,18 @@ export function buildCandidateViews(
   detected: DetectedSource[],
   outside?: OutsidePolicy
 ): ImportCandidate[] {
-  return detected.map((d) => describeOne(projectPath, d, outside))
+  // Only kinds that actually trigger a parse (rule/workflow/skill) spend the
+  // budget -- 'unsupported' sources already skip straight to a cheap
+  // no-preview return inside describeOne, so counting them here would waste
+  // budget on sources that were never going to be described anyway.
+  let previewed = 0
+  return detected.map((d) => {
+    if (d.kind !== 'unsupported' && previewed >= MAX_PREVIEWED) {
+      return { ...d, buildable: false, notPreviewed: true }
+    }
+    if (d.kind !== 'unsupported') previewed++
+    return describeOne(projectPath, d, outside)
+  })
 }
 
 function describeOne(

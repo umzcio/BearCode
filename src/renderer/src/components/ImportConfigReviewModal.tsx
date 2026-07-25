@@ -159,7 +159,11 @@ export function ImportConfigReviewModal(): JSX.Element | null {
                 <div className="set-row import-skipped" key={c.sourcePath}>
                   <div className="set-row-text">
                     <div className="set-row-title">{c.sourcePath}</div>
-                    <div className="set-row-desc">Couldn&apos;t parse — skipped</div>
+                    <div className="set-row-desc">
+                      {c.notPreviewed
+                        ? 'Too many sources detected — not previewed yet'
+                        : "Couldn't parse — skipped"}
+                    </div>
                   </div>
                 </div>
               ))}

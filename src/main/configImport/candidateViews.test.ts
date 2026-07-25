@@ -118,6 +118,57 @@ describe('buildCandidateViews', () => {
     })
   })
 
+  it('caps the number of sources fully described per call (perf finding)', () => {
+    // Fabricate more DetectedSources than MAX_PREVIEWED (200) directly --
+    // scanImportableConfig has no size cap of its own, so a real repo with a
+    // huge .cursor/rules/ tree could hand buildCandidateViews an arbitrarily
+    // long list. Real files aren't needed since the ones past the cap must
+    // never even be read.
+    const detected = Array.from({ length: 250 }, (_, i) => ({
+      sourcePath: `fake-${i}.md`,
+      kind: 'rule' as const,
+      tool: 'cursor' as const
+    }))
+    const views = buildCandidateViews(dir, detected, { policy: 'ask', allowed: [], denied: [] })
+
+    expect(views).toHaveLength(250)
+    const first200 = views.slice(0, 200)
+    const rest = views.slice(200)
+
+    // The first 200 were attempted (none of these files exist on disk, so the
+    // translator fails to build them -- but genuinely, not because of the
+    // cap: notPreviewed must be absent, not just falsy-but-present).
+    for (const v of first200) {
+      expect(v.buildable).toBe(false)
+      expect(v.notPreviewed).toBeUndefined()
+    }
+    // Everything past the cap is still present (not silently dropped) and
+    // marked with the distinct not-previewed reason -- never a false "couldn't
+    // parse", since it was never attempted.
+    for (const v of rest) {
+      expect(v.buildable).toBe(false)
+      expect(v.notPreviewed).toBe(true)
+    }
+  })
+
+  it('does not spend the preview cap on unsupported sources', () => {
+    // 'unsupported' sources already skip parsing for their own reason (not
+    // yet a translatable kind) -- they must not eat into the budget meant for
+    // kinds that actually attempt a parse.
+    const detected = Array.from({ length: 200 }, (_, i) => ({
+      sourcePath: `unsupported-${i}.md`,
+      kind: 'unsupported' as const,
+      tool: 'claude-code' as const
+    }))
+    detected.push({ sourcePath: 'CLAUDE.md', kind: 'rule' as const, tool: 'claude-code' as const })
+    writeFileSync(join(dir, 'CLAUDE.md'), 'Always use tabs.')
+
+    const views = buildCandidateViews(dir, detected, { policy: 'ask', allowed: [], denied: [] })
+    const ruleView = views.find((v) => v.sourcePath === 'CLAUDE.md')
+    expect(ruleView?.buildable).toBe(true)
+    expect(ruleView?.notPreviewed).toBeUndefined()
+  })
+
   it('honors the outside-of-folder policy in the preview (Finding 1)', () => {
     const outsideDir = mkdtempSync(join(tmpdir(), 'bearcode-candidate-views-outside-'))
     const outsideFile = join(outsideDir, 'secret.md')

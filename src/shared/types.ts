@@ -1340,6 +1340,12 @@ export interface ImportCandidate extends DetectedSource {
   buildable: boolean
   preview?: string
   warnings?: string[]
+  // Set when the per-scan preview cap was already spent on earlier sources
+  // (final review perf finding), so this one was returned as detected but
+  // never actually parsed. Distinct from a genuine `buildable: false`
+  // (couldn't parse) -- the review modal must not tell the user their file
+  // is broken when it was simply never looked at.
+  notPreviewed?: boolean
 }
 export interface ImportSelection {
   rules: string[]
