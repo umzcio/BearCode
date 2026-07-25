@@ -144,7 +144,10 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
     ): event is
       | Extract<Event, { type: 'hermes_tool_call' }>
       | Extract<Event, { type: 'hermes_clarification' }> =>
-      (event.type === 'hermes_tool_call' && event.status === 'awaiting-approval') ||
+      (event.type === 'hermes_tool_call' &&
+        event.status === 'awaiting-approval' &&
+        typeof event.requestId === 'string' &&
+        event.requestId.trim().length > 0) ||
       (event.type === 'hermes_clarification' && event.state === 'pending')
   )
 
@@ -474,9 +477,15 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
         <div className="convo-status">
           <div className="convo-status-inner pinned-approval">
             {firstPendingHermesInteraction.type === 'hermes_tool_call' ? (
-              <HermesToolStep call={firstPendingHermesInteraction} convoId={convoId} interactive />
+              <HermesToolStep
+                key={`${firstPendingHermesInteraction.id}:${firstPendingHermesInteraction.requestId}`}
+                call={firstPendingHermesInteraction}
+                convoId={convoId}
+                interactive
+              />
             ) : (
               <HermesClarifyCard
+                key={`${firstPendingHermesInteraction.id}:${firstPendingHermesInteraction.requestId}`}
                 event={firstPendingHermesInteraction}
                 convoId={convoId}
                 interactive

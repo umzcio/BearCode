@@ -13,7 +13,7 @@ export interface HermesToolStepProps {
   interactive?: boolean
 }
 
-function durationLabel(durationMs: number): string {
+export function hermesDurationLabel(durationMs: number): string {
   if (durationMs < 1000) return `${durationMs}ms`
   const seconds = durationMs / 1000
   return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`
@@ -28,6 +28,7 @@ export function HermesToolStep({
   const resolveHermesApproval = useAppStore((state) => state.resolveHermesApproval)
   const submittedRef = useRef(false)
   const [submitted, setSubmitted] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const status = result?.status ?? call.status
   const statusText =
     status === 'awaiting-approval'
@@ -48,7 +49,12 @@ export function HermesToolStep({
     if (!interactive || submittedRef.current || !call.requestId) return
     submittedRef.current = true
     setSubmitted(true)
-    resolveHermesApproval(convoId, call.requestId, decision)
+    setSubmitError(null)
+    void resolveHermesApproval(convoId, call.requestId, decision).catch(() => {
+      submittedRef.current = false
+      setSubmitted(false)
+      setSubmitError('Could not submit approval. Try again.')
+    })
   }
 
   return (
@@ -59,7 +65,7 @@ export function HermesToolStep({
         </span>
         <span>
           {statusText}
-          {result ? ` · ${durationLabel(result.durationMs)}` : ''}
+          {result ? ` · ${hermesDurationLabel(result.durationMs)}` : ''}
         </span>
       </div>
       {status === 'awaiting-approval' ? (
@@ -86,9 +92,34 @@ export function HermesToolStep({
                 ))}
               </div>
             ) : null}
+            {submitError ? (
+              <div className="waiting-note" role="alert">
+                {submitError}
+              </div>
+            ) : null}
           </div>
         </>
       ) : null}
+    </div>
+  )
+}
+
+export function HermesUnmatchedResult({
+  result
+}: {
+  result: HermesToolResult
+}): React.JSX.Element {
+  const status = result.status === 'completed' ? 'Completed' : 'Failed'
+  return (
+    <div className="step">
+      <div className="step-row static">
+        <span>
+          <b>Unmatched Hermes result</b>
+        </span>
+        <span>
+          {status} · {hermesDurationLabel(result.durationMs)}
+        </span>
+      </div>
     </div>
   )
 }

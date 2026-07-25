@@ -20,6 +20,7 @@ export function HermesClarifyCard({
   const resolveHermesClarification = useAppStore((state) => state.resolveHermesClarification)
   const submittedRef = useRef(false)
   const [submitted, setSubmitted] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [otherOpen, setOtherOpen] = useState(false)
   const [otherText, setOtherText] = useState('')
   const canInteract = interactive && event.state === 'pending'
@@ -30,7 +31,12 @@ export function HermesClarifyCard({
     if (!canInteract || submittedRef.current || response.trim().length === 0) return
     submittedRef.current = true
     setSubmitted(true)
-    resolveHermesClarification(convoId, event.requestId, response)
+    setSubmitError(null)
+    void resolveHermesClarification(convoId, event.requestId, response).catch(() => {
+      submittedRef.current = false
+      setSubmitted(false)
+      setSubmitError('Could not submit response. Try again.')
+    })
   }
 
   if (!canInteract) {
@@ -106,6 +112,11 @@ export function HermesClarifyCard({
             Submit response
           </button>
         </form>
+      ) : null}
+      {submitError ? (
+        <div className="waiting-note" role="alert">
+          {submitError}
+        </div>
       ) : null}
     </div>
   )

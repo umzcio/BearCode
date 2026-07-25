@@ -520,8 +520,10 @@ describe('ConversationView pinned Hermes interactions', () => {
   }
 
   beforeEach(() => {
-    resolveApproval.mockClear()
-    resolveClarification.mockClear()
+    resolveApproval.mockReset()
+    resolveApproval.mockResolvedValue(undefined)
+    resolveClarification.mockReset()
+    resolveClarification.mockResolvedValue(undefined)
     ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
       attachments: {
         pick: vi.fn(async () => ({ picked: [], errors: [] })),
@@ -666,6 +668,301 @@ describe('ConversationView pinned Hermes interactions', () => {
     render(<ConversationView convoId="h1" />)
     expect(screen.getByText('Tool One').closest('.step')?.textContent).toContain('Completed · 1s')
     expect(screen.getByText('Tool Two').closest('.step')?.textContent).toContain('Failed · 2s')
+  })
+
+  it('enables approval B after approval A resolves in the same pinned position', async () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'h1' },
+      modelRef: 'hermes/agent',
+      providers: [],
+      settings: { hermesEnabled: true },
+      conversations: {
+        h1: {
+          ...baseConvo,
+          events: [
+            { type: 'user_message', id: 'u1', text: 'deploy it' },
+            {
+              type: 'hermes_tool_call',
+              id: 'tool-a',
+              name: 'deploy',
+              label: 'Deploy A',
+              status: 'awaiting-approval',
+              requestId: 'request-a'
+            }
+          ]
+        }
+      },
+      convoOrder: ['h1']
+    } as never)
+    render(<ConversationView convoId="h1" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }))
+    expect(resolveApproval).toHaveBeenCalledWith('h1', 'request-a', 'once')
+
+    await act(async () => {
+      useAppStore.setState({
+        conversations: {
+          h1: {
+            ...baseConvo,
+            events: [
+              { type: 'user_message', id: 'u1', text: 'deploy it' },
+              {
+                type: 'hermes_tool_call',
+                id: 'tool-a',
+                name: 'deploy',
+                label: 'Deploy A',
+                status: 'completed',
+                requestId: 'request-a'
+              },
+              {
+                type: 'hermes_tool_call',
+                id: 'tool-b',
+                name: 'deploy',
+                label: 'Deploy B',
+                status: 'awaiting-approval',
+                requestId: 'request-b'
+              }
+            ]
+          }
+        }
+      } as never)
+    })
+
+    const nextAllow = screen.getByRole('button', { name: 'Allow Once' })
+    expect(nextAllow).toBeEnabled()
+    fireEvent.click(nextAllow)
+    expect(resolveApproval).toHaveBeenLastCalledWith('h1', 'request-b', 'once')
+  })
+
+  it('enables clarification B after clarification A resolves in the same pinned position', async () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'h1' },
+      modelRef: 'hermes/agent',
+      providers: [],
+      settings: { hermesEnabled: true },
+      conversations: {
+        h1: {
+          ...baseConvo,
+          events: [
+            { type: 'user_message', id: 'u1', text: 'deploy it' },
+            {
+              type: 'hermes_clarification',
+              id: 'clarify-a',
+              requestId: 'request-a',
+              question: 'First region?',
+              choices: ['US'],
+              state: 'pending'
+            }
+          ]
+        }
+      },
+      convoOrder: ['h1']
+    } as never)
+    render(<ConversationView convoId="h1" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'US' }))
+    expect(resolveClarification).toHaveBeenCalledWith('h1', 'request-a', 'US')
+
+    await act(async () => {
+      useAppStore.setState({
+        conversations: {
+          h1: {
+            ...baseConvo,
+            events: [
+              { type: 'user_message', id: 'u1', text: 'deploy it' },
+              {
+                type: 'hermes_clarification',
+                id: 'clarify-a',
+                requestId: 'request-a',
+                question: 'First region?',
+                choices: ['US'],
+                state: 'answered',
+                response: 'US'
+              },
+              {
+                type: 'hermes_clarification',
+                id: 'clarify-b',
+                requestId: 'request-b',
+                question: 'Second region?',
+                choices: ['EU'],
+                state: 'pending'
+              }
+            ]
+          }
+        }
+      } as never)
+    })
+
+    const nextChoice = screen.getByRole('button', { name: 'EU' })
+    expect(nextChoice).toBeEnabled()
+    fireEvent.click(nextChoice)
+    expect(resolveClarification).toHaveBeenLastCalledWith('h1', 'request-b', 'EU')
+  })
+
+  it('skips a malformed approval without requestId and pins the later clarification', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'h1' },
+      modelRef: 'hermes/agent',
+      providers: [],
+      settings: { hermesEnabled: true },
+      conversations: {
+        h1: {
+          ...baseConvo,
+          events: [
+            { type: 'user_message', id: 'u1', text: 'deploy it' },
+            {
+              type: 'hermes_tool_call',
+              id: 'tool-malformed',
+              name: 'deploy',
+              label: 'Malformed approval',
+              status: 'awaiting-approval'
+            },
+            {
+              type: 'hermes_clarification',
+              id: 'clarify-valid',
+              requestId: 'clarify-request',
+              question: 'Which region?',
+              choices: ['US'],
+              state: 'pending'
+            }
+          ]
+        }
+      },
+      convoOrder: ['h1']
+    } as never)
+
+    render(<ConversationView convoId="h1" />)
+    expect(screen.queryByRole('button', { name: 'Allow Once' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'US' }))
+    expect(resolveClarification).toHaveBeenCalledWith('h1', 'clarify-request', 'US')
+  })
+
+  it('does not pair a result when duplicate native calls share its callId', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'h1' },
+      modelRef: 'hermes/agent',
+      providers: [],
+      settings: { hermesEnabled: true },
+      conversations: {
+        h1: {
+          ...baseConvo,
+          runState: 'idle',
+          events: [
+            { type: 'user_message', id: 'u1', text: 'run it' },
+            {
+              type: 'hermes_tool_call',
+              id: 'duplicate-call',
+              name: 'vendor.first',
+              label: 'First duplicate',
+              status: 'running'
+            },
+            {
+              type: 'hermes_tool_call',
+              id: 'duplicate-call',
+              name: 'vendor.second',
+              label: 'Second duplicate',
+              status: 'running'
+            },
+            {
+              type: 'hermes_tool_result',
+              id: 'result-1',
+              callId: 'duplicate-call',
+              status: 'completed',
+              durationMs: 1000
+            }
+          ]
+        }
+      },
+      convoOrder: ['h1']
+    } as never)
+
+    render(<ConversationView convoId="h1" />)
+    expect(screen.getByText('First duplicate').closest('.step')?.textContent).toContain('Running')
+    expect(screen.getByText('Second duplicate').closest('.step')?.textContent).toContain('Running')
+    expect(screen.getAllByText(/unmatched hermes result/i)).toHaveLength(1)
+  })
+
+  it('does not pair any result when a native call has duplicate results', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'h1' },
+      modelRef: 'hermes/agent',
+      providers: [],
+      settings: { hermesEnabled: true },
+      conversations: {
+        h1: {
+          ...baseConvo,
+          runState: 'idle',
+          events: [
+            { type: 'user_message', id: 'u1', text: 'run it' },
+            {
+              type: 'hermes_tool_call',
+              id: 'tool-1',
+              name: 'vendor.tool',
+              label: 'Duplicate results',
+              status: 'running'
+            },
+            {
+              type: 'hermes_tool_result',
+              id: 'result-1',
+              callId: 'tool-1',
+              status: 'completed',
+              durationMs: 1000
+            },
+            {
+              type: 'hermes_tool_result',
+              id: 'result-2',
+              callId: 'tool-1',
+              status: 'failed',
+              durationMs: 2000
+            }
+          ]
+        }
+      },
+      convoOrder: ['h1']
+    } as never)
+
+    render(<ConversationView convoId="h1" />)
+    expect(screen.getByText('Duplicate results').closest('.step')?.textContent).toContain('Running')
+    expect(screen.getAllByText(/unmatched hermes result/i)).toHaveLength(2)
+  })
+
+  it('renders both a missing-result call and a missing-call result safely', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'h1' },
+      modelRef: 'hermes/agent',
+      providers: [],
+      settings: { hermesEnabled: true },
+      conversations: {
+        h1: {
+          ...baseConvo,
+          runState: 'idle',
+          events: [
+            { type: 'user_message', id: 'u1', text: 'run it' },
+            {
+              type: 'hermes_tool_call',
+              id: 'call-without-result',
+              name: 'vendor.tool',
+              label: 'No result',
+              status: 'running'
+            },
+            {
+              type: 'hermes_tool_result',
+              id: 'result-without-call',
+              callId: 'missing-call',
+              status: 'failed',
+              durationMs: 2000
+            }
+          ]
+        }
+      },
+      convoOrder: ['h1']
+    } as never)
+
+    render(<ConversationView convoId="h1" />)
+    expect(screen.getByText('No result').closest('.step')?.textContent).toContain('Running')
+    expect(screen.getByText(/unmatched hermes result/i).closest('.step')?.textContent).toContain(
+      'Failed · 2s'
+    )
   })
 })
 

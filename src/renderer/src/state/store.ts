@@ -396,8 +396,16 @@ interface AppState {
   // forget like resolvePipeline; the re-dispatched run's progress flows back
   // over bearcode:event.
   resolveReviewClarification(conversationId: string, lens: ReviewLens, scope: string): void
-  resolveHermesApproval(conversationId: string, requestId: string, decision: ApprovalDecision): void
-  resolveHermesClarification(conversationId: string, requestId: string, response: string): void
+  resolveHermesApproval(
+    conversationId: string,
+    requestId: string,
+    decision: ApprovalDecision
+  ): Promise<void>
+  resolveHermesClarification(
+    conversationId: string,
+    requestId: string,
+    response: string
+  ): Promise<void>
   addPermissionRule(input: AddRuleInput): void
   refreshPermissionRules(): Promise<void>
   deletePermissionRule(id: string): Promise<void>
@@ -1070,11 +1078,11 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     resolveHermesApproval: (conversationId, requestId, decision) => {
-      void window.bearcode.hermes.resolveApproval(conversationId, requestId, decision)
+      return window.bearcode.hermes.resolveApproval(conversationId, requestId, decision)
     },
 
     resolveHermesClarification: (conversationId, requestId, response) => {
-      void window.bearcode.hermes.resolveClarification(conversationId, requestId, response)
+      return window.bearcode.hermes.resolveClarification(conversationId, requestId, response)
     },
 
     addPermissionRule: (input) => {

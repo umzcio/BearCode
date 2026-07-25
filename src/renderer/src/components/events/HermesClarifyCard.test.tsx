@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { BearcodeApi, Event } from '@shared/types'
 import { HermesClarifyCard } from './HermesClarifyCard'
 
@@ -15,7 +15,8 @@ const event = {
 } as Extract<Event, { type: 'hermes_clarification' }>
 
 beforeEach(() => {
-  resolveClarification.mockClear()
+  resolveClarification.mockReset()
+  resolveClarification.mockResolvedValue(undefined)
   ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
     hermes: { resolveClarification }
   } as unknown as BearcodeApi
@@ -60,5 +61,25 @@ describe('HermesClarifyCard', () => {
     expect(screen.queryByRole('button')).toBeNull()
     expect(container.querySelector('.step-row')).not.toBeNull()
     expect(container.querySelector('.approval-card')).toBeNull()
+  })
+
+  it('shows a controlled error and lets the same clarification retry after IPC rejects', async () => {
+    resolveClarification
+      .mockRejectedValueOnce(new Error('gateway unavailable'))
+      .mockResolvedValueOnce(undefined)
+    render(<HermesClarifyCard event={event} convoId="conversation-id" interactive />)
+
+    const choice = screen.getByRole('button', { name: 'Production' })
+    fireEvent.click(choice)
+    fireEvent.click(choice)
+    expect(resolveClarification).toHaveBeenCalledTimes(1)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not submit response/i)
+    expect(choice).toBeEnabled()
+
+    fireEvent.click(choice)
+    await waitFor(() => expect(resolveClarification).toHaveBeenCalledTimes(2))
+    expect(choice).toBeDisabled()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { BearcodeApi, Event } from '@shared/types'
 import { HermesToolStep } from './HermesToolStep'
 
@@ -18,7 +18,8 @@ function call(overrides: Partial<Extract<Event, { type: 'hermes_tool_call' }>> =
 }
 
 beforeEach(() => {
-  resolveApproval.mockClear()
+  resolveApproval.mockReset()
+  resolveApproval.mockResolvedValue(undefined)
   ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
     hermes: { resolveApproval }
   } as unknown as BearcodeApi
@@ -103,5 +104,31 @@ describe('HermesToolStep', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
 
     expect(resolveApproval).toHaveBeenCalledWith('conversation-id', 'request-id', 'deny')
+  })
+
+  it('shows a controlled error and lets the same approval retry after IPC rejects', async () => {
+    resolveApproval
+      .mockRejectedValueOnce(new Error('gateway unavailable'))
+      .mockResolvedValueOnce(undefined)
+    render(
+      <HermesToolStep
+        call={call({ status: 'awaiting-approval', requestId: 'request-id' })}
+        convoId="conversation-id"
+        interactive
+      />
+    )
+
+    const allow = screen.getByRole('button', { name: 'Allow Once' })
+    fireEvent.click(allow)
+    fireEvent.click(allow)
+    expect(resolveApproval).toHaveBeenCalledTimes(1)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not submit approval/i)
+    expect(allow).toBeEnabled()
+
+    fireEvent.click(allow)
+    await waitFor(() => expect(resolveApproval).toHaveBeenCalledTimes(2))
+    expect(allow).toBeDisabled()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })
