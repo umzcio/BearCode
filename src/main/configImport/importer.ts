@@ -135,16 +135,24 @@ export function applyImportSelection(
     summary.skillsImported++
   }
 
-  const discoveredServers = discoverLocalServers(projectPath)
-  const byMcpSourcePath = new Map(
-    discoveredServers
-      .map((s) => [mcpSourcePathFor(s), s] as const)
-      .filter((entry): entry is [string, (typeof discoveredServers)[number]] => entry[0] !== null)
-  )
-  const selectedServers = uniq(selection.mcpServers)
-    .map((sourcePath) => byMcpSourcePath.get(sourcePath))
-    .filter((s): s is (typeof discoveredServers)[number] => s !== undefined)
-  if (selectedServers.length > 0) {
+  const uniqMcpServers = uniq(selection.mcpServers)
+  // Only discover when there's actually something selected (final
+  // whole-branch review, Finding 6): discoverLocalServers reads the real
+  // Claude Desktop config plus this project's .mcp.json/.claude/settings.json/
+  // .cursor/mcp.json/.windsurf/mcp.json on every call, so an unconditional
+  // call here hit the DEVELOPER'S OWN machine-level files on every
+  // rule/workflow/skill-only import (every pre-existing test in this file
+  // included) -- benign (read-only) but a sensible early-out regardless.
+  if (uniqMcpServers.length > 0) {
+    const discoveredServers = discoverLocalServers(projectPath)
+    const byMcpSourcePath = new Map(
+      discoveredServers
+        .map((s) => [mcpSourcePathFor(s), s] as const)
+        .filter((entry): entry is [string, (typeof discoveredServers)[number]] => entry[0] !== null)
+    )
+    const selectedServers = uniqMcpServers
+      .map((sourcePath) => byMcpSourcePath.get(sourcePath))
+      .filter((s): s is (typeof discoveredServers)[number] => s !== undefined)
     const imported = importDiscoveredServers(selectedServers, projectPath)
     // Match each recorded row back to ITS OWN selectedServers entry (not a
     // by-name lookup into `imported`) so two selected servers that happen to
