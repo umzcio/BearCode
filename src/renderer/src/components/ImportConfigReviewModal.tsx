@@ -97,7 +97,9 @@ export function ImportConfigReviewModal(): JSX.Element | null {
         .filter((c) => c.kind === 'workflow' && selected.has(c.sourcePath))
         .map((c) => c.sourcePath),
       skills: importable.filter((c) => c.kind === 'skill' && selected.has(c.sourcePath)).map((c) => c.sourcePath),
-      mcpServers: []
+      mcpServers: importable
+        .filter((c) => c.kind === 'mcp' && selected.has(c.sourcePath))
+        .map((c) => c.sourcePath)
     }
     void applySelection(selection)
       .then((summary) => {
