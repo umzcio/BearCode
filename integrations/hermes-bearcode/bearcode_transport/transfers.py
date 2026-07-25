@@ -290,6 +290,7 @@ def create_outbound_snapshot(
     source,
     temp_root,
     cleanup_owner=None,
+    trusted_name=None,
 ):
     """Copy a validated source into one private, immutable owned descriptor."""
     if not isinstance(source, ValidatedOutbound) or source.closed:
@@ -399,7 +400,11 @@ def create_outbound_snapshot(
             device=snapshot_stat.st_dev,
             inode=snapshot_stat.st_ino,
         )
-        name = sanitize_filename(source.path.name)
+        name = sanitize_filename(
+            source.path.name
+            if trusted_name is None
+            else trusted_name
+        )
         if (
             root_descriptor is not None
             and _unlink_owned_name(

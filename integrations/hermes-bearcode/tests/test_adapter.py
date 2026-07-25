@@ -77,17 +77,19 @@ class FakeConnection:
         self.attachments = []
         self.attachment_bytes = []
         self.attachment_modes = []
+        self.attachment_names = []
         self.terminals = []
         self.closed = False
 
     async def send_event(self, event_type, payload):
         self.events.append((event_type, payload))
 
-    async def send_attachment(self, path, metadata):
+    async def send_attachment(self, path, metadata, *, trusted_name=None):
         path = Path(path)
         self.attachments.append((path, dict(metadata)))
         self.attachment_bytes.append(path.read_bytes())
         self.attachment_modes.append(stat.S_IMODE(path.stat().st_mode))
+        self.attachment_names.append(trusted_name)
 
     async def mark_terminal(self, event_type, payload):
         self.terminals.append((event_type, payload))
@@ -98,8 +100,12 @@ class FakeConnection:
 
 
 class FailingAttachmentConnection(FakeConnection):
-    async def send_attachment(self, path, metadata):
-        await super().send_attachment(path, metadata)
+    async def send_attachment(self, path, metadata, *, trusted_name=None):
+        await super().send_attachment(
+            path,
+            metadata,
+            trusted_name=trusted_name,
+        )
         raise ConnectionError("simulated delivery failure")
 
 
@@ -109,8 +115,12 @@ class BlockingAttachmentConnection(FakeConnection):
         self.attachment_started = asyncio.Event()
         self.release_attachment = asyncio.Event()
 
-    async def send_attachment(self, path, metadata):
-        await super().send_attachment(path, metadata)
+    async def send_attachment(self, path, metadata, *, trusted_name=None):
+        await super().send_attachment(
+            path,
+            metadata,
+            trusted_name=trusted_name,
+        )
         self.attachment_started.set()
         await self.release_attachment.wait()
 
@@ -737,6 +747,10 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             [entry[0] for entry in connection.attachments],
             [document.resolve(), image.resolve()],
         )
+        self.assertEqual(
+            connection.attachment_names,
+            ["analysis.pdf", "chart.png"],
+        )
         for _, metadata in connection.attachments:
             self.assertEqual(set(metadata), {"id"})
             UUID(metadata["id"])
@@ -787,6 +801,10 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                         source.resolve().read_bytes(),
                     )
                     self.assertEqual(connection.attachment_modes[-1], 0o600)
+                    self.assertEqual(
+                        connection.attachment_names[-1],
+                        source.resolve().name,
+                    )
                     self.assertEqual(set(metadata), {"id"})
                     self.assertNotIn(str(source), repr(metadata))
                     self.assertFalse(staged.exists())

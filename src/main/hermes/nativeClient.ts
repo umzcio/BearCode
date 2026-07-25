@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { app } from 'electron'
 import { createReadStream } from 'fs'
 import WebSocket from 'ws'
 import { z } from 'zod'
@@ -116,12 +117,12 @@ const HelloRejectedSchema = z.object({
   supportedVersions: z.array(z.number().int()), error: WireErrorSchema
 }).strict()
 
-function defaultDeps(): NativeClientDeps {
-  return {
-    createWebSocket: (url, options) => new WebSocket(url, options),
-    userDataDir: process.env.BEARCODE_USER_DATA ?? process.cwd(),
-    now: () => Date.now()
-  }
+function defaultDeps(overrides: Partial<NativeClientDeps>): NativeClientDeps {
+  overrides.createWebSocket ??= (url, options) => new WebSocket(url, options)
+  overrides.userDataDir ??=
+    process.env.BEARCODE_USER_DATA ?? app.getPath('userData')
+  overrides.now ??= () => Date.now()
+  return overrides as NativeClientDeps
 }
 
 function asBuffer(raw: WebSocket.RawData): Buffer {
@@ -194,10 +195,13 @@ export class HermesNativeTurn {
 
   constructor(
     private readonly options: HermesNativeTurnOptions,
-    deps: NativeClientDeps = defaultDeps()
+    deps: Partial<NativeClientDeps> = {}
   ) {
-    this.deps = deps
-    this.downloadWriter = new NativeDownloadWriter(deps.userDataDir, options.conversationId)
+    this.deps = defaultDeps(deps)
+    this.downloadWriter = new NativeDownloadWriter(
+      this.deps.userDataDir,
+      options.conversationId
+    )
   }
 
   get accepted(): boolean {
@@ -621,7 +625,7 @@ export async function checkHermesNativeHealth(
   url: string,
   platformKey: string,
   installationId: string,
-  deps: Pick<NativeClientDeps, 'createWebSocket'> = defaultDeps()
+  deps: Pick<NativeClientDeps, 'createWebSocket'> = defaultDeps({})
 ): Promise<{ ok: boolean; message: string }> {
   const conversationId = randomUUID()
   return new Promise((resolve) => {

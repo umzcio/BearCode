@@ -940,10 +940,12 @@ class BearCodeAdapter(BasePlatformAdapter):
         attachment_id = str(uuid4())
         try:
             safe_path = Path(safe_path)
+            trusted_name = safe_path.name
             if self._is_direct_cache_path(safe_path):
                 await connection.send_attachment(
                     safe_path,
                     {"id": attachment_id},
+                    trusted_name=trusted_name,
                 )
             else:
                 if expected_source is None:
@@ -957,6 +959,7 @@ class BearCodeAdapter(BasePlatformAdapter):
                     await connection.send_attachment(
                         staged_path,
                         {"id": attachment_id},
+                        trusted_name=trusted_name,
                     )
         except Exception:
             return SendResult(

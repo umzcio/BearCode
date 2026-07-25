@@ -5,7 +5,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AttachmentRef, HermesAttachment } from '../../shared/types'
-import { NativeDownloadWriter } from './nativeFiles'
+import { NativeDownloadWriter, openAttachment } from './nativeFiles'
 import { decodeBinaryFrame, encodeBinaryFrame, type HermesServerEvent } from './protocol'
 import {
   checkHermesNativeHealth,
@@ -13,6 +13,14 @@ import {
   HermesNativeTurn,
   type NativeClientDeps
 } from './nativeClient'
+
+const electron = vi.hoisted(() => ({
+  getPath: vi.fn()
+}))
+
+vi.mock('electron', () => ({
+  app: { getPath: electron.getPath }
+}))
 
 const ids = {
   installation: '22222222-2222-4222-8222-222222222222',
@@ -401,6 +409,69 @@ describe('HermesNativeTurn connection state machine', () => {
     await expect(result).resolves.toBe('completed')
     expect(received).toEqual([{ id: ids.download, name: 'result.txt', mime: 'text/plain', kind: 'text', sizeBytes: 4, sha256: '3b9c358f36f0a31b6ad3e14f309c7cf198ac9246e8316f9ce543d5b19ac02b80' }])
     expect(await readFile(join(root, 'attachments', ids.conversation, ids.download), 'utf8')).toBe('file')
+  })
+
+  it('stores default downloads in Electron userData so the attachment can be opened', async () => {
+    const root = await rootDir()
+    electron.getPath.mockReturnValue(root)
+    const socket = new FakeWebSocket()
+    const turn = new HermesNativeTurn({
+      url: 'https://hermes.example.test/',
+      platformKey: 'platform-secret',
+      installationId: ids.installation,
+      conversationId: ids.conversation,
+      turnId: ids.turn,
+      text: 'Send the file.',
+      attachments: [],
+      signal: new AbortController().signal,
+      onEvent: () => {},
+      onAttachment: () => {}
+    }, {
+      createWebSocket: () => socket as never,
+      now: () => Date.now()
+    })
+    const bytes = Buffer.from('openable')
+    const result = start(turn, socket)
+    socket.server(helloAccepted())
+    socket.server(serverEvent('turn.accepted', 1, {}))
+    socket.server(serverEvent('attachment.download.begin', 2, {
+      attachment: {
+        id: ids.download,
+        name: 'CAIRN_project_plan.md',
+        mime: 'text/plain',
+        kind: 'document',
+        sizeBytes: bytes.length,
+        sha256: '20443468606f4f64b33a864a408244523d234887ec4b6962e6812793ee3bf7a5'
+      }
+    }))
+    socket.binary(encodeBinaryFrame({
+      direction: 'download',
+      attachmentId: ids.download,
+      chunkIndex: 0,
+      final: true,
+      payload: bytes
+    }))
+    socket.server(serverEvent('attachment.download.completed', 3, {
+      attachmentId: ids.download
+    }))
+    socket.server(serverEvent('turn.completed', 4, { sessionId: 'session-1' }))
+
+    await expect(result).resolves.toBe('completed')
+    expect(await readFile(
+      join(root, 'attachments', ids.conversation, ids.download),
+      'utf8'
+    )).toBe('openable')
+    let opened = ''
+    await openAttachment(
+      root,
+      ids.conversation,
+      ids.download,
+      async (path) => {
+        opened = await readFile(path, 'utf8')
+        return ''
+      }
+    )
+    expect(opened).toBe('openable')
   })
 
   it('waits for an unfinished download partial to be removed before terminal settlement', async () => {

@@ -1075,6 +1075,33 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("/private/secret", json.dumps(begin))
         self.assertNotIn("unknown", begin["payload"]["attachment"])
 
+    async def test_send_attachment_preserves_explicit_trusted_source_name(self):
+        connection, _, websocket = await self.connect()
+        await websocket.feed_json(turn_start())
+        await self.wait_for_event(websocket, "turn.accepted")
+        path = self.temp_root / "9017d36b69b949129bb75fe4655a92da.attachment"
+        path.write_bytes(b"project plan")
+
+        await connection.send_attachment(
+            path,
+            {
+                "id": ATTACHMENT_ID,
+                "name": "../../spoofed.txt",
+            },
+            trusted_name="CAIRN_project_plan.md",
+        )
+
+        begin = next(
+            event
+            for event in websocket.sent_text
+            if event["type"] == "attachment.download.begin"
+        )
+        self.assertEqual(
+            begin["payload"]["attachment"]["name"],
+            "CAIRN_project_plan.md",
+        )
+        self.assertNotIn("spoofed", json.dumps(begin))
+
     async def test_send_attachment_streams_the_validated_inode_after_swap(self):
         connection, _, websocket = await self.connect()
         await websocket.feed_json(turn_start())

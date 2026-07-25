@@ -556,6 +556,8 @@ class BearCodeConnection:
         self,
         path: Path,
         metadata: dict,
+        *,
+        trusted_name=None,
     ) -> None:
         attachment_id = UUID(metadata["id"])
         await self._reserve_outbound_attachment(attachment_id)
@@ -568,6 +570,7 @@ class BearCodeConnection:
                 source,
                 self.temp_root,
                 cleanup_owner=self._snapshot_cleanup_owner,
+                trusted_name=trusted_name,
             )
             attachment = snapshot.metadata(attachment_id)
             frames = iter_download_frames(
