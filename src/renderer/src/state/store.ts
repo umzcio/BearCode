@@ -85,6 +85,7 @@ type View =
   | { kind: 'conversation'; id: string }
   | { kind: 'history' }
   | { kind: 'terminal'; path: string }
+  | { kind: 'project'; path: string | null }
 
 export type TerminalTabMeta = {
   id: string
@@ -388,6 +389,7 @@ interface AppState {
   goHome(): void
   openHistory(): void
   openTerminalView(path: string): void
+  openProjectPage(path: string | null): void
   createTerminalTab(path: string): Promise<void>
   closeTerminalTab(path: string, id: string): Promise<void>
   setActiveTerminalTab(path: string, id: string): void
@@ -897,6 +899,9 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ view: { kind: 'history' }, auxSelection: null, reviewFocusPath: null }),
     openTerminalView: (path: string) => {
       set({ view: { kind: 'terminal', path }, auxSelection: null })
+    },
+    openProjectPage: (path: string | null) => {
+      set({ view: { kind: 'project', path }, auxSelection: null })
     },
     createTerminalTab: async (path: string) => {
       const view = await window.bearcode.terminal.create(path)
