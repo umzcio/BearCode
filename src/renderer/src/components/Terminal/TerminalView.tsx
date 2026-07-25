@@ -29,7 +29,16 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
   // never fights a tab the user just created.
   useEffect(() => {
     if (tabs.length > 0) return
+    // StrictMode-safe guard (matches HistoryView.tsx's debounced-search effect
+    // and ConversationView.tsx's AttachmentPill effect): dev StrictMode mounts
+    // this effect, fires its cleanup, then mounts it again before either
+    // `list()` call resolves. Without `cancelled`, both passes can see
+    // `tabs.length === 0` and both create a tab, spawning two real ptys. The
+    // cleanup flips this closure's flag so a stale pass no-ops instead of
+    // creating/seeding on top of the second (live) pass.
+    let cancelled = false
     void window.bearcode.terminal.list(path).then((sessions) => {
+      if (cancelled) return
       if (sessions.length === 0) {
         void createTerminalTab(path)
         return
@@ -42,6 +51,9 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
         activeTerminalTab: { ...s.activeTerminalTab, [path]: sessions[0].id }
       }))
     })
+    return () => {
+      cancelled = true
+    }
     // Runs once per path mount -- deliberately excludes `tabs`/`createTerminalTab`
     // from deps so it never re-fires as the tab list it just seeded changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps

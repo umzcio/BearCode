@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import { useAppStore } from '../../state/store'
@@ -45,6 +46,25 @@ describe('TerminalView', () => {
     await waitFor(() => expect(useAppStore.getState().terminalTabs['/proj/a']).toHaveLength(1))
     expect(useAppStore.getState().terminalTabs['/proj/a'][0].id).toBe('existing')
     expect(window.bearcode.terminal.create).not.toHaveBeenCalled()
+  })
+
+  it('does not double-create a tab when the hydration effect double-invokes under StrictMode', async () => {
+    // Regression test for the reviewer finding on Task 5: dev StrictMode
+    // mounts every effect twice (mount -> cleanup -> mount) before yielding to
+    // microtasks, so both passes of the hydration effect used to see
+    // `tabs.length === 0` and both call `createTerminalTab`, spawning two real
+    // pty sessions for one Terminal view. `terminal.list` resolves via a real
+    // Promise (a microtask), which lands strictly after React has already run
+    // both effect passes and torn down the first one's closure -- so this
+    // reproduces the exact race without needing to fake timers.
+    render(
+      <StrictMode>
+        <TerminalView path="/proj/a" />
+      </StrictMode>
+    )
+    await waitFor(() => expect(useAppStore.getState().terminalTabs['/proj/a']).toHaveLength(1))
+    expect(window.bearcode.terminal.create).toHaveBeenCalledTimes(1)
+    expect(window.bearcode.terminal.list).toHaveBeenCalledTimes(2)
   })
 
   it('clicking + creates another tab and makes it active', async () => {
