@@ -194,7 +194,8 @@ class DeterministicDelegate:
                 connection,
                 [
                     (
-                        f"upload:{upload.name}:{upload.sha256}:"
+                        f"upload:{upload.name}:{upload.mime}:"
+                        f"{upload.sha256}:"
                         f"{upload.size_bytes}"
                     )
                 ],
@@ -241,6 +242,8 @@ class DeterministicDelegate:
         upload = uploads[0]
         if upload.name != EXPECTED_UPLOAD_NAME:
             raise AssertionError("verified upload name changed")
+        if upload.mime != "text/plain":
+            raise AssertionError("verified upload MIME changed")
         if upload.size_bytes != len(EXPECTED_UPLOAD):
             raise AssertionError("verified upload size changed")
         if upload.sha256 != EXPECTED_UPLOAD_SHA256:

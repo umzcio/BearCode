@@ -404,7 +404,7 @@ describe('real Hermes native cross-language integration', () => {
 
     await expect(withTimeout(rawResult, TURN_TIMEOUT_MS, 'Upload turn')).resolves.toBe('completed')
     expect(events.filter((event) => event.type === 'assistant.delta').map((event) => event.payload.text)).toEqual([
-      `upload:fixture.txt:${UPLOAD_SHA256}:6`
+      `upload:fixture.txt:text/plain:${UPLOAD_SHA256}:6`
     ])
   })
 
