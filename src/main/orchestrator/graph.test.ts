@@ -2266,15 +2266,19 @@ describe('Hermes dispatch seam', () => {
     vi.mocked(runHermes).mockResolvedValue({ paused: false })
     const sink = makeSink()
     const signal = new AbortController().signal
+    const attachments: AttachmentRef[] = [
+      { id: 'a1', name: 'brief.txt', mime: 'text/plain', kind: 'text' }
+    ]
     const result = await runGraph({
       conversationId: 'c1',
       userText: 'hi',
       modelRef: 'hermes/agent',
       sink,
-      signal
+      signal,
+      attachments
     })
     expect(result).toEqual({ paused: false })
-    expect(runHermes).toHaveBeenCalledWith('c1', 'hi', sink, signal)
+    expect(runHermes).toHaveBeenCalledWith('c1', 'hi', attachments, sink, signal)
     // Hermes never classifies and never builds an agent.
     expect(resolveUrsaModelRef).not.toHaveBeenCalled()
     expect(resolveUrsusModelRef).not.toHaveBeenCalled()

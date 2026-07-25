@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AddRuleInput,
+  ApprovalDecision,
   AppSettings,
   ArtifactComment,
   AttachmentRef,
@@ -132,7 +133,29 @@ const bearcode: BearcodeApi = {
     ): Promise<{ ok: boolean; message: string }> =>
       ipcRenderer.invoke('bearcode:hermes:test-connection', gatewayUrl, token),
     setToken: (token: string): Promise<void> =>
-      ipcRenderer.invoke('bearcode:hermes:set-token', token)
+      ipcRenderer.invoke('bearcode:hermes:set-token', token),
+    resolveApproval: (
+      conversationId: string,
+      requestId: string,
+      decision: ApprovalDecision
+    ): Promise<void> =>
+      ipcRenderer.invoke(
+        'bearcode:hermes:resolve-approval',
+        conversationId,
+        requestId,
+        decision
+      ),
+    resolveClarification: (
+      conversationId: string,
+      requestId: string,
+      response: string
+    ): Promise<void> =>
+      ipcRenderer.invoke(
+        'bearcode:hermes:resolve-clarification',
+        conversationId,
+        requestId,
+        response
+      )
   },
   ursa: {
     requiredProviders: () => ipcRenderer.invoke('bearcode:ursa:required-providers'),

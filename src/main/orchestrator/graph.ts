@@ -3159,7 +3159,7 @@ export async function runGraph(opts: {
   // Gateway API and never touches classification, agent-building, or
   // LangGraph -- same "decide before any of that runs" seam as Council.
   if (!ursaResolved && !ursaStep && isHermesModelRef(modelRef)) {
-    return runHermes(conversationId, userText, sink, signal)
+    return runHermes(conversationId, userText, attachments, sink, signal)
   }
 
   if (!ursaResolved && !ursaStep && (isUrsaModelRef(modelRef) || isUrsusModelRef(modelRef))) {

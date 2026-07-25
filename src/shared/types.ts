@@ -75,6 +75,8 @@ export interface HermesAttachment {
   sha256: string
 }
 
+export type ApprovalDecision = 'once' | 'session' | 'always' | 'deny'
+
 // The four byte-sniffed image mimes (D4). Kept under the original name so the
 // image byte-sniff (ingest sniffImageMime) and the wire guard never drift.
 export const ATTACHMENT_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
@@ -730,6 +732,42 @@ export type Event =
       body: string
     }
   | { type: 'assistant_text'; id: string; text: string; agentId?: string }
+  | {
+      type: 'hermes_tool_call'
+      id: string
+      name: string
+      label: string
+      status: 'running' | 'awaiting-approval' | 'completed' | 'failed'
+      requestId?: string
+      command?: string
+      description?: string
+      allowSession?: boolean
+      allowPermanent?: boolean
+      smartDenied?: boolean
+      approvalDecision?: ApprovalDecision
+    }
+  | {
+      type: 'hermes_tool_result'
+      id: string
+      callId: string
+      status: 'completed' | 'failed'
+      message?: string
+      durationMs: number
+    }
+  | {
+      type: 'hermes_clarification'
+      id: string
+      requestId: string
+      question: string
+      choices: string[]
+      state: 'pending' | 'answered'
+      response?: string
+    }
+  | {
+      type: 'assistant_attachment'
+      id: string
+      attachment: HermesAttachment
+    }
   | {
       type: 'turn_meta'
       id: string
@@ -1428,6 +1466,16 @@ export interface BearcodeApi {
   hermes: {
     testConnection(gatewayUrl: string, token?: string): Promise<{ ok: boolean; message: string }>
     setToken(token: string): Promise<void>
+    resolveApproval(
+      conversationId: string,
+      requestId: string,
+      decision: ApprovalDecision
+    ): Promise<void>
+    resolveClarification(
+      conversationId: string,
+      requestId: string,
+      response: string
+    ): Promise<void>
   }
   ursa: {
     requiredProviders(): Promise<ProviderId[]>

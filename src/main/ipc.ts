@@ -41,13 +41,18 @@ import type {
   SkillSaveResult,
   TranscribeMeta,
   WorktreeInfo,
-  HermesConnectionMode
+  HermesConnectionMode,
+  ApprovalDecision
 } from '../shared/types'
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
 import { isUrsaMode } from '../shared/ursaMode'
 import { keyStatus, setKey, setVaultSecret, setHermesToken } from './keys'
 import { checkHermesHealth } from './hermes/gatewayClient'
+import {
+  resolveHermesApproval,
+  resolveHermesClarification
+} from './hermes/nativeRunner'
 import { ursaRequiredProviders } from './orchestrator/ursa'
 import { ursusRequiredProviders } from './orchestrator/ursus'
 import {
@@ -531,6 +536,57 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:hermes:set-token', (_e, token: string) => {
     setHermesToken(token)
   })
+  const hermesIdPattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  const assertHermesInteractionIds = (conversationId: unknown, requestId: unknown): void => {
+    if (
+      typeof conversationId !== 'string' ||
+      typeof requestId !== 'string' ||
+      !hermesIdPattern.test(conversationId) ||
+      !hermesIdPattern.test(requestId)
+    ) {
+      throw new Error('Hermes conversationId and requestId must be UUIDs')
+    }
+  }
+  ipcMain.handle(
+    'bearcode:hermes:resolve-approval',
+    (
+      _e,
+      conversationId: unknown,
+      requestId: unknown,
+      decision: unknown
+    ): void => {
+      assertHermesInteractionIds(conversationId, requestId)
+      if (
+        decision !== 'once' &&
+        decision !== 'session' &&
+        decision !== 'always' &&
+        decision !== 'deny'
+      ) {
+        throw new Error('Invalid Hermes approval decision')
+      }
+      resolveHermesApproval(
+        conversationId as string,
+        requestId as string,
+        decision as ApprovalDecision
+      )
+    }
+  )
+  ipcMain.handle(
+    'bearcode:hermes:resolve-clarification',
+    (
+      _e,
+      conversationId: unknown,
+      requestId: unknown,
+      response: unknown
+    ): void => {
+      assertHermesInteractionIds(conversationId, requestId)
+      if (typeof response !== 'string') {
+        throw new Error('Hermes clarification response must be a string')
+      }
+      resolveHermesClarification(conversationId as string, requestId as string, response)
+    }
+  )
 
   // Ursa Phase 1: the curated role table lives entirely in main
   // (orchestrator/ursa.ts) -- this just tells the Settings > Ursa page which

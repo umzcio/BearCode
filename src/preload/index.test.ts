@@ -129,3 +129,53 @@ describe('preload updater bridge', () => {
     )
   })
 })
+
+describe('preload native Hermes interaction bridge', () => {
+  it('forwards approval resolution without exposing native credentials', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      hermes: {
+        resolveApproval: (
+          conversationId: string,
+          requestId: string,
+          decision: 'once' | 'session' | 'always' | 'deny'
+        ) => Promise<void>
+      }
+    }
+    invoke.mockClear()
+
+    await bearcode.hermes.resolveApproval('conversation-id', 'request-id', 'once')
+
+    expect(invoke).toHaveBeenCalledWith(
+      'bearcode:hermes:resolve-approval',
+      'conversation-id',
+      'request-id',
+      'once'
+    )
+    expect(Object.keys(bearcode.hermes)).not.toContain('platformKey')
+  })
+
+  it('forwards clarification resolution without exposing downloaded file paths', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      hermes: {
+        resolveClarification: (
+          conversationId: string,
+          requestId: string,
+          response: string
+        ) => Promise<void>
+      }
+    }
+    invoke.mockClear()
+
+    await bearcode.hermes.resolveClarification('conversation-id', 'request-id', 'desktop')
+
+    expect(invoke).toHaveBeenCalledWith(
+      'bearcode:hermes:resolve-clarification',
+      'conversation-id',
+      'request-id',
+      'desktop'
+    )
+    expect(Object.keys(bearcode.hermes)).not.toContain('downloadPath')
+  })
+})

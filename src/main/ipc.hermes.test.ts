@@ -27,6 +27,10 @@ vi.mock('./keys', () => ({
 vi.mock('./hermes/gatewayClient', () => ({
   checkHermesHealth: vi.fn()
 }))
+vi.mock('./hermes/nativeRunner', () => ({
+  resolveHermesApproval: vi.fn(),
+  resolveHermesClarification: vi.fn()
+}))
 vi.mock('./permissions', () => ({
   addUserRule: vi.fn(),
   deleteUserRule: vi.fn(),
@@ -78,6 +82,7 @@ import { registerIpc } from './ipc'
 import * as db from './db'
 import { setHermesToken } from './keys'
 import { checkHermesHealth } from './hermes/gatewayClient'
+import { resolveHermesApproval, resolveHermesClarification } from './hermes/nativeRunner'
 import { HERMES_MODEL_REF } from '../shared/types'
 
 beforeEach(() => {
@@ -125,5 +130,67 @@ describe('bearcode:hermes:set-token', () => {
   it('delegates to setHermesToken', () => {
     handlers.get('bearcode:hermes:set-token')!({}, 'new-token')
     expect(setHermesToken).toHaveBeenCalledWith('new-token')
+  })
+})
+
+describe('native Hermes interactions', () => {
+  const conversationId = '11111111-1111-4111-8111-111111111111'
+  const requestId = '22222222-2222-4222-8222-222222222222'
+
+  it('validates and routes an approval decision to the active native turn', async () => {
+    vi.mocked(resolveHermesApproval).mockReturnValue(true)
+
+    await handlers.get('bearcode:hermes:resolve-approval')!(
+      {},
+      conversationId,
+      requestId,
+      'session'
+    )
+
+    expect(resolveHermesApproval).toHaveBeenCalledWith(conversationId, requestId, 'session')
+  })
+
+  it.each([
+    ['bad conversation id', '../escape', requestId, 'once'],
+    ['bad request id', conversationId, 'not-a-uuid', 'once'],
+    ['bad decision', conversationId, requestId, 'sometimes']
+  ])('rejects %s before routing', async (_label, conversation, request, decision) => {
+    expect(() =>
+      handlers.get('bearcode:hermes:resolve-approval')!({}, conversation, request, decision)
+    ).toThrow()
+    expect(resolveHermesApproval).not.toHaveBeenCalled()
+  })
+
+  it('validates and routes a clarification response to the active native turn', async () => {
+    vi.mocked(resolveHermesClarification).mockReturnValue(true)
+
+    await handlers.get('bearcode:hermes:resolve-clarification')!(
+      {},
+      conversationId,
+      requestId,
+      'Use desktop'
+    )
+
+    expect(resolveHermesClarification).toHaveBeenCalledWith(
+      conversationId,
+      requestId,
+      'Use desktop'
+    )
+  })
+
+  it.each([
+    ['bad conversation id', '../escape', requestId, 'answer'],
+    ['bad request id', conversationId, 'not-a-uuid', 'answer'],
+    ['non-string response', conversationId, requestId, 42]
+  ])('rejects clarification with %s before routing', (_label, conversation, request, response) => {
+    expect(() =>
+      handlers.get('bearcode:hermes:resolve-clarification')!(
+        {},
+        conversation,
+        request,
+        response
+      )
+    ).toThrow()
+    expect(resolveHermesClarification).not.toHaveBeenCalled()
   })
 })
