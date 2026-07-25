@@ -22,6 +22,8 @@ import stat
 import sys
 
 for raw in sys.argv[1:]:
+    if ".." in Path(raw).parts:
+        raise SystemExit(f"parent traversal is unsafe: {raw}")
     absolute = Path(os.path.abspath(raw))
     current = Path(absolute.anchor)
     for component in absolute.parts[1:]:
@@ -154,6 +156,7 @@ next="$platform_root/bearcode.next"
 previous="$platform_root/bearcode.previous"
 environment_file="$hermes_home/.env"
 environment_backup="$hermes_home/.bearcode-env-backup.$$"
+timestamp_path="$previous/.bearcode-deployment-timestamp"
 
 validate_owned_tree() {
   local target=$1
@@ -220,6 +223,7 @@ environment_transaction_started=0
 plugin_mutation_started=0
 had_current=0
 enable_attempted=0
+timestamp_proof_started=0
 finished=0
 
 restore_environment() {
@@ -297,6 +301,32 @@ os.unlink(backup)
 PY
 }
 
+remove_timestamp_proof() {
+  "$env_python" - "$timestamp_path" "$previous" "$current_uid" <<'PY'
+import os
+from pathlib import Path
+import stat
+import sys
+
+timestamp = Path(sys.argv[1])
+previous = Path(sys.argv[2])
+expected_uid = int(sys.argv[3])
+if timestamp.parent != previous:
+    raise SystemExit("unsafe timestamp cleanup path")
+try:
+    info = os.lstat(timestamp)
+except FileNotFoundError:
+    raise SystemExit(0)
+if (
+    stat.S_ISLNK(info.st_mode)
+    or not stat.S_ISREG(info.st_mode)
+    or info.st_uid != expected_uid
+):
+    raise SystemExit("unsafe timestamp proof")
+os.unlink(timestamp)
+PY
+}
+
 rollback() {
   local status=$1
   local needs_restart=0
@@ -305,6 +335,10 @@ rollback() {
 
   if [[ "$plugin_mutation_started" == "1" ]]; then
     needs_restart=1
+  fi
+  if [[ "$timestamp_proof_started" == "1" ]]; then
+    remove_timestamp_proof
+    timestamp_proof_started=0
   fi
   restore_environment
   if [[ "$plugin_mutation_started" == "1" ]]; then
@@ -564,6 +598,36 @@ BEARCODE_NATIVE_URL="ws://$listen_host:$listen_port/v1/bearcode" \
 BEARCODE_PLATFORM_KEY="$platform_key" \
   "$hermes_python" "$active/scripts/healthcheck.py"
 
+if [[ "$had_current" == "1" && -d "$previous" ]]; then
+  deployment_timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
+  timestamp_proof_started=1
+  printf '%s\n' "$deployment_timestamp" > "$timestamp_path"
+  chmod 0600 "$timestamp_path"
+  "$env_python" - \
+    "$timestamp_path" \
+    "$deployment_timestamp" \
+    "$current_uid" <<'PY'
+import os
+from pathlib import Path
+import stat
+import sys
+
+timestamp = Path(sys.argv[1])
+expected_value = sys.argv[2]
+expected_uid = int(sys.argv[3])
+info = os.lstat(timestamp)
+if (
+    stat.S_ISLNK(info.st_mode)
+    or not stat.S_ISREG(info.st_mode)
+    or info.st_uid != expected_uid
+    or stat.S_IMODE(info.st_mode) != 0o600
+):
+    raise SystemExit("timestamp proof ownership or mode is invalid")
+if timestamp.read_text(encoding="utf-8") != f"{expected_value}\n":
+    raise SystemExit("timestamp proof value is invalid")
+PY
+fi
+
 trap '' HUP INT TERM
 trap - ERR
 finished=1
@@ -571,12 +635,6 @@ environment_transaction_started=0
 set +e
 if ! discard_environment_backup; then
   printf 'Warning: committed deployment left a secure .env backup.\n' >&2
-fi
-if [[ "$had_current" == "1" && -d "$previous" ]]; then
-  deployment_timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
-  printf '%s\n' "$deployment_timestamp" \
-    > "$previous/.bearcode-deployment-timestamp"
-  chmod 0600 "$previous/.bearcode-deployment-timestamp"
 fi
 trap - ERR INT TERM HUP
 printf 'Hermes BearCode platform deployed successfully.\n'

@@ -629,6 +629,43 @@ class InstallerScriptTests(unittest.TestCase):
             """,
             0o755,
         )
+        _write(
+            self.commands / "date",
+            r"""
+            #!/bin/bash
+            if [[ "${FAKE_TIMESTAMP_MODE:-}" == "date-fail" ]]; then
+              exit 94
+            fi
+            printf '%s\n' '20260724T120000Z'
+            """,
+            0o755,
+        )
+        _write(
+            self.commands / "chmod",
+            r"""
+            #!/bin/bash
+            target=${!#}
+            if [[ "${FAKE_TIMESTAMP_MODE:-}" == "chmod-fail" &&
+                  "$target" == */.bearcode-deployment-timestamp ]]; then
+              exit 96
+            fi
+            /bin/chmod "$@"
+            """,
+            0o755,
+        )
+        self.bash_environment = self.root / "bash-environment"
+        _write(
+            self.bash_environment,
+            r"""
+            printf() {
+              if [[ "${FAKE_TIMESTAMP_MODE:-}" == "write-fail" &&
+                    "${2:-}" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]; then
+                return 95
+              fi
+              builtin printf "$@"
+            }
+            """,
+        )
 
     def _make_stage(self, name="new", *, manifest=True):
         stage = self.root / f"stage-{name}"
@@ -774,6 +811,46 @@ class InstallerScriptTests(unittest.TestCase):
 
         self.assertEqual(self._command_lines(), [])
 
+    def test_rejects_raw_parent_traversal_before_normalization(self):
+        direct_stage = self._make_stage("direct-parent")
+        direct_parent = direct_stage.parent / "benign-child"
+        direct_parent.mkdir()
+        raw_direct_stage = direct_parent / ".." / direct_stage.name
+        home_child = self.home.parent / "home-child"
+        home_child.mkdir()
+        raw_home = home_child / ".." / self.home.name
+
+        alias_base = self.root / "alias-base"
+        alias_target = self.root / "alias-target"
+        alias_base.mkdir()
+        (alias_target / "child").mkdir(parents=True)
+        (alias_base / "link").symlink_to(
+            alias_target / "child",
+            target_is_directory=True,
+        )
+        actual_stage = alias_target / "stage"
+        shutil.copytree(direct_stage, actual_stage)
+        lexical_stage = alias_base / "stage"
+        shutil.copytree(direct_stage, lexical_stage)
+        raw_symlink_parent = alias_base / "link" / ".." / "stage"
+
+        cases = (
+            ("direct stage parent", raw_direct_stage, {}),
+            (
+                "direct home parent",
+                direct_stage,
+                {"HERMES_HOME": str(raw_home)},
+            ),
+            ("symlink parent alias", raw_symlink_parent, {}),
+        )
+        for label, stage, updates in cases:
+            with self.subTest(label=label):
+                result = self._run(stage, **updates)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("parent traversal", result.stderr.lower())
+
+        self.assertEqual(self._command_lines(), [])
+
     def test_manifest_symlink_and_compatibility_failure_stop_before_copy(self):
         current = self._seed_current()
         missing = self._make_stage("missing", manifest=False)
@@ -845,7 +922,15 @@ class InstallerScriptTests(unittest.TestCase):
         timestamp = (
             previous / ".bearcode-deployment-timestamp"
         ).read_text().strip()
-        self.assertRegex(timestamp, r"^\d{8}T\d{6}Z$")
+        self.assertEqual(timestamp, "20260724T120000Z")
+        self.assertEqual(
+            stat.S_IMODE(
+                (
+                    previous / ".bearcode-deployment-timestamp"
+                ).stat().st_mode
+            ),
+            0o600,
+        )
         environment = environment_file.read_text(encoding="utf-8")
         self.assertIn("OTHER=value\n", environment)
         self.assertEqual(
@@ -1014,6 +1099,61 @@ class InstallerScriptTests(unittest.TestCase):
         self.assertFalse(
             any("healthcheck.py" in line for line in self._command_lines())
         )
+
+    def test_timestamp_proof_failures_roll_back_plugin_and_exact_environment(self):
+        for index, mode in enumerate(
+            ("date-fail", "write-fail", "chmod-fail")
+        ):
+            with self.subTest(mode=mode):
+                case_home = self.root / f"timestamp-home-{index}"
+                case_home.mkdir(mode=0o700)
+                current = (
+                    case_home / "plugins/platforms/bearcode"
+                )
+                current.mkdir(parents=True, mode=0o750)
+                _write(current / "VERSION", "old\n")
+                old_mode = stat.S_IMODE(current.stat().st_mode)
+                environment_file = case_home / ".env"
+                original_environment = (
+                    "BEARCODE_PLATFORM_KEY=stable\nOTHER=old\n"
+                )
+                _write(environment_file, original_environment, 0o600)
+                updates = {
+                    "HERMES_HOME": str(case_home),
+                    "FAKE_TIMESTAMP_MODE": mode,
+                }
+                if mode == "write-fail":
+                    updates["BASH_ENV"] = str(self.bash_environment)
+
+                result = self._run(
+                    self._make_stage(f"timestamp-{index}"),
+                    **updates,
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(
+                    (current / "VERSION").read_text(),
+                    "old\n",
+                )
+                self.assertEqual(
+                    stat.S_IMODE(current.stat().st_mode),
+                    old_mode,
+                )
+                self.assertEqual(
+                    environment_file.read_text(),
+                    original_environment,
+                )
+                self.assertFalse(
+                    (
+                        current / ".bearcode-deployment-timestamp"
+                    ).exists()
+                )
+                self.assertFalse(
+                    current.with_name("bearcode.previous").exists()
+                )
+                self.assertFalse(
+                    current.with_name("bearcode.next").exists()
+                )
 
     def test_failed_first_install_undoes_enablement_and_generated_secret(self):
         result = self._run(
