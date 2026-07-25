@@ -216,3 +216,28 @@ describe('preload native Hermes interaction bridge', () => {
     expect(Object.keys(bearcode.hermes)).not.toContain('downloadPath')
   })
 })
+
+describe('preload attachment preview bridge', () => {
+  it('forwards opaque conversation and attachment IDs without a filesystem path', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      attachments: {
+        preview: (conversationId: string, id: string) => Promise<unknown>
+      }
+    }
+    const userDataDir = '/tmp/bearcode-user-data'
+    invoke.mockClear()
+
+    await bearcode.attachments.preview('conv_123', 'att_123')
+
+    expect(invoke).toHaveBeenCalledWith(
+      'bearcode:attachments:preview',
+      'conv_123',
+      'att_123'
+    )
+    expect(invoke).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining(userDataDir)
+    )
+  })
+})

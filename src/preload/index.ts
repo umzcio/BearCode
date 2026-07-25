@@ -101,6 +101,8 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:attachments:pick', conversationId, existingCount),
     read: (conversationId: string, id: string) =>
       ipcRenderer.invoke('bearcode:attachments:read', conversationId, id),
+    preview: (conversationId: string, id: string) =>
+      ipcRenderer.invoke('bearcode:attachments:preview', conversationId, id),
     open: (conversationId: string, id: string): Promise<void> =>
       ipcRenderer.invoke('bearcode:attachments:open', conversationId, id)
   },

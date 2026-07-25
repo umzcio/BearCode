@@ -1437,6 +1437,7 @@ export interface BearcodeApi {
     // the persisted AttachmentRef (id/name/mime), not bytes. Returns null if
     // the file is gone or not a recognized image.
     read(conversationId: string, id: string): Promise<string | null>
+    preview(conversationId: string, id: string): Promise<PreviewPayload>
     // Opens a verified stored attachment with the operating system's default
     // app. The renderer cannot provide a filesystem path.
     open(conversationId: string, id: string): Promise<void>

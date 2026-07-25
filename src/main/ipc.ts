@@ -90,11 +90,8 @@ import { allKnownModelRefs, listAllModels, listManageableModels } from './provid
 import { syncPricing } from './pricing/sync'
 import { filePathFor, getDiff, revertFile } from './diffs'
 import { transcribe } from './voice/transcribe'
-import { previewClassify } from './preview/classify'
-import { previewUrlFor } from './preview/protocol'
-import { runOfficeHtml, runOfficeRows } from './attachments/office'
-import { parseCsv } from './preview/csv'
-import { extractTextLane } from './attachments/extract'
+import { attachmentPreviewUrlFor, mimeFor, previewUrlFor } from './preview/protocol'
+import { renderPreviewPayload } from './preview/render'
 import * as db from './db'
 import { createWorktrees, removeWorktrees, gitAvailable, discoverRepos } from './worktree/manager'
 import { browserManager } from './browser/manager'
@@ -146,6 +143,10 @@ import {
   ingestPickedFiles,
   readAttachmentDataUrl
 } from './attachments/ingest'
+import {
+  readVerifiedStoredAttachment,
+  sanitizeAttachmentName
+} from './hermes/attachmentAccess'
 import { deleteConversationAttachments, openAttachment } from './hermes/nativeFiles'
 import {
   assertValidAttachments,
@@ -386,6 +387,35 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:attachments:read', (_e, conversationId: string, id: string) =>
     readAttachmentDataUrl(conversationId, id)
   )
+  ipcMain.handle(
+    'bearcode:attachments:preview',
+    async (
+      _event,
+      conversationId: string,
+      attachmentId: string
+    ): Promise<PreviewPayload> => {
+      try {
+        const verified = await readVerifiedStoredAttachment(
+          app.getPath('userData'),
+          conversationId,
+          attachmentId,
+          db.getEvents(conversationId)
+        )
+        return renderPreviewPayload({
+          name: verified.attachment.name,
+          mime: verified.attachment.mime,
+          bytes: verified.bytes,
+          htmlUrl: attachmentPreviewUrlFor(
+            conversationId,
+            attachmentId,
+            sanitizeAttachmentName(verified.attachment.name)
+          )
+        })
+      } catch {
+        return { kind: 'unsupported', note: 'Attachment could not be loaded' }
+      }
+    }
+  )
   // Native Hermes downloads and locally picked files share the same validated
   // attachment store. The renderer can request only opaque IDs; nativeFiles
   // resolves/validates the store path and surfaces shell.openPath failures.
@@ -401,14 +431,8 @@ export function registerIpc(): void {
   })
   // E9b: read-only IDEAL rendered preview of a file's real content (path from
   // the DB via filePathFor -- never a raw renderer path). statSync's size-cap
-  // runs BEFORE readFileSync (D4 OOM lesson). previewClassify's kind drives
-  // the format-specific route below; docx/xlsx parsing stays behind the
-  // killable worker (runOfficeHtml/runOfficeRows) -- mammoth/exceljs/unpdf
-  // must never be re-imported into the main event loop here. docx HTML from
-  // mammoth is unsanitized -- it is only ever handed to the renderer as
-  // `{kind:'html'}`, which FilePreview renders in the existing sandboxed
-  // (allow-scripts, opaque-origin) iframe, never dangerouslySetInnerHTML'd
-  // directly into the app's own DOM.
+  // runs BEFORE readFileSync (D4 OOM lesson). The shared renderer owns
+  // format-specific rendering for both diff files and verified attachments.
   ipcMain.handle('bearcode:diffs:preview', async (_e, fileId: string): Promise<PreviewPayload> => {
     const path = filePathFor(fileId)
     if (!path) return { kind: 'unsupported', note: 'File not found' }
@@ -421,58 +445,12 @@ export function registerIpc(): void {
     if (size > 10 * 1024 * 1024) return { kind: 'unsupported', note: 'File too large to preview' }
     try {
       const bytes = readFileSync(path)
-      const c = previewClassify(path)
-      if (c.kind === 'image') {
-        const ext = (path.split('.').pop() ?? 'png').toLowerCase()
-        const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
-        return { kind: 'image', dataUrl: `data:${mime};base64,${bytes.toString('base64')}` }
-      }
-      if (c.kind === 'svg') {
-        return { kind: 'image', dataUrl: `data:image/svg+xml;base64,${bytes.toString('base64')}` }
-      }
-      if (c.kind === 'pdf') {
-        return { kind: 'pdf', dataUrl: `data:application/pdf;base64,${bytes.toString('base64')}` }
-      }
-      if (c.kind === 'docx') {
-        const html = await runOfficeHtml(bytes)
-        return html
-          ? { kind: 'html', html }
-          : { kind: 'unsupported', note: 'Could not render document' }
-      }
-      if (c.kind === 'xlsx') {
-        const rows = await runOfficeRows(bytes)
-        return rows
-          ? { kind: 'table', rows }
-          : { kind: 'unsupported', note: 'Could not render spreadsheet' }
-      }
-      if (c.kind === 'markdown') {
-        return { kind: 'markdown', text: bytes.toString('utf8') }
-      }
-      if (c.kind === 'csv') {
-        return { kind: 'table', rows: parseCsv(bytes.toString('utf8')) }
-      }
-      if (c.kind === 'json') {
-        const text = bytes.toString('utf8')
-        let pretty = text
-        try {
-          pretty = JSON.stringify(JSON.parse(text), null, 2)
-        } catch {
-          pretty = text
-        }
-        return { kind: 'code', text: pretty, language: 'json' }
-      }
-      if (c.kind === 'code') {
-        return { kind: 'code', text: bytes.toString('utf8'), language: c.language ?? 'plaintext' }
-      }
-      if (c.kind === 'html') {
-        // Served via bearcode-preview:// (src/main/preview/protocol.ts) so the
-        // preview iframe gets its own origin + per-response CSP: page scripts
-        // run there without loosening the app's CSP, and relative css/js/image
-        // references resolve naturally instead of needing inlining.
-        return { kind: 'html-url', url: previewUrlFor(fileId, path) }
-      }
-      const r = extractTextLane(bytes)
-      return { kind: 'text', text: r.text, truncated: r.truncated }
+      return renderPreviewPayload({
+        name: path,
+        mime: mimeFor(path),
+        bytes,
+        htmlUrl: previewUrlFor(fileId, path)
+      })
     } catch {
       // Read/extraction failed after the stat (deleted mid-flight, unreadable) —
       // return a payload rather than rejecting so the pane never hangs.
