@@ -1,0 +1,6 @@
+.attachment-preview-loading {
+  flex: 1;
+  padding: 12px 14px;
+  color: var(--text-dim);
+  font-size: 13px;
+}

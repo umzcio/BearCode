@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { BearcodeApi, Event } from '@shared/types'
+import { useAppStore } from '../../state/store'
 import { HermesAttachment } from './HermesAttachment'
 
 const read = vi.fn()
@@ -29,6 +30,7 @@ beforeEach(() => {
   read.mockReset()
   open.mockClear()
   read.mockResolvedValue('data:image/png;base64,AAAA')
+  useAppStore.setState({ auxSelection: null, auxPaneOpenTick: 0 })
   ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
     attachments: { read, open }
   } as unknown as BearcodeApi
@@ -36,10 +38,17 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('HermesAttachment', () => {
-  it('lazy-loads images only through attachments.read', async () => {
+  it('renders an image as a button that opens its opaque IDs in the auxiliary pane', async () => {
     render(<HermesAttachment event={attachment()} convoId="conversation-id" />)
 
     expect(read).toHaveBeenCalledWith('conversation-id', 'attachment-1')
+    expect(open).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Open diagram.png' }))
+    expect(useAppStore.getState().auxSelection).toEqual({
+      kind: 'attachment',
+      conversationId: 'conversation-id',
+      attachmentId: 'attachment-1'
+    })
     expect(open).not.toHaveBeenCalled()
     await waitFor(() => {
       expect(screen.getByRole('img', { name: 'diagram.png' })).toHaveAttribute(
@@ -49,7 +58,7 @@ describe('HermesAttachment', () => {
     })
   })
 
-  it('shows a document type badge and opens it only through attachments.open', () => {
+  it('renders a document as a button that opens its opaque IDs in the auxiliary pane', () => {
     render(
       <HermesAttachment
         event={attachment({
@@ -64,7 +73,12 @@ describe('HermesAttachment', () => {
 
     expect(screen.getByText('PDF')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Open report.pdf' }))
-    expect(open).toHaveBeenCalledWith('conversation-id', 'attachment-pdf')
+    expect(useAppStore.getState().auxSelection).toEqual({
+      kind: 'attachment',
+      conversationId: 'conversation-id',
+      attachmentId: 'attachment-pdf'
+    })
+    expect(open).not.toHaveBeenCalled()
     expect(read).not.toHaveBeenCalled()
   })
 

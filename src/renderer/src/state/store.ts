@@ -96,6 +96,11 @@ export type AuxSelection =
   // Unlike 'diff'/'artifact' this target isn't in the deliverable rail -- the
   // pane fetches the file's text (jailed IPC) and reveals `line` in Monaco.
   | { kind: 'file'; path: string; line?: number }
+  | {
+      kind: 'attachment'
+      conversationId: string
+      attachmentId: string
+    }
 
 // Auto-surface the newest diff group. Returns true when a fresh file_diff
 // arrives for the conversation you're viewing AND the review pane is already
@@ -475,6 +480,7 @@ interface AppState {
   // Review mode: open a workspace file in the aux pane at an optional line.
   openFileInPane(path: string, line?: number): void
   openArtifactPane(artifactId: string, focusFeedback?: boolean): void
+  openAttachmentPane(conversationId: string, attachmentId: string): void
   // F4: open the embedded browser pane for a conversation.
   openBrowserPane(conversationId: string): void
   loadArtifactComments(artifactId: string): Promise<void>
@@ -1536,6 +1542,13 @@ export const useAppStore = create<AppState>((set, get) => {
         artifactPaneFocusFeedback: focusFeedback
           ? s.artifactPaneFocusFeedback + 1
           : s.artifactPaneFocusFeedback
+      })),
+
+    openAttachmentPane: (conversationId, attachmentId) =>
+      set((s) => ({
+        auxSelection: { kind: 'attachment', conversationId, attachmentId },
+        reviewFocusPath: null,
+        auxPaneOpenTick: s.auxPaneOpenTick + 1
       })),
 
     openBrowserPane: (conversationId) =>

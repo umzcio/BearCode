@@ -371,6 +371,47 @@ describe('auxiliary pane selection (Ba4): one field, deep-link ticks, reset on s
     expect(useAppStore.getState().auxPaneOpenTick).toBe(1)
     expect(useAppStore.getState().reviewFocusPath).toBeNull()
   })
+  it('openAttachmentPane selects the opaque conversation and attachment IDs', () => {
+    useAppStore.setState({ auxSelection: null, auxPaneOpenTick: 0, reviewFocusPath: 'stale' })
+
+    useAppStore.getState().openAttachmentPane('conv_123', 'att_123')
+
+    expect(useAppStore.getState().auxSelection).toEqual({
+      kind: 'attachment',
+      conversationId: 'conv_123',
+      attachmentId: 'att_123'
+    })
+    expect(useAppStore.getState().auxPaneOpenTick).toBe(1)
+    expect(useAppStore.getState().reviewFocusPath).toBeNull()
+  })
+  it('closeReview clears an attachment selection', () => {
+    useAppStore.setState({
+      auxSelection: {
+        kind: 'attachment',
+        conversationId: 'conv_123',
+        attachmentId: 'att_123'
+      }
+    })
+
+    useAppStore.getState().closeReview()
+
+    expect(useAppStore.getState().auxSelection).toBeNull()
+  })
+  it('switching conversations clears an attachment selection', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo(), c2: convo({ id: 'c2' }) },
+      auxSelection: {
+        kind: 'attachment',
+        conversationId: 'c1',
+        attachmentId: 'att_123'
+      }
+    })
+
+    useAppStore.getState().openConvo('c2')
+
+    expect(useAppStore.getState().auxSelection).toBeNull()
+  })
   it('openReview selects the diff (structurally closing any artifact) and bumps the tick', () => {
     useAppStore.setState({
       auxSelection: { kind: 'artifact', artifactId: 'a1' },
