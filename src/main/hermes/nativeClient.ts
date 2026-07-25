@@ -1,9 +1,12 @@
 import { randomUUID } from 'crypto'
 import { createReadStream } from 'fs'
 import WebSocket from 'ws'
+import { z } from 'zod'
 import type { AttachmentRef, HermesAttachment } from '../../shared/types'
 import {
   HERMES_MAX_CHUNK_BYTES,
+  HERMES_MAX_FILES,
+  HERMES_MAX_FILE_BYTES,
   HERMES_PROTOCOL,
   HERMES_PROTOCOL_VERSION,
   ProtocolViolation,
@@ -66,15 +69,46 @@ interface Deferred {
 
 const HEARTBEAT_TIMEOUT_MS = 45_000
 const CANCEL_GRACE_MS = 5_000
+const ESTABLISHMENT_TIMEOUT_MS = 10_000
 
 function nativeUrl(value: string): string {
-  const trimmed = value.replace(/\/+$/, '')
-  const websocketUrl = trimmed.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:')
-  if (!/^wss?:\/\//i.test(websocketUrl)) {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
     throw new HermesNativeClientError('Native Hermes URL must use http(s) or ws(s)', 'protocol', 'protocol.invalid_url')
   }
-  return websocketUrl.endsWith('/v1/bearcode') ? websocketUrl : `${websocketUrl}/v1/bearcode`
+  if (url.protocol === 'http:') url.protocol = 'ws:'
+  else if (url.protocol === 'https:') url.protocol = 'wss:'
+  if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
+    throw new HermesNativeClientError('Native Hermes URL must use http(s) or ws(s)', 'protocol', 'protocol.invalid_url')
+  }
+  const endpoint = '/v1/bearcode'
+  const prefix = url.pathname.replace(/\/v1\/bearcode(?=\/|$)/g, '').replace(/\/+$/, '')
+  url.pathname = `${prefix || ''}${endpoint}`
+  url.hash = ''
+  return url.toString()
 }
+
+const HelloAcceptedSchema = z.object({
+  type: z.literal('hello.accepted'),
+  protocol: z.literal(HERMES_PROTOCOL),
+  version: z.literal(HERMES_PROTOCOL_VERSION),
+  connectionId: z.uuid(),
+  capabilities: z.object({
+    streaming: z.literal(true),
+    toolProgress: z.literal(true),
+    approvals: z.literal(true),
+    clarifications: z.literal(true),
+    attachments: z.object({
+      upload: z.literal(true),
+      download: z.literal(true),
+      maxFiles: z.literal(HERMES_MAX_FILES),
+      maxBytesPerFile: z.literal(HERMES_MAX_FILE_BYTES),
+      maxChunkBytes: z.literal(HERMES_MAX_CHUNK_BYTES)
+    }).strict()
+  }).strict()
+}).strict()
 
 function defaultDeps(): NativeClientDeps {
   return {
@@ -121,8 +155,7 @@ function helloFrame(conversationId: string, installationId: string): string {
 }
 
 function isHelloAccepted(value: unknown): boolean {
-  const event = value as Record<string, unknown>
-  return event.type === 'hello.accepted' && event.protocol === HERMES_PROTOCOL && event.version === HERMES_PROTOCOL_VERSION
+  return HelloAcceptedSchema.safeParse(value).success
 }
 
 function isHelloRejected(value: unknown): value is { type: string; error: { code: string; message: string; retryable: boolean } } {
@@ -144,12 +177,14 @@ export class HermesNativeTurn {
   private rejectResult: ((error: Error) => void) | undefined
   private heartbeatTimer: NodeJS.Timeout | undefined
   private cancelTimer: NodeJS.Timeout | undefined
+  private establishmentTimer: NodeJS.Timeout | undefined
   private lastHeartbeatAt = 0
   private didRetry = false
   private helloComplete = false
   private startedFlow = false
   private cancelled = false
   private settled = false
+  private settling = false
   private accepted_ = false
 
   constructor(
@@ -166,6 +201,13 @@ export class HermesNativeTurn {
 
   run(): Promise<'completed' | 'cancelled'> {
     if (this.result) return this.result
+    if (this.options.attachments.length > HERMES_MAX_FILES) {
+      return Promise.reject(new HermesNativeClientError(
+        `Hermes supports at most ${HERMES_MAX_FILES} attachments per turn`,
+        'file',
+        'file.too_many_attachments'
+      ))
+    }
     this.result = new Promise<'completed' | 'cancelled'>((resolve, reject) => {
       this.resolveResult = resolve
       this.rejectResult = reject
@@ -202,6 +244,16 @@ export class HermesNativeTurn {
 
   private openConnection(): void {
     if (this.settled) return
+    this.clearEstablishmentTimer()
+    this.establishmentTimer = setTimeout(() => {
+      if (!this.settled && !this.helloComplete) {
+        this.fail(new HermesNativeClientError(
+          'Native Hermes connection establishment timed out',
+          'network',
+          'network.establishment_timeout'
+        ))
+      }
+    }, ESTABLISHMENT_TIMEOUT_MS)
     let connection: WebSocket
     try {
       connection = this.deps.createWebSocket(nativeUrl(this.options.url), {
@@ -255,6 +307,7 @@ export class HermesNativeTurn {
     if (!this.helloComplete) {
       if (isHelloAccepted(parsed)) {
         this.helloComplete = true
+        this.clearEstablishmentTimer()
         this.lastHeartbeatAt = this.deps.now()
         this.startHeartbeatWatch()
         this.startTurnFlow(connection)
@@ -443,6 +496,7 @@ export class HermesNativeTurn {
 
   private handleConnectionFailure(error: unknown): void {
     if (this.settled) return
+    this.clearTimers()
     const message = error instanceof Error ? error.message : 'Native Hermes connection failed'
     if (!this.accepted_ && !this.didRetry) {
       this.didRetry = true
@@ -491,25 +545,31 @@ export class HermesNativeTurn {
   }
 
   private finish(result: 'completed' | 'cancelled'): void {
-    if (this.settled) return
-    this.settled = true
-    this.clearTimers()
-    this.rejectPendingOperations(new HermesNativeClientError('Native turn ended', 'cancelled', 'turn.cancelled'))
-    this.options.signal.removeEventListener('abort', this.cancel)
-    void this.downloadWriter.abort()
-    this.connection?.close()
-    this.resolveResult?.(result)
+    void this.settle(result)
   }
 
   private fail(error: unknown): void {
-    if (this.settled) return
+    void this.settle(undefined, error instanceof Error ? error : new Error(String(error)))
+  }
+
+  private async settle(result?: 'completed' | 'cancelled', failure?: Error): Promise<void> {
+    if (this.settled || this.settling) return
+    this.settling = true
     this.settled = true
     this.clearTimers()
-    this.rejectPendingOperations(error instanceof Error ? error : new Error(String(error)))
+    this.rejectPendingOperations(failure ?? new HermesNativeClientError('Native turn ended', 'cancelled', 'turn.cancelled'))
     this.options.signal.removeEventListener('abort', this.cancel)
-    void this.downloadWriter.abort()
+    let cleanupError: Error | undefined
+    try {
+      await this.downloadWriter.abort()
+    } catch (error) {
+      cleanupError = this.asFileError(error)
+    }
     this.connection?.close()
-    this.rejectResult?.(error instanceof Error ? error : new Error(String(error)))
+    this.settling = false
+    if (failure) this.rejectResult?.(failure)
+    else if (cleanupError) this.rejectResult?.(cleanupError)
+    else this.resolveResult?.(result!)
   }
 
   private clearTimers(): void {
@@ -517,6 +577,12 @@ export class HermesNativeTurn {
     if (this.cancelTimer) clearTimeout(this.cancelTimer)
     this.heartbeatTimer = undefined
     this.cancelTimer = undefined
+    this.clearEstablishmentTimer()
+  }
+
+  private clearEstablishmentTimer(): void {
+    if (this.establishmentTimer) clearTimeout(this.establishmentTimer)
+    this.establishmentTimer = undefined
   }
 }
 
@@ -529,21 +595,26 @@ export async function checkHermesNativeHealth(
   const conversationId = randomUUID()
   return new Promise((resolve) => {
     let complete = false
+    let timer: NodeJS.Timeout | undefined
     const finish = (result: { ok: boolean; message: string }): void => {
       if (complete) return
       complete = true
-      socket.close()
+      if (timer) clearTimeout(timer)
+      socket?.close()
       resolve(result)
     }
-    let socket: WebSocket
+    let socket: WebSocket | undefined
+    timer = setTimeout(() => finish({ ok: false, message: 'Native Hermes connection establishment timed out' }), ESTABLISHMENT_TIMEOUT_MS)
     try {
       socket = deps.createWebSocket(nativeUrl(url), { headers: { Authorization: `Bearer ${platformKey}` } })
     } catch (error) {
+      if (timer) clearTimeout(timer)
       resolve({ ok: false, message: error instanceof Error ? error.message : 'Could not reach native Hermes platform' })
       return
     }
-    socket.on('open', () => socket.send(helloFrame(conversationId, installationId)))
-    socket.on('message', (raw, binary) => {
+    const activeSocket = socket
+    activeSocket.on('open', () => activeSocket.send(helloFrame(conversationId, installationId)))
+    activeSocket.on('message', (raw, binary) => {
       if (binary) return finish({ ok: false, message: 'Incompatible native Hermes protocol' })
       try {
         const event = JSON.parse(asBuffer(raw).toString())
@@ -562,8 +633,8 @@ export async function checkHermesNativeHealth(
         finish({ ok: false, message: 'Incompatible native Hermes protocol' })
       }
     })
-    socket.on('error', (error) => finish({ ok: false, message: error.message || 'Could not reach native Hermes platform' }))
-    socket.on('close', () => {
+    activeSocket.on('error', (error) => finish({ ok: false, message: error.message || 'Could not reach native Hermes platform' }))
+    activeSocket.on('close', () => {
       if (!complete) finish({ ok: false, message: 'Could not reach native Hermes platform' })
     })
   })
