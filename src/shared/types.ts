@@ -1558,6 +1558,17 @@ export interface BearcodeApi {
     show(): Promise<void>
     hide(): Promise<void>
   }
+  // Embedded Terminal (2026-07-25 design): a real pty per tab, scoped to a
+  // project path. create/list return TerminalSessionView; onTerminalData/
+  // onTerminalExit (below, alongside the other on* subscriptions) push
+  // incremental output -- never buffered through this invoke surface.
+  terminal: {
+    create(projectPath: string): Promise<TerminalSessionView>
+    write(id: string, data: string): Promise<void>
+    resize(id: string, cols: number, rows: number): Promise<void>
+    close(id: string): Promise<void>
+    list(projectPath: string): Promise<TerminalSessionView[]>
+  }
   // Connectors (MCP): global+project config CRUD, enable/trust/spawn-consent
   // state, live status, secrets (write-only -- there is no getter), and the
   // Smithery registry browse/install surface (Tasks 11/12 fill in the
@@ -1724,4 +1735,6 @@ export interface BearcodeApi {
   onRunStateChange(cb: (conversationId: string, state: RunState) => void): () => void
   onConversationMeta(cb: (meta: ConversationMeta) => void): () => void
   onUpdaterStatus(cb: (status: UpdaterStatus) => void): () => void
+  onTerminalData(cb: (id: string, chunk: string) => void): () => void
+  onTerminalExit(cb: (id: string) => void): () => void
 }

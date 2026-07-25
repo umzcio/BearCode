@@ -82,6 +82,7 @@ import { extractTextLane } from './attachments/extract'
 import * as db from './db'
 import { createWorktrees, removeWorktrees, gitAvailable, discoverRepos } from './worktree/manager'
 import { browserManager } from './browser/manager'
+import { terminalManager } from './terminal/manager'
 import {
   commitWorktree,
   mergeToBase,
@@ -870,6 +871,27 @@ export function registerIpc(): void {
     }
   )
   ipcMain.handle('bearcode:browser:show', () => browserManager.show())
+
+  // Embedded Terminal (2026-07-25 design): TerminalManager is a main-side
+  // singleton keyed by project path. Data/exit are pushed to every window via
+  // `broadcast`, mirroring the `sink` object above -- never polled.
+  ipcMain.handle('bearcode:terminal:create', (_e, projectPath: string) =>
+    terminalManager.create(projectPath)
+  )
+  ipcMain.handle('bearcode:terminal:write', (_e, id: string, data: string) => {
+    terminalManager.write(id, data)
+  })
+  ipcMain.handle('bearcode:terminal:resize', (_e, id: string, cols: number, rows: number) => {
+    terminalManager.resize(id, cols, rows)
+  })
+  ipcMain.handle('bearcode:terminal:close', (_e, id: string) => {
+    terminalManager.close(id)
+  })
+  ipcMain.handle('bearcode:terminal:list', (_e, projectPath: string) =>
+    terminalManager.list(projectPath)
+  )
+  terminalManager.onData((id, chunk) => broadcast('bearcode:terminal:data', id, chunk))
+  terminalManager.onExit((id) => broadcast('bearcode:terminal:exit', id))
 
   // MCP (Connectors): global+project config CRUD, enable/trust/spawn-consent
   // state, live status, and secrets. `status` in the returned McpServerView
