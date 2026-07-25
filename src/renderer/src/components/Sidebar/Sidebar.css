@@ -64,217 +64,173 @@
   flex-shrink: 0;
 }
 
-.projects-head {
+.sidebar-empty {
+  padding: 0 10px;
+}
+
+.seg-toggle {
+  display: flex;
+  background: var(--bg-active);
+  border-radius: 10px;
+  padding: 3px;
+  margin: 8px 6px 10px;
+}
+.seg-toggle button {
+  flex: 1;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin: 22px 6px 6px;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 0;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.seg-toggle button:hover {
+  color: var(--text-mid);
+}
+.seg-toggle button.active {
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+}
+.seg-toggle button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.seg-toggle button svg,
+.seg-toggle button img {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.sb-label {
+  display: flex;
+  align-items: center;
+  padding: 14px 10px 6px;
   color: var(--text-dim);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
-.projects-head .actions {
-  display: flex;
-  gap: 2px;
-}
-/* Icon + label as ONE flex child, so a header with an icon (Hermes section)
-   keeps .projects-head at two children -- otherwise justify-content:
-   space-between distributes icon/label/actions as left/center/right and the
-   label ends up centered. The group also spaces the icon from the label and
-   truncates a long custom label instead of shoving the action button off. */
-.projects-head .head-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.projects-head .head-label-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.sb-label .display-options {
+  margin-left: auto;
 }
 
-.projects-scroll {
-  overflow-y: auto;
-  min-height: 0;
-}
-/* The Hermes conversation list is a SECONDARY scroll region above the main
-   Projects list. Left as a plain .projects-scroll it competes with Projects
-   for vertical space (both flex-shrink:1, min-height:0) and collapses to a
-   ~9px sliver -- all you see is its scrollbar. Pin it to its content instead:
-   don't shrink, cap the height so a long list scrolls internally rather than
-   crowding out Projects. Projects stays the one space-absorbing scroll region. */
-.hermes-scroll {
-  flex-shrink: 0;
-  max-height: 30vh;
-}
-
-.proj-group {
-  margin-top: 6px;
-}
-.proj-label {
+.sb-projrow {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: none;
+  background: none;
   color: var(--text-mid);
-  font-size: 13px;
-  border-radius: 8px;
-  cursor: default;
-  white-space: nowrap;
-  overflow: hidden;
-}
-/* The folder-name text only — NOT .proj-actions (also a <span>), which must keep
-   its natural width and sit flush right via margin-left:auto. */
-.proj-label > span:not(.proj-actions) {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.proj-label svg {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  color: var(--text-dim);
-}
-
-.convo {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px 7px 34px;
-  border-radius: 8px;
-  color: var(--text-mid);
-  font-size: 13px;
+  font-size: 13.5px;
   cursor: pointer;
-  user-select: none;
+  text-align: left;
+  font-family: inherit;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
-.convo:hover {
+.sb-projrow:hover {
   background: var(--bg-hover);
   color: var(--text);
 }
-.convo:focus-visible {
+.sb-projrow:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
-.convo.selected {
-  background: var(--bg-active);
-  color: var(--text);
-}
-.convo.active-run .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
+.sb-projrow .chip {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
   flex-shrink: 0;
-  box-shadow: 0 0 6px var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-active);
+  color: var(--text-dim);
 }
-.convo .name-wrap {
+.sb-projrow .name {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.convo .name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.convo .convo-sub {
+.sb-projrow .cnt {
   color: var(--text-dim);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
 }
-.convo .age {
+.sb-projrow svg:last-child {
+  width: 13px;
+  height: 13px;
   color: var(--text-dim);
-  font-size: 12px;
   flex-shrink: 0;
 }
-.sidebar-empty {
-  padding: 0 10px;
-}
 
-.sidebar-footer {
-  margin-top: auto;
-  padding-top: 10px;
-}
-
-.convo .del {
-  display: none;
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  padding: 2px;
-  border-radius: 5px;
-  flex-shrink: 0;
-  align-items: center;
-}
-.convo:hover .del {
+.sb-flatrow {
   display: flex;
-}
-.convo:hover .age {
-  display: none;
-}
-.convo .del:hover {
-  background: var(--bg-active);
-  color: var(--red);
-}
-
-.convo .move-proj {
-  display: none;
-  font-size: 11px;
-  background: transparent;
-  color: var(--text-dim);
-  border: none;
-  max-width: 84px;
-  flex-shrink: 0;
-}
-.convo:hover .move-proj {
-  display: block;
-}
-
-.row-act {
-  display: none;
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  padding: 2px;
-  border-radius: 5px;
-  flex-shrink: 0;
   align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 9px;
+  border: none;
+  background: none;
+  color: var(--text-mid);
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
-.convo:hover .row-act {
-  display: flex;
+.sb-flatrow:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
-.row-act:hover {
+.sb-flatrow:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.sb-flatrow.selected {
   background: var(--bg-active);
   color: var(--text);
 }
-.row-act.active {
-  display: flex;
-  color: var(--accent);
-}
-.row-act.menu-open {
-  display: flex;
-}
-
-.proj-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
+.sb-flatrow .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
-/* Mirror the conversation-row behavior: the gear / + are `.row-act` (default
-   display:none) and reveal on hover — here on hover of the whole folder group,
-   since they live in .proj-label rather than inside a .convo. */
-.proj-group:hover .proj-actions .row-act {
+.sb-flatrow .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-recents {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
+  flex-direction: column;
 }

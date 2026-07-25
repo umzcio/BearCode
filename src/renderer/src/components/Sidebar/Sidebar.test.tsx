@@ -59,6 +59,7 @@ function mount(opts: {
     openConvo: vi.fn(),
     openSettings: vi.fn(),
     openProjectSettings: vi.fn(),
+    openProjectPage: vi.fn(),
     showToast: vi.fn(),
     setPinned: vi.fn(),
     setArchived: vi.fn(),
@@ -73,6 +74,9 @@ function mount(opts: {
 afterEach(cleanup)
 
 describe('Hermes section', () => {
+  // The Conversations/Hermes segmented toggle defaults to the Conversations
+  // segment, so every Hermes-only assertion below clicks the toggle first
+  // (via its label text) to switch into the Hermes segment.
   it('lists only conversations with the Hermes sentinel modelRef, newest first', () => {
     const container = mount({
       conversations: {
@@ -80,61 +84,69 @@ describe('Hermes section', () => {
         h1: { modelRef: HERMES_MODEL_REF, title: 'ZRResearch', updatedAt: 200, projectPath: null },
         h2: { modelRef: HERMES_MODEL_REF, title: 'random stuff', updatedAt: 100, projectPath: null }
       },
-      settings: { hermesEnabled: true, hermesLabel: 'Hermes', hermesIcon: 'IconChat' }
+      settings: { hermesEnabled: true, hermesLabel: 'Hermes' }
     })
 
     expect(screen.getByText('Hermes')).toBeInTheDocument()
-    // Project chat is a real project conversation, so it legitimately still
-    // renders elsewhere in the sidebar (under Projects) -- just not in the
-    // Hermes section itself.
+    // Project chat is a real project conversation, projectPath'd but unpinned,
+    // so it renders cross-project in Recents while the Conversations segment
+    // (the default) is showing -- just not in the Hermes segment's list.
     expect(screen.getByText('Project chat')).toBeInTheDocument()
 
-    // The Hermes section is the first .projects-head/.projects-scroll pair
-    // (it renders above Projects); scope to it to assert it holds *only* the
-    // two Hermes conversations, newest first.
-    const hermesScroll = container.querySelectorAll('.projects-scroll')[0]
-    const names = [...hermesScroll.querySelectorAll('.convo .name')].map((el) => el.textContent)
+    // Switch to the Hermes segment; its flat Recents list should hold *only*
+    // the two Hermes conversations, newest first.
+    fireEvent.click(screen.getByText('Hermes'))
+    const names = [...container.querySelectorAll('.sb-recents .sb-flatrow .name')].map(
+      (el) => el.textContent
+    )
     expect(names).toEqual(['ZRResearch', 'random stuff'])
   })
 
-  it('does not also render Hermes conversations in the "No folder" Projects bucket', () => {
+  it('does not also render Hermes conversations in the Conversations segment', () => {
     // Both conversations are project-less; without an exclusion filter the
-    // Hermes one would land in Projects' own null-path group too, so it
-    // would render (and be clickable) twice.
+    // Hermes one would land in the Conversations segment's Recents too, so it
+    // would render (and be clickable) twice across segments.
     mount({
       conversations: {
         h1: { modelRef: HERMES_MODEL_REF, title: 'ZRResearch', updatedAt: 200, projectPath: null },
         p1: { modelRef: 'anthropic/claude', title: 'Plain chat', updatedAt: 50, projectPath: null }
       },
-      settings: { hermesEnabled: true, hermesLabel: 'Hermes', hermesIcon: 'IconChat' }
+      settings: { hermesEnabled: true, hermesLabel: 'Hermes' }
     })
 
-    // The Hermes convo renders exactly once (in the Hermes section).
-    expect(screen.getAllByText('ZRResearch')).toHaveLength(1)
-    // The non-Hermes, project-less convo still renders in Projects' "No folder" bucket.
+    // In the default Conversations segment, the Hermes convo doesn't render
+    // at all -- only the project-less, non-Hermes convo does (in Recents).
+    expect(screen.queryByText('ZRResearch')).not.toBeInTheDocument()
     expect(screen.getByText('Plain chat')).toBeInTheDocument()
+
+    // Switching to Hermes shows exactly the Hermes convo; Conversations-only
+    // content unmounts.
+    fireEvent.click(screen.getByText('Hermes'))
+    expect(screen.getAllByText('ZRResearch')).toHaveLength(1)
+    expect(screen.queryByText('Plain chat')).not.toBeInTheDocument()
   })
 
   it('uses the customized label from settings', () => {
-    mount({ conversations: {}, settings: { hermesEnabled: true, hermesLabel: 'Assistant', hermesIcon: 'IconChat' } })
+    mount({ conversations: {}, settings: { hermesEnabled: true, hermesLabel: 'Assistant' } })
     expect(screen.getByText('Assistant')).toBeInTheDocument()
     expect(screen.queryByText('Hermes')).not.toBeInTheDocument()
   })
 
   it('is hidden entirely when Hermes is disabled', () => {
-    mount({ conversations: {}, settings: { hermesEnabled: false } })
+    const container = mount({ conversations: {}, settings: { hermesEnabled: false } })
     expect(screen.queryByText('Hermes')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('New Hermes conversation')).not.toBeInTheDocument()
+    expect(container.querySelector('.seg-toggle')).toBeNull()
   })
 
-  it('clicking + New calls newHermesConversation', () => {
+  it('clicking + New calls newHermesConversation when the Hermes segment is active', () => {
     const newHermesConversation = vi.fn(() => Promise.resolve())
     mount({
       conversations: {},
-      settings: { hermesEnabled: true, hermesLabel: 'Hermes', hermesIcon: 'IconChat' },
+      settings: { hermesEnabled: true, hermesLabel: 'Hermes' },
       newHermesConversation
     })
-    fireEvent.click(screen.getByLabelText('New Hermes conversation'))
+    fireEvent.click(screen.getByText('Hermes'))
+    fireEvent.click(screen.getByText('New Conversation'))
     expect(newHermesConversation).toHaveBeenCalledTimes(1)
   })
 
@@ -143,9 +155,64 @@ describe('Hermes section', () => {
       conversations: {
         h1: { modelRef: HERMES_MODEL_REF, title: 'ZRResearch', updatedAt: 200, projectPath: null }
       },
-      settings: { hermesEnabled: true, hermesLabel: 'Hermes', hermesIcon: 'IconChat' }
+      settings: { hermesEnabled: true, hermesLabel: 'Hermes' }
     })
+    fireEvent.click(screen.getByText('Hermes'))
     fireEvent.click(screen.getByText('ZRResearch'))
     expect(useAppStore.getState().openConvo).toHaveBeenCalledWith('h1')
+  })
+
+  it('the Conversations/Hermes toggle switches which list renders', () => {
+    mount({
+      conversations: {
+        p1: { modelRef: 'anthropic/claude', title: 'Plain chat', updatedAt: 50, projectPath: null },
+        h1: { modelRef: HERMES_MODEL_REF, title: 'ZRResearch', updatedAt: 200, projectPath: null }
+      },
+      settings: { hermesEnabled: true, hermesLabel: 'ChuckAI' }
+    })
+    expect(screen.getByText('ChuckAI')).toBeTruthy()
+    expect(screen.getByText('Plain chat')).toBeInTheDocument()
+    expect(screen.queryByText('ZRResearch')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('ChuckAI'))
+    expect(screen.getByText('ZRResearch')).toBeInTheDocument()
+    expect(screen.queryByText('Plain chat')).not.toBeInTheDocument()
+  })
+})
+
+describe('Projects/Pinned/Recents (Conversations segment)', () => {
+  it('renders one flat row per folder with its conversation count, and opens the project page on click', () => {
+    mount({
+      conversations: {
+        a: { title: 'A1', projectPath: '/proj-a', projectLabel: 'proj-a', updatedAt: 10 },
+        b: { title: 'A2', projectPath: '/proj-a', projectLabel: 'proj-a', updatedAt: 20 }
+      }
+    })
+    expect(screen.getByText('proj-a')).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('proj-a'))
+    expect(useAppStore.getState().openProjectPage).toHaveBeenCalledWith('/proj-a')
+  })
+
+  it('pinned conversations render in Pinned and not in Recents', () => {
+    mount({
+      conversations: {
+        p1: { title: 'Pinned one', projectPath: null, updatedAt: 5, pinned: true },
+        r1: { title: 'Recent one', projectPath: null, updatedAt: 3, pinned: false }
+      }
+    })
+    expect(screen.getByText('Pinned')).toBeInTheDocument()
+    expect(screen.getByText('Pinned one')).toBeInTheDocument()
+    expect(screen.getByText('Recent one')).toBeInTheDocument()
+  })
+
+  it('clicking a Recents/Pinned row calls openConvo with its id', () => {
+    mount({
+      conversations: {
+        r1: { title: 'Recent one', projectPath: null, updatedAt: 3, pinned: false }
+      }
+    })
+    fireEvent.click(screen.getByText('Recent one'))
+    expect(useAppStore.getState().openConvo).toHaveBeenCalledWith('r1')
   })
 })
