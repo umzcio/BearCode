@@ -22,12 +22,23 @@ const ACTIVATION_LABEL: Record<RuleEntry['activation'], string> = {
 export function RulesPage(): JSX.Element | null {
   const settings = useAppStore((s) => s.settings)
   const workspacePath = useAppStore((s) => s.workspacePath)
+  const refreshImportBannerState = useAppStore((s) => s.refreshImportBannerState)
+  const openImportReview = useAppStore((s) => s.openImportReview)
 
   const [rules, setRules] = useState<RuleEntry[] | null>(null)
+  const [scanning, setScanning] = useState(false)
 
   useEffect(() => {
     void window.bearcode.rules.list(workspacePath).then((list) => setRules(list))
   }, [workspacePath])
+
+  const scanForImportableConfig = (): void => {
+    setScanning(true)
+    void refreshImportBannerState(workspacePath).then(() => {
+      setScanning(false)
+      openImportReview()
+    })
+  }
 
   if (!settings) return null
 
@@ -38,6 +49,9 @@ export function RulesPage(): JSX.Element | null {
         Standing instructions the agent always follows or applies by name/glob/description. Edited
         as files under <code>.agents/rules/</code> — this page shows what&apos;s live.
       </div>
+      <button className="pill-btn" disabled={!workspacePath || scanning} onClick={scanForImportableConfig}>
+        {scanning ? 'Scanning…' : 'Scan for importable config…'}
+      </button>
 
       <div className="set-group-title">Active rules</div>
       <div className="set-card">
