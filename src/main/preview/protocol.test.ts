@@ -2,11 +2,19 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import type { VerifiedStoredAttachment } from '../hermes/attachmentAccess'
 
 vi.mock('electron', () => ({ protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() } }))
 vi.mock('../diffs', () => ({ filePathFor: vi.fn() }))
 
-import { PREVIEW_CSP, mimeFor, previewUrlFor, resolvePreviewPath } from './protocol'
+import {
+  PREVIEW_CSP,
+  attachmentPreviewUrlFor,
+  handlePreviewRequest,
+  mimeFor,
+  previewUrlFor,
+  resolvePreviewPath
+} from './protocol'
 
 // Real files on disk (no fs mocks): the jail is realpath-based, so the tests
 // must exercise genuine paths and symlinks, not stubs.
@@ -72,6 +80,122 @@ describe('previewUrlFor', () => {
     expect(previewUrlFor('f1', '/ws/My Page.html')).toBe(
       'bearcode-preview://preview/f1/My%20Page.html'
     )
+  })
+})
+
+describe('attachmentPreviewUrlFor', () => {
+  it('builds an opaque attachment URL with an encoded display name', () => {
+    expect(attachmentPreviewUrlFor('conv_123', 'att_123', 'My page.html')).toBe(
+      'bearcode-preview://attachment/conv_123/att_123/My%20page.html'
+    )
+  })
+})
+
+describe('handlePreviewRequest', () => {
+  const attachment: VerifiedStoredAttachment = {
+    attachment: {
+      id: 'att_123',
+      name: 'verified.html',
+      mime: 'application/octet-stream',
+      kind: 'document',
+      sizeBytes: 17,
+      sha256: '0'.repeat(64)
+    },
+    bytes: Buffer.from('<h1>Verified</h1>')
+  }
+
+  it('serves only verified attachment bytes with isolated preview headers', async () => {
+    const calls: unknown[][] = []
+    const readAttachment = async (...args: [string, string]): Promise<VerifiedStoredAttachment> => {
+      calls.push(args)
+      return attachment
+    }
+
+    const response = await handlePreviewRequest(
+      new Request('bearcode-preview://attachment/conv_123/att_123/Misleading%20name.txt'),
+      { readAttachment }
+    )
+
+    expect(response.status).toBe(200)
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(attachment.bytes)
+    expect(response.headers.get('Content-Type')).toContain('text/html')
+    expect(response.headers.get('Content-Security-Policy')).toBe(PREVIEW_CSP)
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(calls).toEqual([['conv_123', 'att_123']])
+  })
+
+  it.each([
+    {
+      label: 'malformed encoding',
+      request: new Request('bearcode-preview://attachment/conv_123/att_123/%zz')
+    },
+    {
+      label: 'invalid conversation ID',
+      request: new Request('bearcode-preview://attachment/bad%2Fconv/att_123/page.html')
+    },
+    {
+      label: 'invalid attachment ID',
+      request: new Request('bearcode-preview://attachment/conv_123/bad%2Fatt/page.html')
+    },
+    {
+      label: 'unknown host',
+      request: new Request('bearcode-preview://unknown/conv_123/att_123/page.html')
+    },
+    {
+      label: 'non-GET method',
+      request: new Request('bearcode-preview://attachment/conv_123/att_123/page.html', {
+        method: 'POST'
+      })
+    }
+  ])('returns a 4xx for $label without reading attachment bytes', async ({ request }) => {
+    let reads = 0
+    const response = await handlePreviewRequest(request, {
+      readAttachment: async () => {
+        reads += 1
+        return attachment
+      }
+    })
+
+    expect(response.status).toBeGreaterThanOrEqual(400)
+    expect(response.status).toBeLessThan(500)
+    expect(reads).toBe(0)
+  })
+
+  it('rejects attachment sibling assets without calling the verified reader', async () => {
+    let reads = 0
+    const response = await handlePreviewRequest(
+      new Request('bearcode-preview://attachment/conv_123/att_123/My%20page.html/style.css'),
+      {
+        readAttachment: async () => {
+          reads += 1
+          return attachment
+        }
+      }
+    )
+
+    expect(response.status).toBe(404)
+    expect(reads).toBe(0)
+  })
+
+  it('keeps serving the diff preview file and its sibling assets', async () => {
+    const dependencies = { filePathFor: lookup }
+
+    const documentResponse = await handlePreviewRequest(
+      new Request('bearcode-preview://preview/f1/index.html'),
+      dependencies
+    )
+    const assetResponse = await handlePreviewRequest(
+      new Request('bearcode-preview://preview/f1/styles.css'),
+      dependencies
+    )
+
+    expect(documentResponse.status).toBe(200)
+    expect(await documentResponse.text()).toBe('<h1>hi</h1>')
+    expect(documentResponse.headers.get('Content-Type')).toContain('text/html')
+    expect(assetResponse.status).toBe(200)
+    expect(await assetResponse.text()).toBe('body{}')
+    expect(assetResponse.headers.get('Content-Type')).toContain('text/css')
   })
 })
 
