@@ -567,17 +567,24 @@ export class HermesNativeTurn {
     this.clearTimers()
     this.rejectPendingOperations(failure ?? new HermesNativeClientError('Native turn ended', 'cancelled', 'turn.cancelled'))
     this.options.signal.removeEventListener('abort', this.cancel)
+    // No late WebSocket callback may enter the serialized message chain while
+    // filesystem cleanup is pending.
+    this.detachListeners(this.connection)
+    this.connection?.close()
     let cleanupError: Error | undefined
     try {
       await this.downloadWriter.abort()
     } catch (error) {
       cleanupError = this.asFileError(error)
     }
-    this.detachListeners(this.connection)
-    this.connection?.close()
     this.settling = false
     if (failure) {
-      if (cleanupError && !(failure as Error & { cause?: unknown }).cause) (failure as Error & { cause?: unknown }).cause = cleanupError
+      if (cleanupError) {
+        const primary = failure as Error & { cause?: unknown }
+        primary.cause = primary.cause
+          ? new AggregateError([primary.cause, cleanupError], 'Native turn cleanup also failed')
+          : cleanupError
+      }
       this.rejectResult?.(failure)
     }
     else if (cleanupError) this.rejectResult?.(cleanupError)
@@ -617,10 +624,22 @@ export async function checkHermesNativeHealth(
   return new Promise((resolve) => {
     let complete = false
     let timer: NodeJS.Timeout | undefined
+    let openHandler: (() => void) | undefined
+    let messageHandler: ((raw: WebSocket.RawData, binary: boolean) => void) | undefined
+    let errorHandler: ((error: Error) => void) | undefined
+    let closeHandler: (() => void) | undefined
+    const detach = (): void => {
+      if (!socket) return
+      if (openHandler) socket.off('open', openHandler)
+      if (messageHandler) socket.off('message', messageHandler)
+      if (errorHandler) socket.off('error', errorHandler)
+      if (closeHandler) socket.off('close', closeHandler)
+    }
     const finish = (result: { ok: boolean; message: string }): void => {
       if (complete) return
       complete = true
       if (timer) clearTimeout(timer)
+      detach()
       socket?.close()
       resolve(result)
     }
@@ -634,8 +653,8 @@ export async function checkHermesNativeHealth(
       return
     }
     const activeSocket = socket
-    activeSocket.on('open', () => activeSocket.send(helloFrame(conversationId, installationId)))
-    activeSocket.on('message', (raw, binary) => {
+    openHandler = () => activeSocket.send(helloFrame(conversationId, installationId))
+    messageHandler = (raw, binary) => {
       if (binary) return finish({ ok: false, message: 'Incompatible native Hermes protocol' })
       try {
         const event = JSON.parse(asBuffer(raw).toString())
@@ -653,10 +672,12 @@ export async function checkHermesNativeHealth(
       } catch {
         finish({ ok: false, message: 'Incompatible native Hermes protocol' })
       }
-    })
-    activeSocket.on('error', (error) => finish({ ok: false, message: error.message || 'Could not reach native Hermes platform' }))
-    activeSocket.on('close', () => {
+    }
+    errorHandler = (error) => finish({ ok: false, message: error.message || 'Could not reach native Hermes platform' })
+    closeHandler = () => {
       if (!complete) finish({ ok: false, message: 'Could not reach native Hermes platform' })
-    })
+    }
+    activeSocket.on('open', openHandler); activeSocket.on('message', messageHandler)
+    activeSocket.on('error', errorHandler); activeSocket.on('close', closeHandler)
   })
 }
