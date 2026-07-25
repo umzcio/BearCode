@@ -5,22 +5,30 @@ import { HermesPage } from './HermesPage'
 import { useAppStore } from '../../../state/store'
 
 const saveSettings = vi.fn()
+const realSaveSettings = useAppStore.getState().saveSettings
+const settingsSet = vi.fn()
 const testHermesConnection = vi.fn().mockResolvedValue({ ok: true, message: 'Connected' })
 const saveHermesToken = vi.fn().mockResolvedValue(undefined)
 const saveHermesPlatformKey = vi.fn().mockResolvedValue(undefined)
 
-function deferred(): {
-  promise: Promise<void>
-  resolve: () => void
+function deferred<T = void>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (reason: unknown) => void
 } {
-  let resolve!: () => void
-  const promise = new Promise<void>((done) => {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((done, fail) => {
     resolve = done
+    reject = fail
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 
-function mount(overrides: Record<string, unknown> = {}): void {
+function mount(
+  overrides: Record<string, unknown> = {},
+  options: { useRealSaveSettings?: boolean } = {}
+): void {
   useAppStore.setState({
     settings: {
       hermesEnabled: false,
@@ -30,7 +38,7 @@ function mount(overrides: Record<string, unknown> = {}): void {
       hermesIcon: 'IconChat',
       ...overrides
     } as never,
-    saveSettings,
+    saveSettings: options.useRealSaveSettings ? realSaveSettings : saveSettings,
     testHermesConnection,
     saveHermesToken,
     saveHermesPlatformKey
@@ -44,6 +52,10 @@ afterEach(() => {
 })
 beforeEach(() => {
   vi.clearAllMocks()
+  Object.defineProperty(window, 'bearcode', {
+    configurable: true,
+    value: { settings: { set: settingsSet } }
+  })
   saveSettings.mockImplementation(async (patch: Record<string, unknown>) => {
     const current = useAppStore.getState().settings
     useAppStore.setState({ settings: { ...current, ...patch } as never })
@@ -111,9 +123,7 @@ describe('HermesPage', () => {
         'Native Platform'
       )
     )
-    expect(screen.getByLabelText('Native WebSocket URL')).toHaveValue(
-      'wss://native-refreshed:8643'
-    )
+    expect(screen.getByLabelText('Native WebSocket URL')).toHaveValue('wss://native-refreshed:8643')
     expect(screen.getByLabelText('Platform key')).toHaveValue('')
 
     act(() => {
@@ -159,14 +169,12 @@ describe('HermesPage', () => {
       })
     })
 
-    expect(screen.getByLabelText('Native WebSocket URL')).toHaveValue(
-      'ws://native-dirty:8643'
-    )
+    expect(screen.getByLabelText('Native WebSocket URL')).toHaveValue('ws://native-dirty:8643')
     expect(screen.getByLabelText('Platform key')).toHaveValue('transient-draft-key')
   })
 
   it('does not overwrite a dirty mode while its save is pending, then adopts authority', async () => {
-    const pending = deferred()
+    const pending = deferred<void>()
     saveSettings.mockImplementationOnce(() => pending.promise)
     mount({ hermesEnabled: true, hermesConnectionMode: 'legacy' })
 
@@ -225,9 +233,7 @@ describe('HermesPage', () => {
     fireEvent.blur(input)
 
     await waitFor(() =>
-      expect(screen.getByLabelText('Native WebSocket URL')).toHaveValue(
-        'wss://native-coerced:8643'
-      )
+      expect(screen.getByLabelText('Native WebSocket URL')).toHaveValue('wss://native-coerced:8643')
     )
 
     act(() => {
@@ -237,9 +243,7 @@ describe('HermesPage', () => {
       })
     })
     await waitFor(() =>
-      expect(screen.getByLabelText('Native WebSocket URL')).toHaveValue(
-        'wss://native-later:8643'
-      )
+      expect(screen.getByLabelText('Native WebSocket URL')).toHaveValue('wss://native-later:8643')
     )
   })
 
@@ -255,9 +259,7 @@ describe('HermesPage', () => {
         'Could not save Hermes connection mode: disk full'
       )
     )
-    expect(screen.getByRole('button', { name: 'Connection mode' })).toHaveTextContent(
-      'Legacy API'
-    )
+    expect(screen.getByRole('button', { name: 'Connection mode' })).toHaveTextContent('Legacy API')
     expect(screen.getByLabelText('Gateway URL')).toBeInTheDocument()
   })
 
@@ -277,9 +279,219 @@ describe('HermesPage', () => {
         'Could not save Native WebSocket URL: disk full'
       )
     )
-    expect(screen.getByLabelText('Native WebSocket URL')).toHaveValue(
-      'ws://native-old:8643'
+    expect(screen.getByLabelText('Native WebSocket URL')).toHaveValue('ws://native-old:8643')
+  })
+
+  it.each([
+    {
+      mode: 'legacy',
+      label: 'Gateway URL',
+      key: 'hermesGatewayUrl',
+      oldValue: 'http://legacy-old:8642',
+      firstValue: 'http://legacy-a:8642',
+      latestValue: 'http://legacy-b:8642'
+    },
+    {
+      mode: 'native',
+      label: 'Native WebSocket URL',
+      key: 'hermesNativeUrl',
+      oldValue: 'ws://native-old:8643',
+      firstValue: 'ws://native-a:8643',
+      latestValue: 'ws://native-b:8643'
+    }
+  ])(
+    'serializes $mode URL saves and preserves a newer draft after the older save succeeds',
+    async ({ mode, label, key, oldValue, firstValue, latestValue }) => {
+      const firstSave = deferred<Record<string, unknown>>()
+      const latestSave = deferred<Record<string, unknown>>()
+      settingsSet.mockReturnValueOnce(firstSave.promise).mockReturnValueOnce(latestSave.promise)
+      mount(
+        {
+          hermesEnabled: true,
+          hermesConnectionMode: mode,
+          [key]: oldValue
+        },
+        { useRealSaveSettings: true }
+      )
+
+      const input = screen.getByLabelText(label)
+      fireEvent.change(input, { target: { value: firstValue } })
+      fireEvent.blur(input)
+      fireEvent.change(input, { target: { value: latestValue } })
+      fireEvent.blur(input)
+
+      expect(settingsSet).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        firstSave.resolve({
+          ...useAppStore.getState().settings,
+          [key]: firstValue
+        })
+        await firstSave.promise
+      })
+
+      expect(input).toHaveValue(latestValue)
+      expect(screen.queryByRole('alert')).toBeNull()
+      await waitFor(() => expect(settingsSet).toHaveBeenCalledTimes(2))
+      act(() => {
+        useAppStore.setState({
+          settings: {
+            ...useAppStore.getState().settings,
+            [key]: `${oldValue}/external`
+          } as never
+        })
+      })
+      expect(input).toHaveValue(latestValue)
+
+      await act(async () => {
+        latestSave.resolve({
+          ...useAppStore.getState().settings,
+          [key]: latestValue
+        })
+        await latestSave.promise
+      })
+
+      await waitFor(() => expect(input).toHaveValue(latestValue))
+      expect(useAppStore.getState().settings?.[key]).toBe(latestValue)
+      expect(screen.queryByRole('alert')).toBeNull()
+    }
+  )
+
+  it.each([
+    {
+      mode: 'legacy',
+      label: 'Gateway URL',
+      key: 'hermesGatewayUrl',
+      oldValue: 'http://legacy-old:8642',
+      firstValue: 'http://legacy-a:8642',
+      latestValue: 'http://legacy-b:8642'
+    },
+    {
+      mode: 'native',
+      label: 'Native WebSocket URL',
+      key: 'hermesNativeUrl',
+      oldValue: 'ws://native-old:8643',
+      firstValue: 'ws://native-a:8643',
+      latestValue: 'ws://native-b:8643'
+    }
+  ])(
+    'suppresses an obsolete $mode URL rejection and persists the newer draft',
+    async ({ mode, label, key, oldValue, firstValue, latestValue }) => {
+      const firstSave = deferred<Record<string, unknown>>()
+      const latestSave = deferred<Record<string, unknown>>()
+      settingsSet.mockReturnValueOnce(firstSave.promise).mockReturnValueOnce(latestSave.promise)
+      mount(
+        {
+          hermesEnabled: true,
+          hermesConnectionMode: mode,
+          [key]: oldValue
+        },
+        { useRealSaveSettings: true }
+      )
+
+      const input = screen.getByLabelText(label)
+      fireEvent.change(input, { target: { value: firstValue } })
+      fireEvent.blur(input)
+      fireEvent.change(input, { target: { value: latestValue } })
+      fireEvent.blur(input)
+
+      expect(settingsSet).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        firstSave.reject(new Error('obsolete failure'))
+        await firstSave.promise.catch(() => undefined)
+      })
+
+      expect(input).toHaveValue(latestValue)
+      expect(screen.queryByRole('alert')).toBeNull()
+      await waitFor(() => expect(settingsSet).toHaveBeenCalledTimes(2))
+      act(() => {
+        useAppStore.setState({
+          settings: {
+            ...useAppStore.getState().settings,
+            [key]: `${oldValue}/external`
+          } as never
+        })
+      })
+      expect(input).toHaveValue(latestValue)
+
+      await act(async () => {
+        latestSave.resolve({
+          ...useAppStore.getState().settings,
+          [key]: latestValue
+        })
+        await latestSave.promise
+      })
+
+      await waitFor(() => expect(input).toHaveValue(latestValue))
+      expect(useAppStore.getState().settings?.[key]).toBe(latestValue)
+      expect(screen.queryByRole('alert')).toBeNull()
+    }
+  )
+
+  it('serializes rapid mode selections so the newest mode owns store and UI', async () => {
+    const firstSave = deferred<Record<string, unknown>>()
+    const latestSave = deferred<Record<string, unknown>>()
+    settingsSet.mockReturnValueOnce(firstSave.promise).mockReturnValueOnce(latestSave.promise)
+    mount({ hermesEnabled: true, hermesConnectionMode: 'legacy' }, { useRealSaveSettings: true })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connection mode' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Native Platform/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connection mode' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Legacy API/ }))
+
+    expect(settingsSet).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Connection mode' })).toHaveTextContent('Legacy API')
+
+    await act(async () => {
+      firstSave.resolve({
+        ...useAppStore.getState().settings,
+        hermesConnectionMode: 'native'
+      })
+      await firstSave.promise
+    })
+
+    expect(screen.getByRole('button', { name: 'Connection mode' })).toHaveTextContent('Legacy API')
+    expect(screen.queryByRole('alert')).toBeNull()
+    await waitFor(() => expect(settingsSet).toHaveBeenCalledTimes(2))
+
+    await act(async () => {
+      latestSave.resolve({
+        ...useAppStore.getState().settings,
+        hermesConnectionMode: 'legacy'
+      })
+      await latestSave.promise
+    })
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Connection mode' })).toHaveTextContent(
+        'Legacy API'
+      )
     )
+    expect(useAppStore.getState().settings?.hermesConnectionMode).toBe('legacy')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('still rolls back and reports a rejection owned by the current URL save', async () => {
+    settingsSet.mockRejectedValueOnce(new Error('current failure'))
+    mount(
+      {
+        hermesEnabled: true,
+        hermesConnectionMode: 'native',
+        hermesNativeUrl: 'ws://native-old:8643'
+      },
+      { useRealSaveSettings: true }
+    )
+
+    const input = screen.getByLabelText('Native WebSocket URL')
+    fireEvent.change(input, { target: { value: 'ws://native-current:8643' } })
+    fireEvent.blur(input)
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Could not save Native WebSocket URL: current failure'
+      )
+    )
+    expect(input).toHaveValue('ws://native-old:8643')
+    expect(useAppStore.getState().settings?.hermesNativeUrl).toBe('ws://native-old:8643')
   })
 
   it('saves the label on blur when changed', () => {
@@ -302,7 +514,9 @@ describe('HermesPage', () => {
     fireEvent.change(tokenInput, { target: { value: 'secret' } })
     fireEvent.blur(tokenInput)
     expect(saveHermesToken).toHaveBeenCalledWith('secret')
-    expect(saveSettings).not.toHaveBeenCalledWith(expect.objectContaining({ hermesToken: expect.anything() }))
+    expect(saveSettings).not.toHaveBeenCalledWith(
+      expect.objectContaining({ hermesToken: expect.anything() })
+    )
   })
 
   it('legacy Test Connection routes the gateway URL and bearer token', async () => {

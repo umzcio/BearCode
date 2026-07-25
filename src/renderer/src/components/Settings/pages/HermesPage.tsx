@@ -7,6 +7,13 @@ import { Toggle } from '../../Toggle'
 import { PROJECT_ICONS } from '../../ProjectSettings/projectIcons'
 import { ErrorCard } from '../../ui/ErrorCard'
 
+type HermesSaveField = 'mode' | 'gatewayUrl' | 'nativeUrl'
+
+interface SaveOwner {
+  generation: number
+  pending: Promise<void> | null
+}
+
 // Settings > Hermes: connection config for Zach's self-hosted Hermes Agent
 // gateway (a separate device, reached over Tailscale/tunnel -- never
 // localhost). Hermes runs its own agent loop server-side; this page only
@@ -30,10 +37,13 @@ export function HermesPage(): JSX.Element | null {
   const [platformKey, setPlatformKey] = useState('')
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [testing, setTesting] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveErrors, setSaveErrors] = useState<Partial<Record<HermesSaveField, string>>>({})
   const modeDirty = useRef(false)
   const gatewayUrlDirty = useRef(false)
   const nativeUrlDirty = useRef(false)
+  const modeSaveOwner = useRef<SaveOwner>({ generation: 0, pending: null })
+  const gatewayUrlSaveOwner = useRef<SaveOwner>({ generation: 0, pending: null })
+  const nativeUrlSaveOwner = useRef<SaveOwner>({ generation: 0, pending: null })
 
   const authoritativeMode: HermesConnectionMode =
     settings?.hermesConnectionMode === 'native' ? 'native' : 'legacy'
@@ -53,43 +63,88 @@ export function HermesPage(): JSX.Element | null {
   const currentAuthoritativeSettings = () => useAppStore.getState().settings ?? settings
   const describeSaveError = (field: string, error: unknown): string =>
     `Could not save ${field}: ${error instanceof Error ? error.message : 'Unknown error'}`
+  const clearSaveError = (field: HermesSaveField): void => {
+    setSaveErrors((current) => {
+      if (current[field] === undefined) return current
+      const next = { ...current }
+      delete next[field]
+      return next
+    })
+  }
+  const setSaveError = (field: HermesSaveField, message: string): void => {
+    setSaveErrors((current) => ({ ...current, [field]: message }))
+  }
+  const enqueueSave = (owner: SaveOwner, operation: () => Promise<void>): void => {
+    const run = owner.pending ? owner.pending.then(operation, operation) : operation()
+    owner.pending = run
+    void run.then(
+      () => {
+        if (owner.pending === run) owner.pending = null
+      },
+      () => {
+        if (owner.pending === run) owner.pending = null
+      }
+    )
+  }
 
   // Draft-then-save-on-blur, same pattern as GeneralPage's name/instructions
   // fields and UrsaPage's custom-instructions textarea: only persist when the
   // value actually changed.
-  const saveGatewayUrl = async (): Promise<void> => {
-    const authoritative = currentAuthoritativeSettings().hermesGatewayUrl ?? ''
-    if (gatewayUrl === authoritative) {
-      gatewayUrlDirty.current = false
-      return
-    }
-    setSaveError(null)
-    try {
-      await saveSettings({ hermesGatewayUrl: gatewayUrl })
-      setGatewayUrl(currentAuthoritativeSettings().hermesGatewayUrl ?? '')
-    } catch (error) {
-      setGatewayUrl(currentAuthoritativeSettings().hermesGatewayUrl ?? '')
-      setSaveError(describeSaveError('Gateway URL', error))
-    } finally {
-      gatewayUrlDirty.current = false
-    }
+  const saveGatewayUrl = (): void => {
+    const draft = gatewayUrl
+    const generation = gatewayUrlSaveOwner.current.generation
+    enqueueSave(gatewayUrlSaveOwner.current, async () => {
+      const authoritative = currentAuthoritativeSettings().hermesGatewayUrl ?? ''
+      if (draft === authoritative) {
+        if (gatewayUrlSaveOwner.current.generation === generation) {
+          gatewayUrlDirty.current = false
+        }
+        return
+      }
+      try {
+        await saveSettings({ hermesGatewayUrl: draft })
+        if (gatewayUrlSaveOwner.current.generation === generation) {
+          setGatewayUrl(currentAuthoritativeSettings().hermesGatewayUrl ?? '')
+        }
+      } catch (error) {
+        if (gatewayUrlSaveOwner.current.generation === generation) {
+          setGatewayUrl(currentAuthoritativeSettings().hermesGatewayUrl ?? '')
+          setSaveError('gatewayUrl', describeSaveError('Gateway URL', error))
+        }
+      } finally {
+        if (gatewayUrlSaveOwner.current.generation === generation) {
+          gatewayUrlDirty.current = false
+        }
+      }
+    })
   }
-  const saveNativeUrl = async (): Promise<void> => {
-    const authoritative = currentAuthoritativeSettings().hermesNativeUrl ?? ''
-    if (nativeUrl === authoritative) {
-      nativeUrlDirty.current = false
-      return
-    }
-    setSaveError(null)
-    try {
-      await saveSettings({ hermesNativeUrl: nativeUrl })
-      setNativeUrl(currentAuthoritativeSettings().hermesNativeUrl ?? '')
-    } catch (error) {
-      setNativeUrl(currentAuthoritativeSettings().hermesNativeUrl ?? '')
-      setSaveError(describeSaveError('Native WebSocket URL', error))
-    } finally {
-      nativeUrlDirty.current = false
-    }
+  const saveNativeUrl = (): void => {
+    const draft = nativeUrl
+    const generation = nativeUrlSaveOwner.current.generation
+    enqueueSave(nativeUrlSaveOwner.current, async () => {
+      const authoritative = currentAuthoritativeSettings().hermesNativeUrl ?? ''
+      if (draft === authoritative) {
+        if (nativeUrlSaveOwner.current.generation === generation) {
+          nativeUrlDirty.current = false
+        }
+        return
+      }
+      try {
+        await saveSettings({ hermesNativeUrl: draft })
+        if (nativeUrlSaveOwner.current.generation === generation) {
+          setNativeUrl(currentAuthoritativeSettings().hermesNativeUrl ?? '')
+        }
+      } catch (error) {
+        if (nativeUrlSaveOwner.current.generation === generation) {
+          setNativeUrl(currentAuthoritativeSettings().hermesNativeUrl ?? '')
+          setSaveError('nativeUrl', describeSaveError('Native WebSocket URL', error))
+        }
+      } finally {
+        if (nativeUrlSaveOwner.current.generation === generation) {
+          nativeUrlDirty.current = false
+        }
+      }
+    })
   }
   const saveLabel = (): void => {
     if (label !== (settings.hermesLabel ?? '')) void saveSettings({ hermesLabel: label })
@@ -100,22 +155,36 @@ export function HermesPage(): JSX.Element | null {
   const savePlatformKey = (): void => {
     if (platformKey) void saveHermesPlatformKey(platformKey)
   }
-  const selectMode = async (nextMode: HermesConnectionMode): Promise<void> => {
+  const selectMode = (nextMode: HermesConnectionMode): void => {
+    const generation = ++modeSaveOwner.current.generation
     modeDirty.current = true
     setMode(nextMode)
-    setSaveError(null)
+    clearSaveError('mode')
     setTestResult(null)
-    try {
-      await saveSettings({ hermesConnectionMode: nextMode })
+    enqueueSave(modeSaveOwner.current, async () => {
       const authoritative = currentAuthoritativeSettings()
-      setMode(authoritative.hermesConnectionMode === 'native' ? 'native' : 'legacy')
-    } catch (error) {
-      const authoritative = currentAuthoritativeSettings()
-      setMode(authoritative.hermesConnectionMode === 'native' ? 'native' : 'legacy')
-      setSaveError(describeSaveError('Hermes connection mode', error))
-    } finally {
-      modeDirty.current = false
-    }
+      const authoritativeMode =
+        authoritative.hermesConnectionMode === 'native' ? 'native' : 'legacy'
+      if (nextMode === authoritativeMode) {
+        if (modeSaveOwner.current.generation === generation) modeDirty.current = false
+        return
+      }
+      try {
+        await saveSettings({ hermesConnectionMode: nextMode })
+        if (modeSaveOwner.current.generation === generation) {
+          const saved = currentAuthoritativeSettings()
+          setMode(saved.hermesConnectionMode === 'native' ? 'native' : 'legacy')
+        }
+      } catch (error) {
+        if (modeSaveOwner.current.generation === generation) {
+          const saved = currentAuthoritativeSettings()
+          setMode(saved.hermesConnectionMode === 'native' ? 'native' : 'legacy')
+          setSaveError('mode', describeSaveError('Hermes connection mode', error))
+        }
+      } finally {
+        if (modeSaveOwner.current.generation === generation) modeDirty.current = false
+      }
+    })
   }
   const runTest = async (): Promise<void> => {
     setTesting(true)
@@ -128,6 +197,8 @@ export function HermesPage(): JSX.Element | null {
     }
   }
   const activeUrl = mode === 'native' ? nativeUrl : gatewayUrl
+  const saveError =
+    saveErrors.mode ?? (mode === 'native' ? saveErrors.nativeUrl : saveErrors.gatewayUrl) ?? null
 
   return (
     <>
@@ -143,7 +214,9 @@ export function HermesPage(): JSX.Element | null {
         <div className="set-row">
           <div className="set-row-text">
             <div className="set-row-title">Enable Hermes</div>
-            <div className="set-row-desc">Adds a Hermes section to the sidebar. Off by default.</div>
+            <div className="set-row-desc">
+              Adds a Hermes section to the sidebar. Off by default.
+            </div>
           </div>
           <Toggle
             ariaLabel="Enable Hermes"
@@ -162,7 +235,7 @@ export function HermesPage(): JSX.Element | null {
               <Select
                 ariaLabel="Connection mode"
                 value={mode}
-                onChange={(nextMode) => void selectMode(nextMode)}
+                onChange={selectMode}
                 options={[
                   { value: 'native', label: 'Native Platform' },
                   { value: 'legacy', label: 'Legacy API' }
@@ -186,11 +259,12 @@ export function HermesPage(): JSX.Element | null {
                     placeholder="ws://umzspark:8643"
                     value={nativeUrl}
                     onChange={(e) => {
+                      ++nativeUrlSaveOwner.current.generation
                       nativeUrlDirty.current = true
-                      setSaveError(null)
+                      clearSaveError('nativeUrl')
                       setNativeUrl(e.target.value)
                     }}
-                    onBlur={() => void saveNativeUrl()}
+                    onBlur={saveNativeUrl}
                   />
                 </div>
                 <div className="hermes-field">
@@ -216,11 +290,12 @@ export function HermesPage(): JSX.Element | null {
                     placeholder="http://100.x.x.x:8642 (Tailscale / tunnel address)"
                     value={gatewayUrl}
                     onChange={(e) => {
+                      ++gatewayUrlSaveOwner.current.generation
                       gatewayUrlDirty.current = true
-                      setSaveError(null)
+                      clearSaveError('gatewayUrl')
                       setGatewayUrl(e.target.value)
                     }}
-                    onBlur={() => void saveGatewayUrl()}
+                    onBlur={saveGatewayUrl}
                   />
                 </div>
                 <div className="hermes-field">
