@@ -1,9 +1,8 @@
 import { join } from 'path'
 import { readFileCapped } from '../fsCapped'
 import { COMMAND_NAME_PATTERN } from '../../shared/types'
+import { MAX_IMPORT_BYTES } from './hash'
 import type { DetectedSource } from './types'
-
-const MAX_IMPORT_BYTES = 64 * 1024
 
 export interface WorkflowCandidate {
   sourcePath: string

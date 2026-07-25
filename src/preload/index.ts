@@ -7,13 +7,13 @@ import type {
   BearcodeApi,
   CommandRef,
   ConversationMeta,
-  DetectedSource,
   EffortLevel,
   Event,
   GithubDeviceStart,
   HookAuthoringInput,
   HookEvent,
   HookRecord,
+  ImportCandidate,
   ImportedConfigRow,
   ImportSelection,
   ImportSummary,
@@ -217,7 +217,7 @@ const bearcode: BearcodeApi = {
   configImport: {
     scan: (
       projectPath: string
-    ): Promise<{ candidates: DetectedSource[]; showBanner: boolean }> =>
+    ): Promise<{ candidates: ImportCandidate[]; showBanner: boolean }> =>
       ipcRenderer.invoke('bearcode:config-import:scan', projectPath),
     apply: (projectPath: string, selection: ImportSelection): Promise<ImportSummary> =>
       ipcRenderer.invoke('bearcode:config-import:apply', projectPath, selection),

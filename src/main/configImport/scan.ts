@@ -10,17 +10,28 @@ const INSTRUCTION_FILES: { rel: string; tool: ImportTool }[] = [
   { rel: '.windsurfrules', tool: 'windsurf' }
 ]
 
-function listMdFilesRel(projectPath: string, dirRel: string): string[] {
+// `.md` everywhere, plus `.mdc` for the Cursor/Windsurf rules directories:
+// Cursor's modern project-rules format IS `.cursor/rules/*.mdc` (MDC, with
+// description/globs/alwaysApply frontmatter), and plain `.md` there is the
+// unusual case -- filtering on `.md` alone found nothing for real Cursor
+// users (final review Finding 8).
+function listMdFilesRel(
+  projectPath: string,
+  dirRel: string,
+  exts: string[] = ['.md']
+): string[] {
   const dir = join(projectPath, dirRel)
   if (!existsSync(dir)) return []
   try {
     return readdirSync(dir)
-      .filter((f) => f.endsWith('.md'))
+      .filter((f) => exts.some((e) => f.endsWith(e)))
       .map((f) => join(dirRel, f))
   } catch {
     return []
   }
 }
+
+const RULE_DIR_EXTS = ['.md', '.mdc']
 
 function listSkillDirsRel(projectPath: string, dirRel: string): string[] {
   const dir = join(projectPath, dirRel)
@@ -44,10 +55,10 @@ export function scanImportableConfig(projectPath: string): DetectedSource[] {
       found.push({ sourcePath: rel, kind: 'rule', tool })
     }
   }
-  for (const rel of listMdFilesRel(projectPath, join('.cursor', 'rules'))) {
+  for (const rel of listMdFilesRel(projectPath, join('.cursor', 'rules'), RULE_DIR_EXTS)) {
     found.push({ sourcePath: rel, kind: 'rule', tool: 'cursor' })
   }
-  for (const rel of listMdFilesRel(projectPath, join('.windsurf', 'rules'))) {
+  for (const rel of listMdFilesRel(projectPath, join('.windsurf', 'rules'), RULE_DIR_EXTS)) {
     found.push({ sourcePath: rel, kind: 'rule', tool: 'windsurf' })
   }
   for (const rel of listMdFilesRel(projectPath, join('.claude', 'commands'))) {
@@ -66,7 +77,14 @@ const REMIND_AFTER_MS = 7 * 24 * 60 * 60 * 1000
 
 // Pure decision function (no Date.now() inside — the caller supplies `nowMs`
 // so this stays trivially testable). Shows the banner when at least one
-// detected source has no DB row at all, or was dismissed >= 7 days ago.
+// IMPORTABLE detected source has no DB row at all, or was dismissed >= 7 days
+// ago.
+//
+// 'unsupported' sources (e.g. `.claude/agents/*.md`, common in real repos) are
+// excluded from the decision (final review Finding 2): the renderer's
+// dismissImportBanner only ever dismisses kind !== 'unsupported' paths, so an
+// unsupported source could never get a `dismissed` row and would make the
+// banner reappear on every folder open, forever, un-silenceable via "Not now".
 export function shouldShowImportBanner(
   detected: DetectedSource[],
   known: ImportedConfigRow[],
@@ -74,6 +92,7 @@ export function shouldShowImportBanner(
 ): boolean {
   const byPath = new Map(known.map((k) => [k.sourcePath, k]))
   return detected.some((d) => {
+    if (d.kind === 'unsupported') return false
     const row = byPath.get(d.sourcePath)
     if (!row) return true
     if (row.status === 'dismissed') {

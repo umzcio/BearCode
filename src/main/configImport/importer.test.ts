@@ -159,6 +159,37 @@ describe('applyImportSelection', () => {
     ).toBe(true)
   })
 
+  // Final whole-branch review, Finding 1 (critical): import-time inlining is
+  // one-shot and irreversible -- the `@` token is gone from the written file --
+  // so it MUST pass through the same outside-of-folder consent gate the live
+  // loader applies. With no project_settings row the policy defaults to 'ask',
+  // which drops the ref (and records it pending for OutsideAccessCard) rather
+  // than silently baking somebody else's file into a project rule.
+  it('does not inline an out-of-workspace @ref under the default ask policy', () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bearcode-importer-outside-'))
+    const outsideFile = join(outsideDir, 'secret.md')
+    writeFileSync(outsideFile, 'OUTSIDE SECRET.')
+    writeFileSync(join(dir, 'CLAUDE.md'), `Follow @${outsideFile} closely.`)
+    applyImportSelection(dir, { rules: ['CLAUDE.md'], workflows: [], skills: [] })
+    const written = readFileSync(join(dir, '.agents', 'rules', 'claude.md'), 'utf8')
+    expect(written).not.toContain('OUTSIDE SECRET.')
+    expect(written).toContain(`@${outsideFile}`)
+    rmSync(outsideDir, { recursive: true, force: true })
+  })
+
+  // Final review Minor: a duplicated sourcePath used to import twice, leaving a
+  // pointless "-imported" copy with only the last write tracked in the DB.
+  it('imports a duplicated sourcePath only once', () => {
+    writeFileSync(join(dir, 'CLAUDE.md'), 'Always use tabs.')
+    const summary = applyImportSelection(dir, {
+      rules: ['CLAUDE.md', 'CLAUDE.md'],
+      workflows: [],
+      skills: []
+    })
+    expect(summary.rulesImported).toBe(1)
+    expect(existsSync(join(dir, '.agents', 'rules', 'claude-imported.md'))).toBe(false)
+  })
+
   it('skips a selection whose candidate no longer builds (e.g. file deleted)', () => {
     const summary = applyImportSelection(dir, { rules: ['GONE.md'], workflows: [], skills: [] })
     expect(summary.rulesImported).toBe(0)

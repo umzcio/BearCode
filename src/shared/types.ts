@@ -1327,6 +1327,20 @@ export interface DetectedSource {
   kind: ImportKind
   tool: ImportTool
 }
+// Parse-aware view of a DetectedSource, returned by configImport.scan (final
+// review Finding 6). The raw DetectedSource alone said nothing about whether a
+// source actually TRANSLATES, so an empty CLAUDE.md, a non-kebab-case command
+// filename, or a SKILL.md missing its required description all showed up
+// pre-checked and importable, then silently imported as 0 items with no
+// explanation. `buildable: false` means "couldn't parse — skipped"; `preview`
+// is a short excerpt of the translated body/description; `warnings` are the
+// translator's own notices (truncation, unresolved `@refs`), which were
+// previously computed and then discarded by every consumer.
+export interface ImportCandidate extends DetectedSource {
+  buildable: boolean
+  preview?: string
+  warnings?: string[]
+}
 export interface ImportSelection {
   rules: string[]
   workflows: string[]
@@ -1632,7 +1646,7 @@ export interface BearcodeApi {
   // import the user's picked subset into .agents/, and keep imported sources
   // reconciled against upstream edits (check/apply/ignore update, detach).
   configImport: {
-    scan(projectPath: string): Promise<{ candidates: DetectedSource[]; showBanner: boolean }>
+    scan(projectPath: string): Promise<{ candidates: ImportCandidate[]; showBanner: boolean }>
     apply(projectPath: string, selection: ImportSelection): Promise<ImportSummary>
     dismiss(projectPath: string, sourcePaths: string[]): Promise<void>
     listImported(projectPath: string): Promise<ImportedConfigRow[]>
