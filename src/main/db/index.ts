@@ -111,6 +111,19 @@ function getDb(): Database.Database {
       default_effort TEXT,
       default_permission_mode TEXT
     );
+    CREATE TABLE IF NOT EXISTS imported_config_sources (
+      id TEXT PRIMARY KEY,
+      project_path TEXT NOT NULL,
+      source_path TEXT NOT NULL,
+      source_hash TEXT,
+      imported_as_type TEXT,
+      imported_as_name TEXT,
+      status TEXT NOT NULL,
+      dismissed_at INTEGER,
+      created_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_imported_config_source
+      ON imported_config_sources(project_path, source_path);
     CREATE TABLE IF NOT EXISTS ursa_pipeline (
       conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
       steps_json TEXT NOT NULL,
@@ -1177,6 +1190,112 @@ export function listOutsidePaths(path: string): OutsideAccessInfo {
 export function getOutsidePolicy(path: string): OutsidePolicy {
   const l = listOutsidePaths(path)
   return { policy: l.policy, allowed: l.allowed, denied: l.denied }
+}
+
+// ---- Imported Config Sources (Agent Config Import) ----
+
+export interface ImportedConfigRow {
+  id: string
+  projectPath: string
+  sourcePath: string
+  sourceHash: string | null
+  importedAsType: 'rule' | 'workflow' | 'skill' | null
+  importedAsName: string | null
+  status: 'imported' | 'dismissed'
+  dismissedAt: number | null
+  createdAt: number
+}
+
+interface ImportedConfigDbRow {
+  id: string
+  project_path: string
+  source_path: string
+  source_hash: string | null
+  imported_as_type: string | null
+  imported_as_name: string | null
+  status: string
+  dismissed_at: number | null
+  created_at: number
+}
+
+function rowToImportedConfig(r: ImportedConfigDbRow): ImportedConfigRow {
+  return {
+    id: r.id,
+    projectPath: r.project_path,
+    sourcePath: r.source_path,
+    sourceHash: r.source_hash,
+    importedAsType: r.imported_as_type as ImportedConfigRow['importedAsType'],
+    importedAsName: r.imported_as_name,
+    status: r.status as ImportedConfigRow['status'],
+    dismissedAt: r.dismissed_at,
+    createdAt: r.created_at
+  }
+}
+
+export function upsertImportedConfig(
+  projectPath: string,
+  sourcePath: string,
+  patch: Partial<Omit<ImportedConfigRow, 'id' | 'projectPath' | 'sourcePath'>>
+): void {
+  const database = getDb()
+  const id = randomUUID()
+  const createdAt = patch.createdAt ?? Date.now()
+  database
+    .prepare(
+      `INSERT OR IGNORE INTO imported_config_sources
+         (id, project_path, source_path, status, created_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(id, projectPath, sourcePath, patch.status ?? 'imported', createdAt)
+
+  const cols: string[] = []
+  const vals: (string | number | null)[] = []
+  if (patch.sourceHash !== undefined) {
+    cols.push('source_hash = ?')
+    vals.push(patch.sourceHash)
+  }
+  if (patch.importedAsType !== undefined) {
+    cols.push('imported_as_type = ?')
+    vals.push(patch.importedAsType)
+  }
+  if (patch.importedAsName !== undefined) {
+    cols.push('imported_as_name = ?')
+    vals.push(patch.importedAsName)
+  }
+  if (patch.status !== undefined) {
+    cols.push('status = ?')
+    vals.push(patch.status)
+  }
+  if (patch.dismissedAt !== undefined) {
+    cols.push('dismissed_at = ?')
+    vals.push(patch.dismissedAt)
+  }
+  if (cols.length === 0) return
+  database
+    .prepare(
+      `UPDATE imported_config_sources SET ${cols.join(', ')} WHERE project_path = ? AND source_path = ?`
+    )
+    .run(...vals, projectPath, sourcePath)
+}
+
+export function getImportedConfig(projectPath: string, sourcePath: string): ImportedConfigRow | null {
+  const row = getDb()
+    .prepare(`SELECT * FROM imported_config_sources WHERE project_path = ? AND source_path = ?`)
+    .get(projectPath, sourcePath) as ImportedConfigDbRow | undefined
+  return row ? rowToImportedConfig(row) : null
+}
+
+export function listImportedConfig(projectPath: string): ImportedConfigRow[] {
+  const rows = getDb()
+    .prepare(`SELECT * FROM imported_config_sources WHERE project_path = ?`)
+    .all(projectPath) as ImportedConfigDbRow[]
+  return rows.map(rowToImportedConfig)
+}
+
+export function deleteImportedConfig(projectPath: string, sourcePath: string): void {
+  getDb()
+    .prepare(`DELETE FROM imported_config_sources WHERE project_path = ? AND source_path = ?`)
+    .run(projectPath, sourcePath)
 }
 
 export function setPinned(conversationId: string, pinned: boolean): void {
