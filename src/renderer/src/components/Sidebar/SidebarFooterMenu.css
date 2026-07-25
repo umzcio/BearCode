@@ -1,0 +1,53 @@
+.sb-footer {
+  position: relative;
+  margin-top: auto;
+  padding: 6px 8px 10px;
+  border-top: 1px solid var(--border-soft);
+}
+.sb-name-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 9px;
+  border-radius: 9px;
+  cursor: pointer;
+  color: var(--text-mid);
+  font-size: 13.5px;
+  font-weight: 610;
+  background: none;
+  border: none;
+  text-align: left;
+  font-family: inherit;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.sb-name-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.sb-name-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.sb-name-btn .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb-name-btn svg {
+  width: 13px;
+  height: 13px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.sb-name-btn[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.acct-menu {
+  min-width: 200px;
+}
