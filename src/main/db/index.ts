@@ -1194,6 +1194,8 @@ export function getOutsidePolicy(path: string): OutsidePolicy {
 
 // ---- Imported Config Sources (Agent Config Import) ----
 
+export type ImportedConfigStatus = 'imported' | 'dismissed'
+
 export interface ImportedConfigRow {
   id: string
   projectPath: string
@@ -1201,7 +1203,7 @@ export interface ImportedConfigRow {
   sourceHash: string | null
   importedAsType: 'rule' | 'workflow' | 'skill' | null
   importedAsName: string | null
-  status: 'imported' | 'dismissed'
+  status: ImportedConfigStatus
   dismissedAt: number | null
   createdAt: number
 }
