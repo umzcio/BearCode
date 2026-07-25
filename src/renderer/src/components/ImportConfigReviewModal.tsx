@@ -105,7 +105,7 @@ export function ImportConfigReviewModal(): JSX.Element | null {
       .then((summary) => {
         setImporting(false)
         setSummaryText(
-          `Imported ${summary.rulesImported} rule(s), ${summary.workflowsImported} workflow(s), ${summary.skillsImported} skill(s).`
+          `Imported ${summary.rulesImported} rule(s), ${summary.workflowsImported} workflow(s), ${summary.skillsImported} skill(s), ${summary.mcpServersImported} connector(s).`
         )
       })
       // Without this the button stayed "Importing…" forever on any rejection,
