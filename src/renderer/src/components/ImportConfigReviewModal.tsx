@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
-import type { DetectedSource } from '@shared/types'
+import type { ImportCandidate } from '@shared/types'
 import { useAppStore } from '../state/store'
 import { useAnimatedUnmount } from '../lib/useAnimatedUnmount'
 import { EmptyState } from './ui/EmptyState'
 
-const KIND_LABEL: Record<DetectedSource['kind'], string> = {
+const KIND_LABEL: Record<ImportCandidate['kind'], string> = {
   rule: 'Import as Rule',
   workflow: 'Import as Workflow',
   skill: 'Import as Skill',
@@ -23,7 +23,14 @@ export function ImportConfigReviewModal(): JSX.Element | null {
   const applySelection = useAppStore((s) => s.applyImportSelection)
   const { mounted, state } = useAnimatedUnmount(importReviewOpen)
 
-  const importable = candidates.filter((c) => c.kind !== 'unsupported')
+  // Three buckets, not two (final review Finding 6): a source can be a
+  // recognized kind and still fail to translate (an empty CLAUDE.md, a
+  // non-kebab-case command filename, a SKILL.md missing its required
+  // `description`). Those used to render pre-checked and importable, then
+  // import as 0 items with no explanation -- they are now shown, disabled,
+  // with a reason, and can never enter the selection.
+  const importable = candidates.filter((c) => c.kind !== 'unsupported' && c.buildable)
+  const skipped = candidates.filter((c) => c.kind !== 'unsupported' && !c.buildable)
   const unsupported = candidates.filter((c) => c.kind === 'unsupported')
 
   const [selected, setSelected] = useState<Set<string>>(
@@ -31,6 +38,7 @@ export function ImportConfigReviewModal(): JSX.Element | null {
   )
   const [importing, setImporting] = useState(false)
   const [summaryText, setSummaryText] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   // Esc closes only this modal, not whatever else is open behind it. Intercept
   // in the CAPTURE phase and stop propagation, matching BrowseSmitheryModal.
@@ -55,6 +63,7 @@ export function ImportConfigReviewModal(): JSX.Element | null {
     if (importReviewOpen) {
       setSelected(new Set(importable.map((c) => c.sourcePath)))
       setSummaryText(null)
+      setError(null)
       setImporting(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally re-derives only on open, not on every `importable`/`candidates` change while already open
@@ -73,6 +82,7 @@ export function ImportConfigReviewModal(): JSX.Element | null {
 
   const doImport = (): void => {
     setImporting(true)
+    setError(null)
     const selection = {
       rules: importable.filter((c) => c.kind === 'rule' && selected.has(c.sourcePath)).map((c) => c.sourcePath),
       workflows: importable
@@ -80,12 +90,19 @@ export function ImportConfigReviewModal(): JSX.Element | null {
         .map((c) => c.sourcePath),
       skills: importable.filter((c) => c.kind === 'skill' && selected.has(c.sourcePath)).map((c) => c.sourcePath)
     }
-    void applySelection(selection).then((summary) => {
-      setImporting(false)
-      setSummaryText(
-        `Imported ${summary.rulesImported} rule(s), ${summary.workflowsImported} workflow(s), ${summary.skillsImported} skill(s).`
-      )
-    })
+    void applySelection(selection)
+      .then((summary) => {
+        setImporting(false)
+        setSummaryText(
+          `Imported ${summary.rulesImported} rule(s), ${summary.workflowsImported} workflow(s), ${summary.skillsImported} skill(s).`
+        )
+      })
+      // Without this the button stayed "Importing…" forever on any rejection,
+      // with nothing shown to the user (final review Finding 5).
+      .catch((e: unknown) => {
+        setImporting(false)
+        setError(e instanceof Error ? e.message : 'Import failed')
+      })
   }
 
   return createPortal(
@@ -99,7 +116,7 @@ export function ImportConfigReviewModal(): JSX.Element | null {
           <div>
             <div className="page-title">Review &amp; Import</div>
             <div className="smithery-sub">
-              {summaryText ?? 'Choose what to bring into BearCode.'}
+              {error ?? summaryText ?? 'Choose what to bring into BearCode.'}
             </div>
           </div>
           <button className="pill-btn" onClick={closeReview}>
@@ -110,27 +127,51 @@ export function ImportConfigReviewModal(): JSX.Element | null {
           <EmptyState title="Nothing detected" />
         ) : (
           <>
-            {importable.map((c) => (
-              <label key={c.sourcePath} className="set-row">
-                <input
-                  type="checkbox"
-                  checked={selected.has(c.sourcePath)}
-                  onChange={() => toggle(c.sourcePath)}
-                />
-                <div className="set-row-text">
-                  <div className="set-row-title">{c.sourcePath}</div>
-                  <div className="set-row-desc">{KIND_LABEL[c.kind]}</div>
+            {/* Scroll the LIST, not the panel (final review Finding 7): the
+                panel itself is overflow:hidden with a capped max-height, so
+                rows rendered as its direct children pushed the Import button
+                out of the clipped area past ~9-10 candidates (easily reached
+                by a real .cursor/rules/ directory) and made it unreachable.
+                Same wrapper BrowseSmitheryModal uses for the same reason. */}
+            <div className="smithery-results">
+              {importable.map((c) => (
+                <label key={c.sourcePath} className="set-row">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(c.sourcePath)}
+                    onChange={() => toggle(c.sourcePath)}
+                  />
+                  <div className="set-row-text">
+                    <div className="set-row-title">{c.sourcePath}</div>
+                    <div className="set-row-desc">{KIND_LABEL[c.kind]}</div>
+                    {c.preview ? <div className="import-preview">{c.preview}</div> : null}
+                    {c.warnings?.length ? (
+                      <div className="import-warning">
+                        {c.warnings.length === 1
+                          ? c.warnings[0]
+                          : `${c.warnings.length} translation warnings: ${c.warnings.join('; ')}`}
+                      </div>
+                    ) : null}
+                  </div>
+                </label>
+              ))}
+              {skipped.map((c) => (
+                <div className="set-row import-skipped" key={c.sourcePath}>
+                  <div className="set-row-text">
+                    <div className="set-row-title">{c.sourcePath}</div>
+                    <div className="set-row-desc">Couldn&apos;t parse — skipped</div>
+                  </div>
                 </div>
-              </label>
-            ))}
-            {unsupported.map((c) => (
-              <div className="set-row" key={c.sourcePath}>
-                <div className="set-row-text">
-                  <div className="set-row-title">{c.sourcePath}</div>
-                  <div className="set-row-desc">{KIND_LABEL[c.kind]}</div>
+              ))}
+              {unsupported.map((c) => (
+                <div className="set-row import-skipped" key={c.sourcePath}>
+                  <div className="set-row-text">
+                    <div className="set-row-title">{c.sourcePath}</div>
+                    <div className="set-row-desc">{KIND_LABEL[c.kind]}</div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
             <button
               className="pill-btn primary"
               disabled={selected.size === 0 || importing || summaryText !== null}
