@@ -91,4 +91,49 @@ describe('TerminalView', () => {
     expect(screen.getByTestId('pane-t1').dataset.active).toBe('false')
     expect(screen.getByTestId('pane-t2').dataset.active).toBe('true')
   })
+
+  it('shows an error alert (not a blank view) when the initial hydration list() rejects', async () => {
+    vi.mocked(window.bearcode.terminal.list).mockRejectedValueOnce(new Error('boom: no such folder'))
+    render(<TerminalView path="/proj/a" />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('boom: no such folder')
+    // The failed hydration must not have silently spawned a tab either.
+    expect(useAppStore.getState().terminalTabs['/proj/a'] ?? []).toHaveLength(0)
+  })
+
+  it('shows an error alert when the auto-create-on-hydrate call rejects', async () => {
+    vi.mocked(window.bearcode.terminal.create).mockRejectedValueOnce(new Error('spawn failed'))
+    render(<TerminalView path="/proj/a" />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('spawn failed')
+  })
+
+  it('shows the shared empty state (not a blank pane) after the user closes every open tab', async () => {
+    // This path already had a tab at mount, so the hydration effect's
+    // early-return branch runs (no list()/create() involved) and marks
+    // hydration complete immediately. Simulate the user closing that last
+    // tab -- `tabs` drops to zero with no error, which is exactly the
+    // "nothing left to show" case the empty state covers.
+    useAppStore.setState({
+      terminalTabs: { '/proj/a': [{ id: 't1', title: 'zsh', exited: false }] },
+      activeTerminalTab: { '/proj/a': 't1' }
+    })
+    render(<TerminalView path="/proj/a" />)
+    expect(screen.queryByText('No terminal sessions')).not.toBeInTheDocument()
+
+    useAppStore.setState({ terminalTabs: { '/proj/a': [] }, activeTerminalTab: { '/proj/a': undefined } })
+    expect(await screen.findByText('No terminal sessions')).toBeInTheDocument()
+  })
+
+  it('clicking + surfaces an error alert instead of an unhandled rejection when create fails', async () => {
+    useAppStore.setState({
+      terminalTabs: { '/proj/a': [{ id: 't1', title: 'zsh', exited: false }] },
+      activeTerminalTab: { '/proj/a': 't1' }
+    })
+    vi.mocked(window.bearcode.terminal.create).mockRejectedValueOnce(new Error('too many terminals'))
+    render(<TerminalView path="/proj/a" />)
+    fireEvent.click(screen.getByLabelText('New terminal tab'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('too many terminals')
+    // The existing tab/pane must still be there -- a failed second create
+    // must not tear down what was already running.
+    expect(screen.getByTestId('pane-t1')).toBeInTheDocument()
+  })
 })

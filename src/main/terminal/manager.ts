@@ -18,10 +18,31 @@ function defaultShell(): string {
 
 // node-pty's spawn() env option rejects `undefined` values that
 // `process.env`'s type permits; strip them rather than casting past the type.
+//
+// This also returns a *copy* of `process.env`, which means node-pty's own
+// identity check (`opt.env === process.env`) in `_sanitizeEnv()` never fires
+// for the object we pass -- so we replicate that sanitization here: strip the
+// terminal-multiplexer/geometry vars it would otherwise strip, so they don't
+// leak into the spawned shell and misrender full-screen TUIs (COLUMNS/LINES
+// in particular would contradict the real pty geometry FitAddon negotiates).
+const LEAKED_ENV_KEYS = [
+  'TMUX',
+  'TMUX_PANE',
+  'STY',
+  'WINDOW',
+  'WINDOWID',
+  'TERMCAP',
+  'COLUMNS',
+  'LINES'
+] as const
+
 function cleanEnv(env: NodeJS.ProcessEnv): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [k, v] of Object.entries(env)) {
     if (v !== undefined) out[k] = v
+  }
+  for (const key of LEAKED_ENV_KEYS) {
+    delete out[key]
   }
   return out
 }
@@ -48,7 +69,7 @@ class TerminalManager {
     const id = randomUUID()
     const shell = defaultShell()
     const child = pty.spawn(shell, ['-l'], {
-      name: 'xterm-color',
+      name: 'xterm-256color',
       cols: 80,
       rows: 24,
       cwd: projectPath,

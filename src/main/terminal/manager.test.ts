@@ -70,6 +70,53 @@ describe('TerminalManager', () => {
     expect(opts.cwd).toBe('/proj/a')
   })
 
+  it('spawns with a 256-color terminfo name, never the 8-color xterm-color', () => {
+    // Regression test: node-pty forces env.TERM to whatever `name` is passed,
+    // overriding any inherited value. `xterm-color` degrades every TUI
+    // (including `claude`/`codex`, which probe TERM/COLORTERM) to 8/16 colors.
+    terminalManager.create('/proj/a')
+    const spawnMock = vi.mocked(pty.spawn)
+    const opts = spawnMock.mock.calls.at(-1)?.[2] as { name?: string }
+    expect(opts.name).toBe('xterm-256color')
+  })
+
+  it('never leaks terminal-multiplexer/geometry env vars into the spawned shell', () => {
+    // Regression test: node-pty only runs its own `_sanitizeEnv()` (which
+    // strips these same vars) when `opt.env === process.env` by identity.
+    // Passing a *copy* (as `cleanEnv` must, to satisfy the type signature)
+    // defeats that check, so `cleanEnv` itself must strip them.
+    const leaked = {
+      TMUX: '/tmp/tmux-1000/default,1234,0',
+      TMUX_PANE: '%0',
+      STY: '1234.pts-0.host',
+      WINDOW: '0',
+      WINDOWID: '12345',
+      TERMCAP: 'xterm-256color:...',
+      COLUMNS: '80',
+      LINES: '24'
+    }
+    Object.assign(process.env, leaked)
+    try {
+      terminalManager.create('/proj/a')
+      const spawnMock = vi.mocked(pty.spawn)
+      const opts = spawnMock.mock.calls.at(-1)?.[2] as { env?: Record<string, string> }
+      for (const key of [
+        'TMUX',
+        'TMUX_PANE',
+        'STY',
+        'WINDOW',
+        'WINDOWID',
+        'TERMCAP',
+        'COLUMNS',
+        'LINES'
+      ]) {
+        expect(opts.env).not.toHaveProperty(key)
+      }
+    } finally {
+      for (const key of Object.keys(leaked)) delete process.env[key]
+    }
+  })
+
   it('falls back to /bin/zsh when $SHELL is unset', () => {
     const prev = process.env.SHELL
     delete process.env.SHELL
