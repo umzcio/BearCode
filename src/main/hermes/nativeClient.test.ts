@@ -155,6 +155,13 @@ describe('HermesNativeTurn connection state machine', () => {
     expect(sentJson(socket).map((event) => event.type)).toEqual(['hello'])
   })
 
+  it('rejects malformed hello.rejected frames as invalid handshakes', async () => {
+    const { turn, socket } = testHarness()
+    const result = start(turn, socket)
+    socket.server({ type: 'hello.rejected', protocol: 'bearcode-hermes', supportedVersions: [1], error: { code: 'auth.invalid_key', message: 'no', retryable: false }, extra: true })
+    await expect(result).rejects.toMatchObject({ kind: 'protocol', code: 'protocol.invalid_handshake' })
+  })
+
   it('preserves an explicit WebSocket endpoint that already has the native path', async () => {
     const { turn, socket } = testHarness({ url: 'ws://hermes.example.test/v1/bearcode' })
     const result = start(turn, socket)
@@ -199,14 +206,27 @@ describe('HermesNativeTurn connection state machine', () => {
     expect(sentJson(socket).map((event) => event.type)).toEqual(['hello'])
   })
 
-  it('closes a connection attempt that never opens within the establishment deadline', async () => {
+  it('retries one establishment timeout and fails after the second timeout', async () => {
     vi.useFakeTimers()
-    const { turn, socket } = testHarness()
+    const { turn, socket, sockets } = testHarness()
     const result = turn.run()
     const outcome = expect(result).rejects.toMatchObject({ kind: 'network', code: 'network.establishment_timeout' })
-    await vi.advanceTimersByTimeAsync(10_000)
+    await vi.advanceTimersByTimeAsync(20_000)
     await outcome
     expect(socket.closed).toBe(true)
+    expect(sockets).toHaveLength(2)
+  })
+
+  it('retries the first establishment timeout and lets the replacement complete', async () => {
+    vi.useFakeTimers()
+    const { turn, socket, sockets } = testHarness()
+    const result = turn.run()
+    await vi.advanceTimersByTimeAsync(10_000)
+    const retry = sockets[1]!
+    expect(socket.listenerCount('message')).toBe(0)
+    retry.open(); retry.server(helloAccepted()); retry.server(serverEvent('turn.accepted', 1, {})); retry.server(serverEvent('turn.completed', 2, { sessionId: 's' }))
+    await expect(result).resolves.toBe('completed')
+    expect(retry.listenerCount('message')).toBe(0)
   })
 
   it('closes a health probe that opens but never completes hello', async () => {
@@ -373,6 +393,18 @@ describe('HermesNativeTurn connection state machine', () => {
     socket.server(serverEvent('turn.completed', 3, { sessionId: 'session-1' }))
 
     await expect(result).resolves.toBe('completed')
+    expect(await readdir(join(root, 'attachments', ids.conversation))).toEqual([])
+  })
+
+  it('rejects a hash-mismatched completed download only after removing its partial', async () => {
+    const root = await rootDir()
+    const { turn, socket } = testHarness({}, root)
+    const result = start(turn, socket)
+    socket.server(helloAccepted()); socket.server(serverEvent('turn.accepted', 1, {}))
+    socket.server(serverEvent('attachment.download.begin', 2, { attachment: { id: ids.download, name: 'bad.txt', mime: 'text/plain', kind: 'text', sizeBytes: 1, sha256: '0'.repeat(64) } }))
+    socket.binary(encodeBinaryFrame({ direction: 'download', attachmentId: ids.download, chunkIndex: 0, final: true, payload: Buffer.from('x') }))
+    socket.server(serverEvent('attachment.download.completed', 3, { attachmentId: ids.download }))
+    await expect(result).rejects.toMatchObject({ kind: 'file' })
     expect(await readdir(join(root, 'attachments', ids.conversation))).toEqual([])
   })
 
@@ -551,7 +583,7 @@ describe('HermesNativeTurn connection state machine', () => {
     const socket = new FakeWebSocket()
     const result = checkHermesNativeHealth('ws://hermes.example.test', 'platform-secret', ids.installation, { createWebSocket: () => socket as never })
     socket.open()
-    socket.server({ type: 'hello.rejected', error: { code, message: 'rejected', retryable: false } })
+    socket.server({ type: 'hello.rejected', protocol: 'bearcode-hermes', supportedVersions: [1], error: { code, message: 'rejected', retryable: false } })
     await expect(result).resolves.toEqual({ ok: false, message })
   })
 

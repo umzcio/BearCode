@@ -110,6 +110,12 @@ const HelloAcceptedSchema = z.object({
   }).strict()
 }).strict()
 
+const WireErrorSchema = z.object({ code: z.string(), message: z.string(), retryable: z.boolean() }).strict()
+const HelloRejectedSchema = z.object({
+  type: z.literal('hello.rejected'), protocol: z.literal(HERMES_PROTOCOL),
+  supportedVersions: z.array(z.number().int()), error: WireErrorSchema
+}).strict()
+
 function defaultDeps(): NativeClientDeps {
   return {
     createWebSocket: (url, options) => new WebSocket(url, options),
@@ -159,9 +165,7 @@ function isHelloAccepted(value: unknown): boolean {
 }
 
 function isHelloRejected(value: unknown): value is { type: string; error: { code: string; message: string; retryable: boolean } } {
-  const event = value as { type?: unknown; error?: unknown }
-  const error = event.error as Record<string, unknown> | undefined
-  return event.type === 'hello.rejected' && typeof error?.code === 'string' && typeof error.message === 'string' && typeof error.retryable === 'boolean'
+  return HelloRejectedSchema.safeParse(value).success
 }
 
 export class HermesNativeTurn {
@@ -186,6 +190,7 @@ export class HermesNativeTurn {
   private settled = false
   private settling = false
   private accepted_ = false
+  private listeners: { connection: WebSocket; open: () => void; message: (raw: WebSocket.RawData, binary: boolean) => void; error: (error: Error) => void; close: () => void } | undefined
 
   constructor(
     private readonly options: HermesNativeTurnOptions,
@@ -247,7 +252,7 @@ export class HermesNativeTurn {
     this.clearEstablishmentTimer()
     this.establishmentTimer = setTimeout(() => {
       if (!this.settled && !this.helloComplete) {
-        this.fail(new HermesNativeClientError(
+        this.handleConnectionFailure(new HermesNativeClientError(
           'Native Hermes connection establishment timed out',
           'network',
           'network.establishment_timeout'
@@ -264,21 +269,23 @@ export class HermesNativeTurn {
       return
     }
     this.connection = connection
-    connection.on('open', () => {
+    const open = (): void => {
       if (this.connection !== connection || this.settled) return
       try {
         connection.send(helloFrame(this.options.conversationId, this.options.installationId))
       } catch (error) {
         this.handleConnectionFailure(error)
       }
-    })
-    connection.on('message', (raw, binary) => {
+    }
+    const message = (raw: WebSocket.RawData, binary: boolean): void => {
       this.messageChain = this.messageChain
         .then(() => this.handleMessage(connection, raw, binary))
         .catch((error: unknown) => this.fail(this.asProtocolError(error)))
-    })
-    connection.on('error', (error) => this.handleConnectionFailure(error))
-    connection.on('close', () => this.handleConnectionClose(connection))
+    }
+    const error = (value: Error): void => this.handleConnectionFailure(value)
+    const close = (): void => this.handleConnectionClose(connection)
+    this.listeners = { connection, open, message, error, close }
+    connection.on('open', open); connection.on('message', message); connection.on('error', error); connection.on('close', close)
   }
 
   private async handleMessage(connection: WebSocket, raw: WebSocket.RawData, binary: boolean): Promise<void> {
@@ -505,11 +512,12 @@ export class HermesNativeTurn {
       this.startedFlow = false
       const previous = this.connection
       this.connection = undefined
+      this.detachListeners(previous)
       previous?.close()
       this.openConnection()
       return
     }
-    this.fail(new HermesNativeClientError(message, 'network', 'network.disconnected'))
+    this.fail(error instanceof HermesNativeClientError ? error : new HermesNativeClientError(message, 'network', 'network.disconnected'))
   }
 
   private handleConnectionClose(connection: WebSocket): void {
@@ -565,9 +573,13 @@ export class HermesNativeTurn {
     } catch (error) {
       cleanupError = this.asFileError(error)
     }
+    this.detachListeners(this.connection)
     this.connection?.close()
     this.settling = false
-    if (failure) this.rejectResult?.(failure)
+    if (failure) {
+      if (cleanupError && !(failure as Error & { cause?: unknown }).cause) (failure as Error & { cause?: unknown }).cause = cleanupError
+      this.rejectResult?.(failure)
+    }
     else if (cleanupError) this.rejectResult?.(cleanupError)
     else this.resolveResult?.(result!)
   }
@@ -583,6 +595,15 @@ export class HermesNativeTurn {
   private clearEstablishmentTimer(): void {
     if (this.establishmentTimer) clearTimeout(this.establishmentTimer)
     this.establishmentTimer = undefined
+  }
+
+  private detachListeners(connection: WebSocket | undefined): void {
+    if (!connection || this.listeners?.connection !== connection) return
+    connection.off('open', this.listeners.open)
+    connection.off('message', this.listeners.message)
+    connection.off('error', this.listeners.error)
+    connection.off('close', this.listeners.close)
+    this.listeners = undefined
   }
 }
 
