@@ -12,6 +12,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { buildCandidateViews, previewOf } from './candidateViews'
 import { scanImportableConfig } from './scan'
+import type { DetectedSource } from './types'
 
 describe('previewOf', () => {
   it('collapses whitespace onto one line', () => {
@@ -155,7 +156,7 @@ describe('buildCandidateViews', () => {
     // 'unsupported' sources already skip parsing for their own reason (not
     // yet a translatable kind) -- they must not eat into the budget meant for
     // kinds that actually attempt a parse.
-    const detected = Array.from({ length: 200 }, (_, i) => ({
+    const detected: DetectedSource[] = Array.from({ length: 200 }, (_, i) => ({
       sourcePath: `unsupported-${i}.md`,
       kind: 'unsupported' as const,
       tool: 'claude-code' as const
