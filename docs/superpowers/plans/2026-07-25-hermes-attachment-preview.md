@@ -179,7 +179,7 @@ git commit -m "feat: verify stored Hermes attachments"
 - Modify: `src/main/preview/protocol.test.ts`
 - Reference: `src/main/preview/classify.ts`
 - Reference: `src/main/attachments/office.ts`
-- Reference: `src/main/preview/text.ts`
+- Reference: `src/main/attachments/extract.ts`
 - Reference: `src/main/db/index.ts`
 
 - [ ] **Step 1: Specify a byte-oriented shared preview renderer**
