@@ -71,9 +71,10 @@ import {
   hasSpawnConsent,
   grantSpawnConsent,
   revokeSpawnConsent,
-  invalidateStaleConsentOnImport
+  invalidateStaleConsentOnImport,
+  importDiscoveredServers
 } from './store'
-import type { McpServerConfig } from '../../shared/types'
+import type { McpServerConfig, DiscoveredMcpServer } from '../../shared/types'
 
 const GLOBAL_PATH = '/fake-home/.bearcode/agents/mcp.json'
 const PROJECT_PATH = '/proj/.agents/mcp.json'
@@ -451,5 +452,66 @@ describe('invalidateStaleConsentOnImport', () => {
     expect(invalidateStaleConsentOnImport(incoming, null)).toBe(true)
     expect(isEnabled('api')).toBe(false)
     expect(isTrusted('api', 'global', null)).toBe(false)
+  })
+})
+
+describe('importDiscoveredServers', () => {
+  beforeEach(() => {
+    fakeFiles.clear()
+    fakeSettings = {}
+  })
+
+  it('persists a valid stdio and a valid http server', () => {
+    const servers: DiscoveredMcpServer[] = [
+      {
+        name: 'filesystem',
+        origin: 'claude-settings-json',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', 'mcp-fs']
+      },
+      { name: 'github', origin: 'cursor-mcp-json', transport: 'http', url: 'https://example.com/mcp' }
+    ]
+    const imported = importDiscoveredServers(servers, '/fake/project')
+    expect(imported).toHaveLength(2)
+    expect(imported.map((c) => c.name)).toEqual(['filesystem', 'github'])
+  })
+
+  it('scopes any non-claude-desktop origin to project when a projectPath is given', () => {
+    const servers: DiscoveredMcpServer[] = [
+      { name: 'x', origin: 'windsurf-mcp-json', transport: 'http', url: 'https://x' }
+    ]
+    const imported = importDiscoveredServers(servers, '/fake/project')
+    expect(imported[0].source).toBe('project')
+  })
+
+  it('scopes claude-desktop origin to global even with a projectPath given', () => {
+    const servers: DiscoveredMcpServer[] = [
+      { name: 'y', origin: 'claude-desktop', transport: 'http', url: 'https://y' }
+    ]
+    const imported = importDiscoveredServers(servers, '/fake/project')
+    expect(imported[0].source).toBe('global')
+  })
+
+  it('skips an entry with no name or an invalid transport', () => {
+    const servers = [
+      { name: '', origin: 'claude-settings-json', transport: 'http', url: 'https://x' },
+      { name: 'bad', origin: 'claude-settings-json', transport: 'websocket', url: 'https://x' }
+    ] as DiscoveredMcpServer[]
+    expect(importDiscoveredServers(servers, '/fake/project')).toEqual([])
+  })
+
+  it('blanks header/env values so no plaintext secret is ever persisted', () => {
+    const servers: DiscoveredMcpServer[] = [
+      {
+        name: 'secure',
+        origin: 'claude-settings-json',
+        transport: 'http',
+        url: 'https://x',
+        headers: { Authorization: 'Bearer real-secret-value' }
+      }
+    ]
+    const imported = importDiscoveredServers(servers, '/fake/project')
+    expect(imported[0].headers?.Authorization).toBe('')
   })
 })

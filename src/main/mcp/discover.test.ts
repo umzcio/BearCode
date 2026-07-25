@@ -42,6 +42,9 @@ import { discoverLocalServers } from './store'
 
 const DESKTOP_PATH = '/fake-home/Library/Application Support/Claude/claude_desktop_config.json'
 const PROJECT_PATH = '/fake/project/.mcp.json'
+const CLAUDE_SETTINGS_PATH = '/fake/project/.claude/settings.json'
+const CURSOR_MCP_PATH = '/fake/project/.cursor/mcp.json'
+const WINDSURF_MCP_PATH = '/fake/project/.windsurf/mcp.json'
 
 beforeEach(() => {
   fakeFiles.clear()
@@ -134,5 +137,44 @@ describe('discoverLocalServers', () => {
     const before = fakeFiles.get(DESKTOP_PATH)
     discoverLocalServers(null)
     expect(fakeFiles.get(DESKTOP_PATH)).toBe(before)
+  })
+
+  it("discovers servers from .claude/settings.json's mcpServers key", () => {
+    fakeFiles.set(
+      CLAUDE_SETTINGS_PATH,
+      JSON.stringify({ mcpServers: { filesystem: { command: 'npx', args: ['-y', 'mcp-fs'] } } })
+    )
+    const found = discoverLocalServers('/fake/project')
+    expect(found).toContainEqual(
+      expect.objectContaining({ name: 'filesystem', origin: 'claude-settings-json', transport: 'stdio' })
+    )
+  })
+
+  it('discovers servers from .cursor/mcp.json', () => {
+    fakeFiles.set(
+      CURSOR_MCP_PATH,
+      JSON.stringify({ mcpServers: { github: { url: 'https://example.com/mcp' } } })
+    )
+    const found = discoverLocalServers('/fake/project')
+    expect(found).toContainEqual(
+      expect.objectContaining({ name: 'github', origin: 'cursor-mcp-json', transport: 'http' })
+    )
+  })
+
+  it('discovers servers from .windsurf/mcp.json', () => {
+    fakeFiles.set(
+      WINDSURF_MCP_PATH,
+      JSON.stringify({ mcpServers: { search: { url: 'https://example.com/search' } } })
+    )
+    const found = discoverLocalServers('/fake/project')
+    expect(found).toContainEqual(
+      expect.objectContaining({ name: 'search', origin: 'windsurf-mcp-json', transport: 'http' })
+    )
+  })
+
+  it('degrades to empty on malformed JSON in any of the three new files, never throws', () => {
+    fakeFiles.set(CLAUDE_SETTINGS_PATH, 'not json{{{')
+    expect(() => discoverLocalServers('/fake/project')).not.toThrow()
+    expect(discoverLocalServers('/fake/project')).toEqual([])
   })
 })

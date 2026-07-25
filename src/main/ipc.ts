@@ -64,7 +64,7 @@ import {
   hasSpawnConsent as hasMcpSpawnConsent,
   grantSpawnConsent as grantMcpSpawnConsent,
   discoverLocalServers,
-  invalidateStaleConsentOnImport
+  importDiscoveredServers
 } from './mcp/store'
 import { mcpManager } from './mcp/manager'
 import { smitherySearch, fetchSmitheryConfig } from './mcp/registry'
@@ -1140,38 +1140,12 @@ export function registerIpc(): void {
       throw new Error(`Invalid discovered servers: ${String(servers)}`)
     }
     const proj = asProjectPath(projectPath)
-    const blankValues = (o?: Record<string, string>): Record<string, string> | undefined =>
-      o ? Object.fromEntries(Object.keys(o).map((k) => [k, ''])) : undefined
-    const imported: McpServerView[] = []
-    for (const raw of servers as unknown[]) {
-      if (raw == null || typeof raw !== 'object') continue
-      const d = raw as Partial<DiscoveredMcpServer>
-      if (typeof d.name !== 'string' || d.name.trim().length === 0) continue
-      if (d.transport !== 'http' && d.transport !== 'stdio') continue
-      const name = d.name.trim()
-      const source: 'global' | 'project' =
-        d.origin === 'project-mcp-json' && proj ? 'project' : 'global'
-      const cfg: McpServerConfig = {
-        name,
-        transport: d.transport,
-        source,
-        url: d.url,
-        headers: blankValues(d.headers),
-        command: d.command,
-        args: d.args,
-        env: blankValues(d.env)
-      }
-      // An import can bind this foreign config to a NAME whose trust/enable/
-      // spawn-consent state already exists (that state is name-keyed). If the
-      // incoming command/url differs from what that name already runs, drop the
-      // stale consent BEFORE persisting so the spawn-consent + Trust gates
-      // re-fire against the real new command instead of being silently inherited
-      // (G3 review findings 1 & 2).
-      invalidateStaleConsentOnImport(cfg, proj)
-      upsertMcpServer(cfg, proj)
-      imported.push(mcpServerView(cfg, proj))
-    }
-    return imported
+    const validated = (servers as unknown[]).filter(
+      (raw): raw is DiscoveredMcpServer =>
+        raw != null && typeof raw === 'object' && typeof (raw as { name?: unknown }).name === 'string'
+    )
+    const imported = importDiscoveredServers(validated, proj)
+    return imported.map((cfg) => mcpServerView(cfg, proj))
   })
 
   // Agent config import (Task 8): detect another agent tool's rules/
