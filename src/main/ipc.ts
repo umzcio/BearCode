@@ -147,6 +147,7 @@ import {
   readVerifiedStoredAttachment,
   sanitizeAttachmentName
 } from './hermes/attachmentAccess'
+import { saveVerifiedBytes } from './hermes/attachmentSave'
 import { deleteConversationAttachments, openAttachment } from './hermes/nativeFiles'
 import {
   assertValidAttachments,
@@ -414,6 +415,23 @@ export function registerIpc(): void {
       } catch {
         return { kind: 'unsupported', note: 'Attachment could not be loaded' }
       }
+    }
+  )
+  ipcMain.handle(
+    'bearcode:attachments:save',
+    async (_event, conversationId: string, attachmentId: string) => {
+      const verified = await readVerifiedStoredAttachment(
+        app.getPath('userData'),
+        conversationId,
+        attachmentId,
+        db.getEvents(conversationId)
+      )
+      const result = await dialog.showSaveDialog({
+        defaultPath: sanitizeAttachmentName(verified.attachment.name)
+      })
+      if (result.canceled || !result.filePath) return 'cancelled' as const
+      await saveVerifiedBytes(result.filePath, verified.bytes)
+      return 'saved' as const
     }
   )
   // Native Hermes downloads and locally picked files share the same validated

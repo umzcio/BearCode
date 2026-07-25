@@ -103,6 +103,8 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:attachments:read', conversationId, id),
     preview: (conversationId: string, id: string) =>
       ipcRenderer.invoke('bearcode:attachments:preview', conversationId, id),
+    save: (conversationId: string, id: string): Promise<'saved' | 'cancelled'> =>
+      ipcRenderer.invoke('bearcode:attachments:save', conversationId, id),
     open: (conversationId: string, id: string): Promise<void> =>
       ipcRenderer.invoke('bearcode:attachments:open', conversationId, id)
   },

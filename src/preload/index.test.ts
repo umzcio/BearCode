@@ -241,3 +241,19 @@ describe('preload attachment preview bridge', () => {
     )
   })
 })
+
+describe('preload attachment save bridge', () => {
+  it('forwards only opaque conversation and attachment IDs to native Save As', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      attachments: {
+        save: (conversationId: string, id: string) => Promise<'saved' | 'cancelled'>
+      }
+    }
+    invoke.mockClear()
+
+    await bearcode.attachments.save('conv_123', 'att_123')
+
+    expect(invoke).toHaveBeenCalledWith('bearcode:attachments:save', 'conv_123', 'att_123')
+  })
+})

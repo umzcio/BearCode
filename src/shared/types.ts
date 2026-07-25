@@ -1438,6 +1438,7 @@ export interface BearcodeApi {
     // the file is gone or not a recognized image.
     read(conversationId: string, id: string): Promise<string | null>
     preview(conversationId: string, id: string): Promise<PreviewPayload>
+    save(conversationId: string, id: string): Promise<'saved' | 'cancelled'>
     // Opens a verified stored attachment with the operating system's default
     // app. The renderer cannot provide a filesystem path.
     open(conversationId: string, id: string): Promise<void>

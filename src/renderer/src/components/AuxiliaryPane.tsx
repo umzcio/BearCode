@@ -182,6 +182,7 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
     )
     return (
       <AttachmentPanel
+        key={`${sel.conversationId}:${sel.attachmentId}`}
         conversationId={sel.conversationId}
         attachmentId={sel.attachmentId}
         attachment={event?.attachment}
@@ -314,7 +315,22 @@ function AttachmentPanel({
 }): React.JSX.Element {
   const closeReview = useAppStore((s) => s.closeReview)
   const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
+  const showToast = useAppStore((s) => s.showToast)
+  const [savePending, setSavePending] = useState(false)
   const badge = attachment ? attachmentBadge(attachment.name, attachment.mime) : null
+
+  const download = async (): Promise<void> => {
+    if (savePending) return
+    setSavePending(true)
+    try {
+      const result = await window.bearcode.attachments.save(conversationId, attachmentId)
+      if (result === 'saved') showToast('Attachment saved')
+    } catch {
+      showToast('Could not save attachment')
+    } finally {
+      setSavePending(false)
+    }
+  }
 
   return (
     <div className="ap-panel ap-attachment-panel" style={{ flexBasis: auxPaneWidth }}>
@@ -328,6 +344,11 @@ function AttachmentPanel({
         ) : null}
         <div className="ap-spacer" />
         <div className="ap-actions">
+          {attachment ? (
+            <button disabled={savePending} onClick={() => void download()}>
+              Download…
+            </button>
+          ) : null}
           <Hint label="Close panel" side="bottom">
             <button aria-label="Close panel" onClick={closeReview}>
               <IconClose />

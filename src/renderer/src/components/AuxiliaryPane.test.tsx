@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BearcodeApi, Event } from '@shared/types'
 import { useAppStore, type Convo } from '../state/store'
 import { AuxiliaryPane } from './AuxiliaryPane'
 
 const preview = vi.fn()
+const save = vi.fn()
+const showToast = vi.fn()
+const realShowToast = useAppStore.getState().showToast
 
 const returnedAttachment = {
   type: 'assistant_attachment',
@@ -65,12 +68,19 @@ function seedAttachmentSelection(events: Event[] = [returnedAttachment]): void {
 beforeEach(() => {
   preview.mockReset()
   preview.mockResolvedValue({ kind: 'text', text: 'Verified preview body' })
+  save.mockReset()
+  save.mockResolvedValue('cancelled')
+  showToast.mockReset()
   ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
-    attachments: { preview }
+    attachments: { preview, save }
   } as unknown as BearcodeApi
+  useAppStore.setState({ showToast } as never)
 })
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  useAppStore.setState({ showToast: realShowToast } as never)
+})
 
 describe('AuxiliaryPane attachment mode', () => {
   it('shows persisted filename, file badge, and verified size without artifact controls', async () => {
@@ -122,5 +132,66 @@ describe('AuxiliaryPane attachment mode', () => {
 
     expect(screen.getByText('verified-report.pdf')).toBeInTheDocument()
     expect(await screen.findByText('Verified preview body')).toBeInTheDocument()
+  })
+
+  it('routes Download through opaque conversation and attachment IDs', async () => {
+    seedAttachmentSelection()
+    render(<AuxiliaryPane />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download…' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith('conv_123', 'att_123'))
+  })
+
+  it('shows the existing success notification after a saved download', async () => {
+    save.mockResolvedValueOnce('saved')
+    seedAttachmentSelection()
+    render(<AuxiliaryPane />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download…' }))
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('Attachment saved'))
+  })
+
+  it('keeps cancellation silent', async () => {
+    save.mockResolvedValueOnce('cancelled')
+    seedAttachmentSelection()
+    render(<AuxiliaryPane />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download…' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    expect(showToast).not.toHaveBeenCalled()
+  })
+
+  it('shows the existing error notification when saving rejects', async () => {
+    save.mockRejectedValueOnce(new Error('disk full'))
+    seedAttachmentSelection()
+    render(<AuxiliaryPane />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download…' }))
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('Could not save attachment'))
+  })
+
+  it('disables repeated downloads while the selected attachment save is pending', async () => {
+    let finishSave: ((result: 'cancelled') => void) | undefined
+    save.mockReturnValueOnce(
+      new Promise<'cancelled'>((resolve) => {
+        finishSave = resolve
+      })
+    )
+    seedAttachmentSelection()
+    render(<AuxiliaryPane />)
+    const download = screen.getByRole('button', { name: 'Download…' })
+
+    fireEvent.click(download)
+
+    expect(download).toBeDisabled()
+    fireEvent.click(download)
+    expect(save).toHaveBeenCalledTimes(1)
+
+    finishSave?.('cancelled')
+    await waitFor(() => expect(download).not.toBeDisabled())
   })
 })
