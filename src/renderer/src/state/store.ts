@@ -1352,6 +1352,7 @@ export const useAppStore = create<AppState>((set, get) => {
           conversations,
           convoOrder: orderByRecency(conversations),
           view: { kind: 'conversation', id: meta.id },
+          auxSelection: null,
           // Reflect the inherited defaults in the composer for the new session.
           modelRef,
           permissionMode: d.permissionMode,
@@ -1375,6 +1376,7 @@ export const useAppStore = create<AppState>((set, get) => {
           conversations,
           convoOrder: orderByRecency(conversations),
           view: { kind: 'conversation', id: meta.id },
+          auxSelection: null,
           // Mirror newConversationInProject/openConvo: the composer's transient
           // top-level modelRef must be synced to the sentinel immediately, or
           // send()/retryRun() dispatch under whatever model was last active

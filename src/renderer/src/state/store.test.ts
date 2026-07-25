@@ -936,6 +936,23 @@ describe('pin/archive + newConversationInProject store actions', () => {
     expect(window.bearcode.conversations.createHermes).toHaveBeenCalledWith('native')
   })
 
+  it('newHermesConversation clears an attachment selected in the previous conversation', async () => {
+    useAppStore.setState({
+      conversations: { previous: convo({ id: 'previous' }) },
+      view: { kind: 'conversation', id: 'previous' },
+      auxSelection: {
+        kind: 'attachment',
+        conversationId: 'previous',
+        attachmentId: 'att_previous'
+      }
+    })
+
+    await useAppStore.getState().newHermesConversation()
+
+    expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'hermes-1' })
+    expect(useAppStore.getState().auxSelection).toBeNull()
+  })
+
   it('setPinned updates the convo + persists', () => {
     useAppStore.setState({ conversations: { c1: convo() } })
     useAppStore.getState().setPinned('c1', true)
@@ -959,6 +976,24 @@ describe('pin/archive + newConversationInProject store actions', () => {
     await useAppStore.getState().newConversationInProject('/repo/x')
     expect(window.bearcode.conversations.create).toHaveBeenCalledWith('/repo/x')
     expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
+  })
+
+  it('newConversationInProject clears an attachment selected in the previous conversation', async () => {
+    useAppStore.setState({
+      conversations: { previous: convo({ id: 'previous' }) },
+      view: { kind: 'conversation', id: 'previous' },
+      folderSettings: [],
+      auxSelection: {
+        kind: 'attachment',
+        conversationId: 'previous',
+        attachmentId: 'att_previous'
+      }
+    })
+
+    await useAppStore.getState().newConversationInProject('/repo/x')
+
+    expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
+    expect(useAppStore.getState().auxSelection).toBeNull()
   })
 })
 
