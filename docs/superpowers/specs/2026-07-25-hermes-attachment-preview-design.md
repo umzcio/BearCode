@@ -59,9 +59,9 @@ The body renders the attachment with the existing preview vocabulary:
 - Images and PDFs render in place.
 - CSV/XLSX render as tables.
 - DOCX renders through the existing isolated Office extraction worker.
-- HTML runs through the existing sandboxed interactive renderer with scripts
-  enabled, an opaque origin, and no BearCode, parent-page, or local-file
-  access.
+- HTML runs through BearCode's existing `bearcode-preview://` protocol and
+  sandboxed iframe with scripts enabled, an opaque origin, no network, and no
+  BearCode, parent-page, or local-file access.
 - Unsupported, missing, oversized, or corrupt files produce an explicit pane
   message rather than falling back to an operating-system application.
 
@@ -130,9 +130,17 @@ into a reusable main-process function that accepts a trusted display name,
 declared MIME, and verified bytes. Diff previews and attachment previews keep
 their current public IPCs while sharing this internal implementation.
 
-Standalone HTML attachments return the existing interactive HTML preview
-payload. They run in the same sandboxed iframe used by current BearCode
-previews.
+Extend the existing `bearcode-preview://` protocol with an attachment route
+containing only encoded conversation and attachment IDs plus the sanitized
+display name. The protocol handler resolves and verifies the stored attachment
+again on every request and serves it with the existing preview-specific CSP,
+which allows in-document scripts while denying network access and parent-page
+access. It never accepts a renderer-provided filesystem path.
+
+HTML attachments return the existing `html-url` payload pointing at this
+attachment route. Requests for relative companion assets return 404 because a
+native Hermes attachment represents one delivered file; the route never
+expands access to the attachment store or another directory.
 
 ### Download IPC
 
@@ -171,6 +179,8 @@ Main-process tests use real temporary files and cover:
 
 - verified preview payloads for every supported format lane;
 - standalone interactive HTML payloads;
+- attachment preview-protocol routing, CSP, and rejection of relative asset
+  requests;
 - missing transcript metadata and missing stored bytes;
 - invalid IDs and traversal attempts;
 - symbolic-link source and path-substitution attacks;
