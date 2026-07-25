@@ -1314,6 +1314,45 @@ export interface UpdaterStatus {
   checkedAt?: number
 }
 
+// ---- Agent config import (Task 8) ----
+// Renderer-facing shapes for detecting and importing another agent tool's
+// config (Claude Code rules/workflows/skills equivalents from Codex/Cursor/
+// Windsurf) into this project's .agents/ tree. ImportedConfigRow here mirrors
+// main/db/index.ts's ImportedConfigRow field-for-field -- kept as a separate
+// declaration since main-only modules must not be imported by the renderer.
+export type ImportTool = 'claude-code' | 'codex' | 'cursor' | 'windsurf'
+export type ImportKind = 'rule' | 'workflow' | 'skill' | 'unsupported'
+export interface DetectedSource {
+  sourcePath: string
+  kind: ImportKind
+  tool: ImportTool
+}
+export interface ImportSelection {
+  rules: string[]
+  workflows: string[]
+  skills: string[]
+}
+export interface ImportSummary {
+  rulesImported: number
+  workflowsImported: number
+  skillsImported: number
+}
+export type UpdateCheck =
+  | { state: 'up-to-date' }
+  | { state: 'changed'; oldBody: string; newBody: string }
+  | { state: 'source-missing' }
+export interface ImportedConfigRow {
+  id: string
+  projectPath: string
+  sourcePath: string
+  sourceHash: string | null
+  importedAsType: 'rule' | 'workflow' | 'skill' | null
+  importedAsName: string | null
+  status: 'imported' | 'dismissed'
+  dismissedAt: number | null
+  createdAt: number
+}
+
 export interface BearcodeApi {
   ping(): Promise<PingResult>
   run: {
@@ -1587,6 +1626,20 @@ export interface BearcodeApi {
     // other server.
     discover(projectPath: string | null): Promise<DiscoveredMcpServer[]>
     import(servers: DiscoveredMcpServer[], projectPath: string | null): Promise<McpServerView[]>
+  }
+  // Agent config import (Task 8): detect another agent tool's rules/workflows/
+  // skills-equivalents sitting in a project (Codex/Cursor/Windsurf configs),
+  // import the user's picked subset into .agents/, and keep imported sources
+  // reconciled against upstream edits (check/apply/ignore update, detach).
+  configImport: {
+    scan(projectPath: string): Promise<{ candidates: DetectedSource[]; showBanner: boolean }>
+    apply(projectPath: string, selection: ImportSelection): Promise<ImportSummary>
+    dismiss(projectPath: string, sourcePaths: string[]): Promise<void>
+    listImported(projectPath: string): Promise<ImportedConfigRow[]>
+    checkUpdate(projectPath: string, sourcePath: string): Promise<UpdateCheck>
+    applyUpdate(projectPath: string, sourcePath: string): Promise<void>
+    ignoreUpdate(projectPath: string, sourcePath: string): Promise<void>
+    detach(projectPath: string, sourcePath: string): Promise<void>
   }
   // Integrations (GitHub/Bitbucket, Task 11): status read model + the connect/
   // disconnect flows. No token ever crosses this surface -- IntegrationStatus

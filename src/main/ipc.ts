@@ -125,6 +125,15 @@ import { setHookActive } from './hooks/state'
 import { writeGlobalHook, updateGlobalHook, deleteGlobalHook } from './hooks/authoring'
 import { validateHookEvent, validateHookName } from './hooks/validate'
 import { COMMAND_NAME_PATTERN, HERMES_MODEL_REF } from '../shared/types'
+import { scanImportableConfig, shouldShowImportBanner } from './configImport/scan'
+import { applyImportSelection, type ImportSelection } from './configImport/importer'
+import {
+  checkSourceForUpdate,
+  applySourceUpdate,
+  ignoreSourceUpdate,
+  detachSource,
+  dismissDetectedSources
+} from './configImport/checkUpdates'
 import {
   assertValidConversationId,
   ingestPickedFiles,
@@ -1162,6 +1171,47 @@ export function registerIpc(): void {
       imported.push(mcpServerView(cfg, proj))
     }
     return imported
+  })
+
+  // Agent config import (Task 8): detect another agent tool's rules/
+  // workflows/skills-equivalents in a project (Codex/Cursor/Windsurf) and
+  // import the user's picked subset into .agents/, then keep imported
+  // sources reconciled against upstream edits.
+  ipcMain.handle('bearcode:config-import:scan', (_e, p: unknown) => {
+    const projectPath = reqPath(p)
+    const detected = scanImportableConfig(projectPath)
+    const known = db.listImportedConfig(projectPath)
+    const showBanner = shouldShowImportBanner(detected, known, Date.now())
+    // Already-imported sources are dropped from the returned list (re-scanning
+    // a folder -- via the banner or the manual Settings entry point, Task 13 --
+    // must not re-offer something already sitting in .agents/, which would
+    // otherwise create a pointless "-imported-2" duplicate on every re-open).
+    // 'unsupported' items and freshly-dismissed ones are still returned so the
+    // review screen keeps showing them.
+    const importedPaths = new Set(known.filter((k) => k.status === 'imported').map((k) => k.sourcePath))
+    const candidates = detected.filter((d) => !importedPaths.has(d.sourcePath))
+    return { candidates, showBanner }
+  })
+  ipcMain.handle('bearcode:config-import:apply', (_e, p: unknown, selection: unknown) => {
+    return applyImportSelection(reqPath(p), selection as ImportSelection)
+  })
+  ipcMain.handle('bearcode:config-import:dismiss', (_e, p: unknown, sourcePaths: unknown) => {
+    dismissDetectedSources(reqPath(p), sourcePaths as string[])
+  })
+  ipcMain.handle('bearcode:config-import:list-imported', (_e, p: unknown) =>
+    db.listImportedConfig(reqPath(p))
+  )
+  ipcMain.handle('bearcode:config-import:check-update', (_e, p: unknown, sp: unknown) =>
+    checkSourceForUpdate(reqPath(p), String(sp))
+  )
+  ipcMain.handle('bearcode:config-import:apply-update', (_e, p: unknown, sp: unknown) => {
+    applySourceUpdate(reqPath(p), String(sp))
+  })
+  ipcMain.handle('bearcode:config-import:ignore-update', (_e, p: unknown, sp: unknown) => {
+    ignoreSourceUpdate(reqPath(p), String(sp))
+  })
+  ipcMain.handle('bearcode:config-import:detach', (_e, p: unknown, sp: unknown) => {
+    detachSource(reqPath(p), String(sp))
   })
 
   // Integrations (GitHub/Bitbucket, Task 11): status read model + connect/
