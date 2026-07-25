@@ -61,7 +61,10 @@ const ADD_OPTIONS: SelectOption<'manual' | 'browse' | 'import'>[] = [
 
 const ORIGIN_LABEL: Record<DiscoveredMcpServer['origin'], string> = {
   'claude-desktop': 'Claude Desktop',
-  'project-mcp-json': 'project .mcp.json'
+  'project-mcp-json': 'project .mcp.json',
+  'claude-settings-json': '.claude/settings.json',
+  'cursor-mcp-json': '.cursor/mcp.json',
+  'windsurf-mcp-json': '.windsurf/mcp.json'
 }
 
 // Checkbox picker for Task 13 local discovery. A separate component so its

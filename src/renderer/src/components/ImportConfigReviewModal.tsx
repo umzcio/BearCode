@@ -10,7 +10,8 @@ const KIND_LABEL: Record<ImportCandidate['kind'], string> = {
   rule: 'Import as Rule',
   workflow: 'Import as Workflow',
   skill: 'Import as Skill',
-  unsupported: 'Not yet supported'
+  unsupported: 'Not yet supported',
+  mcp: 'Import as Connector'
 }
 
 // Outer gate: mounted unconditionally in App (see ProjectSettingsModal for the
@@ -95,7 +96,8 @@ export function ImportConfigReviewModal(): JSX.Element | null {
       workflows: importable
         .filter((c) => c.kind === 'workflow' && selected.has(c.sourcePath))
         .map((c) => c.sourcePath),
-      skills: importable.filter((c) => c.kind === 'skill' && selected.has(c.sourcePath)).map((c) => c.sourcePath)
+      skills: importable.filter((c) => c.kind === 'skill' && selected.has(c.sourcePath)).map((c) => c.sourcePath),
+      mcpServers: []
     }
     void applySelection(selection)
       .then((summary) => {

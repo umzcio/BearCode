@@ -143,10 +143,14 @@ describe('checkSourceForUpdate', () => {
     expect(readFileSync(join(dir, '.agents', 'rules', 'claude.md'), 'utf8')).toBe('Original content.')
   })
 
-  it('candidateBody returns null for an mcp-tracked row (out of scope, no throw)', () => {
-    // An MCP-tracked row's sourcePath is a synthetic key, not a real file path on
-    // disk, and never matches anything scanImportableConfig() finds — so
-    // checkSourceForUpdate must degrade gracefully, not throw, when called on one.
+  it('does not throw when an mcp-typed row is passed to checkSourceForUpdate', () => {
+    // Task 1 extended ImportedConfigRow.importedAsType to include 'mcp', which
+    // made the importedDirFor switch exhaustive (compile-time protection via
+    // TypeScript noImplicitReturns). This test verifies the 'mcp' case was added
+    // to the switch statement (RED→GREEN proof). Realistic MCP rows have synthetic
+    // sourcePaths (e.g. '.claude/settings.json#filesystem') that don't exist on
+    // disk, so checkSourceForUpdate returns 'source-missing' early; the switch is
+    // compile-time-only protected (runtime, import-once MCPs never reach that code).
     const mcpDir = mkdtempSync(join(tmpdir(), 'bearcode-mcp-checkupdate-'))
     upsertImportedConfig(mcpDir, '.claude/settings.json#filesystem', {
       importedAsType: 'mcp',
