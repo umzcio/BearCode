@@ -8,8 +8,11 @@ import type {
   CommandRef,
   ConversationMeta,
   CustomModel,
+  DetectedSource,
   EffortLevel,
   Event,
+  ImportSelection,
+  ImportSummary,
   ManageableProvider,
   ManualRuleInfo,
   MentionRef,
@@ -280,6 +283,9 @@ interface AppState {
   // Project Trust: whether the current workspace has been explicitly trusted.
   workspaceTrusted: boolean
   workspaceHasAgentsConfig: boolean
+  workspaceImportCandidates: DetectedSource[]
+  workspaceImportBannerVisible: boolean
+  importReviewOpen: boolean
   outsideAccess: OutsideAccessInfo | null
   trustBannerDismissed: boolean
   // Signed macOS builds arc: current app version + live electron-updater status.
@@ -438,6 +444,11 @@ interface AppState {
   refreshTrustState(path: string | null): Promise<void>
   trustWorkspace(): Promise<void>
   dismissTrustBanner(): void
+  refreshImportBannerState(path: string | null): Promise<void>
+  dismissImportBanner(): Promise<void>
+  openImportReview(): void
+  closeImportReview(): void
+  applyImportSelection(selection: ImportSelection): Promise<ImportSummary>
   checkForUpdates(): Promise<void>
   installUpdate(): void
   dismissUpdateBanner(): void
@@ -630,6 +641,9 @@ export const useAppStore = create<AppState>((set, get) => {
     workspacePath: null,
     workspaceTrusted: false,
     workspaceHasAgentsConfig: false,
+    workspaceImportCandidates: [],
+    workspaceImportBannerVisible: false,
+    importReviewOpen: false,
     outsideAccess: null,
     trustBannerDismissed: false,
     appVersion: null,
@@ -1363,6 +1377,7 @@ export const useAppStore = create<AppState>((set, get) => {
     setWorkspace: (path) => {
       set({ workspacePath: path })
       void get().refreshTrustState(path)
+      void get().refreshImportBannerState(path)
     },
     refreshTrustState: async (path) => {
       if (!path) {
@@ -1394,6 +1409,33 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ workspaceTrusted: true })
     },
     dismissTrustBanner: () => set({ trustBannerDismissed: true }),
+    refreshImportBannerState: async (path) => {
+      if (!path) {
+        set({ workspaceImportCandidates: [], workspaceImportBannerVisible: false })
+        return
+      }
+      const { candidates, showBanner } = await window.bearcode.configImport.scan(path)
+      set({ workspaceImportCandidates: candidates, workspaceImportBannerVisible: showBanner })
+    },
+    dismissImportBanner: async () => {
+      const path = get().workspacePath
+      if (!path) return
+      const sourcePaths = get()
+        .workspaceImportCandidates.filter((c) => c.kind !== 'unsupported')
+        .map((c) => c.sourcePath)
+      await window.bearcode.configImport.dismiss(path, sourcePaths)
+      set({ workspaceImportBannerVisible: false })
+    },
+    openImportReview: () => set({ importReviewOpen: true }),
+    closeImportReview: () => set({ importReviewOpen: false }),
+    applyImportSelection: async (selection) => {
+      const path = get().workspacePath
+      if (!path) throw new Error('no workspace open')
+      const summary = await window.bearcode.configImport.apply(path, selection)
+      set({ importReviewOpen: false, workspaceImportBannerVisible: false })
+      await get().refreshImportBannerState(path)
+      return summary
+    },
     checkForUpdates: async () => {
       const status = await window.bearcode.updater.checkNow()
       set({ updaterStatus: status })
