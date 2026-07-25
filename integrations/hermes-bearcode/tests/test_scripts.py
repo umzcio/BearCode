@@ -1396,6 +1396,30 @@ class InstallerScriptTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+        untracked_sentinels = {
+            "build-output/generated.js",
+            ".venv/bin/python",
+            "__pycache__/adapter.cpython-311.pyc",
+            "loose.pyc",
+        }
+        for relative in untracked_sentinels:
+            _write(repository_plugin / relative, "untracked sentinel\n")
+        tree_result = subprocess.run(
+            (
+                "git",
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "HEAD:integrations/hermes-bearcode",
+            ),
+            cwd=repository,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(tree_result.returncode, 0, tree_result.stderr)
+        expected_files = set(tree_result.stdout.splitlines())
         archive = self.root / "plugin.tgz"
         extracted = self.root / "archive-stage"
         result = subprocess.run(
@@ -1423,6 +1447,32 @@ class InstallerScriptTests(unittest.TestCase):
             list(extracted.rglob("*")),
         )
         self.assertTrue((extracted / "adapter.py").is_file())
+        archived_files = {
+            str(path.relative_to(extracted))
+            for path in extracted.rglob("*")
+            if path.is_file()
+        }
+        critical_files = {
+            "scripts/install-local.sh",
+            "scripts/check-compatibility.py",
+            "scripts/healthcheck.py",
+            "bearcode_transport/__init__.py",
+            "bearcode_transport/connection.py",
+            "bearcode_transport/ledger.py",
+            "bearcode_transport/protocol.py",
+            "bearcode_transport/security.py",
+            "bearcode_transport/server.py",
+            "bearcode_transport/transfers.py",
+        }
+        self.assertEqual(archived_files, expected_files)
+        self.assertTrue(
+            critical_files.issubset(archived_files),
+            critical_files - archived_files,
+        )
+        self.assertTrue(
+            untracked_sentinels.isdisjoint(archived_files),
+            untracked_sentinels & archived_files,
+        )
         for path in extracted.rglob("*"):
             relative = path.relative_to(extracted)
             self.assertNotIn(".venv", relative.parts)
