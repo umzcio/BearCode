@@ -382,7 +382,12 @@ trap 'on_signal 129' HUP
 trap 'on_signal 130' INT
 trap 'on_signal 143' TERM
 
-PYTHONPATH="$stage/tests/fakes:$stage${PYTHONPATH:+:$PYTHONPATH}" \
+env \
+  -u BEARCODE_PLATFORM_KEY \
+  -u BEARCODE_LISTEN_HOST \
+  -u BEARCODE_LISTEN_PORT \
+  -u BEARCODE_ALLOW_ALL_USERS \
+  PYTHONPATH="$stage/tests/fakes:$stage${PYTHONPATH:+:$PYTHONPATH}" \
   "$hermes_python" -m unittest discover -s "$stage/tests" -v
 PYTHONPATH="$hermes_agent_root:$stage${PYTHONPATH:+:$PYTHONPATH}" \
   "$hermes_python" "$stage/scripts/check-compatibility.py"

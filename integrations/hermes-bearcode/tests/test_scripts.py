@@ -753,6 +753,15 @@ class InstallerScriptTests(unittest.TestCase):
             #!/bin/sh
             printf '%s\n' "$*" >> "$FAKE_COMMAND_LOG"
             case "$*" in
+              *"-m unittest discover"*)
+                if [ "${FAKE_REJECT_DEPLOYMENT_ENV_IN_TESTS:-0}" = "1" ] &&
+                   { [ -n "${BEARCODE_PLATFORM_KEY+x}" ] ||
+                     [ -n "${BEARCODE_LISTEN_HOST+x}" ] ||
+                     [ -n "${BEARCODE_LISTEN_PORT+x}" ] ||
+                     [ -n "${BEARCODE_ALLOW_ALL_USERS+x}" ]; }; then
+                  exit 41
+                fi
+                ;;
               *check-compatibility.py*)
                 if [ "${FAKE_COMPAT_FAIL:-0}" = "1" ]; then
                   exit 42
@@ -1270,6 +1279,23 @@ class InstallerScriptTests(unittest.TestCase):
         self.assertFalse(
             any("keep-me" in line for line in self._command_lines())
         )
+
+    def test_deployment_overrides_do_not_leak_into_staged_tests(self):
+        stage = self._make_stage("custom-port")
+
+        result = self._run(
+            stage,
+            BEARCODE_PLATFORM_KEY="deployment-only-test-key",
+            BEARCODE_LISTEN_HOST="100.64.0.9",
+            BEARCODE_LISTEN_PORT="8765",
+            BEARCODE_ALLOW_ALL_USERS="false",
+            FAKE_REJECT_DEPLOYMENT_ENV_IN_TESTS=1,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        environment = (self.home / ".env").read_text(encoding="utf-8")
+        self.assertIn("BEARCODE_LISTEN_HOST=100.64.0.9", environment)
+        self.assertIn("BEARCODE_LISTEN_PORT=8765", environment)
 
     def test_generated_key_is_64_hex_and_is_not_rotated(self):
         self._seed_current()
