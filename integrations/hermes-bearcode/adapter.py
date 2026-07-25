@@ -1322,6 +1322,11 @@ def register(ctx):
         platform_hint=(
             "You are chatting in BearCode, a desktop coding client. "
             "Markdown, streamed text, approvals, clarifications, images, "
-            "and downloadable documents are supported."
+            "and downloadable documents are supported. To deliver a local "
+            "file as a native attachment, include "
+            "MEDIA:/absolute/path/to/file in your response. Images appear "
+            "inline and other files arrive as downloadable attachments. "
+            "Do not merely quote the path or tell the user to open it; use "
+            "MEDIA: whenever the user asks you to send a file."
         ),
     )

@@ -226,6 +226,14 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(registration["emoji"], "🐻")
         self.assertTrue(registration["pii_safe"])
         self.assertFalse(registration["allow_update_command"])
+        self.assertIn(
+            "MEDIA:/absolute/path/to/file",
+            registration["platform_hint"],
+        )
+        self.assertIn(
+            "whenever the user asks you to send a file",
+            registration["platform_hint"],
+        )
 
     def test_validate_config_requires_key_and_valid_port(self):
         with mock.patch.dict(os.environ, {}, clear=True):
