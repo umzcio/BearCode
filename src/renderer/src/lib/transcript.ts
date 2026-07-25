@@ -7,6 +7,8 @@ export interface Turn {
   diffs: Extract<Event, { type: 'file_diff' }>[]
   artifacts: Extract<Event, { type: 'artifact' }>[]
   errors: Extract<Event, { type: 'error' }>[]
+  clarifications: Extract<Event, { type: 'hermes_clarification' }>[]
+  attachments: Extract<Event, { type: 'assistant_attachment' }>[]
   // Ursa Modes (Task 5): council-mode deliberation. Each member's answer and
   // its anonymized peer review arrive as `council_seat` events before the
   // chair's synthesis (the turn's normal assistant_text). They get their own
@@ -47,6 +49,8 @@ export function groupTurns(events: Event[]): TranscriptItem[] {
         diffs: [],
         artifacts: [],
         errors: [],
+        clarifications: [],
+        attachments: [],
         councilSeats: [],
         reviewFindings: [],
         done: false
@@ -62,6 +66,8 @@ export function groupTurns(events: Event[]): TranscriptItem[] {
         ev.type === 'thinking' ||
         ev.type === 'tool_call' ||
         ev.type === 'tool_result' ||
+        ev.type === 'hermes_tool_call' ||
+        ev.type === 'hermes_tool_result' ||
         // Ursa Phase 2: pipeline step dividers ride the step stream so they
         // interleave in emit-order with the tool calls/thinking of the step
         // they precede (WorkedGroup renders them as a slim divider row).
@@ -74,6 +80,10 @@ export function groupTurns(events: Event[]): TranscriptItem[] {
         current.diffs.push(ev)
       } else if (ev.type === 'artifact') {
         current.artifacts.push(ev)
+      } else if (ev.type === 'hermes_clarification') {
+        current.clarifications.push(ev)
+      } else if (ev.type === 'assistant_attachment') {
+        current.attachments.push(ev)
       } else if (ev.type === 'council_seat') {
         current.councilSeats.push(ev)
       } else if (ev.type === 'review_finding') {
@@ -117,6 +127,8 @@ export function sameTranscriptItem(a: TranscriptItem, b: TranscriptItem): boolea
       arr(x.texts as Event[], y.texts as Event[]) &&
       arr(x.diffs as Event[], y.diffs as Event[]) &&
       arr(x.artifacts as Event[], y.artifacts as Event[]) &&
+      arr(x.clarifications as Event[], y.clarifications as Event[]) &&
+      arr(x.attachments as Event[], y.attachments as Event[]) &&
       arr(x.councilSeats as Event[], y.councilSeats as Event[]) &&
       arr(x.reviewFindings as Event[], y.reviewFindings as Event[]) &&
       x.reviewSummary === y.reviewSummary &&

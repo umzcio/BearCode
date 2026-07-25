@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AttachmentRef } from '@shared/types'
+import type { AttachmentRef, Event } from '@shared/types'
 import { HERMES_MODEL_REF } from '@shared/types'
 import { useAppStore, workedSecondsByTurn, modelDisplay } from '../state/store'
 import { Composer } from './Composer/Composer'
@@ -9,6 +9,9 @@ import { WorkedGroup } from './events/WorkedGroup'
 import { CouncilPanel } from './events/CouncilPanel'
 import { ReviewFindings } from './events/ReviewFindings'
 import { ReviewClarifyCard } from './events/ReviewClarifyCard'
+import { HermesToolStep } from './events/HermesToolStep'
+import { HermesClarifyCard } from './events/HermesClarifyCard'
+import { HermesAttachment } from './events/HermesAttachment'
 import { ToolStep, PinnedApprovalArea } from './events/ToolStep'
 import { AssistantText } from './events/AssistantText'
 import { ArtifactCard } from './events/ArtifactCard'
@@ -134,6 +137,16 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const lastEvent = convo.events[convo.events.length - 1]
   const pendingClarify =
     lastEvent?.type === 'review_clarify' ? lastEvent : undefined
+
+  const firstPendingHermesInteraction = convo.events.find(
+    (
+      event
+    ): event is
+      | Extract<Event, { type: 'hermes_tool_call' }>
+      | Extract<Event, { type: 'hermes_clarification' }> =>
+      (event.type === 'hermes_tool_call' && event.status === 'awaiting-approval') ||
+      (event.type === 'hermes_clarification' && event.state === 'pending')
+  )
 
   const jumpToApproval = (): void => {
     document
@@ -346,6 +359,13 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                   {turn.reviewFindings.length > 0 || turn.reviewSummary ? (
                     <ReviewFindings events={turn.reviewFindings} summary={turn.reviewSummary} />
                   ) : null}
+                  {turn.clarifications.map((clarification) => (
+                    <HermesClarifyCard
+                      key={clarification.id}
+                      event={clarification}
+                      convoId={convoId}
+                    />
+                  ))}
                   {turn.artifacts.map((a) => (
                     <ArtifactCard key={a.id} event={a} />
                   ))}
@@ -364,6 +384,13 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                   )}
                   {turn.diffs.map((d) => (
                     <DiffCard key={d.id} event={d} />
+                  ))}
+                  {turn.attachments.map((attachment) => (
+                    <HermesAttachment
+                      key={attachment.id}
+                      event={attachment}
+                      convoId={convoId}
+                    />
                   ))}
                   {cite ? <SourcesList citations={cite.ordered} /> : null}
                   {turn.errors.map((e) => (
@@ -440,6 +467,21 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
         <div className="convo-status">
           <div className="convo-status-inner pinned-approval">
             <ReviewClarifyCard event={pendingClarify} convoId={convoId} />
+          </div>
+        </div>
+      ) : null}
+      {firstPendingHermesInteraction ? (
+        <div className="convo-status">
+          <div className="convo-status-inner pinned-approval">
+            {firstPendingHermesInteraction.type === 'hermes_tool_call' ? (
+              <HermesToolStep call={firstPendingHermesInteraction} convoId={convoId} interactive />
+            ) : (
+              <HermesClarifyCard
+                event={firstPendingHermesInteraction}
+                convoId={convoId}
+                interactive
+              />
+            )}
           </div>
         </div>
       ) : null}

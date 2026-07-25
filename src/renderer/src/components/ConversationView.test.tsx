@@ -505,6 +505,170 @@ describe('ConversationView pinned approval', () => {
   })
 })
 
+describe('ConversationView pinned Hermes interactions', () => {
+  const resolveApproval = vi.fn(() => Promise.resolve())
+  const resolveClarification = vi.fn(() => Promise.resolve())
+  const baseConvo = {
+    id: 'h1',
+    projectPath: null,
+    title: 'Hermes',
+    modelRef: 'hermes/agent',
+    permissionMode: 'accept-edits',
+    updatedAt: 1,
+    loaded: true,
+    runState: 'awaiting-approval'
+  }
+
+  beforeEach(() => {
+    resolveApproval.mockClear()
+    resolveClarification.mockClear()
+    ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
+      attachments: {
+        pick: vi.fn(async () => ({ picked: [], errors: [] })),
+        read: vi.fn(async () => null),
+        open: vi.fn(async () => undefined)
+      },
+      hermes: { resolveApproval, resolveClarification }
+    } as unknown as BearcodeApi
+  })
+
+  it('pins only the first pending native interaction in event order and keeps transcript copies passive', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'h1' },
+      modelRef: 'hermes/agent',
+      providers: [],
+      settings: { hermesEnabled: true },
+      conversations: {
+        h1: {
+          ...baseConvo,
+          events: [
+            { type: 'user_message', id: 'u1', text: 'deploy it' },
+            {
+              type: 'hermes_tool_call',
+              id: 'tool-1',
+              name: 'deploy',
+              label: 'Deploy',
+              status: 'awaiting-approval',
+              requestId: 'approval-request',
+              command: 'deploy --production'
+            },
+            {
+              type: 'hermes_clarification',
+              id: 'clarify-1',
+              requestId: 'clarification-request',
+              question: 'Which region?',
+              choices: ['US', 'EU'],
+              state: 'pending'
+            }
+          ]
+        }
+      },
+      convoOrder: ['h1']
+    } as never)
+
+    const { container } = render(<ConversationView convoId="h1" />)
+    const allowButtons = screen.getAllByRole('button', { name: 'Allow Once' })
+    expect(allowButtons).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: 'US' })).toBeNull()
+    expect(container.querySelectorAll('.pinned-approval')).toHaveLength(1)
+
+    fireEvent.click(allowButtons[0])
+    expect(resolveApproval).toHaveBeenCalledWith('h1', 'approval-request', 'once')
+  })
+
+  it('pins a pending clarification first when it precedes an approval', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'h1' },
+      modelRef: 'hermes/agent',
+      providers: [],
+      settings: { hermesEnabled: true },
+      conversations: {
+        h1: {
+          ...baseConvo,
+          events: [
+            { type: 'user_message', id: 'u1', text: 'deploy it' },
+            {
+              type: 'hermes_clarification',
+              id: 'clarify-1',
+              requestId: 'clarification-request',
+              question: 'Which region?',
+              choices: ['US', 'EU'],
+              state: 'pending'
+            },
+            {
+              type: 'hermes_tool_call',
+              id: 'tool-1',
+              name: 'deploy',
+              label: 'Deploy',
+              status: 'awaiting-approval',
+              requestId: 'approval-request'
+            }
+          ]
+        }
+      },
+      convoOrder: ['h1']
+    } as never)
+
+    render(<ConversationView convoId="h1" />)
+    expect(screen.getAllByRole('button', { name: 'US' })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: 'Allow Once' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'US' }))
+    expect(resolveClarification).toHaveBeenCalledWith('h1', 'clarification-request', 'US')
+  })
+
+  it('pairs native tool results to calls by callId when results arrive out of order', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'h1' },
+      modelRef: 'hermes/agent',
+      providers: [],
+      settings: { hermesEnabled: true },
+      conversations: {
+        h1: {
+          ...baseConvo,
+          runState: 'idle',
+          events: [
+            { type: 'user_message', id: 'u1', text: 'run both' },
+            {
+              type: 'hermes_tool_call',
+              id: 'tool-1',
+              name: 'vendor.first',
+              label: 'Tool One',
+              status: 'running'
+            },
+            {
+              type: 'hermes_tool_call',
+              id: 'tool-2',
+              name: 'vendor.second',
+              label: 'Tool Two',
+              status: 'running'
+            },
+            {
+              type: 'hermes_tool_result',
+              id: 'result-2',
+              callId: 'tool-2',
+              status: 'failed',
+              durationMs: 2000
+            },
+            {
+              type: 'hermes_tool_result',
+              id: 'result-1',
+              callId: 'tool-1',
+              status: 'completed',
+              durationMs: 1000
+            }
+          ]
+        }
+      },
+      convoOrder: ['h1']
+    } as never)
+
+    render(<ConversationView convoId="h1" />)
+    expect(screen.getByText('Tool One').closest('.step')?.textContent).toContain('Completed · 1s')
+    expect(screen.getByText('Tool Two').closest('.step')?.textContent).toContain('Failed · 2s')
+  })
+})
+
 // Task 12: pre-events EmptyState for a not-yet-configured Hermes conversation,
 // plus verification that runHermes's standard `{ type: 'error', recoverable }`
 // events (Task 5) render inline via the same generic ErrorCard path every

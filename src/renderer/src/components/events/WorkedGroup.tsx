@@ -6,6 +6,7 @@ import { ThinkingPaw } from '../brand/ThinkingPaw'
 import { IconChevronDown } from '../icons'
 import { ThinkingStep } from './ThinkingStep'
 import { ToolStep } from './ToolStep'
+import { HermesToolStep } from './HermesToolStep'
 import { UrsaStepDivider } from './UrsaStepDivider'
 import './events.css'
 
@@ -63,8 +64,10 @@ function WorkedGroupImpl({
 
   // Pair each tool_call with its tool_result; thinking renders on its own.
   const resultsByCallId = new Map<string, Extract<Event, { type: 'tool_result' }>>()
+  const hermesResultsByCallId = new Map<string, Extract<Event, { type: 'hermes_tool_result' }>>()
   for (const ev of steps) {
     if (ev.type === 'tool_result') resultsByCallId.set(ev.callId, ev)
+    if (ev.type === 'hermes_tool_result') hermesResultsByCallId.set(ev.callId, ev)
   }
 
   const rows: React.JSX.Element[] = []
@@ -94,6 +97,16 @@ function WorkedGroupImpl({
               result={result && result.type === 'tool_result' ? result : undefined}
               convoId={convoId}
             />
+          </AgentAttributed>
+        </div>
+      )
+    } else if (ev.type === 'hermes_tool_call') {
+      const result = hermesResultsByCallId.get(ev.id)
+      const anchorIds = result ? `${ev.id} ${result.id}` : ev.id
+      rows.push(
+        <div key={ev.id} data-event-id={anchorIds}>
+          <AgentAttributed event={ev}>
+            <HermesToolStep call={ev} result={result} convoId={convoId} />
           </AgentAttributed>
         </div>
       )
