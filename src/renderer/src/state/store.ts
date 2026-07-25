@@ -74,7 +74,17 @@ export interface Convo {
   preview?: string | null
 }
 
-type View = { kind: 'home' } | { kind: 'conversation'; id: string } | { kind: 'history' }
+type View =
+  | { kind: 'home' }
+  | { kind: 'conversation'; id: string }
+  | { kind: 'history' }
+  | { kind: 'terminal'; path: string }
+
+export type TerminalTabMeta = {
+  id: string
+  title: string
+  exited: boolean
+}
 
 // The Auxiliary Pane's target (Ba4 unification). ONE field for the ONE side
 // panel: an artifact (plan/walkthrough viewer) or a diff group (the virtual
@@ -291,6 +301,8 @@ interface AppState {
   // null → default page. Consumed once by SettingsModal on open.
   settingsInitialPage: string | null
   auxSelection: AuxSelection | null
+  terminalTabs: Record<string, TerminalTabMeta[]>
+  activeTerminalTab: Record<string, string | undefined>
   // File path the diff viewer should focus when it opens (chip/step clicks).
   reviewFocusPath: string | null
   // Drafted/sent comments per artifact id, loaded lazily by the pane.
@@ -360,6 +372,11 @@ interface AppState {
   toggleModelMenu(): void
   goHome(): void
   openHistory(): void
+  openTerminalView(path: string): void
+  createTerminalTab(path: string): Promise<void>
+  closeTerminalTab(path: string, id: string): Promise<void>
+  setActiveTerminalTab(path: string, id: string): void
+  markTerminalTabExited(path: string, id: string): void
   openConvo(id: string, opts?: { focusEventId?: string; focusMatches?: string[] }): void
   clearFocusEvent(): void
   stepFocus(dir: -1 | 1): void
@@ -638,6 +655,8 @@ export const useAppStore = create<AppState>((set, get) => {
     settingsOpen: false,
     settingsInitialPage: null,
     auxSelection: null,
+    terminalTabs: {},
+    activeTerminalTab: {},
     reviewFocusPath: null,
     artifactComments: {},
     artifactPaneFocusFeedback: 0,
@@ -831,6 +850,47 @@ export const useAppStore = create<AppState>((set, get) => {
       })),
     openHistory: () =>
       set({ view: { kind: 'history' }, auxSelection: null, reviewFocusPath: null }),
+    openTerminalView: (path: string) => {
+      set({ view: { kind: 'terminal', path }, auxSelection: null })
+    },
+    createTerminalTab: async (path: string) => {
+      const view = await window.bearcode.terminal.create(path)
+      set((s) => {
+        const existing = s.terminalTabs[path] ?? []
+        return {
+          terminalTabs: {
+            ...s.terminalTabs,
+            [path]: [...existing, { id: view.id, title: view.title, exited: false }]
+          },
+          activeTerminalTab: { ...s.activeTerminalTab, [path]: view.id }
+        }
+      })
+    },
+    closeTerminalTab: async (path: string, id: string) => {
+      await window.bearcode.terminal.close(id)
+      set((s) => {
+        const remaining = (s.terminalTabs[path] ?? []).filter((t) => t.id !== id)
+        const wasActive = s.activeTerminalTab[path] === id
+        return {
+          terminalTabs: { ...s.terminalTabs, [path]: remaining },
+          activeTerminalTab: {
+            ...s.activeTerminalTab,
+            [path]: wasActive ? remaining.at(-1)?.id : s.activeTerminalTab[path]
+          }
+        }
+      })
+    },
+    setActiveTerminalTab: (path: string, id: string) => {
+      set((s) => ({ activeTerminalTab: { ...s.activeTerminalTab, [path]: id } }))
+    },
+    markTerminalTabExited: (path: string, id: string) => {
+      set((s) => ({
+        terminalTabs: {
+          ...s.terminalTabs,
+          [path]: (s.terminalTabs[path] ?? []).map((t) => (t.id === id ? { ...t, exited: true } : t))
+        }
+      }))
+    },
     clearFocusEvent: () => set({ focusEventId: null, focusMatches: [] }),
     setFocusMatches: (ids) => set({ focusMatches: ids }),
     // Walk the current match set (from a content-search jump) by one step,
