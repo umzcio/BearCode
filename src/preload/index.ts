@@ -15,6 +15,10 @@ import type {
   HookAuthoringInput,
   HookEvent,
   HookRecord,
+  ImportCandidate,
+  ImportedConfigRow,
+  ImportSelection,
+  ImportSummary,
   IntegrationProvider,
   IntegrationStatus,
   MentionRef,
@@ -49,6 +53,7 @@ import type {
   SkillSaveResult,
   SmitheryHit,
   TranscribeMeta,
+  UpdateCheck,
   UpdaterStatus,
   UrsaMode
 } from '../shared/types'
@@ -241,6 +246,26 @@ const bearcode: BearcodeApi = {
       remove: (path: string, abs: string): Promise<OutsideAccessInfo> =>
         ipcRenderer.invoke('bearcode:project:outside-access:remove', path, abs)
     }
+  },
+  configImport: {
+    scan: (
+      projectPath: string
+    ): Promise<{ candidates: ImportCandidate[]; showBanner: boolean }> =>
+      ipcRenderer.invoke('bearcode:config-import:scan', projectPath),
+    apply: (projectPath: string, selection: ImportSelection): Promise<ImportSummary> =>
+      ipcRenderer.invoke('bearcode:config-import:apply', projectPath, selection),
+    dismiss: (projectPath: string, sourcePaths: string[]): Promise<void> =>
+      ipcRenderer.invoke('bearcode:config-import:dismiss', projectPath, sourcePaths),
+    listImported: (projectPath: string): Promise<ImportedConfigRow[]> =>
+      ipcRenderer.invoke('bearcode:config-import:list-imported', projectPath),
+    checkUpdate: (projectPath: string, sourcePath: string): Promise<UpdateCheck> =>
+      ipcRenderer.invoke('bearcode:config-import:check-update', projectPath, sourcePath),
+    applyUpdate: (projectPath: string, sourcePath: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:config-import:apply-update', projectPath, sourcePath),
+    ignoreUpdate: (projectPath: string, sourcePath: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:config-import:ignore-update', projectPath, sourcePath),
+    detach: (projectPath: string, sourcePath: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:config-import:detach', projectPath, sourcePath)
   },
   permissions: {
     addRule: (rule: AddRuleInput): Promise<void> =>

@@ -138,6 +138,16 @@ import { setHookActive } from './hooks/state'
 import { writeGlobalHook, updateGlobalHook, deleteGlobalHook } from './hooks/authoring'
 import { validateHookEvent, validateHookName } from './hooks/validate'
 import { COMMAND_NAME_PATTERN, HERMES_MODEL_REF } from '../shared/types'
+import { scanImportableConfig, shouldShowImportBanner } from './configImport/scan'
+import { buildCandidateViews } from './configImport/candidateViews'
+import { applyImportSelection, type ImportSelection } from './configImport/importer'
+import {
+  checkSourceForUpdate,
+  applySourceUpdate,
+  ignoreSourceUpdate,
+  detachSource,
+  dismissDetectedSources
+} from './configImport/checkUpdates'
 import {
   assertValidConversationId,
   ingestPickedFiles,
@@ -1301,6 +1311,83 @@ export function registerIpc(): void {
       imported.push(mcpServerView(cfg, proj))
     }
     return imported
+  })
+
+  // Agent config import (Task 8): detect another agent tool's rules/
+  // workflows/skills-equivalents in a project (Codex/Cursor/Windsurf) and
+  // import the user's picked subset into .agents/, then keep imported
+  // sources reconciled against upstream edits.
+
+  // Wire-boundary guards for the two handlers that used to take a bare
+  // `as ImportSelection` / `as string[]` cast (final review Minor), matching
+  // assertValidSkillInput's shape-check-then-narrow idiom above. Everything
+  // downstream (applyImportSelection, dismissDetectedSources) treats these as
+  // already-trusted arrays of project-relative paths.
+  function asStringArray(raw: unknown, what: string): string[] {
+    if (!Array.isArray(raw) || raw.some((x) => typeof x !== 'string')) {
+      throw new Error(`Invalid ${what}: expected an array of strings.`)
+    }
+    return raw as string[]
+  }
+  function assertValidImportSelection(raw: unknown): ImportSelection {
+    if (raw == null || typeof raw !== 'object') throw new Error('Invalid import selection.')
+    const r = raw as Partial<Record<keyof ImportSelection, unknown>>
+    return {
+      rules: asStringArray(r.rules, 'import selection rules'),
+      workflows: asStringArray(r.workflows, 'import selection workflows'),
+      skills: asStringArray(r.skills, 'import selection skills')
+    }
+  }
+
+  ipcMain.handle('bearcode:config-import:scan', (_e, p: unknown) => {
+    const projectPath = reqPath(p)
+    const detected = scanImportableConfig(projectPath)
+    const known = db.listImportedConfig(projectPath)
+    // Already-imported sources are dropped from the returned list (re-scanning
+    // a folder -- via the banner or the manual Settings entry point, Task 13 --
+    // must not re-offer something already sitting in .agents/, which would
+    // otherwise create a pointless "-imported-2" duplicate on every re-open).
+    // 'unsupported' items and freshly-dismissed ones are still returned so the
+    // review screen keeps showing them.
+    const importedPaths = new Set(known.filter((k) => k.status === 'imported').map((k) => k.sourcePath))
+    const remaining = detected.filter((d) => !importedPaths.has(d.sourcePath))
+    // Attempt each translation now (final review Finding 6) so the review
+    // modal can disable what cannot parse, preview what can, and surface the
+    // translators' warnings instead of discarding them. Bounded work: every
+    // read is capped at 64KB, only not-yet-imported sources are described, and
+    // buildCandidateViews itself caps the NUMBER fully described per call
+    // (MAX_PREVIEWED, candidateViews.ts) since this runs on every folder open.
+    const candidates = buildCandidateViews(projectPath, remaining, db.getOutsidePolicy(projectPath))
+    // Only something the user could actually act on drives the banner: an
+    // 'unsupported' source (Finding 2) or one that cannot translate at all
+    // would otherwise nag on every folder open with nothing to offer.
+    const showBanner = shouldShowImportBanner(
+      candidates.filter((c) => c.buildable),
+      known,
+      Date.now()
+    )
+    return { candidates, showBanner }
+  })
+  ipcMain.handle('bearcode:config-import:apply', (_e, p: unknown, selection: unknown) => {
+    return applyImportSelection(reqPath(p), assertValidImportSelection(selection))
+  })
+  ipcMain.handle('bearcode:config-import:dismiss', (_e, p: unknown, sourcePaths: unknown) => {
+    dismissDetectedSources(reqPath(p), asStringArray(sourcePaths, 'source paths'))
+  })
+  ipcMain.handle('bearcode:config-import:list-imported', (_e, p: unknown) =>
+    db.listImportedConfig(reqPath(p))
+  )
+  ipcMain.handle('bearcode:config-import:check-update', (_e, p: unknown, sp: unknown) =>
+    checkSourceForUpdate(reqPath(p), String(sp))
+  )
+  ipcMain.handle('bearcode:config-import:apply-update', (_e, p: unknown, sp: unknown) => {
+    applySourceUpdate(reqPath(p), String(sp))
+  })
+  ipcMain.handle('bearcode:config-import:ignore-update', (_e, p: unknown, sp: unknown) => {
+    ignoreSourceUpdate(reqPath(p), String(sp))
+  })
+  ipcMain.handle('bearcode:config-import:detach', (_e, p: unknown, sp: unknown) => {
+    detachSource(reqPath(p), String(sp))
   })
 
   // Integrations (GitHub/Bitbucket, Task 11): status read model + connect/

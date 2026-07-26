@@ -22,12 +22,33 @@ const ACTIVATION_LABEL: Record<RuleEntry['activation'], string> = {
 export function RulesPage(): JSX.Element | null {
   const settings = useAppStore((s) => s.settings)
   const workspacePath = useAppStore((s) => s.workspacePath)
+  const refreshImportBannerState = useAppStore((s) => s.refreshImportBannerState)
+  const openImportReview = useAppStore((s) => s.openImportReview)
+  // Re-fetch trigger, not display data (final review Finding 3): the store
+  // replaces this array right after an import completes (applyImportSelection
+  // -> refreshImportBannerState), so depending on its identity is what makes a
+  // newly-imported rule appear in the list below instead of the page showing a
+  // stale "Active rules" until the next workspace switch.
+  const importCandidates = useAppStore((s) => s.workspaceImportCandidates)
 
   const [rules, setRules] = useState<RuleEntry[] | null>(null)
+  const [scanning, setScanning] = useState(false)
 
   useEffect(() => {
     void window.bearcode.rules.list(workspacePath).then((list) => setRules(list))
-  }, [workspacePath])
+  }, [workspacePath, importCandidates])
+
+  const scanForImportableConfig = (): void => {
+    setScanning(true)
+    void refreshImportBannerState(workspacePath)
+      .then(() => {
+        setScanning(false)
+        openImportReview()
+      })
+      .catch(() => {
+        setScanning(false)
+      })
+  }
 
   if (!settings) return null
 
@@ -37,6 +58,11 @@ export function RulesPage(): JSX.Element | null {
       <div className="page-sub">
         Standing instructions the agent always follows or applies by name/glob/description. Edited
         as files under <code>.agents/rules/</code> — this page shows what&apos;s live.
+      </div>
+      <div className="rules-page-actions">
+        <button className="pill-btn" disabled={!workspacePath || scanning} onClick={scanForImportableConfig}>
+          {scanning ? 'Scanning…' : 'Scan for importable config…'}
+        </button>
       </div>
 
       <div className="set-group-title">Active rules</div>

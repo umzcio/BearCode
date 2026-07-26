@@ -12,6 +12,9 @@ import type {
   EffortLevel,
   Event,
   HermesConnectionMode,
+  ImportCandidate,
+  ImportSelection,
+  ImportSummary,
   ManageableProvider,
   ManualRuleInfo,
   MentionRef,
@@ -289,6 +292,9 @@ interface AppState {
   // Project Trust: whether the current workspace has been explicitly trusted.
   workspaceTrusted: boolean
   workspaceHasAgentsConfig: boolean
+  workspaceImportCandidates: ImportCandidate[]
+  workspaceImportBannerVisible: boolean
+  importReviewOpen: boolean
   outsideAccess: OutsideAccessInfo | null
   trustBannerDismissed: boolean
   // Signed macOS builds arc: current app version + live electron-updater status.
@@ -462,6 +468,11 @@ interface AppState {
   refreshTrustState(path: string | null): Promise<void>
   trustWorkspace(): Promise<void>
   dismissTrustBanner(): void
+  refreshImportBannerState(path: string | null): Promise<void>
+  dismissImportBanner(): Promise<void>
+  openImportReview(): void
+  closeImportReview(): void
+  applyImportSelection(selection: ImportSelection): Promise<ImportSummary>
   checkForUpdates(): Promise<void>
   installUpdate(): void
   dismissUpdateBanner(): void
@@ -504,6 +515,12 @@ interface AppState {
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 let initialized = false
+
+// "1 rule" / "3 rules" — used by the import-summary toast (final review
+// Finding 3). Every noun it is applied to takes a plain -s plural.
+function plural(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`
+}
 
 export function modelDisplay(
   providers: ProviderModels[],
@@ -655,6 +672,9 @@ export const useAppStore = create<AppState>((set, get) => {
     workspacePath: null,
     workspaceTrusted: false,
     workspaceHasAgentsConfig: false,
+    workspaceImportCandidates: [],
+    workspaceImportBannerVisible: false,
+    importReviewOpen: false,
     outsideAccess: null,
     trustBannerDismissed: false,
     appVersion: null,
@@ -1400,6 +1420,7 @@ export const useAppStore = create<AppState>((set, get) => {
     setWorkspace: (path) => {
       set({ workspacePath: path })
       void get().refreshTrustState(path)
+      void get().refreshImportBannerState(path)
     },
     refreshTrustState: async (path) => {
       if (!path) {
@@ -1431,6 +1452,47 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ workspaceTrusted: true })
     },
     dismissTrustBanner: () => set({ trustBannerDismissed: true }),
+    refreshImportBannerState: async (path) => {
+      if (!path) {
+        set({ workspaceImportCandidates: [], workspaceImportBannerVisible: false })
+        return
+      }
+      const { candidates, showBanner } = await window.bearcode.configImport.scan(path)
+      set({ workspaceImportCandidates: candidates, workspaceImportBannerVisible: showBanner })
+    },
+    dismissImportBanner: async () => {
+      const path = get().workspacePath
+      if (!path) return
+      const sourcePaths = get()
+        .workspaceImportCandidates.filter((c) => c.kind !== 'unsupported')
+        .map((c) => c.sourcePath)
+      await window.bearcode.configImport.dismiss(path, sourcePaths)
+      set({ workspaceImportBannerVisible: false })
+    },
+    openImportReview: () => set({ importReviewOpen: true }),
+    closeImportReview: () => set({ importReviewOpen: false }),
+    applyImportSelection: async (selection) => {
+      const path = get().workspacePath
+      if (!path) throw new Error('no workspace open')
+      const summary = await window.bearcode.configImport.apply(path, selection)
+      set({ importReviewOpen: false, workspaceImportBannerVisible: false })
+      // The modal is already animating closed by the time its own .then() could
+      // render a summary line, so the confirmation has to be a toast (final
+      // review Finding 3) -- otherwise a successful import looked like nothing
+      // happened at all.
+      const parts: string[] = []
+      if (summary.rulesImported > 0) parts.push(plural(summary.rulesImported, 'rule'))
+      if (summary.workflowsImported > 0) parts.push(plural(summary.workflowsImported, 'workflow'))
+      if (summary.skillsImported > 0) parts.push(plural(summary.skillsImported, 'skill'))
+      get().showToast(parts.length === 0 ? 'Nothing was imported' : `Imported ${parts.join(', ')}`)
+      // refreshTrustState too, not just the banner state (final review Finding
+      // 4): if the project had no .agents/ before this import,
+      // workspaceHasAgentsConfig is still false, so TrustBanner would never
+      // show, the user would never be prompted to trust the folder, and the
+      // rules just written would never actually load (untrusted = not loaded).
+      await Promise.all([get().refreshImportBannerState(path), get().refreshTrustState(path)])
+      return summary
+    },
     checkForUpdates: async () => {
       const status = await window.bearcode.updater.checkNow()
       set({ updaterStatus: status })

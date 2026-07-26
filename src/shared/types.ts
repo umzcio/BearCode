@@ -1376,6 +1376,65 @@ export interface UpdaterStatus {
   checkedAt?: number
 }
 
+// ---- Agent config import (Task 8) ----
+// Renderer-facing shapes for detecting and importing another agent tool's
+// config (Claude Code rules/workflows/skills equivalents from Codex/Cursor/
+// Windsurf) into this project's .agents/ tree. ImportedConfigRow here mirrors
+// main/db/index.ts's ImportedConfigRow field-for-field -- kept as a separate
+// declaration since main-only modules must not be imported by the renderer.
+export type ImportTool = 'claude-code' | 'codex' | 'cursor' | 'windsurf'
+export type ImportKind = 'rule' | 'workflow' | 'skill' | 'unsupported'
+export interface DetectedSource {
+  sourcePath: string
+  kind: ImportKind
+  tool: ImportTool
+}
+// Parse-aware view of a DetectedSource, returned by configImport.scan (final
+// review Finding 6). The raw DetectedSource alone said nothing about whether a
+// source actually TRANSLATES, so an empty CLAUDE.md, a non-kebab-case command
+// filename, or a SKILL.md missing its required description all showed up
+// pre-checked and importable, then silently imported as 0 items with no
+// explanation. `buildable: false` means "couldn't parse — skipped"; `preview`
+// is a short excerpt of the translated body/description; `warnings` are the
+// translator's own notices (truncation, unresolved `@refs`), which were
+// previously computed and then discarded by every consumer.
+export interface ImportCandidate extends DetectedSource {
+  buildable: boolean
+  preview?: string
+  warnings?: string[]
+  // Set when the per-scan preview cap was already spent on earlier sources
+  // (final review perf finding), so this one was returned as detected but
+  // never actually parsed. Distinct from a genuine `buildable: false`
+  // (couldn't parse) -- the review modal must not tell the user their file
+  // is broken when it was simply never looked at.
+  notPreviewed?: boolean
+}
+export interface ImportSelection {
+  rules: string[]
+  workflows: string[]
+  skills: string[]
+}
+export interface ImportSummary {
+  rulesImported: number
+  workflowsImported: number
+  skillsImported: number
+}
+export type UpdateCheck =
+  | { state: 'up-to-date' }
+  | { state: 'changed'; oldBody: string; newBody: string }
+  | { state: 'source-missing' }
+export interface ImportedConfigRow {
+  id: string
+  projectPath: string
+  sourcePath: string
+  sourceHash: string | null
+  importedAsType: 'rule' | 'workflow' | 'skill' | null
+  importedAsName: string | null
+  status: 'imported' | 'dismissed'
+  dismissedAt: number | null
+  createdAt: number
+}
+
 export interface BearcodeApi {
   ping(): Promise<PingResult>
   run: {
@@ -1669,6 +1728,20 @@ export interface BearcodeApi {
     // other server.
     discover(projectPath: string | null): Promise<DiscoveredMcpServer[]>
     import(servers: DiscoveredMcpServer[], projectPath: string | null): Promise<McpServerView[]>
+  }
+  // Agent config import (Task 8): detect another agent tool's rules/workflows/
+  // skills-equivalents sitting in a project (Codex/Cursor/Windsurf configs),
+  // import the user's picked subset into .agents/, and keep imported sources
+  // reconciled against upstream edits (check/apply/ignore update, detach).
+  configImport: {
+    scan(projectPath: string): Promise<{ candidates: ImportCandidate[]; showBanner: boolean }>
+    apply(projectPath: string, selection: ImportSelection): Promise<ImportSummary>
+    dismiss(projectPath: string, sourcePaths: string[]): Promise<void>
+    listImported(projectPath: string): Promise<ImportedConfigRow[]>
+    checkUpdate(projectPath: string, sourcePath: string): Promise<UpdateCheck>
+    applyUpdate(projectPath: string, sourcePath: string): Promise<void>
+    ignoreUpdate(projectPath: string, sourcePath: string): Promise<void>
+    detach(projectPath: string, sourcePath: string): Promise<void>
   }
   // Integrations (GitHub/Bitbucket, Task 11): status read model + the connect/
   // disconnect flows. No token ever crosses this surface -- IntegrationStatus

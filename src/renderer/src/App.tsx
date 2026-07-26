@@ -11,6 +11,8 @@ import { ConflictResolver } from './components/Worktree/ConflictResolver'
 import { Hint } from './components/Hint'
 import { IconPanel } from './components/icons'
 import { TrustBanner } from './components/TrustBanner'
+import { ImportConfigBanner } from './components/ImportConfigBanner'
+import { ImportConfigReviewModal } from './components/ImportConfigReviewModal'
 import { OutsideAccessCard } from './components/OutsideAccessCard'
 import { UpdateBanner } from './components/UpdateBanner'
 import { useAppStore } from './state/store'
@@ -132,6 +134,7 @@ function App(): React.JSX.Element {
           ) : null}
         </div>
         <TrustBanner />
+        <ImportConfigBanner />
         <OutsideAccessCard />
         <UpdateBanner />
         <div
@@ -144,6 +147,7 @@ function App(): React.JSX.Element {
         </div>
         <SettingsModal />
         <ProjectSettingsModal />
+        <ImportConfigReviewModal />
         <ConflictResolver />
       </div>
       {auxSelection ? (
