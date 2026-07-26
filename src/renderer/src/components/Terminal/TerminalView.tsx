@@ -106,18 +106,30 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
     <div className="terminal-view">
       <div className="terminal-tabstrip">
         {tabs.map((tab) => (
-          <button
+          <div
             key={tab.id}
             className={
               'terminal-tab' + (tab.id === activeId ? ' active' : '') + (tab.exited ? ' exited' : '')
             }
+            role="button"
+            tabIndex={0}
             onClick={() => setActiveTerminalTab(path, tab.id)}
+            onKeyDown={(e) => {
+              // Ignore keys originating on the nested close button (mirrors
+              // ProjectsIndex.tsx's .pidx-row / ProjectPage.tsx's .pp-row
+              // row-vs-action convention).
+              if (e.target !== e.currentTarget) return
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                setActiveTerminalTab(path, tab.id)
+              }
+            }}
           >
             <IconTerminal size={13} />
             <span>{tab.exited ? `${tab.title} (exited)` : tab.title}</span>
-            <span
+            <button
+              type="button"
               className="terminal-tab-close"
-              role="button"
               aria-label="Close terminal tab"
               onClick={(e) => {
                 e.stopPropagation()
@@ -125,8 +137,8 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
               }}
             >
               <IconClose size={11} />
-            </span>
-          </button>
+            </button>
+          </div>
         ))}
         <button
           className="terminal-tab-new"

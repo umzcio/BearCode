@@ -76,6 +76,13 @@
   background: var(--bg-hover);
 }
 
+.terminal-tab:focus-visible,
+.terminal-tab-new:focus-visible,
+.terminal-tab-close:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 .terminal-panes {
   position: relative;
   flex: 1;
