@@ -1,0 +1,48 @@
+.catalog-tab {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.ct-card {
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-window);
+}
+.ct-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ct-card-name {
+  font-weight: 500;
+  font-size: 13.5px;
+  color: var(--text);
+}
+.ct-card-vendor {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.ct-card-desc {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.4;
+  flex: 1;
+}
+.ct-enable {
+  align-self: flex-start;
+  border: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.ct-enable:hover {
+  background: var(--wash);
+}
