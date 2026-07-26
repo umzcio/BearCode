@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { useAppStore } from '../../state/store'
 import { SidebarFooterMenu } from './SidebarFooterMenu'
 
@@ -94,5 +94,26 @@ describe('SidebarFooterMenu', () => {
     const toggle = screen.getByRole('menuitemcheckbox', { name: /Dark Mode/ })
     expect(toggle.hasAttribute('aria-checked')).toBe(true)
     expect(toggle.getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('shows the Dark Mode tooltip on hover -- it must not be permanently disabled by the popover\'s own open state', () => {
+    vi.useFakeTimers()
+    try {
+      render(<SidebarFooterMenu />)
+      fireEvent.click(screen.getByRole('button', { name: /Zach/ }))
+      const toggle = screen.getByRole('menuitemcheckbox', { name: /Dark Mode/ })
+      // Hint's onMouseEnter/onMouseLeave live on its own wrapper <span>
+      // (Hint.tsx's `hint-wrap`), not on the child button -- fire directly on
+      // that wrapper so the event target matches where the handler is bound.
+      const wrap = toggle.closest('.hint-wrap')
+      expect(wrap).toBeTruthy()
+      fireEvent.mouseEnter(wrap as Element)
+      act(() => {
+        vi.advanceTimersByTime(500)
+      })
+      expect(screen.getByText('Toggle dark mode')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -58,7 +58,6 @@ export function SidebarFooterMenu(): React.JSX.Element {
               isBinary ? 'Toggle dark mode' : 'Following System/Custom — manage in Settings'
             }
             side="bottom"
-            disabled={open}
           >
             <button
               type="button"
