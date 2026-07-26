@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { ApprovalDecision, Event } from '@shared/types'
 import { useAppStore } from '../../state/store'
+import { useAnimatedUnmount } from '../../lib/useAnimatedUnmount'
 import './events.css'
 
 type HermesToolCall = Extract<Event, { type: 'hermes_tool_call' }>
@@ -30,6 +31,9 @@ export function HermesToolStep({
   const [submitted, setSubmitted] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const status = result?.status ?? call.status
+  const { mounted: approvalMounted, state: approvalState } = useAnimatedUnmount(
+    status === 'awaiting-approval'
+  )
   const statusText =
     status === 'awaiting-approval'
       ? 'Awaiting approval'
@@ -68,11 +72,12 @@ export function HermesToolStep({
           {result ? ` · ${hermesDurationLabel(result.durationMs)}` : ''}
         </span>
       </div>
-      {status === 'awaiting-approval' ? (
+      {approvalMounted ? (
         <>
           <div className="waiting-note">Waiting for your approval…</div>
           <div
             className="approval-card pulse-once"
+            data-state={approvalState}
             id={interactive ? 'pending-approval-card' : undefined}
           >
             <div className="approval-title">{call.description ?? call.label}</div>
