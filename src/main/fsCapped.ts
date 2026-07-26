@@ -45,7 +45,16 @@ export function readFileCapped(
   let size: number
   try {
     const lstat = lstatSync(path)
-    if (lstat.isSymbolicLink()) return null
+    // Opt-in, gated the same way as the isPathWithinRoot check just below:
+    // only reject a symlinked leaf when a caller passes `root` (config-import
+    // scanning). Every other call site (agentsDir/index.ts, agentsDir/memory.ts,
+    // hooks/loader.ts, plugins/manifest.ts, plugins/marketplace.ts) never
+    // passes `root` and relies on the pre-existing "symlinks are followed"
+    // behavior -- e.g. a dotfiles-managed ~/.bearcode/agents/rules/foo.md
+    // symlink must keep working. When `root` IS provided, this leaf check is
+    // technically redundant with isPathWithinRoot (realpathSync resolves the
+    // whole chain including the leaf) but kept for clarity/defense-in-depth.
+    if (root && lstat.isSymbolicLink()) return null
     // Optional, opt-in: callers that know the path was derived from a scan of
     // untrusted repo content (config-import) pass their project root here so
     // an intermediate-directory symlink escape is caught too, not just a

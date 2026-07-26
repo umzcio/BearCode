@@ -22,15 +22,42 @@ describe('readFileCapped', () => {
     expect(readFileCapped(filePath, 1024)).toEqual({ text: 'hello world', truncated: false })
   })
 
-  it('returns null for a symlink pointing at a valid file outside the project', () => {
+  it('returns null for a symlinked leaf pointing outside the project, given a root', () => {
     const outsideFile = join(outsideDir, 'id_rsa')
     writeFileSync(outsideFile, 'super secret content')
     const linkPath = join(dir, 'CLAUDE.md')
     symlinkSync(outsideFile, linkPath)
-    expect(readFileCapped(linkPath, 1024)).toBeNull()
+    expect(readFileCapped(linkPath, 1024, dir)).toBeNull()
   })
 
-  it('returns null for a dangling symlink without throwing', () => {
+  // Backward-compat: the leaf-symlink rejection is opt-in, gated on `root`
+  // just like isPathWithinRoot below -- callers that never pass `root` (the
+  // ~12 non-config-import call sites: agentsDir/index.ts, agentsDir/memory.ts,
+  // hooks/loader.ts, plugins/manifest.ts, plugins/marketplace.ts) must keep
+  // following symlinks exactly as they did before the config-import fix, e.g.
+  // a dotfiles-managed symlinked ~/.bearcode/agents/rules/foo.md.
+  it('with no root supplied, still follows a symlinked leaf (backward-compat, opt-in root)', () => {
+    const outsideFile = join(outsideDir, 'id_rsa')
+    writeFileSync(outsideFile, 'not actually secret in this context')
+    const linkPath = join(dir, 'CLAUDE.md')
+    symlinkSync(outsideFile, linkPath)
+    expect(readFileCapped(linkPath, 1024)).toEqual({
+      text: 'not actually secret in this context',
+      truncated: false
+    })
+  })
+
+  it('returns null for a dangling symlink without throwing, given a root', () => {
+    const linkPath = join(dir, 'CLAUDE.md')
+    symlinkSync(join(outsideDir, 'does-not-exist'), linkPath)
+    expect(() => readFileCapped(linkPath, 1024, dir)).not.toThrow()
+    expect(readFileCapped(linkPath, 1024, dir)).toBeNull()
+  })
+
+  it('returns null for a dangling symlink without throwing, with no root supplied', () => {
+    // statSync on a dangling symlink still fails regardless of the leaf
+    // symlink check, so this stays null either way -- just via a different
+    // code path (the stats.isFile() / try-catch below, not the leaf check).
     const linkPath = join(dir, 'CLAUDE.md')
     symlinkSync(join(outsideDir, 'does-not-exist'), linkPath)
     expect(() => readFileCapped(linkPath, 1024)).not.toThrow()
