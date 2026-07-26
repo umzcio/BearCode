@@ -1,7 +1,14 @@
 import { useMemo, useRef, useState } from 'react'
 import type { ProviderId } from '@shared/types'
 import { useAppStore } from '../../state/store'
-import { buildModelRows, formatTokens, type ModelStatus } from '../../lib/modelRows'
+import {
+  buildModelRows,
+  formatTokens,
+  CAPABILITY_LABEL,
+  STATUS_LABEL,
+  type CapabilityKey,
+  type ModelStatus
+} from '../../lib/modelRows'
 import { Select, type SelectOption } from '../Select'
 import { Toggle } from '../Toggle'
 import { EmptyState } from '../ui/EmptyState'
@@ -12,21 +19,12 @@ import { ModelDetailModal } from './ModelDetailModal'
 import { AddCustomModelModal } from './AddCustomModelModal'
 import './ModelsTab.css'
 
-const STATUS_LABEL: Record<ModelStatus, string> = {
-  available: 'Available',
-  'not-configured': 'Provider not configured',
-  unavailable: 'Unavailable'
-}
-
-const CAPABILITY_OPTIONS: SelectOption<
-  'all' | 'functionCalling' | 'vision' | 'responseSchema' | 'reasoning' | 'webSearch'
->[] = [
+const CAPABILITY_OPTIONS: SelectOption<'all' | CapabilityKey>[] = [
   { value: 'all', label: 'All capabilities' },
-  { value: 'functionCalling', label: 'Function calling' },
-  { value: 'vision', label: 'Vision' },
-  { value: 'responseSchema', label: 'Structured output' },
-  { value: 'reasoning', label: 'Reasoning' },
-  { value: 'webSearch', label: 'Web search' }
+  ...(Object.entries(CAPABILITY_LABEL) as [CapabilityKey, string][]).map(([value, label]) => ({
+    value,
+    label
+  }))
 ]
 
 const STATUS_OPTIONS: SelectOption<'all' | ModelStatus>[] = [
@@ -85,7 +83,9 @@ export function ModelsTab(): React.JSX.Element {
   )
 
   const filtered = allRows.filter((row) => {
-    if (search.trim() && !row.label.toLowerCase().includes(search.trim().toLowerCase())) return false
+    const q = search.trim().toLowerCase()
+    if (q && !row.label.toLowerCase().includes(q) && !row.providerDisplayName.toLowerCase().includes(q))
+      return false
     if (vendorFilter !== 'all' && row.providerId !== vendorFilter) return false
     if (capabilityFilter !== 'all' && !(row.metadata?.capabilities[capabilityFilter] ?? false))
       return false
@@ -94,11 +94,18 @@ export function ModelsTab(): React.JSX.Element {
     return true
   })
 
+  // Favorites-first, stable otherwise (Array.prototype.sort is a stable sort
+  // in modern engines, so relative order among non-favorites is preserved).
+  // Display-only ordering: `filtered`/`filtered.length` remain the source for
+  // the "Showing X-Y of Z" count and bulkSetEnabled's iteration below, where
+  // order doesn't matter.
+  const sortedFiltered = [...filtered].sort((a, b) => Number(b.favorite) - Number(a.favorite))
+
   const size = Number(pageSize)
   const pageCount = Math.max(1, Math.ceil(filtered.length / size))
   const clampedPage = Math.min(page, pageCount)
   const start = (clampedPage - 1) * size
-  const pageRows = filtered.slice(start, start + size)
+  const pageRows = sortedFiltered.slice(start, start + size)
 
   const toggleFavorite = (ref: string): void => {
     if (!settings) return
@@ -217,7 +224,7 @@ export function ModelsTab(): React.JSX.Element {
           <tbody>
             {pageRows.map((row) => {
               const caps = row.metadata
-                ? (Object.entries(row.metadata.capabilities) as [string, boolean][])
+                ? (Object.entries(row.metadata.capabilities) as [CapabilityKey, boolean][])
                     .filter(([, on]) => on)
                     .map(([k]) => k)
                 : null
@@ -252,7 +259,7 @@ export function ModelsTab(): React.JSX.Element {
                       <div className="mt-caps">
                         {caps.slice(0, 3).map((c) => (
                           <span className="chip" key={c}>
-                            {c}
+                            {CAPABILITY_LABEL[c]}
                           </span>
                         ))}
                         {caps.length > 3 ? <span className="chip">+{caps.length - 3}</span> : null}

@@ -75,6 +75,15 @@ describe('ModelsTab', () => {
     expect(screen.queryByText('GPT-5.6 Sol')).toBeNull()
   })
 
+  it('filters by search text against the vendor name too, not just the model label', () => {
+    seed()
+    render(<ModelsTab />)
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'anthropic' } })
+    expect(screen.getByText('Claude Opus 4.8')).toBeTruthy()
+    expect(screen.getByText('Claude Haiku 4.5')).toBeTruthy()
+    expect(screen.queryByText('GPT-5.6 Sol')).toBeNull()
+  })
+
   it('"show enabled only" hides the disabled row', () => {
     seed()
     render(<ModelsTab />)
@@ -142,6 +151,16 @@ describe('ModelsTab', () => {
     render(<ModelsTab />)
     fireEvent.click(screen.getByText('Add custom model'))
     expect(screen.getByLabelText('Add a custom model')).toBeTruthy()
+  })
+
+  it('sorts favorited rows to the top of the table (favorites-first, stable otherwise)', () => {
+    // GPT-5.6 Sol is listed last among the seeded models but is favorited, so
+    // it should render first; the relative order of the non-favorites (both
+    // Claude rows) should stay unchanged.
+    seed({ settings: { modelPricing: {}, modelMetadata: {}, favoriteModels: ['openai/gpt-5.6-sol'] } })
+    render(<ModelsTab />)
+    const names = Array.from(document.querySelectorAll('.mt-model-name')).map((el) => el.textContent)
+    expect(names).toEqual(['GPT-5.6 Sol', 'Claude Opus 4.8', 'Claude Haiku 4.5'])
   })
 
   it('bulk-disables every FILTERED row (not just the current page) via Bulk actions', () => {

@@ -2,7 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../state/store'
 import { useAnimatedUnmount } from '../../lib/useAnimatedUnmount'
 import { useModalDialog } from '../../lib/useModalDialog'
-import { buildModelRows, formatTokens, MODE_LABEL, type ModelStatus } from '../../lib/modelRows'
+import {
+  buildModelRows,
+  formatTokens,
+  MODE_LABEL,
+  CAPABILITY_LABEL,
+  STATUS_LABEL,
+  type CapabilityKey
+} from '../../lib/modelRows'
 import { relativeAge } from '../../lib/time'
 import { ProviderIcon } from '../ProviderIcon'
 import { Toggle } from '../Toggle'
@@ -10,23 +17,6 @@ import { Hint } from '../Hint'
 import { Menu } from '../ui/Menu'
 import { IconClose, IconCopy, IconDots, IconStar } from '../icons'
 import './ModelDetailModal.css'
-
-const STATUS_LABEL: Record<ModelStatus, string> = {
-  available: 'Available',
-  'not-configured': 'Provider not configured',
-  unavailable: 'Unavailable'
-}
-
-const CAPABILITY_LABELS: {
-  key: 'functionCalling' | 'vision' | 'responseSchema' | 'reasoning' | 'webSearch'
-  label: string
-}[] = [
-  { key: 'functionCalling', label: 'Function calling' },
-  { key: 'vision', label: 'Vision' },
-  { key: 'responseSchema', label: 'Structured output' },
-  { key: 'reasoning', label: 'Reasoning' },
-  { key: 'webSearch', label: 'Web search' }
-]
 
 // The Models page's popup detail view (not a docked rail -- that direction was
 // mocked and explicitly rejected during design). Always rendered mounted by
@@ -206,7 +196,7 @@ export function ModelDetailModal({
 
           <div className="mdp-caps">
             {row.metadata ? (
-              CAPABILITY_LABELS.map(({ key, label }) => (
+              (Object.entries(CAPABILITY_LABEL) as [CapabilityKey, string][]).map(([key, label]) => (
                 <span
                   className={'mdp-cap' + (row.metadata!.capabilities[key] ? ' on' : '')}
                   key={key}

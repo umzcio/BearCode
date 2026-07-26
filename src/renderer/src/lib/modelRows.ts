@@ -36,6 +36,26 @@ export const MODE_LABEL: Record<ModelMode, string> = {
   other: 'Other'
 }
 
+export type CapabilityKey = 'functionCalling' | 'vision' | 'responseSchema' | 'reasoning' | 'webSearch'
+
+// Shared human-readable labels for capability keys and model status, single
+// source of truth for the table's chips/filter, the detail modal's capability
+// grid, and its status row (previously three separate local copies, one of
+// which rendered raw camelCase capability keys straight to users).
+export const CAPABILITY_LABEL: Record<CapabilityKey, string> = {
+  functionCalling: 'Function calling',
+  vision: 'Vision',
+  responseSchema: 'Structured output',
+  reasoning: 'Reasoning',
+  webSearch: 'Web search'
+}
+
+export const STATUS_LABEL: Record<ModelStatus, string> = {
+  available: 'Available',
+  'not-configured': 'Provider not configured',
+  unavailable: 'Unavailable'
+}
+
 // n >= 1M -> "1M" (one decimal only if not a round million); else "NNNK".
 // Missing/zero input -> an em dash, the table/modal's shared "unknown" glyph.
 export function formatTokens(n?: number): string {

@@ -22,7 +22,10 @@ function seed(): void {
     providers: [
       { id: 'anthropic', displayName: 'Anthropic', color: '#d97757', requiresKey: true, keyConfigured: true, reachable: true, models: [] }
     ],
-    settings: { modelPricing: {}, modelMetadata: {}, favoriteModels: [], modelPricingSyncedAt: undefined }
+    settings: { modelPricing: {}, modelMetadata: {}, favoriteModels: [], modelPricingSyncedAt: undefined },
+    // Stub the mount-time refresh (Fix 1) so tests that don't care about it
+    // don't hit the real window.bearcode IPC bridge, which doesn't exist here.
+    refreshManageableModels: vi.fn().mockResolvedValue(undefined)
   } as never)
 }
 
@@ -51,5 +54,23 @@ describe('ModelsPage', () => {
     render(<ModelsPage />)
     fireEvent.click(screen.getByText('Sync metadata'))
     await waitFor(() => expect(syncPricing).toHaveBeenCalled())
+  })
+
+  it('loads manageableModels on mount (regression: the page rendered empty on every fresh launch because nothing triggered the initial load)', () => {
+    const refreshManageableModels = vi.fn().mockResolvedValue(undefined)
+    seed()
+    useAppStore.setState({ manageableModels: [], refreshManageableModels } as never)
+    render(<ModelsPage />)
+    expect(refreshManageableModels).toHaveBeenCalled()
+  })
+
+  it('shows a sync error via ErrorCard when the header Sync metadata action rejects', async () => {
+    const syncPricing = vi.fn().mockRejectedValue(new Error('offline'))
+    seed()
+    useAppStore.setState({ syncPricing } as never)
+    render(<ModelsPage />)
+    fireEvent.click(screen.getByText('Sync metadata'))
+    await waitFor(() => expect(screen.getByText('offline')).toBeTruthy())
+    expect(document.querySelector('.ui-error-card')).toBeTruthy()
   })
 })
