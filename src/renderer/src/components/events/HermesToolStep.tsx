@@ -31,8 +31,13 @@ export function HermesToolStep({
   const [submitted, setSubmitted] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const status = result?.status ?? call.status
+  // durationMs must match .approval-card's own CSS transition duration
+  // (--dur-fast, events.css) -- the default 220ms (--dur-modal) would keep
+  // this mounted ~70ms after its exit transition finishes, reflowing content
+  // below late.
   const { mounted: approvalMounted, state: approvalState } = useAnimatedUnmount(
-    status === 'awaiting-approval'
+    status === 'awaiting-approval',
+    { durationMs: 150 }
   )
   const statusText =
     status === 'awaiting-approval'

@@ -185,8 +185,11 @@ describe('HermesToolStep', () => {
       expect(card?.getAttribute('data-state')).toBe('closing')
       expect(screen.queryByText('Waiting for your approval…')).not.toBeNull()
 
+      // 150ms (--dur-fast), matching .approval-card's own CSS transition --
+      // not the hook's 220ms default, since HermesToolStep now passes an
+      // explicit durationMs to keep them in sync.
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(219)
+        await vi.advanceTimersByTimeAsync(149)
       })
       expect(container.querySelector('.approval-card')).not.toBeNull()
 

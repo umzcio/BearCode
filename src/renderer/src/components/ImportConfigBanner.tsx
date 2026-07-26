@@ -15,7 +15,13 @@ export function ImportConfigBanner(): React.JSX.Element | null {
   const dismiss = useAppStore((s) => s.dismissImportBanner)
   const openReview = useAppStore((s) => s.openImportReview)
   const [dismissing, setDismissing] = useState(false)
-  const { mounted, state } = useAnimatedUnmount(visible && candidates.length > 0)
+  // durationMs must match .trust-banner's own CSS transition duration
+  // (--dur-fast, App.css) -- the default 220ms (--dur-modal) would keep this
+  // mounted ~70ms after its exit transition finishes, reflowing content below
+  // late.
+  const { mounted, state } = useAnimatedUnmount(visible && candidates.length > 0, {
+    durationMs: 150
+  })
   if (!mounted) return null
 
   const tools = Array.from(new Set(candidates.map((c) => TOOL_LABEL[c.tool] ?? c.tool)))
