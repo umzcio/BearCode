@@ -1413,6 +1413,20 @@
   width: 100%;
   min-width: 0;
 }
+.hermes-mode-fields {
+  transition: opacity var(--dur-fast) var(--ease-out);
+  opacity: 1;
+}
+@starting-style {
+  .hermes-mode-fields {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hermes-mode-fields {
+    transition: none;
+  }
+}
 .hermes-test-row {
   display: flex;
   align-items: center;

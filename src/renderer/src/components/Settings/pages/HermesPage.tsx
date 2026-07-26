@@ -249,69 +249,71 @@ export function HermesPage(): JSX.Element | null {
                   : 'Legacy API is text-only and provides no file or approval guarantees.'}
               </div>
             </div>
-            {mode === 'native' ? (
-              <>
-                <div className="hermes-field">
-                  <div className="set-row-title">Native WebSocket URL</div>
-                  <input
-                    className="set-input"
-                    aria-label="Native WebSocket URL"
-                    placeholder="ws://umzspark:8643"
-                    value={nativeUrl}
-                    onChange={(e) => {
-                      ++nativeUrlSaveOwner.current.generation
-                      nativeUrlDirty.current = true
-                      clearSaveError('nativeUrl')
-                      setNativeUrl(e.target.value)
-                    }}
-                    onBlur={saveNativeUrl}
-                  />
-                </div>
-                <div className="hermes-field">
-                  <div className="set-row-title">Platform key</div>
-                  <input
-                    className="set-input"
-                    type="password"
-                    aria-label="Platform key"
-                    placeholder="Stored securely in the BearCode vault"
-                    value={platformKey}
-                    onChange={(e) => setPlatformKey(e.target.value)}
-                    onBlur={savePlatformKey}
-                  />
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="hermes-field">
-                  <div className="set-row-title">Gateway URL</div>
-                  <input
-                    className="set-input"
-                    aria-label="Gateway URL"
-                    placeholder="http://100.x.x.x:8642 (Tailscale / tunnel address)"
-                    value={gatewayUrl}
-                    onChange={(e) => {
-                      ++gatewayUrlSaveOwner.current.generation
-                      gatewayUrlDirty.current = true
-                      clearSaveError('gatewayUrl')
-                      setGatewayUrl(e.target.value)
-                    }}
-                    onBlur={saveGatewayUrl}
-                  />
-                </div>
-                <div className="hermes-field">
-                  <div className="set-row-title">Bearer token</div>
-                  <input
-                    className="set-input"
-                    type="password"
-                    aria-label="Bearer token (optional)"
-                    placeholder="Leave blank if the gateway has no auth configured"
-                    value={token}
-                    onChange={(e) => setToken(e.target.value)}
-                    onBlur={saveToken}
-                  />
-                </div>
-              </>
-            )}
+            <div className="hermes-mode-fields" key={mode}>
+              {mode === 'native' ? (
+                <>
+                  <div className="hermes-field">
+                    <div className="set-row-title">Native WebSocket URL</div>
+                    <input
+                      className="set-input"
+                      aria-label="Native WebSocket URL"
+                      placeholder="ws://umzspark:8643"
+                      value={nativeUrl}
+                      onChange={(e) => {
+                        ++nativeUrlSaveOwner.current.generation
+                        nativeUrlDirty.current = true
+                        clearSaveError('nativeUrl')
+                        setNativeUrl(e.target.value)
+                      }}
+                      onBlur={saveNativeUrl}
+                    />
+                  </div>
+                  <div className="hermes-field">
+                    <div className="set-row-title">Platform key</div>
+                    <input
+                      className="set-input"
+                      type="password"
+                      aria-label="Platform key"
+                      placeholder="Stored securely in the BearCode vault"
+                      value={platformKey}
+                      onChange={(e) => setPlatformKey(e.target.value)}
+                      onBlur={savePlatformKey}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="hermes-field">
+                    <div className="set-row-title">Gateway URL</div>
+                    <input
+                      className="set-input"
+                      aria-label="Gateway URL"
+                      placeholder="http://100.x.x.x:8642 (Tailscale / tunnel address)"
+                      value={gatewayUrl}
+                      onChange={(e) => {
+                        ++gatewayUrlSaveOwner.current.generation
+                        gatewayUrlDirty.current = true
+                        clearSaveError('gatewayUrl')
+                        setGatewayUrl(e.target.value)
+                      }}
+                      onBlur={saveGatewayUrl}
+                    />
+                  </div>
+                  <div className="hermes-field">
+                    <div className="set-row-title">Bearer token</div>
+                    <input
+                      className="set-input"
+                      type="password"
+                      aria-label="Bearer token (optional)"
+                      placeholder="Leave blank if the gateway has no auth configured"
+                      value={token}
+                      onChange={(e) => setToken(e.target.value)}
+                      onBlur={saveToken}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
             {saveError ? (
               <div className="hermes-test-error">
                 <ErrorCard>{saveError}</ErrorCard>
