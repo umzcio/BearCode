@@ -39,6 +39,6 @@ export function hashSourceContent(projectPath: string, sourcePath: string): stri
   } catch {
     return null
   }
-  const read = readFileCapped(target, MAX_IMPORT_BYTES)
+  const read = readFileCapped(target, MAX_IMPORT_BYTES, projectPath)
   return read ? hashOf(read.text) : null
 }

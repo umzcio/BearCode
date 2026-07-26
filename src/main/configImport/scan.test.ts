@@ -143,6 +143,47 @@ describe('scanImportableConfig', () => {
       tool: 'cursor'
     })
   })
+
+  // Security (review follow-up on the fix above): the gap isn't only a
+  // symlinked LEAF file -- an INTERMEDIATE directory in the scanned path
+  // (`.cursor/rules` itself) can be a symlink to somewhere outside the
+  // project. readdirSync transparently follows it, so a real (non-symlink)
+  // file inside the external target would otherwise pass every existing
+  // check. This must be excluded too.
+  it('excludes everything under a symlinked .cursor/rules directory pointing outside the project', () => {
+    mkdirSync(join(dir, '.cursor'), { recursive: true })
+    const realOutsideRulesDir = join(outsideDir, 'rules')
+    mkdirSync(realOutsideRulesDir)
+    writeFileSync(join(realOutsideRulesDir, 'evil.md'), 'evil content')
+    symlinkSync(realOutsideRulesDir, join(dir, '.cursor', 'rules'))
+    expect(scanImportableConfig(dir)).toEqual([])
+  })
+
+  // Same intermediate-directory-symlink gap, but for the skill-directory
+  // listing path (`.claude/skills`), which has its own (previously
+  // unguarded) readdirSync-based listing function.
+  it('excludes everything under a symlinked .claude/skills directory pointing outside the project', () => {
+    mkdirSync(join(dir, '.claude'), { recursive: true })
+    const realOutsideSkillsDir = join(outsideDir, 'skills')
+    mkdirSync(realOutsideSkillsDir)
+    mkdirSync(join(realOutsideSkillsDir, 'evil-skill'))
+    writeFileSync(join(realOutsideSkillsDir, 'evil-skill', 'SKILL.md'), 'evil content')
+    symlinkSync(realOutsideSkillsDir, join(dir, '.claude', 'skills'))
+    expect(scanImportableConfig(dir)).toEqual([])
+  })
+
+  // No-regression: a normal (non-symlinked) .claude/skills directory still
+  // works exactly as before.
+  it('still detects a skill under a normal (non-symlinked) .claude/skills directory', () => {
+    mkdirSync(join(dir, '.claude', 'skills', 'pdf-export'), { recursive: true })
+    writeFileSync(join(dir, '.claude', 'skills', 'pdf-export', 'SKILL.md'), 'x')
+    const found = scanImportableConfig(dir)
+    expect(found).toContainEqual({
+      sourcePath: join('.claude', 'skills', 'pdf-export'),
+      kind: 'skill',
+      tool: 'claude-code'
+    })
+  })
 })
 
 describe('shouldShowImportBanner', () => {
