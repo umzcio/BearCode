@@ -44,4 +44,36 @@ describe('SidebarFooterMenu', () => {
     fireEvent.click(toggle)
     expect(settingsSet).toHaveBeenCalledWith({ theme: 'light' })
   })
+
+  it('flips light -> dark via setAppearance', () => {
+    useAppStore.setState({ settings: { profileName: 'Zach', theme: 'light' } as never })
+    render(<SidebarFooterMenu />)
+    fireEvent.click(screen.getByRole('button', { name: /Zach/ }))
+    const toggle = screen.getByRole('menuitemcheckbox', { name: /Dark Mode/ })
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(toggle)
+    expect(settingsSet).toHaveBeenCalledWith({ theme: 'dark' })
+  })
+
+  it('never mutates theme when current theme is "system" -- routes to Settings instead', () => {
+    useAppStore.setState({ settings: { profileName: 'Zach', theme: 'system' } as never })
+    render(<SidebarFooterMenu />)
+    fireEvent.click(screen.getByRole('button', { name: /Zach/ }))
+    const toggle = screen.getByRole('menuitemcheckbox', { name: /Dark Mode/ })
+    expect(toggle.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(toggle)
+    expect(settingsSet).not.toHaveBeenCalled()
+    expect(openSettings).toHaveBeenCalled()
+  })
+
+  it('never mutates theme when current theme is "custom" -- routes to Settings instead', () => {
+    useAppStore.setState({ settings: { profileName: 'Zach', theme: 'custom' } as never })
+    render(<SidebarFooterMenu />)
+    fireEvent.click(screen.getByRole('button', { name: /Zach/ }))
+    const toggle = screen.getByRole('menuitemcheckbox', { name: /Dark Mode/ })
+    expect(toggle.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(toggle)
+    expect(settingsSet).not.toHaveBeenCalled()
+    expect(openSettings).toHaveBeenCalled()
+  })
 })
