@@ -72,6 +72,14 @@ interface Deferred {
 const HEARTBEAT_TIMEOUT_MS = 45_000
 const CANCEL_GRACE_MS = 5_000
 const ESTABLISHMENT_TIMEOUT_MS = 10_000
+const GATEWAY_MESSAGE_MAX_LENGTH = 500
+
+function sanitizeGatewayMessage(message: string): string {
+  const truncated = message.length > GATEWAY_MESSAGE_MAX_LENGTH
+    ? `${message.slice(0, GATEWAY_MESSAGE_MAX_LENGTH)}…`
+    : message
+  return `Hermes reported: ${truncated}`
+}
 
 function nativeUrl(value: string): string {
   let url: URL
@@ -155,7 +163,7 @@ function errorFromWire(
       : error.code.startsWith('file.')
         ? 'file'
         : fallback
-  return new HermesNativeClientError(error.message, kind, error.code, error.retryable)
+  return new HermesNativeClientError(sanitizeGatewayMessage(error.message), kind, error.code, error.retryable)
 }
 
 function helloFrame(conversationId: string, installationId: string): string {
@@ -677,7 +685,7 @@ export async function checkHermesNativeHealth(
               ? 'Rejected — check the platform key in Settings'
               : event.error.code.startsWith('protocol.')
                 ? 'Incompatible native Hermes protocol'
-                : event.error.message
+                : sanitizeGatewayMessage(event.error.message)
           })
         } else finish({ ok: false, message: 'Incompatible native Hermes protocol' })
       } catch {

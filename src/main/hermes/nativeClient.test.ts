@@ -192,6 +192,24 @@ describe('HermesNativeTurn connection state machine', () => {
     await expect(result).rejects.toMatchObject({ kind: 'protocol', code: 'protocol.invalid_handshake' })
   })
 
+  it('prefixes a generic gateway error message with "Hermes reported:"', async () => {
+    const { turn, socket } = testHarness()
+    const result = start(turn, socket)
+    socket.server({ type: 'hello.rejected', protocol: 'bearcode-hermes', supportedVersions: [1], error: { code: 'hermes.internal', message: 'boom', retryable: false } })
+    await expect(result).rejects.toMatchObject({ kind: 'hermes', code: 'hermes.internal', message: 'Hermes reported: boom' })
+  })
+
+  it('truncates an oversized gateway error message and appends an ellipsis', async () => {
+    const { turn, socket } = testHarness()
+    const result = start(turn, socket)
+    const oversized = 'x'.repeat(600)
+    socket.server({ type: 'hello.rejected', protocol: 'bearcode-hermes', supportedVersions: [1], error: { code: 'hermes.internal', message: oversized, retryable: false } })
+    const rejection = (await result.catch((error: unknown) => error)) as HermesNativeClientError
+    expect(rejection.message.startsWith('Hermes reported: ')).toBe(true)
+    expect(rejection.message.length).toBe('Hermes reported: '.length + 500 + 1)
+    expect(rejection.message.endsWith('…')).toBe(true)
+  })
+
   it('preserves an explicit WebSocket endpoint that already has the native path', async () => {
     const { turn, socket } = testHarness({ url: 'ws://hermes.example.test/v1/bearcode' })
     const result = start(turn, socket)
@@ -817,5 +835,18 @@ describe('HermesNativeTurn connection state machine', () => {
     const result = checkHermesNativeHealth('ws://hermes.example.test', 'platform-secret', ids.installation, { createWebSocket: () => socket as never })
     socket.emit('error', new Error('ECONNREFUSED'))
     await expect(result).resolves.toEqual({ ok: false, message: 'ECONNREFUSED' })
+  })
+
+  it('prefixes and truncates a generic gateway error message during a health check', async () => {
+    const socket = new FakeWebSocket()
+    const result = checkHermesNativeHealth('ws://hermes.example.test', 'platform-secret', ids.installation, { createWebSocket: () => socket as never })
+    socket.open()
+    const oversized = 'x'.repeat(600)
+    socket.server({ type: 'hello.rejected', protocol: 'bearcode-hermes', supportedVersions: [1], error: { code: 'hermes.internal', message: oversized, retryable: false } })
+    const outcome = await result
+    expect(outcome.ok).toBe(false)
+    expect(outcome.message.startsWith('Hermes reported: ')).toBe(true)
+    expect(outcome.message.length).toBe('Hermes reported: '.length + 500 + 1)
+    expect(outcome.message.endsWith('…')).toBe(true)
   })
 })
