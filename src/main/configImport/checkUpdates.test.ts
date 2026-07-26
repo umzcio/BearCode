@@ -88,7 +88,7 @@ import {
   detachSource,
   dismissDetectedSources
 } from './checkUpdates'
-import { getImportedConfig } from '../db'
+import { getImportedConfig, upsertImportedConfig } from '../db'
 
 describe('checkSourceForUpdate', () => {
   let dir: string
@@ -96,7 +96,7 @@ describe('checkSourceForUpdate', () => {
     store.clear()
     dir = mkdtempSync(join(tmpdir(), 'bearcode-checkupdate-'))
     writeFileSync(join(dir, 'CLAUDE.md'), 'Original content.')
-    applyImportSelection(dir, { rules: ['CLAUDE.md'], workflows: [], skills: [] })
+    applyImportSelection(dir, { rules: ['CLAUDE.md'], workflows: [], skills: [], mcpServers: [] })
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
@@ -142,6 +142,25 @@ describe('checkSourceForUpdate', () => {
     expect(getImportedConfig(dir, 'CLAUDE.md')).toBeNull()
     expect(readFileSync(join(dir, '.agents', 'rules', 'claude.md'), 'utf8')).toBe('Original content.')
   })
+
+  it('does not throw when an mcp-typed row is passed to checkSourceForUpdate', () => {
+    // Task 1 extended ImportedConfigRow.importedAsType to include 'mcp', which
+    // made the importedDirFor switch exhaustive (compile-time protection via
+    // TypeScript noImplicitReturns). This test verifies the 'mcp' case was added
+    // to the switch statement (RED→GREEN proof). Realistic MCP rows have synthetic
+    // sourcePaths (e.g. '.claude/settings.json#filesystem') that don't exist on
+    // disk, so checkSourceForUpdate returns 'source-missing' early; the switch is
+    // compile-time-only protected (runtime, import-once MCPs never reach that code).
+    const mcpDir = mkdtempSync(join(tmpdir(), 'bearcode-mcp-checkupdate-'))
+    upsertImportedConfig(mcpDir, '.claude/settings.json#filesystem', {
+      importedAsType: 'mcp',
+      importedAsName: 'filesystem',
+      status: 'imported',
+      createdAt: Date.now()
+    })
+    expect(() => checkSourceForUpdate(mcpDir, '.claude/settings.json#filesystem')).not.toThrow()
+    rmSync(mcpDir, { recursive: true, force: true })
+  })
 })
 
 // Final review Finding 5: a SKILL row's sourcePath is a DIRECTORY, and both
@@ -160,7 +179,7 @@ describe('checkSourceForUpdate for a skill source (directory sourcePath)', () =>
     dir = mkdtempSync(join(tmpdir(), 'bearcode-checkupdate-skill-'))
     mkdirSync(join(dir, sp), { recursive: true })
     writeFileSync(skillMd(), '---\ndescription: Export docs to PDF\n---\nBody.')
-    applyImportSelection(dir, { rules: [], workflows: [], skills: [sp] })
+    applyImportSelection(dir, { rules: [], workflows: [], skills: [sp], mcpServers: [] })
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
@@ -214,7 +233,7 @@ describe('applySourceUpdate resilience', () => {
     store.clear()
     const dir = mkdtempSync(join(tmpdir(), 'bearcode-checkupdate-mkdir-'))
     writeFileSync(join(dir, 'CLAUDE.md'), 'Original content.')
-    applyImportSelection(dir, { rules: ['CLAUDE.md'], workflows: [], skills: [] })
+    applyImportSelection(dir, { rules: ['CLAUDE.md'], workflows: [], skills: [], mcpServers: [] })
     rmSync(join(dir, '.agents'), { recursive: true, force: true })
     writeFileSync(join(dir, 'CLAUDE.md'), 'Updated content.')
     expect(() => applySourceUpdate(dir, 'CLAUDE.md')).not.toThrow()

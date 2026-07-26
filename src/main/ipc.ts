@@ -80,7 +80,7 @@ import {
   hasSpawnConsent as hasMcpSpawnConsent,
   grantSpawnConsent as grantMcpSpawnConsent,
   discoverLocalServers,
-  invalidateStaleConsentOnImport
+  importDiscoveredServers
 } from './mcp/store'
 import { mcpManager } from './mcp/manager'
 import { smitherySearch, fetchSmitheryConfig } from './mcp/registry'
@@ -140,6 +140,7 @@ import { validateHookEvent, validateHookName } from './hooks/validate'
 import { COMMAND_NAME_PATTERN, HERMES_MODEL_REF } from '../shared/types'
 import { scanImportableConfig, shouldShowImportBanner } from './configImport/scan'
 import { buildCandidateViews } from './configImport/candidateViews'
+import { buildMcpCandidates } from './configImport/mcpCandidates'
 import { applyImportSelection, type ImportSelection } from './configImport/importer'
 import {
   checkSourceForUpdate,
@@ -1258,9 +1259,12 @@ export function registerIpc(): void {
     return mcpManager.statusOf(name)
   })
 
-  // Task 13: read-only discovery of MCP servers already configured elsewhere
-  // (a project's `.mcp.json`, the Claude Desktop config). Pure read -- never
-  // mutates the source files, degrades to [] on missing/malformed JSON.
+  // Task 13: read-only discovery of MCP servers already configured elsewhere:
+  // the Claude Desktop config, a project's `.mcp.json`, `.claude/settings.json`'s
+  // `mcpServers` key, Cursor's `.cursor/mcp.json`, and Windsurf's
+  // `.windsurf/mcp.json` (see discoverLocalServers, mcp/store.ts). Pure read --
+  // never mutates any of the source files, degrades to [] on missing/malformed
+  // JSON.
   ipcMain.handle('bearcode:mcp:discover', (_e, projectPath: unknown) => {
     return discoverLocalServers(asProjectPath(projectPath))
   })
@@ -1269,48 +1273,42 @@ export function registerIpc(): void {
   // path (design §11). Secrets are NEVER auto-copied from a foreign config:
   // header/env VALUES are dropped (keys kept) so the user must fill each one
   // in via mcp.setSecret before the server can actually authenticate. Imported
-  // servers land under the SAME trust/consent/enable gates as any other: a
-  // project-mcp-json-origin import is written project-scoped (so it starts
-  // `untrusted` like any committed-project server), a stdio server still
-  // needs spawn consent on first enable, and nothing here touches
+  // servers land under the SAME trust/consent/enable gates as any other: any
+  // origin except `claude-desktop` (a machine-level config, not detected IN
+  // this project) is written project-scoped when a project is open, so it
+  // starts `untrusted` like any committed-project server; a stdio server
+  // still needs spawn consent on first enable; and nothing here touches
   // mcpEnabledServers.
+  // The known DiscoveredMcpServer['origin'] literals (shared/types.ts) --
+  // duplicated here rather than derived, same idiom as the other wire-boundary
+  // guards in this file, since TypeScript unions aren't available at runtime.
+  const KNOWN_MCP_ORIGINS: ReadonlySet<DiscoveredMcpServer['origin']> = new Set([
+    'claude-desktop',
+    'project-mcp-json',
+    'claude-settings-json',
+    'cursor-mcp-json',
+    'windsurf-mcp-json'
+  ])
   ipcMain.handle('bearcode:mcp:import', (_e, servers: unknown, projectPath: unknown) => {
     if (!Array.isArray(servers)) {
       throw new Error(`Invalid discovered servers: ${String(servers)}`)
     }
     const proj = asProjectPath(projectPath)
-    const blankValues = (o?: Record<string, string>): Record<string, string> | undefined =>
-      o ? Object.fromEntries(Object.keys(o).map((k) => [k, ''])) : undefined
-    const imported: McpServerView[] = []
-    for (const raw of servers as unknown[]) {
-      if (raw == null || typeof raw !== 'object') continue
-      const d = raw as Partial<DiscoveredMcpServer>
-      if (typeof d.name !== 'string' || d.name.trim().length === 0) continue
-      if (d.transport !== 'http' && d.transport !== 'stdio') continue
-      const name = d.name.trim()
-      const source: 'global' | 'project' =
-        d.origin === 'project-mcp-json' && proj ? 'project' : 'global'
-      const cfg: McpServerConfig = {
-        name,
-        transport: d.transport,
-        source,
-        url: d.url,
-        headers: blankValues(d.headers),
-        command: d.command,
-        args: d.args,
-        env: blankValues(d.env)
-      }
-      // An import can bind this foreign config to a NAME whose trust/enable/
-      // spawn-consent state already exists (that state is name-keyed). If the
-      // incoming command/url differs from what that name already runs, drop the
-      // stale consent BEFORE persisting so the spawn-consent + Trust gates
-      // re-fire against the real new command instead of being silently inherited
-      // (G3 review findings 1 & 2).
-      invalidateStaleConsentOnImport(cfg, proj)
-      upsertMcpServer(cfg, proj)
-      imported.push(mcpServerView(cfg, proj))
-    }
-    return imported
+    // The type predicate below asserts the FULL DiscoveredMcpServer shape, so
+    // it must actually check every field that shape promises -- `origin` in
+    // particular now drives the project/global scoping decision
+    // (importDiscoveredServers, mcp/store.ts), so an unvalidated bogus origin
+    // could previously slip through and be trusted as one of the known
+    // literals downstream (final whole-branch review, Finding 4).
+    const validated = (servers as unknown[]).filter(
+      (raw): raw is DiscoveredMcpServer =>
+        raw != null &&
+        typeof raw === 'object' &&
+        typeof (raw as { name?: unknown }).name === 'string' &&
+        KNOWN_MCP_ORIGINS.has((raw as { origin?: unknown }).origin as DiscoveredMcpServer['origin'])
+    )
+    const imported = importDiscoveredServers(validated, proj)
+    return imported.map((cfg) => mcpServerView(cfg, proj))
   })
 
   // Agent config import (Task 8): detect another agent tool's rules/
@@ -1335,7 +1333,8 @@ export function registerIpc(): void {
     return {
       rules: asStringArray(r.rules, 'import selection rules'),
       workflows: asStringArray(r.workflows, 'import selection workflows'),
-      skills: asStringArray(r.skills, 'import selection skills')
+      skills: asStringArray(r.skills, 'import selection skills'),
+      mcpServers: asStringArray(r.mcpServers, 'import selection mcp servers')
     }
   }
 
@@ -1357,7 +1356,20 @@ export function registerIpc(): void {
     // read is capped at 64KB, only not-yet-imported sources are described, and
     // buildCandidateViews itself caps the NUMBER fully described per call
     // (MAX_PREVIEWED, candidateViews.ts) since this runs on every folder open.
-    const candidates = buildCandidateViews(projectPath, remaining, db.getOutsidePolicy(projectPath))
+    const ruleCandidates = buildCandidateViews(
+      projectPath,
+      remaining,
+      db.getOutsidePolicy(projectPath)
+    )
+    // MCP servers are discovered independently of scanImportableConfig (they
+    // live in mcpServers blocks inside JSON configs, not standalone rule/
+    // workflow/skill files), so they're merged in here rather than flowing
+    // through `remaining`. Same already-imported filter applies so a server
+    // sitting in .agents/mcp.json isn't re-offered on every folder open.
+    const mcpCandidates = buildMcpCandidates(projectPath).filter(
+      (c) => !importedPaths.has(c.sourcePath)
+    )
+    const candidates = [...ruleCandidates, ...mcpCandidates]
     // Only something the user could actually act on drives the banner: an
     // 'unsupported' source (Finding 2) or one that cannot translate at all
     // would otherwise nag on every folder open with nothing to offer.

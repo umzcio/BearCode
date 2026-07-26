@@ -187,6 +187,23 @@ function projectDotMcpJsonPath(projectPath: string): string {
   return join(projectPath, '.mcp.json')
 }
 
+// Claude Code's project-level settings file: `.claude/settings.json` may
+// carry its own `mcpServers` key alongside rules/hooks. Read-only, like the
+// other discovery sources in this file.
+function claudeSettingsJsonPath(projectPath: string): string {
+  return join(projectPath, '.claude', 'settings.json')
+}
+
+// Cursor's project-level MCP config.
+function cursorMcpJsonPath(projectPath: string): string {
+  return join(projectPath, '.cursor', 'mcp.json')
+}
+
+// Windsurf's project-level MCP config.
+function windsurfMcpJsonPath(projectPath: string): string {
+  return join(projectPath, '.windsurf', 'mcp.json')
+}
+
 function toDiscovered(
   name: string,
   entry: RawServerEntry,
@@ -204,13 +221,16 @@ function toDiscovered(
   }
 }
 
-// Read-only discovery of MCP servers already configured by other tools: a
-// project's committed `.mcp.json` (Claude Code-style) and the Claude Desktop
-// config. Uses the same hardened readServerMap (readFileCapped + JSON.parse
-// try/catch) as the rest of this module, so a missing or malformed file
-// degrades to [] and NEVER throws or mutates the source file (design §8 G3).
-// Deduped by name: a project's `.mcp.json` wins over Claude Desktop's config,
-// mirroring the project-over-global precedence used elsewhere in this file.
+// Read-only discovery of MCP servers already configured by other tools: the
+// Claude Desktop config, plus (when a project is open) its committed
+// `.mcp.json` (Claude Code-style), `.claude/settings.json`'s `mcpServers` key,
+// Cursor's `.cursor/mcp.json`, and Windsurf's `.windsurf/mcp.json`. Uses the
+// same hardened readServerMap (readFileCapped + JSON.parse try/catch) as the
+// rest of this module, so a missing or malformed file degrades to [] and
+// NEVER throws or mutates the source file (design §8 G3). Deduped by name:
+// later sources in the function body win over earlier ones on a same-named
+// collision (an accepted, documented Map.set-merge behavior, not a new
+// precedence decision), so a project source always wins over Claude Desktop.
 export function discoverLocalServers(projectPath: string | null): DiscoveredMcpServer[] {
   const byName = new Map<string, DiscoveredMcpServer>()
   const desktopRaw = readServerMap(claudeDesktopConfigPath())
@@ -221,6 +241,18 @@ export function discoverLocalServers(projectPath: string | null): DiscoveredMcpS
     const projectRaw = readServerMap(projectDotMcpJsonPath(projectPath))
     for (const [name, entry] of Object.entries(projectRaw)) {
       byName.set(name, toDiscovered(name, entry, 'project-mcp-json'))
+    }
+    const claudeSettingsRaw = readServerMap(claudeSettingsJsonPath(projectPath))
+    for (const [name, entry] of Object.entries(claudeSettingsRaw)) {
+      byName.set(name, toDiscovered(name, entry, 'claude-settings-json'))
+    }
+    const cursorRaw = readServerMap(cursorMcpJsonPath(projectPath))
+    for (const [name, entry] of Object.entries(cursorRaw)) {
+      byName.set(name, toDiscovered(name, entry, 'cursor-mcp-json'))
+    }
+    const windsurfRaw = readServerMap(windsurfMcpJsonPath(projectPath))
+    for (const [name, entry] of Object.entries(windsurfRaw)) {
+      byName.set(name, toDiscovered(name, entry, 'windsurf-mcp-json'))
     }
   }
   return Array.from(byName.values())
@@ -452,4 +484,47 @@ export function invalidateStaleConsentOnImport(
     untrustProjectServer(cfg.name, projectPath)
   }
   return true
+}
+
+// Persists a batch of discovered servers through the same upsertServer path
+// as manual add / Smithery install -- never a side path. Secrets are NEVER
+// auto-copied from a foreign config: header/env VALUES are blanked (keys
+// kept) so the user must fill each one in via mcp.setSecret before the
+// server can authenticate. Shared by the standalone Connectors "Import
+// local…" flow (bearcode:mcp:import) and the unified config-import flow
+// (configImport/importer.ts) so there is exactly one persistence path, not
+// two forks of the same logic.
+export function importDiscoveredServers(
+  servers: DiscoveredMcpServer[],
+  projectPath: string | null
+): McpServerConfig[] {
+  const blankValues = (o?: Record<string, string>): Record<string, string> | undefined =>
+    o ? Object.fromEntries(Object.keys(o).map((k) => [k, ''])) : undefined
+  const imported: McpServerConfig[] = []
+  for (const raw of servers) {
+    if (raw == null || typeof raw !== 'object') continue
+    if (typeof raw.name !== 'string' || raw.name.trim().length === 0) continue
+    if (raw.transport !== 'http' && raw.transport !== 'stdio') continue
+    const name = raw.name.trim()
+    // Only a machine-level Claude Desktop config stays global; every
+    // project-file-sourced origin (the legacy .mcp.json plus the three new
+    // ones from Task 1) scopes to the open project, same as .mcp.json always
+    // has.
+    const source: 'global' | 'project' =
+      raw.origin !== 'claude-desktop' && projectPath ? 'project' : 'global'
+    const cfg: McpServerConfig = {
+      name,
+      transport: raw.transport,
+      source,
+      url: raw.url,
+      headers: blankValues(raw.headers),
+      command: raw.command,
+      args: raw.args,
+      env: blankValues(raw.env)
+    }
+    invalidateStaleConsentOnImport(cfg, projectPath)
+    upsertServer(cfg, projectPath)
+    imported.push(cfg)
+  }
+  return imported
 }

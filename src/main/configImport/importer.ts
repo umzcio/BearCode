@@ -6,17 +6,21 @@ import { buildRuleCandidate } from './translateRules'
 import { buildWorkflowCandidate } from './translateWorkflows'
 import { buildSkillCandidate } from './translateSkills'
 import { upsertImportedConfig, getOutsidePolicy, recordPendingOutsidePath } from '../db'
+import { discoverLocalServers, importDiscoveredServers } from '../mcp/store'
+import { mcpSourcePathFor } from './mcpCandidates'
 
 export interface ImportSelection {
   rules: string[]
   workflows: string[]
   skills: string[]
+  mcpServers: string[]
 }
 
 export interface ImportSummary {
   rulesImported: number
   workflowsImported: number
   skillsImported: number
+  mcpServersImported: number
 }
 
 // Picks the first available filename by appending "-imported", then
@@ -48,7 +52,12 @@ export function applyImportSelection(
 ): ImportSummary {
   const detected = scanImportableConfig(projectPath)
   const bySourcePath = new Map(detected.map((d) => [d.sourcePath, d]))
-  const summary: ImportSummary = { rulesImported: 0, workflowsImported: 0, skillsImported: 0 }
+  const summary: ImportSummary = {
+    rulesImported: 0,
+    workflowsImported: 0,
+    skillsImported: 0,
+    mcpServersImported: 0
+  }
   // Dedupe within each list (final review Minor): a selection carrying the
   // same sourcePath twice would otherwise import it twice and leave a
   // pointless "-imported-2" duplicate, with only the last write tracked in
@@ -124,6 +133,45 @@ export function applyImportSelection(
       createdAt: Date.now()
     })
     summary.skillsImported++
+  }
+
+  const uniqMcpServers = uniq(selection.mcpServers)
+  // Only discover when there's actually something selected (final
+  // whole-branch review, Finding 6): discoverLocalServers reads the real
+  // Claude Desktop config plus this project's .mcp.json/.claude/settings.json/
+  // .cursor/mcp.json/.windsurf/mcp.json on every call, so an unconditional
+  // call here hit the DEVELOPER'S OWN machine-level files on every
+  // rule/workflow/skill-only import (every pre-existing test in this file
+  // included) -- benign (read-only) but a sensible early-out regardless.
+  if (uniqMcpServers.length > 0) {
+    const discoveredServers = discoverLocalServers(projectPath)
+    const byMcpSourcePath = new Map(
+      discoveredServers
+        .map((s) => [mcpSourcePathFor(s), s] as const)
+        .filter((entry): entry is [string, (typeof discoveredServers)[number]] => entry[0] !== null)
+    )
+    const selectedServers = uniqMcpServers
+      .map((sourcePath) => byMcpSourcePath.get(sourcePath))
+      .filter((s): s is (typeof discoveredServers)[number] => s !== undefined)
+    const imported = importDiscoveredServers(selectedServers, projectPath)
+    // Match each recorded row back to ITS OWN selectedServers entry (not a
+    // by-name lookup into `imported`) so two selected servers that happen to
+    // share a `name` (e.g. one from .cursor/mcp.json, one from
+    // .windsurf/mcp.json) can never cross-attribute a sourcePath.
+    const importedNames = new Set(imported.map((cfg) => cfg.name))
+    for (const server of selectedServers) {
+      if (!importedNames.has(server.name)) continue
+      const sourcePath = mcpSourcePathFor(server)
+      if (sourcePath === null) continue
+      upsertImportedConfig(projectPath, sourcePath, {
+        sourceHash: null,
+        importedAsType: 'mcp',
+        importedAsName: server.name,
+        status: 'imported',
+        createdAt: Date.now()
+      })
+    }
+    summary.mcpServersImported = imported.length
   }
 
   return summary

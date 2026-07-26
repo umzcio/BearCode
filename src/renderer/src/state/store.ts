@@ -1484,6 +1484,7 @@ export const useAppStore = create<AppState>((set, get) => {
       if (summary.rulesImported > 0) parts.push(plural(summary.rulesImported, 'rule'))
       if (summary.workflowsImported > 0) parts.push(plural(summary.workflowsImported, 'workflow'))
       if (summary.skillsImported > 0) parts.push(plural(summary.skillsImported, 'skill'))
+      if (summary.mcpServersImported > 0) parts.push(plural(summary.mcpServersImported, 'connector'))
       get().showToast(parts.length === 0 ? 'Nothing was imported' : `Imported ${parts.join(', ')}`)
       // refreshTrustState too, not just the banner state (final review Finding
       // 4): if the project had no .agents/ before this import,
