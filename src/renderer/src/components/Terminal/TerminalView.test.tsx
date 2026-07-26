@@ -323,5 +323,60 @@ describe('TerminalView', () => {
       const tabs = container.querySelectorAll('.terminal-tab')
       expect(tabs[1].getAttribute('data-state')).toBe('open')
     })
+
+    it('clicking close twice on the same tab within TAB_CLOSE_MS only defers one closeTerminalTab call', async () => {
+      // Regression test for the reviewer's double-close nit: handleCloseTab
+      // must no-op once a tab is already in closingIds, so a double-click (or
+      // two events racing in the same 150ms window) doesn't schedule a second
+      // timer/closeTerminalTab call.
+      vi.useFakeTimers()
+      useAppStore.setState({
+        terminalTabs: {
+          '/proj/a': [
+            { id: 't1', title: 'zsh', exited: false },
+            { id: 't2', title: 'bash', exited: false }
+          ]
+        },
+        activeTerminalTab: { '/proj/a': 't1' }
+      })
+      render(<TerminalView path="/proj/a" />)
+      const closeButtons = screen.getAllByLabelText('Close terminal tab')
+
+      fireEvent.click(closeButtons[1])
+      fireEvent.click(closeButtons[1])
+
+      await vi.advanceTimersByTimeAsync(150)
+      expect(useAppStore.getState().terminalTabs['/proj/a']).toHaveLength(1)
+      expect(vi.mocked(window.bearcode.terminal.close)).toHaveBeenCalledTimes(1)
+    })
+
+    it('unmounting while a close timer is pending does not throw or leak a late setState', async () => {
+      // Regression test for the reviewer's timer-cleanup finding: the pending
+      // window.setTimeout from handleCloseTab must be cleared on unmount
+      // (mirrors useAnimatedUnmount.ts's useEffect cleanup), not left to fire
+      // against a torn-down component.
+      vi.useFakeTimers()
+      const clearSpy = vi.spyOn(window, 'clearTimeout')
+      useAppStore.setState({
+        terminalTabs: {
+          '/proj/a': [
+            { id: 't1', title: 'zsh', exited: false },
+            { id: 't2', title: 'bash', exited: false }
+          ]
+        },
+        activeTerminalTab: { '/proj/a': 't1' }
+      })
+      const { unmount } = render(<TerminalView path="/proj/a" />)
+      const closeButtons = screen.getAllByLabelText('Close terminal tab')
+      fireEvent.click(closeButtons[1])
+
+      expect(() => unmount()).not.toThrow()
+      expect(clearSpy).toHaveBeenCalled()
+
+      // Advancing timers past TAB_CLOSE_MS after unmount must not throw either
+      // (no setState-on-unmounted-component warning path reachable).
+      await expect(vi.advanceTimersByTimeAsync(150)).resolves.not.toThrow()
+      clearSpy.mockRestore()
+    })
   })
 })

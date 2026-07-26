@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../state/store'
 import { useShallow } from 'zustand/react/shallow'
 import { TerminalPane } from './TerminalPane'
@@ -47,14 +47,33 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
   const TAB_CLOSE_MS = 150
   const [closingIds, setClosingIds] = useState<Set<string>>(() => new Set())
 
+  // Tracks each tab's pending close timer (keyed by tab id, since multiple
+  // tabs can be mid-close at once -- unlike useAnimatedUnmount's single
+  // boolean/timer, this is a per-item list). Cleared on unmount below so a
+  // stale timer never fires setState after this component is gone, matching
+  // useAnimatedUnmount.ts's own useEffect-cleanup convention.
+  const closeTimersRef = useRef<Map<string, ReturnType<typeof window.setTimeout>>>(new Map())
+
+  useEffect(() => {
+    const timers = closeTimersRef.current
+    return () => {
+      timers.forEach((id) => window.clearTimeout(id))
+      timers.clear()
+    }
+  }, [])
+
   const handleCloseTab = (tabId: string): void => {
+    // Guard the whole body, not just the setClosingIds update -- otherwise a
+    // double-click within TAB_CLOSE_MS schedules closeTerminalTab twice.
+    if (closingIds.has(tabId)) return
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
     if (reduce) {
       void closeTerminalTab(path, tabId)
       return
     }
     setClosingIds((prev) => new Set(prev).add(tabId))
-    window.setTimeout(() => {
+    const timerId = window.setTimeout(() => {
+      closeTimersRef.current.delete(tabId)
       setClosingIds((prev) => {
         if (!prev.has(tabId)) return prev
         const next = new Set(prev)
@@ -63,6 +82,7 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
       })
       void closeTerminalTab(path, tabId)
     }, TAB_CLOSE_MS)
+    closeTimersRef.current.set(tabId, timerId)
   }
 
   // Hydrate from any sessions the main process already has for this path
