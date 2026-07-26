@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AddRuleInput,
+  ApprovalDecision,
   AppSettings,
   ArtifactComment,
   AttachmentRef,
@@ -9,6 +10,7 @@ import type {
   ConversationMeta,
   EffortLevel,
   Event,
+  HermesConnectionMode,
   GithubDeviceStart,
   HookAuthoringInput,
   HookEvent,
@@ -98,7 +100,13 @@ const bearcode: BearcodeApi = {
     pick: (conversationId: string, existingCount: number) =>
       ipcRenderer.invoke('bearcode:attachments:pick', conversationId, existingCount),
     read: (conversationId: string, id: string) =>
-      ipcRenderer.invoke('bearcode:attachments:read', conversationId, id)
+      ipcRenderer.invoke('bearcode:attachments:read', conversationId, id),
+    preview: (conversationId: string, id: string) =>
+      ipcRenderer.invoke('bearcode:attachments:preview', conversationId, id),
+    save: (conversationId: string, id: string): Promise<'saved' | 'cancelled'> =>
+      ipcRenderer.invoke('bearcode:attachments:save', conversationId, id),
+    open: (conversationId: string, id: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:attachments:open', conversationId, id)
   },
   diffs: {
     get: (diffId: string) => ipcRenderer.invoke('bearcode:diffs:get', diffId),
@@ -124,12 +132,37 @@ const bearcode: BearcodeApi = {
   },
   hermes: {
     testConnection: (
-      gatewayUrl: string,
-      token?: string
+      mode: HermesConnectionMode,
+      url: string,
+      secret?: string
     ): Promise<{ ok: boolean; message: string }> =>
-      ipcRenderer.invoke('bearcode:hermes:test-connection', gatewayUrl, token),
-    setToken: (token: string): Promise<void> =>
-      ipcRenderer.invoke('bearcode:hermes:set-token', token)
+      ipcRenderer.invoke('bearcode:hermes:test-connection', mode, url, secret),
+    setLegacyToken: (token: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:hermes:set-legacy-token', token),
+    setPlatformKey: (key: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:hermes:set-platform-key', key),
+    resolveApproval: (
+      conversationId: string,
+      requestId: string,
+      decision: ApprovalDecision
+    ): Promise<void> =>
+      ipcRenderer.invoke(
+        'bearcode:hermes:resolve-approval',
+        conversationId,
+        requestId,
+        decision
+      ),
+    resolveClarification: (
+      conversationId: string,
+      requestId: string,
+      response: string
+    ): Promise<void> =>
+      ipcRenderer.invoke(
+        'bearcode:hermes:resolve-clarification',
+        conversationId,
+        requestId,
+        response
+      )
   },
   ursa: {
     requiredProviders: () => ipcRenderer.invoke('bearcode:ursa:required-providers'),
@@ -155,8 +188,8 @@ const bearcode: BearcodeApi = {
     get: (id: string) => ipcRenderer.invoke('bearcode:conversations:get', id),
     create: (projectPath: string | null, id?: string) =>
       ipcRenderer.invoke('bearcode:conversations:create', projectPath, id),
-    createHermes: (): Promise<ConversationMeta> =>
-      ipcRenderer.invoke('bearcode:conversations:create-hermes'),
+    createHermes: (mode: HermesConnectionMode): Promise<ConversationMeta> =>
+      ipcRenderer.invoke('bearcode:conversations:create-hermes', mode),
     delete: (id: string) => ipcRenderer.invoke('bearcode:conversations:delete', id),
     clear: () => ipcRenderer.invoke('bearcode:conversations:clear'),
     setMode: (id: string, mode: PermissionMode): Promise<void> =>

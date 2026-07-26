@@ -2,6 +2,7 @@
 // are decrypted only in main-process memory, and are never sent to the
 // renderer or written to logs.
 import { app, safeStorage } from 'electron'
+import { randomUUID } from 'crypto'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { ProviderId } from '../shared/types'
@@ -69,6 +70,8 @@ export function getKey(provider: ProviderId): string | undefined {
 }
 
 const HERMES_TOKEN_VAULT_KEY = 'hermes:bearerToken'
+const HERMES_PLATFORM_KEY_VAULT_KEY = 'hermes:platformKey'
+const HERMES_INSTALLATION_ID_VAULT_KEY = 'hermes:installationId'
 
 export function setHermesToken(token: string): void {
   setVaultSecret(HERMES_TOKEN_VAULT_KEY, token)
@@ -76,6 +79,22 @@ export function setHermesToken(token: string): void {
 
 export function getHermesToken(): string | undefined {
   return getVaultSecret(HERMES_TOKEN_VAULT_KEY)
+}
+
+export function setHermesPlatformKey(key: string): void {
+  setVaultSecret(HERMES_PLATFORM_KEY_VAULT_KEY, key)
+}
+
+export function getHermesPlatformKey(): string | undefined {
+  return getVaultSecret(HERMES_PLATFORM_KEY_VAULT_KEY)
+}
+
+export function getOrCreateHermesInstallationId(): string {
+  const existing = getVaultSecret(HERMES_INSTALLATION_ID_VAULT_KEY)
+  if (existing) return existing
+  const installationId = randomUUID()
+  setVaultSecret(HERMES_INSTALLATION_ID_VAULT_KEY, installationId)
+  return installationId
 }
 
 // Replaces ${VAULT:key} references in a string with the decrypted secret,

@@ -143,6 +143,17 @@ describe('migrateSettings Ursus coercion', () => {
 })
 
 describe('hermes settings', () => {
+  it('defaults the Hermes connection mode and native URL for legacy installations', () => {
+    expect(migrateSettings({}).hermesConnectionMode).toBe('legacy')
+    expect(migrateSettings({}).hermesNativeUrl).toBe('')
+  })
+  it('preserves only the explicit native connection mode', () => {
+    expect(migrateSettings({ hermesConnectionMode: 'native' }).hermesConnectionMode).toBe('native')
+    expect(migrateSettings({ hermesConnectionMode: 'bad' }).hermesConnectionMode).toBe('legacy')
+  })
+  it('coerces a non-string native URL to empty', () => {
+    expect(migrateSettings({ hermesNativeUrl: 42 }).hermesNativeUrl).toBe('')
+  })
   it('defaults hermesEnabled to false', () => {
     expect(migrateSettings({}).hermesEnabled).toBe(false)
   })

@@ -1063,6 +1063,75 @@
   display: flex;
 }
 
+/* --- Returned Hermes attachment mode: a single persisted attachment event,
+   with no artifact rail, versions, status, feedback, or comments. --- */
+.ap-attachment-header {
+  min-width: 0;
+}
+.ap-attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ap-attachment-badge {
+  flex-shrink: 0;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  color: var(--ap-text-secondary);
+  background: var(--ap-surface-2);
+}
+.ap-attachment-badge.badge-pdf {
+  color: var(--ap-danger);
+  background: color-mix(in srgb, var(--ap-danger) 14%, transparent);
+}
+.ap-attachment-badge.badge-docx {
+  color: var(--ap-accent-blue);
+  background: color-mix(in srgb, var(--ap-accent-blue) 14%, transparent);
+}
+.ap-attachment-badge.badge-xlsx {
+  color: var(--ap-success);
+  background: color-mix(in srgb, var(--ap-success) 14%, transparent);
+}
+.ap-attachment-size {
+  flex-shrink: 0;
+  color: var(--ap-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ap-attachment-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+.ap-attachment-body .file-preview {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+}
+.ap-attachment-body .file-preview.html {
+  display: flex;
+}
+.ap-attachment-body .file-preview.html .file-preview-frame,
+.ap-attachment-body > .file-preview-frame.pdf {
+  flex: 1;
+  height: auto;
+  max-width: 100%;
+}
+.ap-attachment-missing {
+  padding: 18px;
+  color: var(--ap-text-muted);
+  font-size: 13px;
+}
+
 /* --- Inline comment composer. An empty Monaco view zone reserves the gap;
    this overlay sits on top of it (always interactive, unlike view-zone content
    which Monaco's layers cover) and is styled flat so it reads as inline. --- */

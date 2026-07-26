@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   AddRuleInput,
   AppSettings,
+  ApprovalDecision,
   ArtifactComment,
   AttachmentRef,
   CommandEntry,
@@ -10,6 +11,7 @@ import type {
   CustomModel,
   EffortLevel,
   Event,
+  HermesConnectionMode,
   ManageableProvider,
   ManualRuleInfo,
   MentionRef,
@@ -50,6 +52,7 @@ export interface Convo {
   thinking: boolean
   webSearch: boolean
   ursaMode: UrsaMode
+  hermesMode: HermesConnectionMode
   projectId: string | null
   pinned: boolean
   archived: boolean
@@ -93,6 +96,11 @@ export type AuxSelection =
   // Unlike 'diff'/'artifact' this target isn't in the deliverable rail -- the
   // pane fetches the file's text (jailed IPC) and reveals `line` in Monaco.
   | { kind: 'file'; path: string; line?: number }
+  | {
+      kind: 'attachment'
+      conversationId: string
+      attachmentId: string
+    }
 
 // Auto-surface the newest diff group. Returns true when a fresh file_diff
 // arrives for the conversation you're viewing AND the review pane is already
@@ -218,6 +226,7 @@ function fromMeta(meta: ConversationMeta): Convo {
     thinking: meta.thinking,
     webSearch: meta.webSearch,
     ursaMode: meta.ursaMode,
+    hermesMode: meta.hermesMode,
     projectId: meta.projectId,
     pinned: meta.pinned,
     archived: meta.archived,
@@ -392,6 +401,16 @@ interface AppState {
   // forget like resolvePipeline; the re-dispatched run's progress flows back
   // over bearcode:event.
   resolveReviewClarification(conversationId: string, lens: ReviewLens, scope: string): void
+  resolveHermesApproval(
+    conversationId: string,
+    requestId: string,
+    decision: ApprovalDecision
+  ): Promise<void>
+  resolveHermesClarification(
+    conversationId: string,
+    requestId: string,
+    response: string
+  ): Promise<void>
   addPermissionRule(input: AddRuleInput): void
   refreshPermissionRules(): Promise<void>
   deletePermissionRule(id: string): Promise<void>
@@ -430,8 +449,13 @@ interface AppState {
   // Hermes: mints a project-less conversation pinned to HERMES_MODEL_REF and
   // opens it (Task 7 IPC does the DB work; this just reflects it into state).
   newHermesConversation(): Promise<void>
-  testHermesConnection(gatewayUrl: string, token?: string): Promise<{ ok: boolean; message: string }>
+  testHermesConnection(
+    mode: HermesConnectionMode,
+    url: string,
+    secret?: string
+  ): Promise<{ ok: boolean; message: string }>
   saveHermesToken(token: string): Promise<void>
+  saveHermesPlatformKey(key: string): Promise<void>
   togglePermMenu(): void
   pickWorkspace(): Promise<void>
   setWorkspace(path: string | null): void
@@ -456,6 +480,7 @@ interface AppState {
   // Review mode: open a workspace file in the aux pane at an optional line.
   openFileInPane(path: string, line?: number): void
   openArtifactPane(artifactId: string, focusFeedback?: boolean): void
+  openAttachmentPane(conversationId: string, attachmentId: string): void
   // F4: open the embedded browser pane for a conversation.
   openBrowserPane(conversationId: string): void
   loadArtifactComments(artifactId: string): Promise<void>
@@ -1060,6 +1085,14 @@ export const useAppStore = create<AppState>((set, get) => {
       void window.bearcode.review.resolveClarify(conversationId, lens, scope)
     },
 
+    resolveHermesApproval: (conversationId, requestId, decision) => {
+      return window.bearcode.hermes.resolveApproval(conversationId, requestId, decision)
+    },
+
+    resolveHermesClarification: (conversationId, requestId, response) => {
+      return window.bearcode.hermes.resolveClarification(conversationId, requestId, response)
+    },
+
     addPermissionRule: (input) => {
       // Fire-and-forget for the approval-card call sites; the chained refresh
       // keeps an already-open manager list current.
@@ -1319,6 +1352,7 @@ export const useAppStore = create<AppState>((set, get) => {
           conversations,
           convoOrder: orderByRecency(conversations),
           view: { kind: 'conversation', id: meta.id },
+          auxSelection: null,
           // Reflect the inherited defaults in the composer for the new session.
           modelRef,
           permissionMode: d.permissionMode,
@@ -1333,7 +1367,8 @@ export const useAppStore = create<AppState>((set, get) => {
       // defaults from (createHermes already seeds sensible ones main-side), so
       // this only mirrors newConversationInProject's state-write tail: build
       // the Convo from the returned meta and switch the active view to it.
-      const meta = await window.bearcode.conversations.createHermes()
+      const mode = get().settings?.hermesConnectionMode === 'native' ? 'native' : 'legacy'
+      const meta = await window.bearcode.conversations.createHermes(mode)
       const convo = { ...fromMeta(meta), loaded: true }
       set((s) => {
         const conversations = { ...s.conversations, [meta.id]: convo }
@@ -1341,6 +1376,7 @@ export const useAppStore = create<AppState>((set, get) => {
           conversations,
           convoOrder: orderByRecency(conversations),
           view: { kind: 'conversation', id: meta.id },
+          auxSelection: null,
           // Mirror newConversationInProject/openConvo: the composer's transient
           // top-level modelRef must be synced to the sentinel immediately, or
           // send()/retryRun() dispatch under whatever model was last active
@@ -1350,9 +1386,10 @@ export const useAppStore = create<AppState>((set, get) => {
         }
       })
     },
-    testHermesConnection: (gatewayUrl, token) =>
-      window.bearcode.hermes.testConnection(gatewayUrl, token),
-    saveHermesToken: (token) => window.bearcode.hermes.setToken(token),
+    testHermesConnection: (mode, url, secret) =>
+      window.bearcode.hermes.testConnection(mode, url, secret),
+    saveHermesToken: (token) => window.bearcode.hermes.setLegacyToken(token),
+    saveHermesPlatformKey: (key) => window.bearcode.hermes.setPlatformKey(key),
 
     togglePermMenu: () => set((s) => ({ permMenuTick: s.permMenuTick + 1 })),
 
@@ -1507,6 +1544,13 @@ export const useAppStore = create<AppState>((set, get) => {
         artifactPaneFocusFeedback: focusFeedback
           ? s.artifactPaneFocusFeedback + 1
           : s.artifactPaneFocusFeedback
+      })),
+
+    openAttachmentPane: (conversationId, attachmentId) =>
+      set((s) => ({
+        auxSelection: { kind: 'attachment', conversationId, attachmentId },
+        reviewFocusPath: null,
+        auxPaneOpenTick: s.auxPaneOpenTick + 1
       })),
 
     openBrowserPane: (conversationId) =>

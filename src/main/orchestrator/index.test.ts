@@ -29,6 +29,7 @@ vi.mock('../db', () => ({
   setUrsaPipelineStatus: vi.fn()
 }))
 vi.mock('./checkpointer', () => ({ pruneCheckpoints: vi.fn() }))
+vi.mock('../hermes/nativeRunner', () => ({ cancelHermesNative: vi.fn() }))
 
 import {
   assertValidCommand,
@@ -48,6 +49,7 @@ import {
   setUrsaPipelineStatus
 } from '../db'
 import { cancelPendingApproval, runGraph, setOnResumeSettled } from './graph'
+import { cancelHermesNative } from '../hermes/nativeRunner'
 import type { UrsaPipelineRecord } from '../db'
 import type { RunSink } from '../sink'
 import type { Event } from '../../shared/types'
@@ -323,6 +325,19 @@ describe('cancelRunOrchestrator — Stop while a pipeline is proposed', () => {
     cancelRunOrchestrator('c1', sink)
     expect(setUrsaPipelineStatus).not.toHaveBeenCalled()
     expect(cancelPendingApproval).toHaveBeenCalledWith('c1')
+  })
+
+  it('cancels the native turn before cleaning up a local parked approval', () => {
+    vi.mocked(getUrsaPipeline).mockReturnValue(undefined)
+    vi.mocked(cancelPendingApproval).mockReturnValue(undefined)
+
+    cancelRunOrchestrator('c1', makeSink())
+
+    expect(cancelHermesNative).toHaveBeenCalledWith('c1')
+    expect(cancelPendingApproval).toHaveBeenCalledWith('c1')
+    expect(vi.mocked(cancelHermesNative).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(cancelPendingApproval).mock.invocationCallOrder[0]
+    )
   })
 
   it('IMPORTANT 2: Stop while parked on a review_clarify card resets state out of awaiting-approval', () => {

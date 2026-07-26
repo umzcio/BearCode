@@ -50,6 +50,7 @@
     "pdf-lib": "^1.17.1",
     "playwright": "^1.61.1",
     "unpdf": "^1.6.2",
+    "ws": "^8.21.1",
     "zod": "^4.4.3",
     "zustand": "^5.0.14"
   },
@@ -63,6 +64,7 @@
     "@types/node": "^22.19.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.1.1",
     "electron": "^43.1.0",
     "electron-builder": "^26.0.12",

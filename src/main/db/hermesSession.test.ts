@@ -17,14 +17,15 @@ vi.mock('better-sqlite3', () => ({
   })
 }))
 
-import { getConversationMeta, setHermesSessionId } from './index'
+import { getConversationMeta, setHermesMode, setHermesSessionId } from './index'
 
 describe('db hermesSessionId', () => {
   it('resolves a NULL column to null', () => {
     row = {
       id: 'c1', project_path: '', title: null, model_ref: null,
       created_at: 1, updated_at: 1, permission_mode: null, active_rules: null,
-      effort: null, thinking: null, ursa_mode: null, hermes_session_id: null
+      effort: null, thinking: null, ursa_mode: null,
+      hermes_session_id: null
     }
     const meta = getConversationMeta('c1')
     expect(meta?.hermesSessionId).toBeNull()
@@ -48,5 +49,69 @@ describe('db hermesSessionId', () => {
       expect.any(Number),
       'c1'
     )
+  })
+})
+
+describe('db hermesMode', () => {
+  it('resolves a NULL mode to legacy', () => {
+    row = {
+      id: 'c1',
+      project_path: '',
+      title: null,
+      model_ref: null,
+      created_at: 1,
+      updated_at: 1,
+      permission_mode: null,
+      active_rules: null,
+      effort: null,
+      thinking: null,
+      ursa_mode: null,
+      hermes_session_id: null,
+      hermes_mode: null
+    }
+    expect(getConversationMeta('c1')?.hermesMode).toBe('legacy')
+  })
+
+  it('resolves an unknown mode to legacy', () => {
+    row = {
+      id: 'c1',
+      project_path: '',
+      title: null,
+      model_ref: null,
+      created_at: 1,
+      updated_at: 1,
+      permission_mode: null,
+      active_rules: null,
+      effort: null,
+      thinking: null,
+      ursa_mode: null,
+      hermes_session_id: null,
+      hermes_mode: 'bad'
+    }
+    expect(getConversationMeta('c1')?.hermesMode).toBe('legacy')
+  })
+
+  it('reads a stored native mode back', () => {
+    row = {
+      id: 'c1',
+      project_path: '',
+      title: null,
+      model_ref: 'hermes/agent',
+      created_at: 1,
+      updated_at: 1,
+      permission_mode: null,
+      active_rules: null,
+      effort: null,
+      thinking: null,
+      ursa_mode: null,
+      hermes_session_id: null,
+      hermes_mode: 'native'
+    }
+    expect(getConversationMeta('c1')?.hermesMode).toBe('native')
+  })
+
+  it('setHermesMode persists the selected mode', () => {
+    setHermesMode('c1', 'native')
+    expect(statement.run).toHaveBeenCalledWith('native', expect.any(Number), 'c1')
   })
 })

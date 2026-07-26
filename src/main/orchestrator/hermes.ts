@@ -7,11 +7,16 @@
 import { randomUUID } from 'crypto'
 import { appendEvent, getConversationMeta } from '../db'
 import { getSettings } from '../settings'
-import { getHermesToken } from '../keys'
+import {
+  getHermesPlatformKey,
+  getHermesToken,
+  getOrCreateHermesInstallationId
+} from '../keys'
 import { sendHermesMessage, HermesGatewayError } from '../hermes/gatewayClient'
+import { runHermesNative } from '../hermes/nativeRunner'
 import { HERMES_MODEL_REF } from '../../shared/types'
 import type { RunSink } from '../sink'
-import type { Event } from '../../shared/types'
+import type { AttachmentRef, Event } from '../../shared/types'
 
 export { HERMES_MODEL_REF }
 
@@ -56,15 +61,56 @@ function hermesErrorMessage(err: HermesGatewayError): string {
 export async function runHermes(
   conversationId: string,
   userText: string,
+  attachments: AttachmentRef[],
   sink: RunSink,
   signal: AbortSignal
 ): Promise<{ paused: boolean; failed?: boolean }> {
   const settings = getSettings()
-  if (!settings.hermesEnabled || !settings.hermesGatewayUrl) {
+  if (!settings.hermesEnabled) {
     return fail(conversationId, sink, 'Hermes is not configured. Set it up in Settings → Hermes.')
   }
 
   const meta = getConversationMeta(conversationId)
+  if (!meta) {
+    return fail(conversationId, sink, 'Hermes conversation metadata is missing.')
+  }
+
+  if (meta.hermesMode === 'native') {
+    if (!settings.hermesNativeUrl) {
+      return fail(
+        conversationId,
+        sink,
+        'Native Hermes is not configured. Set the native URL in Settings → Hermes.'
+      )
+    }
+    if (!getHermesPlatformKey()) {
+      return fail(
+        conversationId,
+        sink,
+        'Native Hermes is not configured. Set the platform key in Settings → Hermes.'
+      )
+    }
+    if (!getOrCreateHermesInstallationId()) {
+      return fail(conversationId, sink, 'Native Hermes could not establish an installation ID.')
+    }
+    return runHermesNative(conversationId, userText, attachments, sink, signal)
+  }
+
+  if (meta.hermesMode !== 'legacy') {
+    return fail(conversationId, sink, 'Hermes conversation has an invalid connection mode.')
+  }
+
+  if (!settings.hermesGatewayUrl) {
+    return fail(conversationId, sink, 'Hermes is not configured. Set it up in Settings → Hermes.')
+  }
+
+  if (attachments.length > 0) {
+    return fail(
+      conversationId,
+      sink,
+      'Hermes attachments require native connection mode. Switch this conversation to native Hermes.'
+    )
+  }
   const sessionId = meta?.hermesSessionId
   if (!sessionId) {
     return fail(

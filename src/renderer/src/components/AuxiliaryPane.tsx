@@ -6,7 +6,9 @@ import { useCmdHeld } from '../lib/useCmdHeld'
 import { ArtifactViewer } from './ArtifactViewer'
 import { BrowserPane } from './Browser/BrowserPane'
 import { FilePreview } from './FilePreview/FilePreview'
+import { AttachmentPreview } from './AttachmentPreview/AttachmentPreview'
 import { deriveRailEntries, versionsOfType, type ArtifactEvent } from '../lib/auxRail'
+import { attachmentBadge } from '../lib/attachmentBadge'
 import { ARTIFACT_STATUS_LABELS, ARTIFACT_TYPE_LABELS } from './events/ArtifactCard'
 import { IconClose, IconCopy, IconFile, IconPaw, IconRevert } from './icons'
 import { EmptyState } from './ui/EmptyState'
@@ -44,6 +46,19 @@ function languageFor(path: string): string {
 
 function baseName(path: string): string {
   return path.split('/').pop() ?? path
+}
+
+function formatBytes(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${sizeBytes} B`
+  const units = ['KB', 'MB', 'GB']
+  let value = sizeBytes / 1024
+  let unit = units[0]
+  for (let i = 1; i < units.length && value >= 1024; i++) {
+    value /= 1024
+    unit = units[i]
+  }
+  const displayed = (value >= 10 ? value.toFixed(0) : value.toFixed(1)).replace(/\.0$/, '')
+  return `${displayed} ${unit}`
 }
 
 // Which formats DEFAULT to the rendered Preview instead of the Diff/source
@@ -92,8 +107,14 @@ function ApBrand(): React.JSX.Element {
 function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Element | null {
   const convo = useAppStore(
     useShallow((s) => {
-      if (s.view.kind !== 'conversation') return null
-      const c = s.conversations[s.view.id]
+      const conversationId =
+        target.kind === 'attachment'
+          ? target.conversationId
+          : s.view.kind === 'conversation'
+            ? s.view.id
+            : null
+      if (!conversationId) return null
+      const c = s.conversations[conversationId]
       return c ? { events: c.events } : null
     })
   )
@@ -152,6 +173,21 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
   // browser, it renders before the convo/rail machinery.
   if (sel.kind === 'file') {
     return <FilePanel key={sel.path + ':' + (sel.line ?? '')} path={sel.path} line={sel.line} />
+  }
+
+  if (sel.kind === 'attachment') {
+    const event = convo?.events.find(
+      (candidate): candidate is Extract<Event, { type: 'assistant_attachment' }> =>
+        candidate.type === 'assistant_attachment' && candidate.attachment.id === sel.attachmentId
+    )
+    return (
+      <AttachmentPanel
+        key={`${sel.conversationId}:${sel.attachmentId}`}
+        conversationId={sel.conversationId}
+        attachmentId={sel.attachmentId}
+        attachment={event?.attachment}
+      />
+    )
   }
 
   if (!convo) return null
@@ -263,6 +299,69 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
             </button>
           </Hint>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function AttachmentPanel({
+  conversationId,
+  attachmentId,
+  attachment
+}: {
+  conversationId: string
+  attachmentId: string
+  attachment?: Extract<Event, { type: 'assistant_attachment' }>['attachment']
+}): React.JSX.Element {
+  const closeReview = useAppStore((s) => s.closeReview)
+  const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
+  const showToast = useAppStore((s) => s.showToast)
+  const [savePending, setSavePending] = useState(false)
+  const badge = attachment ? attachmentBadge(attachment.name, attachment.mime) : null
+
+  const download = async (): Promise<void> => {
+    if (savePending) return
+    setSavePending(true)
+    try {
+      const result = await window.bearcode.attachments.save(conversationId, attachmentId)
+      if (result === 'saved') showToast('Attachment saved')
+    } catch {
+      showToast('Could not save attachment')
+    } finally {
+      setSavePending(false)
+    }
+  }
+
+  return (
+    <div className="ap-panel ap-attachment-panel" style={{ flexBasis: auxPaneWidth }}>
+      <div className="ap-row ap-row-top ap-attachment-header">
+        <span className="ap-attachment-name">{attachment?.name ?? 'Attachment'}</span>
+        {attachment && badge ? (
+          <>
+            <span className={`ap-attachment-badge ${badge.colorClass}`}>{badge.label}</span>
+            <span className="ap-attachment-size">{formatBytes(attachment.sizeBytes)}</span>
+          </>
+        ) : null}
+        <div className="ap-spacer" />
+        <div className="ap-actions">
+          {attachment ? (
+            <button disabled={savePending} onClick={() => void download()}>
+              Download…
+            </button>
+          ) : null}
+          <Hint label="Close panel" side="bottom">
+            <button aria-label="Close panel" onClick={closeReview}>
+              <IconClose />
+            </button>
+          </Hint>
+        </div>
+      </div>
+      <div className="ap-attachment-body">
+        {attachment ? (
+          <AttachmentPreview conversationId={conversationId} attachmentId={attachmentId} />
+        ) : (
+          <div className="ap-attachment-missing">Attachment is no longer available</div>
+        )}
       </div>
     </div>
   )

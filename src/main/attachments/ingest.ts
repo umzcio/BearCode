@@ -39,7 +39,7 @@ export function assertValidConversationId(conversationId: string): void {
 // already-wire-validated AttachmentRef.id values from a live turn), is read
 // straight off a persisted event on every transcript render/reload.
 const ATTACHMENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
-function assertValidAttachmentId(id: string): void {
+export function assertValidAttachmentId(id: string): void {
   if (typeof id !== 'string' || !ATTACHMENT_ID_PATTERN.test(id)) {
     throw new Error('attachments: id must match /^[A-Za-z0-9_-]{1,64}$/')
   }

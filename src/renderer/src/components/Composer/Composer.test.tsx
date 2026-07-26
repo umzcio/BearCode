@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, cleanup, fireEvent } from '@testing-library/react'
+import { render, cleanup, fireEvent, screen } from '@testing-library/react'
 import { Composer } from './Composer'
 import { useAppStore } from '../../state/store'
 import { URSA_MODEL_REF, HERMES_MODEL_REF } from '@shared/types'
@@ -55,15 +55,42 @@ describe('Composer — Hermes lean mode (Task 11)', () => {
     expect(container.querySelector('.effort-picker')).toBeTruthy()
   })
 
-  it('hides the add-context (attachment/mention/action/browser) picker but keeps mic controls for a Hermes conversation', () => {
-    // Changed by the final-review fix (finding 2): runHermes/sendHermesMessage
-    // only ever transmit the plain text content -- attachments, @-mentions, and
-    // slash commands picked from this menu are silently dropped. Showing the
-    // affordance let a user attach a file, watch it appear as a pill, and have
-    // it vanish with zero indication Hermes never saw it. Voice stays: it
-    // transcribes locally to plain text before sending, which Hermes DOES
-    // receive.
-    useAppStore.setState({ modelRef: HERMES_MODEL_REF, providers: [] } as never)
+  it('shows Add Context and mic but no local picker controls for native Hermes', () => {
+    useAppStore.setState({
+      modelRef: HERMES_MODEL_REF,
+      providers: [],
+      conversations: {
+        native: {
+          events: [],
+          environment: 'local',
+          modelRef: HERMES_MODEL_REF,
+          hermesMode: 'native'
+        }
+      }
+    } as never)
+    const { container } = render(
+      <Composer conversationId="native" onSend={() => {}} />
+    )
+    expect(screen.getByLabelText('Add context')).toBeInTheDocument()
+    expect(container.querySelector('.mic-btn')).toBeTruthy()
+    expect(container.querySelector('.model-picker')).toBeNull()
+    expect(container.querySelector('.mode-picker')).toBeNull()
+    expect(container.querySelector('.effort-picker')).toBeNull()
+  })
+
+  it('keeps legacy Hermes text-only while retaining voice input', () => {
+    useAppStore.setState({
+      modelRef: HERMES_MODEL_REF,
+      providers: [],
+      conversations: {
+        legacy: {
+          events: [],
+          environment: 'local',
+          modelRef: HERMES_MODEL_REF,
+          hermesMode: 'legacy'
+        }
+      }
+    } as never)
     const { container } = render(<Composer onSend={() => {}} />)
     expect(container.querySelector('.add-context')).toBeNull()
     expect(container.querySelector('.mic-btn')).toBeTruthy()
@@ -111,7 +138,12 @@ describe('Composer — Hermes lean mode (Task 11)', () => {
       modelRef: 'anthropic/claude-sonnet-5',
       providers: [],
       conversations: {
-        c1: { events: [], environment: 'local', modelRef: HERMES_MODEL_REF }
+        c1: {
+          events: [],
+          environment: 'local',
+          modelRef: HERMES_MODEL_REF,
+          hermesMode: 'native'
+        }
       }
     } as never)
     const { container } = render(<Composer onSend={() => {}} conversationId="c1" />)

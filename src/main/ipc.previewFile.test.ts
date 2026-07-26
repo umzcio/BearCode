@@ -41,8 +41,13 @@ vi.mock('./attachments/office', () => ({
   runOfficeRows
 }))
 vi.mock('./attachments/extract', () => ({ extractTextLane }))
+vi.mock('./preview/render', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./preview/render')>()
+  return { renderPreviewPayload: vi.fn(actual.renderPreviewPayload) }
+})
 
 import { registerIpc } from './ipc'
+import { renderPreviewPayload } from './preview/render'
 
 beforeEach(() => {
   handlers.clear()
@@ -174,14 +179,32 @@ describe('diffs:preview IPC', () => {
   it('an .html file resolves to a bearcode-preview:// URL (own-origin iframe, scripts run)', async () => {
     filePathFor.mockReturnValue('/ws/page.html')
     statSync.mockReturnValue({ size: 10 })
-    readFileSync.mockReturnValue(Buffer.from('<h1>hi</h1>'))
+    const bytes = Buffer.from('<h1>hi</h1>')
+    readFileSync.mockReturnValue(bytes)
 
     const result = await handlers.get('bearcode:diffs:preview')!({}, 'f11')
 
+    expect(renderPreviewPayload).toHaveBeenCalledWith({
+      name: '/ws/page.html',
+      mime: 'text/html',
+      bytes,
+      htmlUrl: 'bearcode-preview://preview/f11/page.html'
+    })
     expect(result).toEqual({
       kind: 'html-url',
       url: 'bearcode-preview://preview/f11/page.html'
     })
+  })
+
+  it('a rejected shared renderer returns the stable read-failure payload', async () => {
+    filePathFor.mockReturnValue('/ws/report.docx')
+    statSync.mockReturnValue({ size: 10 })
+    readFileSync.mockReturnValue(Buffer.from('docxbytes'))
+    vi.mocked(renderPreviewPayload).mockRejectedValueOnce(new Error('Office rendering failed'))
+
+    const result = await handlers.get('bearcode:diffs:preview')!({}, 'render-failure')
+
+    expect(result).toEqual({ kind: 'unsupported', note: 'Could not read file' })
   })
 
   it('an unknown fileId (filePathFor -> null) is unsupported', async () => {

@@ -83,6 +83,8 @@ const DEFAULTS: AppSettings = {
   ursusInstructions: '',
   hermesEnabled: false,
   hermesGatewayUrl: '',
+  hermesConnectionMode: 'legacy',
+  hermesNativeUrl: '',
   hermesLabel: 'Hermes',
   hermesIcon: 'IconChat'
 }
@@ -324,6 +326,9 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   merged.hermesEnabled = s['hermesEnabled'] === true
   merged.hermesGatewayUrl =
     typeof s['hermesGatewayUrl'] === 'string' ? (s['hermesGatewayUrl'] as string).slice(0, 500) : ''
+  merged.hermesConnectionMode = s['hermesConnectionMode'] === 'native' ? 'native' : 'legacy'
+  merged.hermesNativeUrl =
+    typeof s['hermesNativeUrl'] === 'string' ? (s['hermesNativeUrl'] as string).slice(0, 500) : ''
   merged.hermesLabel =
     typeof s['hermesLabel'] === 'string' && (s['hermesLabel'] as string).trim()
       ? (s['hermesLabel'] as string).slice(0, 40)
@@ -497,6 +502,19 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
         typeof patch.ursusInstructions === 'string'
           ? patch.ursusInstructions.slice(0, URSUS_INSTRUCTIONS_MAX)
           : ''
+    }
+  }
+  if (patch.hermesConnectionMode !== undefined) {
+    patch = {
+      ...patch,
+      hermesConnectionMode: patch.hermesConnectionMode === 'native' ? 'native' : 'legacy'
+    }
+  }
+  if (patch.hermesNativeUrl !== undefined) {
+    patch = {
+      ...patch,
+      hermesNativeUrl:
+        typeof patch.hermesNativeUrl === 'string' ? patch.hermesNativeUrl.slice(0, 500) : ''
     }
   }
   const next = { ...getSettings(), ...patch }

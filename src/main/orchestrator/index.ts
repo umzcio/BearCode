@@ -42,6 +42,7 @@ import {
   setStartUrsaPipeline
 } from './graph'
 import { clearBrowserConsent, forgetBrowserConsent } from './tools'
+import { cancelHermesNative } from '../hermes/nativeRunner'
 
 export { pruneCheckpoints } from './checkpointer'
 
@@ -177,6 +178,10 @@ export async function startRunOrchestrator(
 // own catch block produces for a plain mid-stream Stop.
 export function cancelRunOrchestrator(conversationId: string, sink?: RunSink): void {
   aborts.get(conversationId)?.abort()
+  // A native Hermes turn owns its remote approval/clarification requests.
+  // Cancel that live connection before any local approval cleanup below can
+  // make the transcript look terminal.
+  cancelHermesNative(conversationId)
   // Ursa Phase 2 (Task 3): Stop while a pipeline PROPOSAL is still awaiting
   // consent. This pause is pre-graph -- no agent, nothing in pendingApprovals,
   // and the AbortController kept alive by startRunOrchestrator's `paused` branch

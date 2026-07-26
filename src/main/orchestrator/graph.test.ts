@@ -2133,7 +2133,8 @@ describe('runGraph — Ursa Modes: code mode routes through the classifier', () 
       archived: false,
       environment: 'local',
       worktrees: [],
-      hermesSessionId: null
+      hermesSessionId: null,
+      hermesMode: 'legacy' as const
     })
     vi.mocked(resolveUrsaModelRef).mockResolvedValue({
       modelRef: 'openai/gpt-5.6-sol',
@@ -2175,7 +2176,8 @@ describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {
     archived: false,
     environment: 'local' as const,
     worktrees: [],
-    hermesSessionId: null
+    hermesSessionId: null,
+    hermesMode: 'legacy' as const
   })
 
   it("routes an Ursa turn to runCouncil (no classifier, no agent) when mode is 'council'", async () => {
@@ -2264,15 +2266,19 @@ describe('Hermes dispatch seam', () => {
     vi.mocked(runHermes).mockResolvedValue({ paused: false })
     const sink = makeSink()
     const signal = new AbortController().signal
+    const attachments: AttachmentRef[] = [
+      { id: 'a1', name: 'brief.txt', mime: 'text/plain', kind: 'text' }
+    ]
     const result = await runGraph({
       conversationId: 'c1',
       userText: 'hi',
       modelRef: 'hermes/agent',
       sink,
-      signal
+      signal,
+      attachments
     })
     expect(result).toEqual({ paused: false })
-    expect(runHermes).toHaveBeenCalledWith('c1', 'hi', sink, signal)
+    expect(runHermes).toHaveBeenCalledWith('c1', 'hi', attachments, sink, signal)
     // Hermes never classifies and never builds an agent.
     expect(resolveUrsaModelRef).not.toHaveBeenCalled()
     expect(resolveUrsusModelRef).not.toHaveBeenCalled()
@@ -2318,7 +2324,8 @@ describe('runGraph — Ursa Modes: deep research (Task 6)', () => {
     archived: false,
     environment: 'local' as const,
     worktrees: [],
-    hermesSessionId: null
+    hermesSessionId: null,
+    hermesMode: 'legacy' as const
   })
 
   it('auto-starts the preset pipeline (running, no consent card) and parks paused:true', async () => {
@@ -2473,7 +2480,8 @@ describe('runGraph — Ursa Modes: review dispatch (Task 4)', () => {
     archived: false,
     environment: 'local' as const,
     worktrees: [],
-    hermesSessionId: null
+    hermesSessionId: null,
+    hermesMode: 'legacy' as const
   })
 
   it('review mode with a resolved lens+scope routes to runReview (Ursa panel)', async () => {

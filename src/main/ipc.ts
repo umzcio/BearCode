@@ -40,13 +40,29 @@ import type {
   SkillProposalResolution,
   SkillSaveResult,
   TranscribeMeta,
-  WorktreeInfo
+  WorktreeInfo,
+  HermesConnectionMode,
+  ApprovalDecision
 } from '../shared/types'
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
 import { isUrsaMode } from '../shared/ursaMode'
-import { keyStatus, setKey, setVaultSecret, setHermesToken } from './keys'
+import {
+  getHermesPlatformKey,
+  getHermesToken,
+  getOrCreateHermesInstallationId,
+  keyStatus,
+  setHermesPlatformKey,
+  setHermesToken,
+  setKey,
+  setVaultSecret
+} from './keys'
 import { checkHermesHealth } from './hermes/gatewayClient'
+import { checkHermesNativeHealth } from './hermes/nativeClient'
+import {
+  resolveHermesApproval,
+  resolveHermesClarification
+} from './hermes/nativeRunner'
 import { ursaRequiredProviders } from './orchestrator/ursa'
 import { ursusRequiredProviders } from './orchestrator/ursus'
 import {
@@ -74,11 +90,8 @@ import { allKnownModelRefs, listAllModels, listManageableModels } from './provid
 import { syncPricing } from './pricing/sync'
 import { filePathFor, getDiff, revertFile } from './diffs'
 import { transcribe } from './voice/transcribe'
-import { previewClassify } from './preview/classify'
-import { previewUrlFor } from './preview/protocol'
-import { runOfficeHtml, runOfficeRows } from './attachments/office'
-import { parseCsv } from './preview/csv'
-import { extractTextLane } from './attachments/extract'
+import { attachmentPreviewUrlFor, mimeFor, previewUrlFor } from './preview/protocol'
+import { renderPreviewPayload } from './preview/render'
 import * as db from './db'
 import { createWorktrees, removeWorktrees, gitAvailable, discoverRepos } from './worktree/manager'
 import { browserManager } from './browser/manager'
@@ -130,6 +143,12 @@ import {
   ingestPickedFiles,
   readAttachmentDataUrl
 } from './attachments/ingest'
+import {
+  readVerifiedStoredAttachment,
+  sanitizeAttachmentName
+} from './hermes/attachmentAccess'
+import { saveVerifiedBytes } from './hermes/attachmentSave'
+import { deleteConversationAttachments, openAttachment } from './hermes/nativeFiles'
 import {
   assertValidAttachments,
   assertValidCommand,
@@ -369,6 +388,58 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:attachments:read', (_e, conversationId: string, id: string) =>
     readAttachmentDataUrl(conversationId, id)
   )
+  ipcMain.handle(
+    'bearcode:attachments:preview',
+    async (
+      _event,
+      conversationId: string,
+      attachmentId: string
+    ): Promise<PreviewPayload> => {
+      try {
+        const verified = await readVerifiedStoredAttachment(
+          app.getPath('userData'),
+          conversationId,
+          attachmentId,
+          db.getEvents(conversationId)
+        )
+        return await renderPreviewPayload({
+          name: verified.attachment.name,
+          mime: verified.attachment.mime,
+          bytes: verified.bytes,
+          htmlUrl: attachmentPreviewUrlFor(
+            conversationId,
+            attachmentId,
+            sanitizeAttachmentName(verified.attachment.name)
+          )
+        })
+      } catch {
+        return { kind: 'unsupported', note: 'Attachment could not be loaded' }
+      }
+    }
+  )
+  ipcMain.handle(
+    'bearcode:attachments:save',
+    async (_event, conversationId: string, attachmentId: string) => {
+      const verified = await readVerifiedStoredAttachment(
+        app.getPath('userData'),
+        conversationId,
+        attachmentId,
+        db.getEvents(conversationId)
+      )
+      const result = await dialog.showSaveDialog({
+        defaultPath: sanitizeAttachmentName(verified.attachment.name)
+      })
+      if (result.canceled || !result.filePath) return 'cancelled' as const
+      await saveVerifiedBytes(result.filePath, verified.bytes)
+      return 'saved' as const
+    }
+  )
+  // Native Hermes downloads and locally picked files share the same validated
+  // attachment store. The renderer can request only opaque IDs; nativeFiles
+  // resolves/validates the store path and surfaces shell.openPath failures.
+  ipcMain.handle('bearcode:attachments:open', (_e, conversationId: string, id: string) =>
+    openAttachment(app.getPath('userData'), conversationId, id, shell.openPath)
+  )
 
   ipcMain.handle('bearcode:diffs:get', (_e, diffId: string) => getDiff(diffId))
   ipcMain.handle('bearcode:diffs:revert', (_e, fileId: string) => revertFile(fileId))
@@ -378,14 +449,8 @@ export function registerIpc(): void {
   })
   // E9b: read-only IDEAL rendered preview of a file's real content (path from
   // the DB via filePathFor -- never a raw renderer path). statSync's size-cap
-  // runs BEFORE readFileSync (D4 OOM lesson). previewClassify's kind drives
-  // the format-specific route below; docx/xlsx parsing stays behind the
-  // killable worker (runOfficeHtml/runOfficeRows) -- mammoth/exceljs/unpdf
-  // must never be re-imported into the main event loop here. docx HTML from
-  // mammoth is unsanitized -- it is only ever handed to the renderer as
-  // `{kind:'html'}`, which FilePreview renders in the existing sandboxed
-  // (allow-scripts, opaque-origin) iframe, never dangerouslySetInnerHTML'd
-  // directly into the app's own DOM.
+  // runs BEFORE readFileSync (D4 OOM lesson). The shared renderer owns
+  // format-specific rendering for both diff files and verified attachments.
   ipcMain.handle('bearcode:diffs:preview', async (_e, fileId: string): Promise<PreviewPayload> => {
     const path = filePathFor(fileId)
     if (!path) return { kind: 'unsupported', note: 'File not found' }
@@ -398,58 +463,12 @@ export function registerIpc(): void {
     if (size > 10 * 1024 * 1024) return { kind: 'unsupported', note: 'File too large to preview' }
     try {
       const bytes = readFileSync(path)
-      const c = previewClassify(path)
-      if (c.kind === 'image') {
-        const ext = (path.split('.').pop() ?? 'png').toLowerCase()
-        const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
-        return { kind: 'image', dataUrl: `data:${mime};base64,${bytes.toString('base64')}` }
-      }
-      if (c.kind === 'svg') {
-        return { kind: 'image', dataUrl: `data:image/svg+xml;base64,${bytes.toString('base64')}` }
-      }
-      if (c.kind === 'pdf') {
-        return { kind: 'pdf', dataUrl: `data:application/pdf;base64,${bytes.toString('base64')}` }
-      }
-      if (c.kind === 'docx') {
-        const html = await runOfficeHtml(bytes)
-        return html
-          ? { kind: 'html', html }
-          : { kind: 'unsupported', note: 'Could not render document' }
-      }
-      if (c.kind === 'xlsx') {
-        const rows = await runOfficeRows(bytes)
-        return rows
-          ? { kind: 'table', rows }
-          : { kind: 'unsupported', note: 'Could not render spreadsheet' }
-      }
-      if (c.kind === 'markdown') {
-        return { kind: 'markdown', text: bytes.toString('utf8') }
-      }
-      if (c.kind === 'csv') {
-        return { kind: 'table', rows: parseCsv(bytes.toString('utf8')) }
-      }
-      if (c.kind === 'json') {
-        const text = bytes.toString('utf8')
-        let pretty = text
-        try {
-          pretty = JSON.stringify(JSON.parse(text), null, 2)
-        } catch {
-          pretty = text
-        }
-        return { kind: 'code', text: pretty, language: 'json' }
-      }
-      if (c.kind === 'code') {
-        return { kind: 'code', text: bytes.toString('utf8'), language: c.language ?? 'plaintext' }
-      }
-      if (c.kind === 'html') {
-        // Served via bearcode-preview:// (src/main/preview/protocol.ts) so the
-        // preview iframe gets its own origin + per-response CSP: page scripts
-        // run there without loosening the app's CSP, and relative css/js/image
-        // references resolve naturally instead of needing inlining.
-        return { kind: 'html-url', url: previewUrlFor(fileId, path) }
-      }
-      const r = extractTextLane(bytes)
-      return { kind: 'text', text: r.text, truncated: r.truncated }
+      return await renderPreviewPayload({
+        name: path,
+        mime: mimeFor(path),
+        bytes,
+        htmlUrl: previewUrlFor(fileId, path)
+      })
     } catch {
       // Read/extraction failed after the stat (deleted mid-flight, unreadable) —
       // return a payload rather than rejecting so the pane never hangs.
@@ -517,12 +536,123 @@ export function registerIpc(): void {
   })
   ipcMain.handle('bearcode:keys:status', () => keyStatus())
 
-  ipcMain.handle('bearcode:hermes:test-connection', (_e, gatewayUrl: string, token?: string) =>
-    checkHermesHealth(gatewayUrl, token)
+  const assertHermesConnectionUrl = (
+    mode: HermesConnectionMode,
+    value: string
+  ): void => {
+    if (!value.trim()) throw new Error('Hermes connection URL is required')
+    if (value !== value.trim()) throw new Error('Invalid Hermes connection URL')
+    let parsed: URL
+    try {
+      parsed = new URL(value)
+    } catch {
+      throw new Error('Invalid Hermes connection URL')
+    }
+    if (parsed.username || parsed.password) {
+      throw new Error('Hermes connection URL must not include credentials')
+    }
+    const allowed =
+      mode === 'legacy'
+        ? new Set(['http:', 'https:'])
+        : new Set(['http:', 'https:', 'ws:', 'wss:'])
+    if (!allowed.has(parsed.protocol)) {
+      throw new Error(
+        mode === 'legacy'
+          ? 'Legacy Hermes URL must use http or https'
+          : 'Native Hermes URL must use http, https, ws, or wss'
+      )
+    }
+  }
+
+  ipcMain.handle(
+    'bearcode:hermes:test-connection',
+    async (_e, mode: unknown, url: unknown, secret?: unknown) => {
+      if (mode !== 'native' && mode !== 'legacy') {
+        throw new Error('Invalid Hermes connection mode')
+      }
+      if (typeof url !== 'string') throw new Error('Hermes connection URL must be a string')
+      if (secret !== undefined && typeof secret !== 'string') {
+        throw new Error('Hermes connection secret must be a string')
+      }
+      assertHermesConnectionUrl(mode, url)
+
+      if (mode === 'legacy') {
+        return checkHermesHealth(url, secret || getHermesToken())
+      }
+
+      const result = await checkHermesNativeHealth(
+        url,
+        secret || getHermesPlatformKey() || '',
+        getOrCreateHermesInstallationId()
+      )
+      return !result.ok && /unexpected server response:\s*404/i.test(result.message)
+        ? {
+            ok: false,
+            message:
+              'Native platform unavailable — install and enable the BearCode plugin on Hermes'
+          }
+        : result
+    }
   )
-  ipcMain.handle('bearcode:hermes:set-token', (_e, token: string) => {
+  ipcMain.handle('bearcode:hermes:set-legacy-token', (_e, token: unknown) => {
+    if (typeof token !== 'string') throw new Error('Hermes legacy token must be a string')
     setHermesToken(token)
   })
+  ipcMain.handle('bearcode:hermes:set-platform-key', (_e, key: unknown) => {
+    if (typeof key !== 'string') throw new Error('Hermes platform key must be a string')
+    setHermesPlatformKey(key)
+  })
+  const hermesIdPattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  const assertHermesInteractionIds = (conversationId: unknown, requestId: unknown): void => {
+    if (
+      typeof conversationId !== 'string' ||
+      typeof requestId !== 'string' ||
+      !hermesIdPattern.test(conversationId) ||
+      !hermesIdPattern.test(requestId)
+    ) {
+      throw new Error('Hermes conversationId and requestId must be UUIDs')
+    }
+  }
+  ipcMain.handle(
+    'bearcode:hermes:resolve-approval',
+    (
+      _e,
+      conversationId: unknown,
+      requestId: unknown,
+      decision: unknown
+    ): void => {
+      assertHermesInteractionIds(conversationId, requestId)
+      if (
+        decision !== 'once' &&
+        decision !== 'session' &&
+        decision !== 'always' &&
+        decision !== 'deny'
+      ) {
+        throw new Error('Invalid Hermes approval decision')
+      }
+      resolveHermesApproval(
+        conversationId as string,
+        requestId as string,
+        decision as ApprovalDecision
+      )
+    }
+  )
+  ipcMain.handle(
+    'bearcode:hermes:resolve-clarification',
+    (
+      _e,
+      conversationId: unknown,
+      requestId: unknown,
+      response: unknown
+    ): void => {
+      assertHermesInteractionIds(conversationId, requestId)
+      if (typeof response !== 'string') {
+        throw new Error('Hermes clarification response must be a string')
+      }
+      resolveHermesClarification(conversationId as string, requestId as string, response)
+    }
+  )
 
   // Ursa Phase 1: the curated role table lives entirely in main
   // (orchestrator/ursa.ts) -- this just tells the Settings > Ursa page which
@@ -604,10 +734,14 @@ export function registerIpc(): void {
     if (id !== undefined) assertValidConversationId(id)
     return db.createConversation(projectPath, id)
   })
-  ipcMain.handle('bearcode:conversations:create-hermes', () => {
+  ipcMain.handle('bearcode:conversations:create-hermes', (_e, mode: unknown) => {
+    if (mode !== 'native' && mode !== 'legacy') {
+      throw new Error(`Invalid Hermes connection mode: ${String(mode)}`)
+    }
     const meta = db.createConversation(null)
     db.setModelRef(meta.id, HERMES_MODEL_REF)
-    db.setHermesSessionId(meta.id, randomUUID())
+    if (mode === 'legacy') db.setHermesSessionId(meta.id, randomUUID())
+    db.setHermesMode(meta.id, mode as HermesConnectionMode)
     return db.getConversationMeta(meta.id)
   })
   ipcMain.handle('bearcode:conversations:delete', async (_e, id: string) => {
@@ -623,6 +757,7 @@ export function registerIpc(): void {
     }
     void pruneCheckpoints(id)
     db.deleteConversation(id)
+    await deleteConversationAttachments(app.getPath('userData'), id)
   })
   ipcMain.handle('bearcode:conversations:set-mode', (_e, id: string, mode: unknown) => {
     if (!isPermissionMode(mode)) {
@@ -814,12 +949,16 @@ export function registerIpc(): void {
     }
     db.setTitle(id, title.trim())
   })
-  ipcMain.handle('bearcode:conversations:clear', () => {
+  ipcMain.handle('bearcode:conversations:clear', async () => {
     clearRunsOrchestrator()
     // Prune each conversation's checkpoints before the rows are gone, so
     // checkpoints.db doesn't retain orphaned execution state after a wipe.
-    for (const c of db.listConversations()) void pruneCheckpoints(c.id)
+    const conversationIds = db.listConversations().map((c) => c.id)
+    for (const id of conversationIds) void pruneCheckpoints(id)
     db.clearAll()
+    await Promise.all(
+      conversationIds.map((id) => deleteConversationAttachments(app.getPath('userData'), id))
+    )
   })
 
   ipcMain.handle('bearcode:permissions:add-rule', (_e, rule: AddRuleInput) => {

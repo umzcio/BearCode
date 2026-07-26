@@ -24,13 +24,21 @@
 // http(s) source appears in any directive, so a malicious page can't
 // exfiltrate; it can only read files inside the previewed directory tree,
 // which the agent that authored it could already read.
-import { protocol } from 'electron'
+import { app, protocol } from 'electron'
 import { readFileSync, realpathSync, statSync } from 'fs'
 import { basename, dirname, isAbsolute, relative, resolve } from 'path'
 import { filePathFor } from '../diffs'
+import { assertValidAttachmentId, assertValidConversationId } from '../attachments/ingest'
+import {
+  readVerifiedStoredAttachment,
+  sanitizeAttachmentName,
+  type VerifiedStoredAttachment
+} from '../hermes/attachmentAccess'
+import * as db from '../db'
 
 export const PREVIEW_SCHEME = 'bearcode-preview'
 const PREVIEW_HOST = 'preview'
+const ATTACHMENT_HOST = 'attachment'
 const ASSET_MAX = 25 * 1024 * 1024
 
 // The preview document's OWN policy (scoped to this origin; the app's CSP in
@@ -94,6 +102,15 @@ export function previewUrlFor(fileId: string, htmlPath: string): string {
   return `${PREVIEW_SCHEME}://${PREVIEW_HOST}/${encodeURIComponent(fileId)}/${name}`
 }
 
+export function attachmentPreviewUrlFor(
+  conversationId: string,
+  attachmentId: string,
+  displayName: string
+): string {
+  const name = encodeURIComponent(sanitizeAttachmentName(displayName))
+  return `${PREVIEW_SCHEME}://${ATTACHMENT_HOST}/${encodeURIComponent(conversationId)}/${encodeURIComponent(attachmentId)}/${name}`
+}
+
 // PURE-ish resolution (fs reads only): URL pathname -> jailed absolute file
 // path, or null for anything that isn't a real file inside the previewed
 // file's directory tree. `lookup` is injectable for tests; production callers
@@ -142,26 +159,88 @@ export function registerPreviewSchemePrivileges(): void {
   ])
 }
 
-// Must run AFTER app ready.
-export function registerPreviewProtocol(): void {
-  protocol.handle(PREVIEW_SCHEME, (request) => {
+interface PreviewRequestDependencies {
+  filePathFor?: (fileId: string) => string | null
+  readAttachment?: (
+    conversationId: string,
+    attachmentId: string
+  ) => Promise<VerifiedStoredAttachment>
+}
+
+function previewResponse(bytes: Buffer, mime: string): Response {
+  return new Response(new Uint8Array(bytes), {
+    headers: {
+      'Content-Type': mime,
+      'Content-Security-Policy': PREVIEW_CSP,
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'no-store'
+    }
+  })
+}
+
+export async function handlePreviewRequest(
+  request: Request,
+  dependencies: PreviewRequestDependencies = {}
+): Promise<Response> {
+  if (request.method !== 'GET') return new Response('method not allowed', { status: 405 })
+
+  let url: URL
+  try {
+    url = new URL(request.url)
+  } catch {
+    return new Response('bad request', { status: 400 })
+  }
+
+  if (url.host === PREVIEW_HOST) {
+    const path = resolvePreviewPath(url.pathname, dependencies.filePathFor ?? filePathFor)
+    if (!path) return new Response('not found', { status: 404 })
     try {
-      if (request.method !== 'GET') return new Response('method not allowed', { status: 405 })
-      const url = new URL(request.url)
-      if (url.host !== PREVIEW_HOST) return new Response('not found', { status: 404 })
-      const path = resolvePreviewPath(url.pathname)
-      if (!path) return new Response('not found', { status: 404 })
-      const bytes = readFileSync(path)
-      return new Response(new Uint8Array(bytes), {
-        headers: {
-          'Content-Type': mimeFor(path),
-          'Content-Security-Policy': PREVIEW_CSP,
-          'X-Content-Type-Options': 'nosniff',
-          'Cache-Control': 'no-store'
-        }
-      })
+      return previewResponse(readFileSync(path), mimeFor(path))
     } catch {
       return new Response('not found', { status: 404 })
     }
+  }
+
+  if (url.host === ATTACHMENT_HOST) {
+    const encodedSegments = url.pathname.split('/').slice(1)
+    if (encodedSegments.length !== 3 || encodedSegments.some((segment) => segment.length === 0)) {
+      return new Response('not found', { status: 404 })
+    }
+
+    let decodedSegments: string[]
+    try {
+      decodedSegments = encodedSegments.map((segment) => decodeURIComponent(segment))
+      const [conversationId, attachmentId] = decodedSegments
+      assertValidConversationId(conversationId)
+      assertValidAttachmentId(attachmentId)
+    } catch {
+      return new Response('bad request', { status: 400 })
+    }
+
+    if (!dependencies.readAttachment) return new Response('not found', { status: 404 })
+    try {
+      const [conversationId, attachmentId] = decodedSegments
+      const verified = await dependencies.readAttachment(conversationId, attachmentId)
+      return previewResponse(verified.bytes, mimeFor(verified.attachment.name))
+    } catch {
+      return new Response('not found', { status: 404 })
+    }
+  }
+
+  return new Response('not found', { status: 404 })
+}
+
+// Must run AFTER app ready.
+export function registerPreviewProtocol(): void {
+  protocol.handle(PREVIEW_SCHEME, (request) => {
+    return handlePreviewRequest(request, {
+      readAttachment: (conversationId, attachmentId) =>
+        readVerifiedStoredAttachment(
+          app.getPath('userData'),
+          conversationId,
+          attachmentId,
+          db.getEvents(conversationId)
+        )
+    })
   })
 }

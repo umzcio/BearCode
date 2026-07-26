@@ -57,6 +57,26 @@ export interface AttachmentRef {
   kind?: AttachmentKind
 }
 
+// Hermes Native transfers deliberately use a smaller, transport-neutral set
+// than the local picker lanes. PDF/Office inputs are both documents on the
+// gateway wire; `other` leaves room for a gateway-produced file that BearCode
+// does not otherwise classify.
+export type HermesAttachmentKind = 'image' | 'document' | 'text' | 'other'
+
+// Verified attachment metadata. This is the exact object persisted on the
+// transcript by the native Hermes turn; the storage layer neither adds paths
+// nor derives display names from it.
+export interface HermesAttachment {
+  id: string
+  name: string
+  mime: string
+  kind: HermesAttachmentKind
+  sizeBytes: number
+  sha256: string
+}
+
+export type ApprovalDecision = 'once' | 'session' | 'always' | 'deny'
+
 // The four byte-sniffed image mimes (D4). Kept under the original name so the
 // image byte-sniff (ingest sniffImageMime) and the wire guard never drift.
 export const ATTACHMENT_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
@@ -713,6 +733,42 @@ export type Event =
     }
   | { type: 'assistant_text'; id: string; text: string; agentId?: string }
   | {
+      type: 'hermes_tool_call'
+      id: string
+      name: string
+      label: string
+      status: 'running' | 'awaiting-approval' | 'completed' | 'failed'
+      requestId?: string
+      command?: string
+      description?: string
+      allowSession?: boolean
+      allowPermanent?: boolean
+      smartDenied?: boolean
+      approvalDecision?: ApprovalDecision
+    }
+  | {
+      type: 'hermes_tool_result'
+      id: string
+      callId: string
+      status: 'completed' | 'failed'
+      message?: string
+      durationMs: number
+    }
+  | {
+      type: 'hermes_clarification'
+      id: string
+      requestId: string
+      question: string
+      choices: string[]
+      state: 'pending' | 'answered'
+      response?: string
+    }
+  | {
+      type: 'assistant_attachment'
+      id: string
+      attachment: HermesAttachment
+    }
+  | {
       type: 'turn_meta'
       id: string
       provider: string
@@ -1000,6 +1056,7 @@ export interface WorktreeInfo {
 // planning/2026-07-19-ursa-modes-design.md. Persisted per conversation
 // (ursa_mode column), same idiom as effort.
 export type UrsaMode = 'code' | 'council' | 'deep-research' | 'review'
+export type HermesConnectionMode = 'native' | 'legacy'
 
 export interface ConversationMeta {
   id: string
@@ -1028,6 +1085,9 @@ export interface ConversationMeta {
   // Hermes session ID: only meaningful when modelRef is the Hermes sentinel.
   // Persisted per conversation to maintain thread continuity with remote Hermes agent.
   hermesSessionId: string | null
+  // Hermes transport is explicit per conversation. Older/unknown rows resolve
+  // to legacy in the database migration layer.
+  hermesMode: HermesConnectionMode
   // The project this conversation belongs to (E4), or null when unassigned.
   projectId: string | null
   // Pin/archive flags (E7). Pinned conversations float to the top of their
@@ -1221,6 +1281,8 @@ export interface AppSettings {
   // never render an empty section header.
   hermesEnabled?: boolean
   hermesGatewayUrl?: string
+  hermesConnectionMode?: HermesConnectionMode
+  hermesNativeUrl?: string
   hermesLabel?: string
   hermesIcon?: string
   // F8 Agent Settings (global defaults; per-project overrides = F9). Optional &
@@ -1375,6 +1437,11 @@ export interface BearcodeApi {
     // the persisted AttachmentRef (id/name/mime), not bytes. Returns null if
     // the file is gone or not a recognized image.
     read(conversationId: string, id: string): Promise<string | null>
+    preview(conversationId: string, id: string): Promise<PreviewPayload>
+    save(conversationId: string, id: string): Promise<'saved' | 'cancelled'>
+    // Opens a verified stored attachment with the operating system's default
+    // app. The renderer cannot provide a filesystem path.
+    open(conversationId: string, id: string): Promise<void>
   }
   diffs: {
     get(diffId: string): Promise<FileDiff>
@@ -1399,8 +1466,23 @@ export interface BearcodeApi {
     status(): Promise<Record<ProviderId, boolean>>
   }
   hermes: {
-    testConnection(gatewayUrl: string, token?: string): Promise<{ ok: boolean; message: string }>
-    setToken(token: string): Promise<void>
+    testConnection(
+      mode: HermesConnectionMode,
+      url: string,
+      secret?: string
+    ): Promise<{ ok: boolean; message: string }>
+    setLegacyToken(token: string): Promise<void>
+    setPlatformKey(key: string): Promise<void>
+    resolveApproval(
+      conversationId: string,
+      requestId: string,
+      decision: ApprovalDecision
+    ): Promise<void>
+    resolveClarification(
+      conversationId: string,
+      requestId: string,
+      response: string
+    ): Promise<void>
   }
   ursa: {
     requiredProviders(): Promise<ProviderId[]>
@@ -1435,7 +1517,7 @@ export interface BearcodeApi {
     // Hermes: mints a project-less conversation pinned to HERMES_MODEL_REF with
     // a fresh session id, so the Gateway SSE client (Task 4/5) has a stable
     // session to resume against.
-    createHermes(): Promise<ConversationMeta>
+    createHermes(mode: HermesConnectionMode): Promise<ConversationMeta>
     delete(id: string): Promise<void>
     clear(): Promise<void>
     setMode(id: string, mode: PermissionMode): Promise<void>

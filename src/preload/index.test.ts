@@ -129,3 +129,131 @@ describe('preload updater bridge', () => {
     )
   })
 })
+
+describe('preload native Hermes interaction bridge', () => {
+  it('forwards mode-specific health checks and credential writes without exposing stored secrets', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      hermes: {
+        testConnection: (mode: string, url: string, secret?: string) => Promise<unknown>
+        setLegacyToken: (token: string) => Promise<void>
+        setPlatformKey: (key: string) => Promise<void>
+      }
+    }
+    invoke.mockClear()
+
+    await bearcode.hermes.testConnection('native', 'ws://x:8643', 'draft-platform-key')
+    await bearcode.hermes.setLegacyToken('legacy-token')
+    await bearcode.hermes.setPlatformKey('platform-key')
+
+    expect(invoke).toHaveBeenNthCalledWith(
+      1,
+      'bearcode:hermes:test-connection',
+      'native',
+      'ws://x:8643',
+      'draft-platform-key'
+    )
+    expect(invoke).toHaveBeenNthCalledWith(
+      2,
+      'bearcode:hermes:set-legacy-token',
+      'legacy-token'
+    )
+    expect(invoke).toHaveBeenNthCalledWith(
+      3,
+      'bearcode:hermes:set-platform-key',
+      'platform-key'
+    )
+    expect(Object.keys(bearcode.hermes)).not.toContain('getPlatformKey')
+    expect(Object.keys(bearcode.hermes)).not.toContain('getLegacyToken')
+    expect(Object.keys(bearcode.hermes)).not.toContain('installationId')
+  })
+
+  it('forwards approval resolution without exposing native credentials', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      hermes: {
+        resolveApproval: (
+          conversationId: string,
+          requestId: string,
+          decision: 'once' | 'session' | 'always' | 'deny'
+        ) => Promise<void>
+      }
+    }
+    invoke.mockClear()
+
+    await bearcode.hermes.resolveApproval('conversation-id', 'request-id', 'once')
+
+    expect(invoke).toHaveBeenCalledWith(
+      'bearcode:hermes:resolve-approval',
+      'conversation-id',
+      'request-id',
+      'once'
+    )
+    expect(Object.keys(bearcode.hermes)).not.toContain('platformKey')
+  })
+
+  it('forwards clarification resolution without exposing downloaded file paths', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      hermes: {
+        resolveClarification: (
+          conversationId: string,
+          requestId: string,
+          response: string
+        ) => Promise<void>
+      }
+    }
+    invoke.mockClear()
+
+    await bearcode.hermes.resolveClarification('conversation-id', 'request-id', 'desktop')
+
+    expect(invoke).toHaveBeenCalledWith(
+      'bearcode:hermes:resolve-clarification',
+      'conversation-id',
+      'request-id',
+      'desktop'
+    )
+    expect(Object.keys(bearcode.hermes)).not.toContain('downloadPath')
+  })
+})
+
+describe('preload attachment preview bridge', () => {
+  it('forwards opaque conversation and attachment IDs without a filesystem path', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      attachments: {
+        preview: (conversationId: string, id: string) => Promise<unknown>
+      }
+    }
+    const userDataDir = '/tmp/bearcode-user-data'
+    invoke.mockClear()
+
+    await bearcode.attachments.preview('conv_123', 'att_123')
+
+    expect(invoke).toHaveBeenCalledWith(
+      'bearcode:attachments:preview',
+      'conv_123',
+      'att_123'
+    )
+    expect(invoke).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining(userDataDir)
+    )
+  })
+})
+
+describe('preload attachment save bridge', () => {
+  it('forwards only opaque conversation and attachment IDs to native Save As', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      attachments: {
+        save: (conversationId: string, id: string) => Promise<'saved' | 'cancelled'>
+      }
+    }
+    invoke.mockClear()
+
+    await bearcode.attachments.save('conv_123', 'att_123')
+
+    expect(invoke).toHaveBeenCalledWith('bearcode:attachments:save', 'conv_123', 'att_123')
+  })
+})

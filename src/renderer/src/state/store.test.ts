@@ -54,6 +54,9 @@ const permissions = {
 
 const conversations = {
   create: vi.fn(() => Promise.resolve(convoMeta)),
+  createHermes: vi.fn(() =>
+    Promise.resolve({ ...convoMeta, id: 'hermes-1', modelRef: HERMES_MODEL_REF })
+  ),
   setMode: vi.fn(() => Promise.resolve()),
   setEffort: vi.fn(() => Promise.resolve()),
   setThinking: vi.fn(() => Promise.resolve()),
@@ -133,7 +136,8 @@ const convoMeta: ConversationMeta = {
   environment: 'local',
   worktrees: [],
   ursaMode: 'code',
-  hermesSessionId: null
+  hermesSessionId: null,
+  hermesMode: 'legacy'
 }
 
 const convo = (over: Partial<Convo> = {}): Convo => ({
@@ -153,6 +157,7 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   thinking: true,
   webSearch: false,
   ursaMode: 'code',
+  hermesMode: 'legacy',
   projectId: null,
   pinned: false,
   archived: false,
@@ -365,6 +370,47 @@ describe('auxiliary pane selection (Ba4): one field, deep-link ticks, reset on s
     expect(useAppStore.getState().auxSelection).toEqual({ kind: 'artifact', artifactId: 'a1' })
     expect(useAppStore.getState().auxPaneOpenTick).toBe(1)
     expect(useAppStore.getState().reviewFocusPath).toBeNull()
+  })
+  it('openAttachmentPane selects the opaque conversation and attachment IDs', () => {
+    useAppStore.setState({ auxSelection: null, auxPaneOpenTick: 0, reviewFocusPath: 'stale' })
+
+    useAppStore.getState().openAttachmentPane('conv_123', 'att_123')
+
+    expect(useAppStore.getState().auxSelection).toEqual({
+      kind: 'attachment',
+      conversationId: 'conv_123',
+      attachmentId: 'att_123'
+    })
+    expect(useAppStore.getState().auxPaneOpenTick).toBe(1)
+    expect(useAppStore.getState().reviewFocusPath).toBeNull()
+  })
+  it('closeReview clears an attachment selection', () => {
+    useAppStore.setState({
+      auxSelection: {
+        kind: 'attachment',
+        conversationId: 'conv_123',
+        attachmentId: 'att_123'
+      }
+    })
+
+    useAppStore.getState().closeReview()
+
+    expect(useAppStore.getState().auxSelection).toBeNull()
+  })
+  it('switching conversations clears an attachment selection', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: { c1: convo(), c2: convo({ id: 'c2' }) },
+      auxSelection: {
+        kind: 'attachment',
+        conversationId: 'c1',
+        attachmentId: 'att_123'
+      }
+    })
+
+    useAppStore.getState().openConvo('c2')
+
+    expect(useAppStore.getState().auxSelection).toBeNull()
   })
   it('openReview selects the diff (structurally closing any artifact) and bumps the tick', () => {
     useAppStore.setState({
@@ -878,6 +924,35 @@ describe('folder = project: settings store actions', () => {
 })
 
 describe('pin/archive + newConversationInProject store actions', () => {
+  it('creates Hermes conversations with the explicitly configured native mode', async () => {
+    useAppStore.setState({
+      conversations: {},
+      view: { kind: 'home' },
+      settings: { hermesConnectionMode: 'native' } as never
+    })
+
+    await useAppStore.getState().newHermesConversation()
+
+    expect(window.bearcode.conversations.createHermes).toHaveBeenCalledWith('native')
+  })
+
+  it('newHermesConversation clears an attachment selected in the previous conversation', async () => {
+    useAppStore.setState({
+      conversations: { previous: convo({ id: 'previous' }) },
+      view: { kind: 'conversation', id: 'previous' },
+      auxSelection: {
+        kind: 'attachment',
+        conversationId: 'previous',
+        attachmentId: 'att_previous'
+      }
+    })
+
+    await useAppStore.getState().newHermesConversation()
+
+    expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'hermes-1' })
+    expect(useAppStore.getState().auxSelection).toBeNull()
+  })
+
   it('setPinned updates the convo + persists', () => {
     useAppStore.setState({ conversations: { c1: convo() } })
     useAppStore.getState().setPinned('c1', true)
@@ -901,6 +976,24 @@ describe('pin/archive + newConversationInProject store actions', () => {
     await useAppStore.getState().newConversationInProject('/repo/x')
     expect(window.bearcode.conversations.create).toHaveBeenCalledWith('/repo/x')
     expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
+  })
+
+  it('newConversationInProject clears an attachment selected in the previous conversation', async () => {
+    useAppStore.setState({
+      conversations: { previous: convo({ id: 'previous' }) },
+      view: { kind: 'conversation', id: 'previous' },
+      folderSettings: [],
+      auxSelection: {
+        kind: 'attachment',
+        conversationId: 'previous',
+        attachmentId: 'att_previous'
+      }
+    })
+
+    await useAppStore.getState().newConversationInProject('/repo/x')
+
+    expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
+    expect(useAppStore.getState().auxSelection).toBeNull()
   })
 })
 

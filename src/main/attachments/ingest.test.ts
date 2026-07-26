@@ -52,7 +52,8 @@ import {
   MAX_ATTACHMENT_BYTES,
   ingestPickedFiles,
   readAttachmentBase64,
-  readAttachmentSidecar
+  readAttachmentSidecar,
+  assertValidAttachmentId
 } from './ingest'
 
 describe('sniffImageMime', () => {
@@ -113,6 +114,18 @@ describe('conversationId path-safety guard', () => {
 
   it('accepts a well-formed conversationId shape (no throw from the guard itself)', () => {
     expect(() => readAttachmentBase64('conv-1_ABC', 'abc')).not.toThrow()
+  })
+})
+
+describe('attachmentId path-safety guard', () => {
+  it('rejects traversal attachment IDs', () => {
+    expect(() => assertValidAttachmentId('../etc')).toThrow(/id/)
+    expect(() => assertValidAttachmentId('a/b')).toThrow(/id/)
+    expect(() => assertValidAttachmentId('a.b')).toThrow(/id/)
+  })
+
+  it('accepts a well-formed attachment ID', () => {
+    expect(() => assertValidAttachmentId('attachment-1_ABC')).not.toThrow()
   })
 })
 

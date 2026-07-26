@@ -6,6 +6,7 @@ import { ThinkingPaw } from '../brand/ThinkingPaw'
 import { IconChevronDown } from '../icons'
 import { ThinkingStep } from './ThinkingStep'
 import { ToolStep } from './ToolStep'
+import { HermesToolStep, HermesUnmatchedResult } from './HermesToolStep'
 import { UrsaStepDivider } from './UrsaStepDivider'
 import './events.css'
 
@@ -63,8 +64,20 @@ function WorkedGroupImpl({
 
   // Pair each tool_call with its tool_result; thinking renders on its own.
   const resultsByCallId = new Map<string, Extract<Event, { type: 'tool_result' }>>()
+  const hermesCallsById = new Map<string, Extract<Event, { type: 'hermes_tool_call' }>[]>()
+  const hermesResultsByCallId = new Map<string, Extract<Event, { type: 'hermes_tool_result' }>[]>()
   for (const ev of steps) {
     if (ev.type === 'tool_result') resultsByCallId.set(ev.callId, ev)
+    if (ev.type === 'hermes_tool_call') {
+      const calls = hermesCallsById.get(ev.id) ?? []
+      calls.push(ev)
+      hermesCallsById.set(ev.id, calls)
+    }
+    if (ev.type === 'hermes_tool_result') {
+      const results = hermesResultsByCallId.get(ev.callId) ?? []
+      results.push(ev)
+      hermesResultsByCallId.set(ev.callId, results)
+    }
   }
 
   const rows: React.JSX.Element[] = []
@@ -94,6 +107,29 @@ function WorkedGroupImpl({
               result={result && result.type === 'tool_result' ? result : undefined}
               convoId={convoId}
             />
+          </AgentAttributed>
+        </div>
+      )
+    } else if (ev.type === 'hermes_tool_call') {
+      const calls = hermesCallsById.get(ev.id) ?? []
+      const results = hermesResultsByCallId.get(ev.id) ?? []
+      const result = calls.length === 1 && results.length === 1 ? results[0] : undefined
+      const anchorIds = result ? `${ev.id} ${result.id}` : ev.id
+      rows.push(
+        <div key={`${ev.id}:${i}`} data-event-id={anchorIds}>
+          <AgentAttributed event={ev}>
+            <HermesToolStep call={ev} result={result} convoId={convoId} />
+          </AgentAttributed>
+        </div>
+      )
+    } else if (ev.type === 'hermes_tool_result') {
+      const calls = hermesCallsById.get(ev.callId) ?? []
+      const results = hermesResultsByCallId.get(ev.callId) ?? []
+      if (calls.length === 1 && results.length === 1) continue
+      rows.push(
+        <div key={`${ev.id}:${i}`} data-event-id={ev.id}>
+          <AgentAttributed event={ev}>
+            <HermesUnmatchedResult result={ev} />
           </AgentAttributed>
         </div>
       )

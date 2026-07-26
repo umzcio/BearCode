@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Event } from '@shared/types'
-import { groupTurnsIncremental } from './transcript'
+import { groupTurnsIncremental, sameTranscriptItem } from './transcript'
 
 const user = (id: string, text: string): Event => ({ type: 'user_message', id, text }) as Event
 const text = (id: string, t: string): Event => ({ type: 'assistant_text', id, text: t }) as Event
@@ -99,5 +99,93 @@ describe('groupTurnsIncremental', () => {
     expect(turn!.councilSeats.map((e) => e.id)).toEqual(['a1', 'a2', 'r1'])
     // The chair's synthesis is still the turn's normal assistant_text.
     expect(turn!.texts.map((t) => t.text)).toEqual(['synthesized answer'])
+  })
+
+  it('buckets native Hermes tools in step order and separates clarifications and attachments', () => {
+    const events: Event[] = [
+      user('u1', 'use Hermes'),
+      {
+        type: 'hermes_tool_call',
+        id: 'hc1',
+        name: 'vendor.arbitrary_tool',
+        label: 'Arbitrary tool',
+        status: 'running'
+      },
+      {
+        type: 'hermes_tool_result',
+        id: 'hr1',
+        callId: 'hc1',
+        status: 'completed',
+        durationMs: 1500
+      },
+      {
+        type: 'hermes_clarification',
+        id: 'hq1',
+        requestId: 'request-clarify',
+        question: 'Which target?',
+        choices: ['One', 'Two'],
+        state: 'pending'
+      },
+      {
+        type: 'assistant_attachment',
+        id: 'ha1',
+        attachment: {
+          id: 'attachment-1',
+          name: 'report.pdf',
+          mime: 'application/pdf',
+          kind: 'document',
+          sizeBytes: 1024,
+          sha256: 'abc123'
+        }
+      }
+    ]
+
+    const { items } = groupTurnsIncremental(null, events)
+    const turn = items[0].kind === 'turn' ? items[0].turn : null
+
+    expect(turn).not.toBeNull()
+    expect(turn!.steps.map((event) => event.type)).toEqual([
+      'hermes_tool_call',
+      'hermes_tool_result'
+    ])
+    expect(turn!.clarifications).toHaveLength(1)
+    expect(turn!.attachments).toHaveLength(1)
+  })
+
+  it.each([
+    ['clarifications', 'hermes_clarification'],
+    ['attachments', 'assistant_attachment']
+  ] as const)('detects a changed %s bucket in sameTranscriptItem', (_bucket, eventType) => {
+    const firstEvents: Event[] = [
+      user('u1', 'use Hermes'),
+      eventType === 'hermes_clarification'
+        ? {
+            type: 'hermes_clarification',
+            id: 'hq1',
+            requestId: 'request-clarify',
+            question: 'Which target?',
+            choices: ['One'],
+            state: 'pending'
+          }
+        : {
+            type: 'assistant_attachment',
+            id: 'ha1',
+            attachment: {
+              id: 'attachment-1',
+              name: 'report.pdf',
+              mime: 'application/pdf',
+              kind: 'document',
+              sizeBytes: 1024,
+              sha256: 'abc123'
+            }
+          }
+    ] as Event[]
+    const nextEvents = [firstEvents[0], { ...firstEvents[1] }] as Event[]
+    const first = groupTurnsIncremental(null, firstEvents).items[0]
+    const next = groupTurnsIncremental(null, nextEvents).items[0]
+
+    expect(first.kind).toBe('turn')
+    expect(next.kind).toBe('turn')
+    expect(sameTranscriptItem(first, next)).toBe(false)
   })
 })
