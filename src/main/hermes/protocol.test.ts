@@ -10,7 +10,11 @@ import {
   SequenceGuard
 } from './protocol'
 
-const fixtureDir = resolve(process.cwd(), 'integrations/hermes-bearcode/fixtures/protocol-v1')
+// Canonical wire-protocol test vectors -- also mirrored in the Hermes-side
+// gateway plugin repo (github.com/umzcio/bearcode-hermes, fixtures/protocol-v1/)
+// so both ends of the protocol validate against the same fixtures without a
+// cross-repo checkout at test time.
+const fixtureDir = resolve(__dirname, 'fixtures/protocol-v1')
 const binary = JSON.parse(readFileSync(resolve(fixtureDir, 'binary.json'), 'utf8'))
 const events = JSON.parse(readFileSync(resolve(fixtureDir, 'events.json'), 'utf8'))
 

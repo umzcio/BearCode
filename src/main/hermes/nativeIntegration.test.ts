@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { spawn } from 'child_process'
+import { existsSync } from 'fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises'
 import { createServer } from 'net'
 import { tmpdir } from 'os'
@@ -39,6 +40,17 @@ interface TurnHarness {
   attachments: HermesAttachment[]
   conversationId: string
 }
+
+// The Python side (adapter.py, harness_server.py, its venv) moved to its own
+// repo (github.com/umzcio/bearcode-hermes) so this monorepo no longer has a
+// local copy to spawn. This is now a genuine cross-repo integration test:
+// check out bearcode-hermes as a sibling of this repo, build its venv per its
+// own README, then re-point HARNESS_PYTHON/HARNESS_SCRIPT below (or run this
+// file from a workspace where `integrations/hermes-bearcode` exists) to
+// re-enable it.
+const HARNESS_PYTHON = 'integrations/hermes-bearcode/.venv/bin/python'
+const HARNESS_SCRIPT = 'integrations/hermes-bearcode/tests/harness_server.py'
+const HARNESS_AVAILABLE = existsSync(HARNESS_PYTHON) && existsSync(HARNESS_SCRIPT)
 
 let child: ReturnType<typeof spawn> | undefined
 let childOutput = ''
@@ -262,11 +274,10 @@ async function abortActiveTurns(label: string): Promise<void> {
 }
 
 beforeAll(async () => {
+  if (!HARNESS_AVAILABLE) return
   userDataDir = await mkdtemp(join(tmpdir(), 'bearcode-native-integration-'))
   port = await freeLoopbackPort()
-  child = spawn('integrations/hermes-bearcode/.venv/bin/python', [
-    'integrations/hermes-bearcode/tests/harness_server.py'
-  ], {
+  child = spawn(HARNESS_PYTHON, [HARNESS_SCRIPT], {
     cwd: process.cwd(),
     env: {
       ...process.env,
@@ -285,10 +296,12 @@ beforeAll(async () => {
 })
 
 afterEach(async () => {
+  if (!HARNESS_AVAILABLE) return
   await abortActiveTurns('Active turn cleanup')
 })
 
 afterAll(async () => {
+  if (!HARNESS_AVAILABLE) return
   try {
     await abortActiveTurns('Final turn cleanup')
   } finally {
@@ -307,7 +320,7 @@ afterAll(async () => {
   }
 })
 
-describe('real Hermes native cross-language integration', () => {
+describe.skipIf(!HARNESS_AVAILABLE)('real Hermes native cross-language integration', () => {
   it('rejects an incorrect bearer before WebSocket upgrade', async () => {
     await expect(rejectBadBearer()).resolves.toBe(401)
   })
