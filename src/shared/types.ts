@@ -1253,6 +1253,9 @@ export interface AppSettings {
   // any ref LiteLLM doesn't catalog (custom models, Ollama) -- the UI must
   // render that as "unknown," never as every capability being false.
   modelMetadata?: ModelMetadataMap
+  // Model refs the user starred in the Models page. Optional & additive:
+  // settings persisted before this feature coerce to [].
+  favoriteModels?: string[]
   // Voice input STT backend (E5). Optional & additive: settings persisted before
   // this feature load unchanged (coerced to 'openai', the guaranteed default).
   sttBackend?: SttBackend
