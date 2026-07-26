@@ -173,7 +173,7 @@ describe('saveVerifiedBytes', () => {
     expect(await temporarySiblings(directory)).toEqual([])
   })
 
-  it('rejects and removes a temporary path replaced with a symlink before rename', async () => {
+  it('rejects without unlinking a temporary path replaced with a symlink before rename', async () => {
     const directory = await makeTemporaryDirectory()
     const attackerTarget = join(directory, 'attacker-target.txt')
     const destination = join(directory, 'report.txt')
@@ -191,11 +191,31 @@ describe('saveVerifiedBytes', () => {
     ).rejects.toThrow('Attachment save file identity changed')
 
     expect(await readFile(attackerTarget)).toEqual(attackerBytes)
-    await expect(lstat(destination)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect((await lstat(destination)).isSymbolicLink()).toBe(true)
     expect(await temporarySiblings(directory)).toEqual([])
   })
 
-  it('rejects a substituted temporary source before replacing an existing destination', async () => {
+  it('does not unlink a non-owned destination after a post-rename identity mismatch', async () => {
+    const directory = await makeTemporaryDirectory()
+    const destination = join(directory, 'report.txt')
+    const outsiderBytes = Buffer.from('new path owner bytes')
+    await writeFile(destination, 'original destination')
+
+    await expect(
+      saveVerifiedBytes(destination, Buffer.from('verified replacement'), {
+        rename: async (source, target) => {
+          await rename(source, target)
+          await unlink(target)
+          await writeFile(target, outsiderBytes)
+        }
+      })
+    ).rejects.toThrow('Attachment save file identity changed')
+
+    expect(await readFile(destination)).toEqual(outsiderBytes)
+    expect(await temporarySiblings(directory)).toEqual([])
+  })
+
+  it('does not unlink a substituted temporary source before preserving an existing destination', async () => {
     const directory = await makeTemporaryDirectory()
     const attackerTarget = join(directory, 'attacker-target.txt')
     const destination = join(directory, 'report.txt')
@@ -219,6 +239,36 @@ describe('saveVerifiedBytes', () => {
 
     expect(await readFile(destination)).toEqual(originalDestination)
     expect(await readFile(attackerTarget)).toEqual(attackerBytes)
+    const [substitutedName] = await temporarySiblings(directory)
+    expect(substitutedName).toBeTruthy()
+    expect((await lstat(join(directory, substitutedName!))).isSymbolicLink()).toBe(true)
+  })
+
+  it('keeps a successfully renamed destination when descriptor close reports failure', async () => {
+    const directory = await makeTemporaryDirectory()
+    const destination = join(directory, 'report.txt')
+    const replacement = Buffer.from('complete verified replacement')
+    await writeFile(destination, 'original destination')
+
+    await expect(
+      saveVerifiedBytes(destination, replacement, {
+        open: async (path, flags, mode) => {
+          const handle = await open(path, flags, mode)
+          const close = handle.close.bind(handle)
+          let closeAttempts = 0
+          handle.close = async () => {
+            closeAttempts += 1
+            if (closeAttempts === 1) {
+              await close()
+              throw new Error('injected close failure')
+            }
+          }
+          return handle
+        }
+      })
+    ).rejects.toThrow('injected close failure')
+
+    expect(await readFile(destination)).toEqual(replacement)
     expect(await temporarySiblings(directory)).toEqual([])
   })
 

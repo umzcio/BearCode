@@ -30,6 +30,20 @@ async function assertRegularDestination(destination: string): Promise<void> {
   }
 }
 
+function matchesOwnedFile(
+  info: Awaited<ReturnType<typeof lstat>>,
+  owned: Awaited<ReturnType<FileHandle['stat']>>
+): boolean {
+  return (
+    owned.isFile() &&
+    info.isFile() &&
+    !info.isSymbolicLink() &&
+    info.dev === owned.dev &&
+    info.ino === owned.ino &&
+    info.size === owned.size
+  )
+}
+
 async function assertPathMatchesOwnedFile(
   path: string,
   owned: Awaited<ReturnType<FileHandle['stat']>>
@@ -40,14 +54,7 @@ async function assertPathMatchesOwnedFile(
   } catch {
     throw new Error(IDENTITY_CHANGED)
   }
-  if (
-    !owned.isFile() ||
-    !info.isFile() ||
-    info.isSymbolicLink() ||
-    info.dev !== owned.dev ||
-    info.ino !== owned.ino ||
-    info.size !== owned.size
-  ) {
+  if (!matchesOwnedFile(info, owned)) {
     throw new Error(IDENTITY_CHANGED)
   }
 }
@@ -57,6 +64,14 @@ async function cleanupOwnedTemporary(
   temporaryPath: string | undefined
 ): Promise<unknown[]> {
   const failures: unknown[] = []
+  let owned: Awaited<ReturnType<FileHandle['stat']>> | undefined
+  if (handle && temporaryPath) {
+    try {
+      owned = await handle.stat()
+    } catch (error) {
+      failures.push(error)
+    }
+  }
   if (handle) {
     try {
       await handle.close()
@@ -64,9 +79,12 @@ async function cleanupOwnedTemporary(
       failures.push(error)
     }
   }
-  if (temporaryPath) {
+  if (temporaryPath && owned) {
     try {
-      await unlink(temporaryPath)
+      const info = await lstat(temporaryPath)
+      if (matchesOwnedFile(info, owned)) {
+        await unlink(temporaryPath)
+      }
     } catch (error) {
       if (!isErrorCode(error, 'ENOENT')) failures.push(error)
     }
@@ -138,12 +156,11 @@ export async function saveVerifiedBytes(
     await assertPathMatchesOwnedFile(temporaryPath, owned)
     await assertRegularDestination(absoluteDestination)
     await replace(temporaryPath, absoluteDestination)
-    temporaryPath = absoluteDestination
+    temporaryPath = undefined
     await assertPathMatchesOwnedFile(absoluteDestination, owned)
 
     await handle.close()
     handle = undefined
-    temporaryPath = undefined
   } catch (error) {
     const cleanupFailures = await cleanupOwnedTemporary(handle, temporaryPath)
     if (cleanupFailures.length > 0) {
