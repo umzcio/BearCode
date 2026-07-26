@@ -37,6 +37,34 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
 
+  // Matches --dur-fast in styles/tokens.css. Tab close is deferred by this
+  // long so the fade/scale-out transition below can finish playing before
+  // the tab actually leaves `tabs` (and the strip reflows around it) --
+  // useAnimatedUnmount's mounted-until-transition-ends idea, hand-adapted
+  // for a per-item list instead of a single boolean (see plan 005's
+  // "Does useAnimatedUnmount fit this?" for why the hook itself doesn't
+  // apply to a keyed list).
+  const TAB_CLOSE_MS = 150
+  const [closingIds, setClosingIds] = useState<Set<string>>(() => new Set())
+
+  const handleCloseTab = (tabId: string): void => {
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
+    if (reduce) {
+      void closeTerminalTab(path, tabId)
+      return
+    }
+    setClosingIds((prev) => new Set(prev).add(tabId))
+    window.setTimeout(() => {
+      setClosingIds((prev) => {
+        if (!prev.has(tabId)) return prev
+        const next = new Set(prev)
+        next.delete(tabId)
+        return next
+      })
+      void closeTerminalTab(path, tabId)
+    }, TAB_CLOSE_MS)
+  }
+
   // Hydrate from any sessions the main process already has for this path
   // (e.g. this project's Terminal view was open earlier this app session,
   // then navigated away from and back to -- the ptys kept running). Only
@@ -111,6 +139,7 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
             className={
               'terminal-tab' + (tab.id === activeId ? ' active' : '') + (tab.exited ? ' exited' : '')
             }
+            data-state={closingIds.has(tab.id) ? 'closing' : 'open'}
             role="button"
             tabIndex={0}
             onClick={() => setActiveTerminalTab(path, tab.id)}
@@ -133,7 +162,7 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
               aria-label="Close terminal tab"
               onClick={(e) => {
                 e.stopPropagation()
-                void closeTerminalTab(path, tab.id)
+                handleCloseTab(tab.id)
               }}
             >
               <IconClose size={11} />

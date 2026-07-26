@@ -238,4 +238,90 @@ describe('TerminalView', () => {
     // must not tear down what was already running.
     expect(screen.getByTestId('pane-t1')).toBeInTheDocument()
   })
+
+  describe('tab open/close motion (plan 005)', () => {
+    function stubMatchMedia(reduce: boolean): void {
+      vi.stubGlobal(
+        'matchMedia',
+        vi.fn().mockImplementation((query: string) => ({
+          matches: query === '(prefers-reduced-motion: reduce)' ? reduce : false,
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn()
+        }))
+      )
+    }
+
+    beforeEach(() => {
+      stubMatchMedia(false)
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('marks a closing tab data-state="closing" and defers the actual removal by TAB_CLOSE_MS (150ms)', async () => {
+      vi.useFakeTimers()
+      useAppStore.setState({
+        terminalTabs: {
+          '/proj/a': [
+            { id: 't1', title: 'zsh', exited: false },
+            { id: 't2', title: 'bash', exited: false }
+          ]
+        },
+        activeTerminalTab: { '/proj/a': 't1' }
+      })
+      const { container } = render(<TerminalView path="/proj/a" />)
+      const closeButtons = screen.getAllByLabelText('Close terminal tab')
+
+      fireEvent.click(closeButtons[1])
+
+      // Still present in the store and DOM immediately after the click --
+      // only its data-state flips to 'closing', the store removal is deferred.
+      expect(useAppStore.getState().terminalTabs['/proj/a']).toHaveLength(2)
+      const tabsBefore = container.querySelectorAll('.terminal-tab')
+      expect(tabsBefore[0].getAttribute('data-state')).toBe('open')
+      expect(tabsBefore[1].getAttribute('data-state')).toBe('closing')
+
+      await vi.advanceTimersByTimeAsync(149)
+      expect(useAppStore.getState().terminalTabs['/proj/a']).toHaveLength(2)
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(useAppStore.getState().terminalTabs['/proj/a']).toHaveLength(1)
+      expect(useAppStore.getState().terminalTabs['/proj/a'][0].id).toBe('t1')
+    })
+
+    it('closes immediately, skipping the deferred animation, under prefers-reduced-motion', async () => {
+      stubMatchMedia(true)
+      useAppStore.setState({
+        terminalTabs: {
+          '/proj/a': [
+            { id: 't1', title: 'zsh', exited: false },
+            { id: 't2', title: 'bash', exited: false }
+          ]
+        },
+        activeTerminalTab: { '/proj/a': 't1' }
+      })
+      render(<TerminalView path="/proj/a" />)
+      const closeButtons = screen.getAllByLabelText('Close terminal tab')
+
+      fireEvent.click(closeButtons[1])
+      // No deferral under reduced motion -- real timers are still active in
+      // this test, so just await the store update directly.
+      await waitFor(() => expect(useAppStore.getState().terminalTabs['/proj/a']).toHaveLength(1))
+      expect(useAppStore.getState().terminalTabs['/proj/a'][0].id).toBe('t1')
+    })
+
+    it('a tab freshly created via the + button starts as data-state="open" (mount motion is CSS-only via @starting-style)', async () => {
+      useAppStore.setState({
+        terminalTabs: { '/proj/a': [{ id: 't1', title: 'zsh', exited: false }] },
+        activeTerminalTab: { '/proj/a': 't1' }
+      })
+      const { container } = render(<TerminalView path="/proj/a" />)
+      fireEvent.click(screen.getByLabelText('New terminal tab'))
+      await waitFor(() => expect(useAppStore.getState().terminalTabs['/proj/a']).toHaveLength(2))
+      const tabs = container.querySelectorAll('.terminal-tab')
+      expect(tabs[1].getAttribute('data-state')).toBe('open')
+    })
+  })
 })
