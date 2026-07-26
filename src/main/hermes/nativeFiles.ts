@@ -8,6 +8,7 @@ import {
   assertValidConversationId,
   MAX_ATTACHMENT_BYTES
 } from '../attachments/ingest'
+import { HERMES_MAX_LABEL_LENGTH } from './protocol'
 
 export interface NativeUploadDescription {
   id: string
@@ -73,8 +74,13 @@ function nativeKind(kind: AttachmentRef['kind']): HermesAttachmentKind {
 
 function assertAttachmentMetadata(attachment: HermesAttachment): void {
   assertValidAttachmentId(attachment.id)
-  if (typeof attachment.name !== 'string' || typeof attachment.mime !== 'string') {
-    throw new Error('attachments: attachment name and mime must be strings')
+  if (
+    typeof attachment.name !== 'string' ||
+    typeof attachment.mime !== 'string' ||
+    attachment.name.length > HERMES_MAX_LABEL_LENGTH ||
+    attachment.mime.length > HERMES_MAX_LABEL_LENGTH
+  ) {
+    throw new Error('attachments: attachment name and mime must be strings within the length limit')
   }
   if (!['image', 'document', 'text', 'other'].includes(attachment.kind)) {
     throw new Error('attachments: invalid attachment kind')

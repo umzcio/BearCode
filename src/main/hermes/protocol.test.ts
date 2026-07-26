@@ -7,6 +7,7 @@ import {
   encodeClientEvent,
   HERMES_MAX_CHOICE_LENGTH,
   HERMES_MAX_CHOICES,
+  HERMES_MAX_FILE_BYTES,
   HERMES_MAX_LABEL_LENGTH,
   HERMES_MAX_TEXT_LENGTH,
   parseServerEvent,
@@ -108,6 +109,30 @@ describe('Hermes protocol V1', () => {
     ) as { payload: { command: string; description: string } }
     descriptionEvent.payload.description = 'x'.repeat(HERMES_MAX_LABEL_LENGTH + 1)
     expect(() => parseServerEvent(JSON.stringify(descriptionEvent))).toThrow(ProtocolViolation)
+  })
+
+  it('rejects an attachment.download.begin name, mime, kind, or sizeBytes over their caps', () => {
+    const base = structuredClone(
+      events.serverEvents.find(
+        (candidate: { type: string }) => candidate.type === 'attachment.download.begin'
+      )
+    ) as { payload: { attachment: { name: string; mime: string; kind: string; sizeBytes: number } } }
+
+    const overLength = structuredClone(base)
+    overLength.payload.attachment.name = 'x'.repeat(HERMES_MAX_LABEL_LENGTH + 1)
+    expect(() => parseServerEvent(JSON.stringify(overLength))).toThrow(ProtocolViolation)
+
+    const overMime = structuredClone(base)
+    overMime.payload.attachment.mime = 'x'.repeat(HERMES_MAX_LABEL_LENGTH + 1)
+    expect(() => parseServerEvent(JSON.stringify(overMime))).toThrow(ProtocolViolation)
+
+    const overKind = structuredClone(base)
+    overKind.payload.attachment.kind = 'x'.repeat(HERMES_MAX_LABEL_LENGTH + 1)
+    expect(() => parseServerEvent(JSON.stringify(overKind))).toThrow(ProtocolViolation)
+
+    const overSize = structuredClone(base)
+    overSize.payload.attachment.sizeBytes = HERMES_MAX_FILE_BYTES + 1
+    expect(() => parseServerEvent(JSON.stringify(overSize))).toThrow(ProtocolViolation)
   })
 
   it('requires contiguous server sequences after turn acceptance', () => {
