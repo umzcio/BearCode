@@ -801,7 +801,7 @@ git commit -m "feat(models): add favorites, editorial catalog, and a shared mode
 
 **Interfaces:**
 - Consumes: `buildModelRows`, `formatTokens`, `MODE_LABEL` (Task 2's `../../lib/modelRows`); store slices `manageableModels`, `providers`, `settings`, and actions `setModelEnabled`, `saveSettings`, `removeCustomModel` (all already exist on `useAppStore`); `Menu`/`Popover`, `Toggle`, `Hint`, `ProviderIcon`, `IconClose`/`IconCopy`/`IconDots`/`IconStar`, `useAnimatedUnmount`, `useModalDialog`, `relativeAge`.
-- Produces: `ModelDetailModal({ modelRef, onClose }): JSX.Element | null` — Task 4 renders this when a row's ⋮ is clicked.
+- Produces: `ModelDetailModal({ modelRef, onClose }): JSX.Element | null`, where `modelRef: string | null` — Task 4 mounts this UNCONDITIONALLY (never behind `openRef ? ... : null`) and drives it by flipping `openRef` between a real ref and `null`, so the exit animation plays; the component itself returns `null` once `useAnimatedUnmount` finishes unmounting.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -938,7 +938,7 @@ Expected: FAIL — the module doesn't exist yet.
 - [ ] **Step 3: Create `src/renderer/src/components/ModelsPage/ModelDetailModal.tsx`**
 
 ```tsx
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../state/store'
 import { useAnimatedUnmount } from '../../lib/useAnimatedUnmount'
 import { useModalDialog } from '../../lib/useModalDialog'
@@ -969,15 +969,17 @@ const CAPABILITY_LABELS: {
 ]
 
 // The Models page's popup detail view (not a docked rail -- that direction was
-// mocked and explicitly rejected during design). Always rendered mounted by
-// its caller only while a ref is selected; this component itself owns its
-// exit animation via useAnimatedUnmount so a caller can flip to `null` and
-// this still animates out.
+// mocked and explicitly rejected during design). The caller keeps this
+// component UNCONDITIONALLY mounted (mirroring ProjectSettingsModal's
+// `useAnimatedUnmount(path != null)` pattern) and drives it via `modelRef`
+// going null <-> a real ref; the component owns its own exit animation off
+// that prop, so a caller that flips `modelRef` to `null` sees it animate out
+// instead of vanishing instantly.
 export function ModelDetailModal({
   modelRef,
   onClose
 }: {
-  modelRef: string
+  modelRef: string | null
   onClose: () => void
 }): React.JSX.Element | null {
   const manageableModels = useAppStore((s) => s.manageableModels)
@@ -986,7 +988,7 @@ export function ModelDetailModal({
   const setModelEnabled = useAppStore((s) => s.setModelEnabled)
   const saveSettings = useAppStore((s) => s.saveSettings)
   const removeCustomModel = useAppStore((s) => s.removeCustomModel)
-  const { mounted, state } = useAnimatedUnmount(true)
+  const { mounted, state } = useAnimatedUnmount(modelRef != null)
   const { ref: dialogRef, dialogProps } = useModalDialog(onClose)
   const menuBtnRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -994,6 +996,21 @@ export function ModelDetailModal({
   const row = settings
     ? buildModelRows(manageableModels, providers, settings).find((r) => r.ref === modelRef)
     : undefined
+
+  // Esc closes only this modal, not any modal behind it (mirrors
+  // BrowseSmitheryModal.tsx's identical pattern): intercept in the CAPTURE
+  // phase and stop propagation. The listener is only added while mounted.
+  useEffect(() => {
+    if (!mounted) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [mounted, onClose])
 
   if (!mounted || !settings || !row) return null
 
@@ -1181,7 +1198,7 @@ Create `src/renderer/src/components/ModelsPage/ModelDetailModal.css`:
   max-width: calc(100vw - 80px);
   max-height: calc(100vh - 80px);
   overflow-y: auto;
-  background: var(--bg-panel);
+  background: var(--bg-window);
   border-radius: 14px;
   border: 1px solid var(--border-soft);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
@@ -1832,7 +1849,7 @@ export function ModelsTab(): React.JSX.Element {
         </button>
       </div>
 
-      {openRef ? <ModelDetailModal modelRef={openRef} onClose={() => setOpenRef(null)} /> : null}
+      <ModelDetailModal modelRef={openRef} onClose={() => setOpenRef(null)} />
     </div>
   )
 }
@@ -2211,7 +2228,7 @@ export function AddCustomModelModal({ onClose }: { onClose: () => void }): React
 ```css
 .add-model-panel {
   width: 420px;
-  background: var(--bg-panel);
+  background: var(--bg-window);
   border-radius: 14px;
   border: 1px solid var(--border-soft);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
@@ -2360,7 +2377,7 @@ Add a footer row after `.mt-pagination` and before the `{openRef ? ... }` line:
       </div>
 ```
 
-And, alongside the existing `{openRef ? <ModelDetailModal .../> : null}` line, add:
+And, alongside the existing `<ModelDetailModal modelRef={openRef} onClose={...} />` line, add:
 
 ```tsx
       {addModelOpen ? <AddCustomModelModal onClose={() => setAddModelOpen(false)} /> : null}
@@ -2577,7 +2594,7 @@ export function CatalogTab(): React.JSX.Element {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  background: var(--bg-card, var(--bg-panel));
+  background: var(--bg-window);
 }
 .ct-card-head {
   display: flex;
