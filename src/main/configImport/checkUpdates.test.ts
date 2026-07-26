@@ -115,6 +115,22 @@ describe('checkSourceForUpdate', () => {
     expect(checkSourceForUpdate(dir, 'CLAUDE.md')).toEqual({ state: 'source-missing' })
   })
 
+  it('reports changed-unparseable when the source changed but is now empty', () => {
+    // The hash changes (so the early sourceHash === currentHash check correctly
+    // proceeds past up-to-date), but buildRuleCandidate rejects whitespace-only
+    // content via `read.text.trim() === ''`, so candidateBody returns null for
+    // this rule source. That must surface as changed-unparseable, not a repeated
+    // (and wrong) up-to-date.
+    writeFileSync(join(dir, 'CLAUDE.md'), '   \n  ')
+    expect(checkSourceForUpdate(dir, 'CLAUDE.md')).toEqual({ state: 'changed-unparseable' })
+  })
+
+  it('keeps reporting changed-unparseable on repeated checks (hash never silently bumped)', () => {
+    writeFileSync(join(dir, 'CLAUDE.md'), '   \n  ')
+    expect(checkSourceForUpdate(dir, 'CLAUDE.md')).toEqual({ state: 'changed-unparseable' })
+    expect(checkSourceForUpdate(dir, 'CLAUDE.md')).toEqual({ state: 'changed-unparseable' })
+  })
+
   it('applySourceUpdate overwrites the imported rule with the new content', () => {
     writeFileSync(join(dir, 'CLAUDE.md'), 'Updated content.')
     applySourceUpdate(dir, 'CLAUDE.md')
