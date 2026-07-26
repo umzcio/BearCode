@@ -23,6 +23,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  document.documentElement.removeAttribute('data-motion')
 })
 
 describe('useAnimatedUnmount', () => {
@@ -89,6 +90,16 @@ describe('useAnimatedUnmount', () => {
 
   it('unmounts immediately under prefers-reduced-motion, skipping the closing delay', () => {
     stubMatchMedia(true)
+    const { result, rerender } = renderHook(({ open }) => useAnimatedUnmount(open), {
+      initialProps: { open: true }
+    })
+    rerender({ open: false })
+    expect(result.current).toEqual({ mounted: false, state: 'closing' })
+  })
+
+  it('unmounts immediately when only the in-app data-motion="reduced" toggle is set (OS matchMedia false)', () => {
+    stubMatchMedia(false)
+    document.documentElement.setAttribute('data-motion', 'reduced')
     const { result, rerender } = renderHook(({ open }) => useAnimatedUnmount(open), {
       initialProps: { open: true }
     })

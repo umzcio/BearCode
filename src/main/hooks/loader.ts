@@ -9,7 +9,7 @@
 // missing/unreadable/malformed source simply yields no records for that
 // source -- loadHooks itself never throws.
 import { homedir } from 'os'
-import { join } from 'path'
+import { join, sep } from 'path'
 import type { HookRecord } from '../../shared/types'
 import { readFileCapped } from '../fsCapped'
 import { enumeratePluginIngredients } from '../plugins'
@@ -30,9 +30,10 @@ function loadFrom(
   path: string,
   scope: 'global' | 'project' | 'plugin',
   source: string,
-  projectPath: string | null
+  projectPath: string | null,
+  root?: string
 ): HookRecord[] {
-  const read = readFileCapped(path, MAX_HOOKS_READ_BYTES)
+  const read = readFileCapped(path, MAX_HOOKS_READ_BYTES, root)
   if (!read) return []
   return parseHooksJson(read.text, scope, source).map((rec) => ({
     ...rec,
@@ -47,12 +48,21 @@ export function loadHooks(projectPath: string | null, opts?: { trusted?: boolean
   out.push(...loadFrom(globalHooksPath(), 'global', 'global', projectPath))
 
   if (trusted && projectPath) {
-    out.push(...loadFrom(projectHooksPath(projectPath), 'project', projectPath, projectPath))
+    out.push(
+      ...loadFrom(projectHooksPath(projectPath), 'project', projectPath, projectPath, projectPath)
+    )
   }
 
   const { hookFiles } = enumeratePluginIngredients(projectPath, { trusted })
   for (const f of hookFiles) {
-    out.push(...loadFrom(f.path, 'plugin', f.pluginName, projectPath))
+    // Same project-scope-plugin lexical check as agentsDir/index.ts's
+    // rule/skill fold-in (see that file for the fuller rationale). Unlike
+    // rules/skills, enumeratePluginIngredients builds hookFiles from a
+    // bare existsSync check (plugins/index.ts, no manifest-layer content
+    // validation upstream) -- this root check is the ONLY containment for
+    // a project-scope plugin's hooks.json, not defense-in-depth.
+    const root = projectPath && f.path.startsWith(projectPath + sep) ? projectPath : undefined
+    out.push(...loadFrom(f.path, 'plugin', f.pluginName, projectPath, root))
   }
 
   return out

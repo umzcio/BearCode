@@ -138,18 +138,20 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const pendingClarify =
     lastEvent?.type === 'review_clarify' ? lastEvent : undefined
 
-  const firstPendingHermesInteraction = convo.events.find(
-    (
-      event
-    ): event is
-      | Extract<Event, { type: 'hermes_tool_call' }>
-      | Extract<Event, { type: 'hermes_clarification' }> =>
-      (event.type === 'hermes_tool_call' &&
-        event.status === 'awaiting-approval' &&
-        typeof event.requestId === 'string' &&
-        event.requestId.trim().length > 0) ||
-      (event.type === 'hermes_clarification' && event.state === 'pending')
-  )
+  const firstPendingHermesInteraction = running
+    ? convo.events.find(
+        (
+          event
+        ): event is
+          | Extract<Event, { type: 'hermes_tool_call' }>
+          | Extract<Event, { type: 'hermes_clarification' }> =>
+          (event.type === 'hermes_tool_call' &&
+            event.status === 'awaiting-approval' &&
+            typeof event.requestId === 'string' &&
+            event.requestId.trim().length > 0) ||
+          (event.type === 'hermes_clarification' && event.state === 'pending')
+      )
+    : undefined
 
   const jumpToApproval = (): void => {
     document

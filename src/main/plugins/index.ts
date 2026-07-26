@@ -7,6 +7,7 @@ import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import { COMMAND_NAME_PATTERN } from '../../shared/types'
 import type { PluginEntry } from '../../shared/types'
+import { isPathWithinRoot } from '../fsCapped'
 import { parsePluginDir } from './manifest'
 import { isPluginEnabled, setPluginEnabled } from './state'
 
@@ -38,10 +39,14 @@ function scanScope(scope: 'global' | 'project', projectPath: string | null): Plu
     return []
   }
   if (!existsSync(dir)) return []
+  const root = scope === 'project' && projectPath ? projectPath : undefined
+  if (root && !isPathWithinRoot(dir, root)) return []
   const out: PluginEntry[] = []
   let names: string[]
   try {
-    names = readdirSync(dir)
+    names = readdirSync(dir, { withFileTypes: true })
+      .filter((d) => !(root && d.isSymbolicLink()))
+      .map((d) => d.name)
   } catch {
     return []
   }
@@ -53,7 +58,7 @@ function scanScope(scope: 'global' | 'project', projectPath: string | null): Plu
     // unhandled rejection. Skip it at discovery time so the UI never offers
     // an action the IPC layer will reject.
     if (!COMMAND_NAME_PATTERN.test(n)) continue
-    const m = parsePluginDir(join(dir, n), scope)
+    const m = parsePluginDir(join(dir, n), scope, root)
     if (!m) continue
     // Identity is the real on-disk directory name `n`, not the (possibly
     // attacker/author-controlled) manifest-declared m.name -- two folders

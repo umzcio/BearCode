@@ -7,7 +7,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, rmSync } from 'f
 import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import { git } from '../worktree/git'
-import { readFileCapped } from '../fsCapped'
+import { readFileCapped, isPathWithinRoot } from '../fsCapped'
 import { getSettings, setSettings } from '../settings'
 import { parsePluginDir } from './manifest'
 import { pluginsDir } from './index'
@@ -110,8 +110,7 @@ async function cloneAndStage(rawUrl: string): Promise<string> {
   try {
     const root = resolve(repoDir)
     const resolved = resolve(root, norm.subpath)
-    if (!(resolved === root || resolved.startsWith(root + sep)))
-      throw new Error('That folder path escapes the repository.')
+    if (!isPathWithinRoot(resolved, root)) throw new Error('That folder path escapes the repository.')
     if (!existsSync(resolved))
       throw new Error(`That folder was not found in the repository: ${norm.subpath}`)
     if (existsSync(stagePath)) rmSync(stagePath, { recursive: true, force: true })
@@ -151,7 +150,18 @@ export async function removeMarketplace(url: string): Promise<void> {
 }
 
 function readManifest(dir: string): { name?: string; plugins?: unknown } | null {
-  const r = readFileCapped(join(dir, 'marketplace.json'), CAP)
+  // Containment: `dir` is the marketplace's own clone root (cacheDir(url)),
+  // and marketplace.json is fully attacker-controlled content from a REMOTE,
+  // UNTRUSTED repo (this fires for every FEATURED/added marketplace whenever
+  // Browse Plugins loads). Without `root`, readFileCapped follows a symlinked
+  // marketplace.json straight through to wherever it points -- e.g. the repo
+  // ships `marketplace.json -> ~/.ssh/id_rsa` and its contents get parsed and
+  // trusted as the catalog. Passing `dir` as `root` makes readFileCapped
+  // reject a symlinked leaf outright (see fsCapped.ts) and realpath-check
+  // containment, matching the isPathWithinRoot checks already used elsewhere
+  // in this file (cloneAndStage's subpath jail, prepareInstall's marketplace
+  // subpath jail).
+  const r = readFileCapped(join(dir, 'marketplace.json'), CAP, dir)
   if (!r) return null
   try {
     const v = JSON.parse(r.text)
@@ -224,15 +234,17 @@ export async function prepareInstall(
     const root = resolve(cacheDir(marketplaceUrl))
     const resolved = resolve(root, source)
     // Jail the marketplace-declared subpath inside the marketplace's own
-    // clone -- a malicious marketplace.json could otherwise point `source`
-    // at `../../..` and walk the install off the repo entirely. (The prior
-    // check compared `resolved` — itself `join(root, source)` — against
-    // `join(root, source)` again: a dead self-comparison that could never be
-    // true, so the containment check below was the only guard actually
-    // running. resolve()ing both sides collapses `..` segments so the
-    // startsWith containment check is real.)
-    if (!(resolved === root || resolved.startsWith(root + sep)))
-      throw new Error('Marketplace plugin path escapes the repo.')
+    // clone using realpath-based containment (isPathWithinRoot, fsCapped.ts)
+    // -- a malicious marketplace.json's `source` is fully marketplace-
+    // controlled (parsed straight from marketplace.json by listCatalog, only
+    // type-checked as a string) and could otherwise point through a
+    // symlinked intermediate directory the repo itself ships, escaping
+    // containment even though `resolved` is lexically inside `root`. (A
+    // prior fix already replaced a dead self-comparison here with a real
+    // resolve()+startsWith check; this replaces THAT check's lexical
+    // comparison with a realpath-based one, closing the symlink-following
+    // gap the lexical version still had.)
+    if (!isPathWithinRoot(resolved, root)) throw new Error('Marketplace plugin path escapes the repo.')
     stagePath = join(
       stageRoot(),
       createHash('sha256')

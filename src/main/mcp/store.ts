@@ -8,7 +8,7 @@
 // Constraints.
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
-import { dirname, join } from 'path'
+import { dirname, join, sep } from 'path'
 import type { DiscoveredMcpServer, McpServerConfig, McpTransport } from '../../shared/types'
 import { getSettings, setSettings } from '../settings'
 import { resolveVaultRefs } from '../keys'
@@ -61,8 +61,17 @@ function toRawEntry(cfg: McpServerConfig): RawServerEntry {
   return { type: transport, ...rest }
 }
 
-function readServerMap(path: string): Record<string, RawServerEntry> {
-  const read = readFileCapped(path, MAX_MCP_JSON_BYTES)
+// `root`, when passed, jails the read against symlink-escape the same way
+// every other project-scoped reader in this round was hardened (plugins/
+// manifest.ts, agentsDir's @-ref resolver, plugins/marketplace.ts): a
+// containing directory or the leaf itself that resolves outside `root` is
+// rejected rather than followed. Read-only discovery call sites (loadServers,
+// discoverLocalServers) pass their project root; the read-modify-write call
+// sites (upsertServer/removeServer) deliberately do NOT -- a jailed read
+// returning {} there would make the following write clobber the user's real
+// config instead of merging into it.
+function readServerMap(path: string, root?: string): Record<string, RawServerEntry> {
+  const read = readFileCapped(path, MAX_MCP_JSON_BYTES, root)
   if (!read) return {}
   try {
     const parsed = JSON.parse(read.text) as { mcpServers?: unknown }
@@ -128,7 +137,7 @@ export function loadServers(
 ): McpServerConfig[] {
   const global = toConfigMap(readServerMap(globalMcpPath()), 'global')
   const project = projectPath
-    ? toConfigMap(readServerMap(projectMcpPath(projectPath)), 'project')
+    ? toConfigMap(readServerMap(projectMcpPath(projectPath), projectPath), 'project')
     : {}
   const servers = mergeServerMaps(global, project)
 
@@ -153,7 +162,13 @@ export function loadServers(
   const seen = new Set(servers.map((s) => s.name))
   const ing = enumeratePluginIngredients(projectPath, { trusted: opts?.trusted ?? false })
   for (const { pluginName, path } of ing.mcpConfigs) {
-    const raw = readServerMap(path)
+    // Plugin mcpConfigs mix global and project scope (a plugin's mcp.json
+    // may live under the user's global plugins dir OR under a project's
+    // cloned `.agents/plugins/<name>/`) -- same lexical-prefix check as
+    // hooks/loader.ts's plugin fold-in, since only a project-scope plugin
+    // path has a meaningful containment root here.
+    const root = projectPath && path.startsWith(projectPath + sep) ? projectPath : undefined
+    const raw = readServerMap(path, root)
     for (const [name, entry] of Object.entries(raw)) {
       if (seen.has(name)) continue
       seen.add(name)
@@ -238,19 +253,19 @@ export function discoverLocalServers(projectPath: string | null): DiscoveredMcpS
     byName.set(name, toDiscovered(name, entry, 'claude-desktop'))
   }
   if (projectPath) {
-    const projectRaw = readServerMap(projectDotMcpJsonPath(projectPath))
+    const projectRaw = readServerMap(projectDotMcpJsonPath(projectPath), projectPath)
     for (const [name, entry] of Object.entries(projectRaw)) {
       byName.set(name, toDiscovered(name, entry, 'project-mcp-json'))
     }
-    const claudeSettingsRaw = readServerMap(claudeSettingsJsonPath(projectPath))
+    const claudeSettingsRaw = readServerMap(claudeSettingsJsonPath(projectPath), projectPath)
     for (const [name, entry] of Object.entries(claudeSettingsRaw)) {
       byName.set(name, toDiscovered(name, entry, 'claude-settings-json'))
     }
-    const cursorRaw = readServerMap(cursorMcpJsonPath(projectPath))
+    const cursorRaw = readServerMap(cursorMcpJsonPath(projectPath), projectPath)
     for (const [name, entry] of Object.entries(cursorRaw)) {
       byName.set(name, toDiscovered(name, entry, 'cursor-mcp-json'))
     }
-    const windsurfRaw = readServerMap(windsurfMcpJsonPath(projectPath))
+    const windsurfRaw = readServerMap(windsurfMcpJsonPath(projectPath), projectPath)
     for (const [name, entry] of Object.entries(windsurfRaw)) {
       byName.set(name, toDiscovered(name, entry, 'windsurf-mcp-json'))
     }

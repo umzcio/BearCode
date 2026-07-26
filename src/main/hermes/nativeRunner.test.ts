@@ -571,6 +571,95 @@ describe('runHermesNative terminal behavior', () => {
     })
   })
 
+  it('flips a still-pending approval and clarification to a terminal status when turn.run() resolves without a turn.completed wire event', async () => {
+    const { promise, sink, turn } = begin()
+    turn.options.onEvent(
+      serverEvent('tool.started', { toolCallId: ids.tool, name: 'terminal', label: 'Run' })
+    )
+    turn.options.onEvent(
+      serverEvent('approval.requested', {
+        requestId: ids.request,
+        toolCallId: ids.tool,
+        command: 'npm test',
+        description: 'Run tests',
+        allowSession: true,
+        allowPermanent: false,
+        smartDenied: false
+      }, 2)
+    )
+    turn.options.onEvent(
+      serverEvent('clarification.requested', {
+        requestId: ids.clarification,
+        question: 'Which?',
+        choices: ['one']
+      }, 3)
+    )
+
+    // Simulate the gap this plan closes: turn.run() resolves 'completed'
+    // (not a rejection, not a cancellation) but no `turn.completed` wire
+    // event ever fired, so `completedSessionId` stays undefined and
+    // runHermesNative takes the `!completedSessionId` early return, which
+    // previously never invoked cleanup. The `finally`-based cleanup should
+    // still flip the pending approval/clarification cards to terminal.
+    turn.complete('completed')
+    await expect(promise).resolves.toEqual({ paused: false, failed: true })
+
+    expect(resolveHermesApproval(ids.conversation, ids.request, 'once')).toBe(false)
+    expect(resolveHermesClarification(ids.conversation, ids.clarification, 'one')).toBe(false)
+    expect(turn.resolveApproval).not.toHaveBeenCalled()
+    expect(turn.resolveClarification).not.toHaveBeenCalled()
+
+    const toolCallEvents = emitted(sink).filter(
+      (event) => event.type === 'hermes_tool_call'
+    ) as Array<{ status: string }>
+    expect(toolCallEvents.at(-1)?.status).toBe('failed')
+
+    const clarificationEvents = emitted(sink).filter(
+      (event) => event.type === 'hermes_clarification'
+    ) as Array<{ state: string }>
+    expect(clarificationEvents.at(-1)?.state).toBe('expired')
+
+    const persisted = vi.mocked(appendOrReplaceEvent).mock.calls.map(([, event]) => event)
+    expect(
+      persisted.some((event) => event.type === 'hermes_tool_call' && event.status === 'failed')
+    ).toBe(true)
+    expect(
+      persisted.some(
+        (event) => event.type === 'hermes_clarification' && event.state === 'expired'
+      )
+    ).toBe(true)
+  })
+
+  it('flips a still-pending approval to a terminal status when turn.run() resolves cancelled without a wire event or explicit cancel', async () => {
+    const { promise, sink, turn } = begin()
+    turn.options.onEvent(
+      serverEvent('tool.started', { toolCallId: ids.tool, name: 'terminal', label: 'Run' })
+    )
+    turn.options.onEvent(
+      serverEvent('approval.requested', {
+        requestId: ids.request,
+        toolCallId: ids.tool,
+        command: 'npm test',
+        description: 'Run tests',
+        allowSession: true,
+        allowPermanent: false,
+        smartDenied: false
+      }, 2)
+    )
+
+    // Simulate the other gap this plan closes: turn.run() resolves
+    // 'cancelled' directly (no turn.cancelled wire event, no explicit
+    // cancelHermesNative call) -- the `result === 'cancelled'` early return
+    // previously never invoked cleanup either.
+    turn.complete('cancelled')
+    await expect(promise).resolves.toEqual({ paused: false, failed: true })
+
+    const toolCallEvents = emitted(sink).filter(
+      (event) => event.type === 'hermes_tool_call'
+    ) as Array<{ status: string }>
+    expect(toolCallEvents.at(-1)?.status).toBe('failed')
+  })
+
   it('maps cancellation to cancelled and never creates an automatic replay turn', async () => {
     const { promise, sink, turn } = begin()
     turn.options.onEvent(
@@ -758,6 +847,91 @@ describe('runHermesNative terminal behavior', () => {
       await promise
     }
   )
+
+  it('flips a still-pending approval and clarification to a terminal status when the turn rejects without a wire event', async () => {
+    const { promise, sink, turn } = begin()
+    turn.options.onEvent(
+      serverEvent('tool.started', { toolCallId: ids.tool, name: 'terminal', label: 'Run' })
+    )
+    turn.options.onEvent(
+      serverEvent('approval.requested', {
+        requestId: ids.request,
+        toolCallId: ids.tool,
+        command: 'npm test',
+        description: 'Run tests',
+        allowSession: true,
+        allowPermanent: false,
+        smartDenied: false
+      }, 2)
+    )
+    turn.options.onEvent(
+      serverEvent('clarification.requested', {
+        requestId: ids.clarification,
+        question: 'Which?',
+        choices: ['one']
+      }, 3)
+    )
+
+    // Simulate a heartbeat timeout / dropped socket: HermesNativeTurn.run()
+    // rejects directly, with NO turn.failed/turn.cancelled wire event ever
+    // reaching onEvent -- this is the exact gap this plan closes.
+    turn.fail(new Error('heartbeat timed out'))
+    await expect(promise).resolves.toEqual({ paused: false, failed: true })
+
+    expect(resolveHermesApproval(ids.conversation, ids.request, 'once')).toBe(false)
+    expect(resolveHermesClarification(ids.conversation, ids.clarification, 'one')).toBe(false)
+    expect(turn.resolveApproval).not.toHaveBeenCalled()
+    expect(turn.resolveClarification).not.toHaveBeenCalled()
+
+    const toolCallEvents = emitted(sink).filter(
+      (event) => event.type === 'hermes_tool_call'
+    ) as Array<{ status: string }>
+    expect(toolCallEvents.at(-1)?.status).toBe('failed')
+
+    const clarificationEvents = emitted(sink).filter(
+      (event) => event.type === 'hermes_clarification'
+    ) as Array<{ state: string }>
+    expect(clarificationEvents.at(-1)?.state).toBe('expired')
+
+    const persisted = vi.mocked(appendOrReplaceEvent).mock.calls.map(([, event]) => event)
+    expect(
+      persisted.some((event) => event.type === 'hermes_tool_call' && event.status === 'failed')
+    ).toBe(true)
+    expect(
+      persisted.some(
+        (event) => event.type === 'hermes_clarification' && event.state === 'expired'
+      )
+    ).toBe(true)
+  })
+
+  it('flips a still-pending approval to a terminal status when cancelHermesNative runs', async () => {
+    const { promise, sink, turn } = begin()
+    turn.options.onEvent(
+      serverEvent('tool.started', { toolCallId: ids.tool, name: 'terminal', label: 'Run command' })
+    )
+    turn.options.onEvent(
+      serverEvent('approval.requested', {
+        requestId: ids.request,
+        toolCallId: ids.tool,
+        command: 'npm test',
+        description: 'Run the tests',
+        allowSession: true,
+        allowPermanent: false,
+        smartDenied: false
+      }, 2)
+    )
+
+    expect(cancelHermesNative(ids.conversation)).toBe(true)
+
+    const toolCallEvents = emitted(sink).filter(
+      (event) => event.type === 'hermes_tool_call'
+    ) as Array<{ status: string }>
+    expect(toolCallEvents.at(-1)?.status).toBe('failed')
+
+    turn.options.onEvent(serverEvent('turn.cancelled', {}, 3))
+    turn.complete('cancelled')
+    await expect(promise).resolves.toEqual({ paused: false, failed: true })
+  })
 
   it('allows a later turn after constructor failure and after run rejection', async () => {
     native.constructorErrors.push(new Error('constructor failed'))

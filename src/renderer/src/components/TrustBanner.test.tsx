@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react'
 import { TrustBanner } from './TrustBanner'
 import { useAppStore } from '../state/store'
 
@@ -51,5 +51,25 @@ describe('TrustBanner', () => {
     render(<TrustBanner />)
     fireEvent.click(screen.getByRole('button', { name: /not now/i }))
     expect(dismissTrustBanner).toHaveBeenCalled()
+  })
+  it('animates out via data-state="closing" instead of unmounting immediately on dismiss', async () => {
+    const dismissTrustBanner = vi.fn()
+    setState({ dismissTrustBanner })
+    const { container } = render(<TrustBanner />)
+    expect(container.querySelector('.trust-banner')?.getAttribute('data-state')).toBe('open')
+
+    fireEvent.click(screen.getByRole('button', { name: /not now/i }))
+    // dismissTrustBanner is a synchronous set() in the real store; simulate
+    // that here by flipping the flag directly, mirroring what the real
+    // handler does.
+    act(() => setState({ trustBannerDismissed: true }))
+
+    // Still in the DOM immediately after dismissal -- only data-state flips.
+    expect(container.querySelector('.trust-banner')?.getAttribute('data-state')).toBe('closing')
+
+    // Unmounts after the 150ms exit transition.
+    await waitFor(() => expect(container.querySelector('.trust-banner')).toBeNull(), {
+      timeout: 500
+    })
   })
 })

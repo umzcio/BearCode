@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { prefersReducedMotion } from './prefersReducedMotion'
 
 // Matches --dur-modal in styles/tokens.css.
 const DEFAULT_DURATION_MS = 220
@@ -27,10 +28,11 @@ export function useAnimatedUnmount(
     if (open) {
       setS({ open, mounted: true, phase: 'open' })
     } else {
-      // Under reduced motion, skip the exit transition and unmount now.
-      // (matchMedia is absent in some test/non-browser environments -- treat
-      // that as "not reduced" rather than throwing.)
-      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
+      // Under reduced motion (OS signal OR the in-app data-motion="reduced"
+      // toggle -- see prefersReducedMotion.ts), skip the exit transition and
+      // unmount now instead of waiting for a CSS transition that tokens.css
+      // has already collapsed to ~0 under the in-app toggle.
+      const reduce = prefersReducedMotion()
       setS({ open, mounted: !reduce, phase: 'closing' })
     }
   }
