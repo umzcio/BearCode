@@ -42,6 +42,7 @@ import { ConvoRowMenu } from './ConvoRowMenu'
 import {
   IconArchive,
   IconFolder,
+  IconGrid,
   IconPanel,
   IconPin,
   IconPlus,
@@ -78,6 +79,7 @@ export function Sidebar(): React.JSX.Element {
   const openTerminalView = useAppStore((s) => s.openTerminalView)
   const newConversationInProject = useAppStore((s) => s.newConversationInProject)
   const openProjectsIndex = useAppStore((s) => s.openProjectsIndex)
+  const openModelsPage = useAppStore((s) => s.openModelsPage)
   const goHome = useAppStore((s) => s.goHome)
   const setPinned = useAppStore((s) => s.setPinned)
   const setArchived = useAppStore((s) => s.setArchived)
@@ -242,6 +244,16 @@ export function Sidebar(): React.JSX.Element {
         >
           <IconFolder />
           Projects
+        </button>
+      )}
+
+      {mode === 'hermes' && hermesEnabled ? null : (
+        <button
+          className={'nav-item' + (view.kind === 'models' ? ' selected' : '')}
+          onClick={openModelsPage}
+        >
+          <IconGrid />
+          Models
         </button>
       )}
 

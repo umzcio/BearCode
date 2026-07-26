@@ -3,7 +3,6 @@ export type SettingsPageId =
   | 'permissions'
   | 'appearance'
   | 'providers'
-  | 'models'
   | 'voice'
   | 'ursa'
   | 'ursus'
@@ -38,7 +37,6 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       { id: 'permissions', label: 'Permissions', icon: 'IconShield' },
       { id: 'appearance', label: 'Appearance', icon: 'IconPalette' },
       { id: 'providers', label: 'Providers', icon: 'IconPlug' },
-      { id: 'models', label: 'Models', icon: 'IconGrid' },
       { id: 'voice', label: 'Voice', icon: 'IconMic' },
       { id: 'ursa', label: 'Ursa', icon: 'IconPaw' },
       { id: 'ursus', label: 'Ursus', icon: 'IconPawPrint' },
