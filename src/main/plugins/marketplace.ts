@@ -150,7 +150,18 @@ export async function removeMarketplace(url: string): Promise<void> {
 }
 
 function readManifest(dir: string): { name?: string; plugins?: unknown } | null {
-  const r = readFileCapped(join(dir, 'marketplace.json'), CAP)
+  // Containment: `dir` is the marketplace's own clone root (cacheDir(url)),
+  // and marketplace.json is fully attacker-controlled content from a REMOTE,
+  // UNTRUSTED repo (this fires for every FEATURED/added marketplace whenever
+  // Browse Plugins loads). Without `root`, readFileCapped follows a symlinked
+  // marketplace.json straight through to wherever it points -- e.g. the repo
+  // ships `marketplace.json -> ~/.ssh/id_rsa` and its contents get parsed and
+  // trusted as the catalog. Passing `dir` as `root` makes readFileCapped
+  // reject a symlinked leaf outright (see fsCapped.ts) and realpath-check
+  // containment, matching the isPathWithinRoot checks already used elsewhere
+  // in this file (cloneAndStage's subpath jail, prepareInstall's marketplace
+  // subpath jail).
+  const r = readFileCapped(join(dir, 'marketplace.json'), CAP, dir)
   if (!r) return null
   try {
     const v = JSON.parse(r.text)

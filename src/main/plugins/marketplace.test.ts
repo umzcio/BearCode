@@ -72,6 +72,7 @@ describe('assertSafeGitUrl', () => {
 // dangling reference once hoisted.
 const gitCalls: string[][] = []
 let fakeHome: string
+let fakeUserData: string
 
 vi.mock('../worktree/git', () => ({
   git: async (args: string[]) => {
@@ -83,6 +84,13 @@ vi.mock('os', async (orig) => {
   const actual = await orig<typeof import('os')>()
   return { ...actual, homedir: () => fakeHome }
 })
+// listCatalog reads settings (getSettings/setSettings, via ../settings) to
+// pull the user-added marketplace list, and getSettings needs `electron`'s
+// app.getPath for its settings.json location -- same mock shape as
+// settings.plugins.test.ts. Only the listCatalog describe block below sets
+// `fakeUserData`; every other test in this file never touches settings, so
+// leaving it unset elsewhere is harmless.
+vi.mock('electron', () => ({ app: { getPath: () => fakeUserData } }))
 
 describe('updatePlugin', () => {
   beforeEach(() => {
@@ -153,6 +161,69 @@ describe('prepareInstall marketplace-catalog symlink containment', () => {
     const { manifest } = await prepareInstall('plugins/good-plugin', marketplaceUrl)
 
     expect(manifest.description).toBe('A real plugin')
+  })
+})
+
+describe('listCatalog marketplace.json symlink containment', () => {
+  beforeEach(() => {
+    gitCalls.length = 0
+    fakeHome = mkdtempSync(join(tmpdir(), 'bc-home-'))
+    fakeUserData = mkdtempSync(join(tmpdir(), 'bc-userdata-'))
+  })
+  afterEach(() => {
+    rmSync(fakeHome, { recursive: true, force: true })
+    rmSync(fakeUserData, { recursive: true, force: true })
+  })
+
+  it('excludes a marketplace whose marketplace.json is a symlink escaping the clone directory', async () => {
+    vi.resetModules()
+    const { listCatalog } = await import('./marketplace')
+    const { setSettings } = await import('../settings')
+    const marketplaceUrl = 'https://example.com/evil-marketplace-catalog.git'
+    const cacheHash = createHash('sha256').update(marketplaceUrl).digest('hex').slice(0, 16)
+    const cacheDirPath = join(fakeHome, '.bearcode', 'marketplaces', cacheHash)
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bc-catalog-outside-'))
+    try {
+      // The clone dir already exists (as it would after a real clone) so
+      // listCatalog skips re-cloning and goes straight to reading
+      // marketplace.json -- which the malicious repo ships as a symlink
+      // pointing at a file OUTSIDE its own clone directory.
+      mkdirSync(cacheDirPath, { recursive: true })
+      writeFileSync(
+        join(outsideDir, 'marketplace.json'),
+        JSON.stringify({ plugins: [{ name: 'leaked-plugin', source: 'x' }] })
+      )
+      symlinkSync(join(outsideDir, 'marketplace.json'), join(cacheDirPath, 'marketplace.json'))
+      setSettings({ marketplaces: [marketplaceUrl] })
+
+      const catalog = await listCatalog()
+
+      expect(catalog.some((p) => p.marketplaceUrl === marketplaceUrl)).toBe(false)
+      expect(catalog.some((p) => p.name === 'leaked-plugin')).toBe(false)
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  it('still reads a legitimate marketplace.json after the containment fix (no regression)', async () => {
+    vi.resetModules()
+    const { listCatalog } = await import('./marketplace')
+    const { setSettings } = await import('../settings')
+    const marketplaceUrl = 'https://example.com/good-marketplace-catalog.git'
+    const cacheHash = createHash('sha256').update(marketplaceUrl).digest('hex').slice(0, 16)
+    const cacheDirPath = join(fakeHome, '.bearcode', 'marketplaces', cacheHash)
+    mkdirSync(cacheDirPath, { recursive: true })
+    writeFileSync(
+      join(cacheDirPath, 'marketplace.json'),
+      JSON.stringify({ plugins: [{ name: 'good-plugin', source: 'plugins/good-plugin' }] })
+    )
+    setSettings({ marketplaces: [marketplaceUrl] })
+
+    const catalog = await listCatalog()
+
+    expect(catalog.some((p) => p.marketplaceUrl === marketplaceUrl && p.name === 'good-plugin')).toBe(
+      true
+    )
   })
 })
 
