@@ -92,9 +92,13 @@ export function checkSourceForUpdate(projectPath: string, sourcePath: string): U
   if (dir === null) return { state: 'up-to-date' }
   // Capped read here too, for the same reason the source side is capped: this
   // path is under the user's control and could have been replaced by hand with
-  // an oversized or non-regular file since the import.
+  // an oversized or non-regular file since the import. `projectPath` as `root`
+  // matches every other config-import readFileCapped call site (translateRules,
+  // translateWorkflows, translateSkills, hash.ts): without it, a symlink planted
+  // at this imported path (e.g. `.agents/rules/<name>.md` swapped for a symlink
+  // pointing outside the project) would have its target silently read here.
   const oldPath = join(dir, `${row.importedAsName}.md`)
-  const oldBody = readFileCapped(oldPath, MAX_IMPORT_BYTES)?.text ?? ''
+  const oldBody = readFileCapped(oldPath, MAX_IMPORT_BYTES, projectPath)?.text ?? ''
   return { state: 'changed', oldBody, newBody }
 }
 
