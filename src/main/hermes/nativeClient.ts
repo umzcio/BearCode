@@ -112,13 +112,13 @@ const HelloAcceptedSchema = z.object({
   }).strict()
 }).strict()
 
-const WireErrorSchema = z.object({ code: z.string(), message: z.string(), retryable: z.boolean() }).strict()
+const WireErrorSchema = z.object({ code: z.string(), message: z.string().max(HERMES_MAX_TEXT_LENGTH), retryable: z.boolean() }).strict()
 const HelloRejectedSchema = z.object({
   type: z.literal('hello.rejected'), protocol: z.literal(HERMES_PROTOCOL),
   supportedVersions: z.array(z.number().int()), error: WireErrorSchema
 }).strict()
 
-const HERMES_MAX_WS_PAYLOAD_BYTES = HERMES_MAX_TEXT_LENGTH * 4
+export const HERMES_MAX_WS_PAYLOAD_BYTES = HERMES_MAX_TEXT_LENGTH * 4
 
 function defaultDeps(overrides: Partial<NativeClientDeps>): NativeClientDeps {
   overrides.createWebSocket ??= (url, options) =>
