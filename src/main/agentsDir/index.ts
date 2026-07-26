@@ -360,7 +360,16 @@ export function loadAgentsContent(
   for (const { pluginName, path } of sortIngredients(ing.ruleFiles, projectPath)) {
     const name = mdNameFromPath(path)
     if (rulesByName.has(name)) continue
-    const raw = readFileCapped(path, MAX_REF_BYTES)
+    // Project-scope plugin ingredient paths always live under
+    // `<projectPath>/.agents/plugins/...` (enumeratePluginIngredients builds
+    // them via pluginsDir('project', projectPath) in plugins/index.ts) --
+    // this lexical prefix check (same one sortIngredients above already
+    // uses) only decides which reads get root-jailed; the real security
+    // boundary is isPathWithinRoot inside readFileCapped. Global-scope
+    // plugin paths never start with projectPath, so they correctly get no
+    // root (legacy allow-symlinks, same as global rules/workflows/skills).
+    const root = projectPath && path.startsWith(projectPath + sep) ? projectPath : undefined
+    const raw = readFileCapped(path, MAX_REF_BYTES, root)
     if (!raw) continue
     const rule = parseRuleFile(name, raw.text, 'global')
     if (!rule.error) rulesByName.set(name, { ...rule, plugin: pluginName })
@@ -409,7 +418,9 @@ export function loadAgentsContent(
   // are resolved deterministically by sortIngredients.
   for (const { pluginName, path } of sortIngredients(ing.skillFolders, projectPath)) {
     const folderName = path.split(sep).pop()!
-    const raw = readFileCapped(join(path, 'SKILL.md'), MAX_REF_BYTES)
+    // Same project-scope-plugin lexical check as the rule fold-in above.
+    const root = projectPath && path.startsWith(projectPath + sep) ? projectPath : undefined
+    const raw = readFileCapped(join(path, 'SKILL.md'), MAX_REF_BYTES, root)
     if (!raw) continue
     const s = parseSkillFolder(folderName, raw.text, 'global')
     if (s.error) continue

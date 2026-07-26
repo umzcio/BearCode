@@ -4,7 +4,7 @@
 // parsers so a plugin's skills/rules are described exactly as the loaders see
 // them. No script or hook is ever executed here.
 import { basename, join } from 'path'
-import { readFileCapped } from '../fsCapped'
+import { readFileCapped, isPathWithinRoot } from '../fsCapped'
 import { listSkillFolders } from '../agentsDir'
 import { parseSkillFolder } from '../agentsDir/parseSkill'
 import { parseRuleFile } from '../agentsDir/parseRule'
@@ -18,8 +18,8 @@ import type {
 
 const CAP = 64 * 1024
 
-function readJson(path: string): Record<string, unknown> | null {
-  const r = readFileCapped(path, CAP)
+function readJson(path: string, root?: string): Record<string, unknown> | null {
+  const r = readFileCapped(path, CAP, root)
   if (!r) return null
   try {
     const v = JSON.parse(r.text)
@@ -29,10 +29,14 @@ function readJson(path: string): Record<string, unknown> | null {
   }
 }
 
-export function parsePluginDir(dir: string, scope: 'global' | 'project'): PluginManifest | null {
+export function parsePluginDir(
+  dir: string,
+  scope: 'global' | 'project',
+  root?: string
+): PluginManifest | null {
   const markerPath = join(dir, 'plugin.json')
   if (!existsSync(markerPath)) return null
-  const marker = readJson(markerPath) // may be null when malformed — still a plugin (marker existed)
+  const marker = readJson(markerPath, root) // may be null when malformed — still a plugin (marker existed)
   const name =
     typeof marker?.name === 'string' && marker.name.trim()
       ? String(marker.name).trim()
@@ -44,8 +48,8 @@ export function parsePluginDir(dir: string, scope: 'global' | 'project'): Plugin
   const skills: PluginSkillSummary[] = []
   // listSkillFolders(dir) returns { name, path } where `path` already points
   // at <dir>/<name>/SKILL.md (not the folder) -- read it directly.
-  for (const { name: sName, path } of safeSkillFolders(join(dir, 'skills'))) {
-    const raw = readFileCapped(path, CAP)
+  for (const { name: sName, path } of safeSkillFolders(join(dir, 'skills'), root)) {
+    const raw = readFileCapped(path, CAP, root)
     if (!raw) continue
     const s = parseSkillFolder(sName, raw.text, scope)
     // `folder` is the real on-disk directory name (`sName`), kept separate
@@ -58,9 +62,9 @@ export function parsePluginDir(dir: string, scope: 'global' | 'project'): Plugin
   const rules: PluginRuleSummary[] = []
   const rulesDir = join(dir, 'rules')
   if (existsSync(rulesDir)) {
-    for (const f of safeReaddir(rulesDir)) {
+    for (const f of safeReaddir(rulesDir, root)) {
       if (!f.endsWith('.md')) continue
-      const raw = readFileCapped(join(rulesDir, f), CAP)
+      const raw = readFileCapped(join(rulesDir, f), CAP, root)
       if (!raw) continue
       const r = parseRuleFile(f.replace(/\.md$/, ''), raw.text, scope)
       if (!r.error) rules.push({ name: r.name, activation: r.activation })
@@ -68,15 +72,15 @@ export function parsePluginDir(dir: string, scope: 'global' | 'project'): Plugin
   }
 
   const servers =
-    parseServers(join(dir, 'mcp.json')) ?? parseServers(join(dir, 'mcp_config.json')) ?? []
-  const hooks = readJson(join(dir, 'hooks.json'))
+    parseServers(join(dir, 'mcp.json'), root) ?? parseServers(join(dir, 'mcp_config.json'), root) ?? []
+  const hooks = readJson(join(dir, 'hooks.json'), root)
   const hookCount = hooks ? Object.keys(hooks).length : 0
 
   return { name, description, version, scope, skills, rules, servers, hookCount }
 }
 
-function parseServers(path: string): PluginServerSummary[] | null {
-  const j = readJson(path)
+function parseServers(path: string, root?: string): PluginServerSummary[] | null {
+  const j = readJson(path, root)
   const raw = j?.mcpServers
   if (!raw || typeof raw !== 'object') return null
   const out: PluginServerSummary[] = []
@@ -97,16 +101,19 @@ function parseServers(path: string): PluginServerSummary[] | null {
   return out
 }
 
-function safeSkillFolders(dir: string): { name: string; path: string }[] {
+function safeSkillFolders(dir: string, root?: string): { name: string; path: string }[] {
   try {
-    return existsSync(dir) ? listSkillFolders(dir) : []
+    return existsSync(dir) ? listSkillFolders(dir, root) : []
   } catch {
     return []
   }
 }
-function safeReaddir(dir: string): string[] {
+function safeReaddir(dir: string, root?: string): string[] {
   try {
-    return readdirSync(dir)
+    if (root && !isPathWithinRoot(dir, root)) return []
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((d) => !(root && d.isSymbolicLink()))
+      .map((d) => d.name)
   } catch {
     return []
   }
