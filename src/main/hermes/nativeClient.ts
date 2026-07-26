@@ -8,6 +8,7 @@ import {
   HERMES_MAX_CHUNK_BYTES,
   HERMES_MAX_FILES,
   HERMES_MAX_FILE_BYTES,
+  HERMES_MAX_TEXT_LENGTH,
   HERMES_PROTOCOL,
   HERMES_PROTOCOL_VERSION,
   ProtocolViolation,
@@ -37,7 +38,7 @@ export interface HermesNativeTurnOptions {
 export interface NativeClientDeps {
   createWebSocket: (
     url: string,
-    options: { headers: Record<string, string> }
+    options: { headers: Record<string, string>; maxPayload?: number }
   ) => import('ws').WebSocket
   userDataDir: string
   now: () => number
@@ -71,6 +72,14 @@ interface Deferred {
 const HEARTBEAT_TIMEOUT_MS = 45_000
 const CANCEL_GRACE_MS = 5_000
 const ESTABLISHMENT_TIMEOUT_MS = 10_000
+const GATEWAY_MESSAGE_MAX_LENGTH = 500
+
+function sanitizeGatewayMessage(message: string): string {
+  const truncated = message.length > GATEWAY_MESSAGE_MAX_LENGTH
+    ? `${message.slice(0, GATEWAY_MESSAGE_MAX_LENGTH)}…`
+    : message
+  return `Hermes reported: ${truncated}`
+}
 
 function nativeUrl(value: string): string {
   let url: URL
@@ -111,14 +120,17 @@ const HelloAcceptedSchema = z.object({
   }).strict()
 }).strict()
 
-const WireErrorSchema = z.object({ code: z.string(), message: z.string(), retryable: z.boolean() }).strict()
+const WireErrorSchema = z.object({ code: z.string(), message: z.string().max(HERMES_MAX_TEXT_LENGTH), retryable: z.boolean() }).strict()
 const HelloRejectedSchema = z.object({
   type: z.literal('hello.rejected'), protocol: z.literal(HERMES_PROTOCOL),
   supportedVersions: z.array(z.number().int()), error: WireErrorSchema
 }).strict()
 
+export const HERMES_MAX_WS_PAYLOAD_BYTES = HERMES_MAX_TEXT_LENGTH * 4
+
 function defaultDeps(overrides: Partial<NativeClientDeps>): NativeClientDeps {
-  overrides.createWebSocket ??= (url, options) => new WebSocket(url, options)
+  overrides.createWebSocket ??= (url, options) =>
+    new WebSocket(url, { ...options, maxPayload: HERMES_MAX_WS_PAYLOAD_BYTES })
   overrides.userDataDir ??=
     process.env.BEARCODE_USER_DATA ?? app.getPath('userData')
   overrides.now ??= () => Date.now()
@@ -151,7 +163,7 @@ function errorFromWire(
       : error.code.startsWith('file.')
         ? 'file'
         : fallback
-  return new HermesNativeClientError(error.message, kind, error.code, error.retryable)
+  return new HermesNativeClientError(sanitizeGatewayMessage(error.message), kind, error.code, error.retryable)
 }
 
 function helloFrame(conversationId: string, installationId: string): string {
@@ -331,7 +343,7 @@ export class HermesNativeTurn {
     // A duplicate is the ledger's alternate response to this client's first
     // turn.start. It carries sequence 1 without a preceding turn.accepted.
     if (event.type !== 'turn.duplicate') this.sequence.accept(event)
-    await this.handleServerEvent(event)
+    await this.handleServerEvent(connection, event)
   }
 
   private async handleBinary(frame: Buffer): Promise<void> {
@@ -346,7 +358,7 @@ export class HermesNativeTurn {
     }
   }
 
-  private async handleServerEvent(event: HermesServerEvent): Promise<void> {
+  private async handleServerEvent(connection: WebSocket, event: HermesServerEvent): Promise<void> {
     if (event.type === 'attachment.upload.accepted') {
       this.resolvePending(`upload.accepted:${event.attachmentId}`)
       return
@@ -367,6 +379,7 @@ export class HermesNativeTurn {
       } catch (error) {
         throw this.asFileError(error)
       }
+      if (this.connection !== connection || this.settled) return
       this.options.onEvent(event)
       return
     }
@@ -377,6 +390,7 @@ export class HermesNativeTurn {
       try {
         const attachment = await this.downloadWriter.complete(event.payload.attachmentId)
         this.downloadIds.delete(event.payload.attachmentId)
+        if (this.connection !== connection || this.settled) return
         this.options.onEvent(event)
         this.options.onAttachment(attachment)
       } catch (error) {
@@ -673,7 +687,7 @@ export async function checkHermesNativeHealth(
               ? 'Rejected — check the platform key in Settings'
               : event.error.code.startsWith('protocol.')
                 ? 'Incompatible native Hermes protocol'
-                : event.error.message
+                : sanitizeGatewayMessage(event.error.message)
           })
         } else finish({ ok: false, message: 'Incompatible native Hermes protocol' })
       } catch {

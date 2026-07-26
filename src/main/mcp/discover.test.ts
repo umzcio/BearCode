@@ -15,6 +15,17 @@ vi.mock('fs', () => ({
     }
     return { isFile: () => true, size: Buffer.byteLength(contents, 'utf8') }
   }),
+  // readFileCapped now lstats before statting (symlink-safe config-import
+  // scan hardening) -- these fake files are never symlinks.
+  lstatSync: vi.fn((path: string) => {
+    const contents = fakeFiles.get(path)
+    if (contents === undefined) {
+      const err = new Error('ENOENT') as NodeJS.ErrnoException
+      err.code = 'ENOENT'
+      throw err
+    }
+    return { isSymbolicLink: () => false }
+  }),
   openSync: vi.fn((path: string) => path),
   readSync: vi.fn((fd: string, buf: Buffer, offset: number, length: number) => {
     const contents = fakeFiles.get(fd) ?? ''

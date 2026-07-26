@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 interface FakePty {
+  pid: number
   onData: (cb: (data: string) => void) => void
   onExit: (cb: () => void) => void
   write: ReturnType<typeof vi.fn>
@@ -10,10 +11,12 @@ interface FakePty {
   emitExit: () => void
 }
 
+let nextFakePid = 1000
 function makeFakePty(): FakePty {
   let dataCb: ((data: string) => void) | null = null
   let exitCb: (() => void) | null = null
   return {
+    pid: nextFakePid++,
     onData: (cb) => {
       dataCb = cb
     },
@@ -44,6 +47,11 @@ beforeEach(() => {
   spawned.length = 0
   terminalManager.killAll()
   vi.clearAllMocks()
+  vi.spyOn(process, 'kill').mockImplementation(() => true)
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 describe('TerminalManager', () => {
@@ -148,6 +156,10 @@ describe('TerminalManager', () => {
     expect(spawned[0].resize).not.toHaveBeenCalled()
   })
 
+  it('ignores a resize to an unknown id', () => {
+    expect(() => terminalManager.resize('nope', 120, 40)).not.toThrow()
+  })
+
   it('marks a session exited and stops accepting writes/resizes after exit', () => {
     const view = terminalManager.create('/proj/a')
     spawned[0].emitExit()
@@ -179,26 +191,63 @@ describe('TerminalManager', () => {
     unsubscribe()
   })
 
-  it('close() kills a live pty and removes it from the list', () => {
+  it('close() sends SIGHUP to the pty process group and removes it from the list', () => {
     const view = terminalManager.create('/proj/a')
+    const killSpy = vi.mocked(process.kill)
     terminalManager.close(view.id)
-    expect(spawned[0].kill).toHaveBeenCalled()
+    expect(killSpy).toHaveBeenCalledWith(-spawned[0].pid, 'SIGHUP')
     expect(terminalManager.list('/proj/a')).toHaveLength(0)
+  })
+
+  it('close() falls back to a single-pid kill if the process-group form throws', () => {
+    const view = terminalManager.create('/proj/a')
+    const killSpy = vi.mocked(process.kill)
+    killSpy.mockImplementationOnce(() => {
+      throw new Error('ESRCH')
+    })
+    terminalManager.close(view.id)
+    expect(killSpy).toHaveBeenCalledWith(-spawned[0].pid, 'SIGHUP')
+    expect(killSpy).toHaveBeenCalledWith(spawned[0].pid, 'SIGHUP')
   })
 
   it('close() on an already-exited session does not call kill again', () => {
     const view = terminalManager.create('/proj/a')
+    const killSpy = vi.mocked(process.kill)
     spawned[0].emitExit()
     terminalManager.close(view.id)
-    expect(spawned[0].kill).not.toHaveBeenCalled()
+    expect(killSpy).not.toHaveBeenCalled()
   })
 
-  it('killAll() kills every live session across all projects and clears the list', () => {
+  it('close() on an id that was never created (or already closed) does not throw', () => {
+    expect(() => terminalManager.close('nope')).not.toThrow()
+  })
+
+  it('closing the same id twice is a no-op the second time', () => {
+    const view = terminalManager.create('/proj/a')
+    terminalManager.close(view.id)
+    expect(() => terminalManager.close(view.id)).not.toThrow()
+    expect(terminalManager.list('/proj/a')).toHaveLength(0)
+  })
+
+  it('ignores write/resize on a session that was removed via close() (not just exited)', () => {
+    const view = terminalManager.create('/proj/a')
+    terminalManager.close(view.id)
+    expect(() => terminalManager.write(view.id, 'x')).not.toThrow()
+    expect(() => terminalManager.resize(view.id, 100, 30)).not.toThrow()
+    // The pty behind this session is gone from the map entirely (unlike the
+    // "exited but still present" case tested elsewhere in this file) -- its write/
+    // resize mocks must not have been called post-close.
+    expect(spawned[0].write).not.toHaveBeenCalled()
+    expect(spawned[0].resize).not.toHaveBeenCalled()
+  })
+
+  it("killAll() sends SIGHUP to every live session's process group and clears the list", () => {
     terminalManager.create('/proj/a')
     terminalManager.create('/proj/b')
+    const killSpy = vi.mocked(process.kill)
     terminalManager.killAll()
-    expect(spawned[0].kill).toHaveBeenCalled()
-    expect(spawned[1].kill).toHaveBeenCalled()
+    expect(killSpy).toHaveBeenCalledWith(-spawned[0].pid, 'SIGHUP')
+    expect(killSpy).toHaveBeenCalledWith(-spawned[1].pid, 'SIGHUP')
     expect(terminalManager.list('/proj/a')).toHaveLength(0)
     expect(terminalManager.list('/proj/b')).toHaveLength(0)
   })

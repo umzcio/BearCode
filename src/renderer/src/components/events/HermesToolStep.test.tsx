@@ -1,8 +1,20 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { BearcodeApi, Event } from '@shared/types'
 import { HermesToolStep } from './HermesToolStep'
+
+function stubMatchMedia(reduce: boolean): void {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)' ? reduce : false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    }))
+  )
+}
 
 const resolveApproval = vi.fn(() => Promise.resolve())
 
@@ -130,5 +142,93 @@ describe('HermesToolStep', () => {
     await waitFor(() => expect(resolveApproval).toHaveBeenCalledTimes(2))
     expect(allow).toBeDisabled()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  describe('approval-card exit animation (plan 010)', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('keeps the approval card mounted with data-state="closing" when status resolves away from awaiting-approval, then removes it', async () => {
+      stubMatchMedia(false)
+      vi.useFakeTimers()
+      const { container, rerender } = render(
+        <HermesToolStep
+          call={call({ status: 'awaiting-approval', requestId: 'request-id' })}
+          convoId="conversation-id"
+          interactive
+        />
+      )
+
+      expect(container.querySelector('.approval-card')?.getAttribute('data-state')).toBe('open')
+
+      const result = {
+        type: 'hermes_tool_result',
+        id: 'result-1',
+        callId: 'call-1',
+        status: 'completed',
+        durationMs: 500
+      } as const
+      rerender(
+        <HermesToolStep
+          call={call({ status: 'awaiting-approval', requestId: 'request-id' })}
+          result={result}
+          convoId="conversation-id"
+          interactive
+        />
+      )
+
+      // Still present immediately after the status flips -- only data-state
+      // moves to 'closing', the actual unmount is deferred.
+      const card = container.querySelector('.approval-card')
+      expect(card).not.toBeNull()
+      expect(card?.getAttribute('data-state')).toBe('closing')
+      expect(screen.queryByText('Waiting for your approval…')).not.toBeNull()
+
+      // 150ms (--dur-fast), matching .approval-card's own CSS transition --
+      // not the hook's 220ms default, since HermesToolStep now passes an
+      // explicit durationMs to keep them in sync.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(149)
+      })
+      expect(container.querySelector('.approval-card')).not.toBeNull()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1)
+      })
+      expect(container.querySelector('.approval-card')).toBeNull()
+      expect(screen.queryByText('Waiting for your approval…')).toBeNull()
+    })
+
+    it('unmounts the approval card immediately under prefers-reduced-motion', () => {
+      stubMatchMedia(true)
+      const { container, rerender } = render(
+        <HermesToolStep
+          call={call({ status: 'awaiting-approval', requestId: 'request-id' })}
+          convoId="conversation-id"
+          interactive
+        />
+      )
+
+      expect(container.querySelector('.approval-card')).not.toBeNull()
+
+      const result = {
+        type: 'hermes_tool_result',
+        id: 'result-1',
+        callId: 'call-1',
+        status: 'completed',
+        durationMs: 500
+      } as const
+      rerender(
+        <HermesToolStep
+          call={call({ status: 'awaiting-approval', requestId: 'request-id' })}
+          result={result}
+          convoId="conversation-id"
+          interactive
+        />
+      )
+
+      expect(container.querySelector('.approval-card')).toBeNull()
+    })
   })
 })

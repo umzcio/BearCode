@@ -62,6 +62,7 @@
   --dur-fast: 150ms; /* hover, small */
   --dur-menu: 180ms; /* dropdowns, popovers */
   --dur-modal: 220ms; /* modals */
+  --dur-drawer: 340ms; /* sidebar collapse/expand FLIP (Sidebar.tsx) */
   --dur-ambient: 5s; /* continuous ambient loops (Ursa composer glow) -- NOT an interaction duration */
 }
 

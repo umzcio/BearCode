@@ -1,15 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'fs'
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { scanImportableConfig, shouldShowImportBanner } from './scan'
 
 describe('scanImportableConfig', () => {
   let dir: string
+  let outsideDir: string
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'bearcode-import-'))
+    outsideDir = mkdtempSync(join(tmpdir(), 'bearcode-import-outside-'))
   })
-  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+  })
 
   it('finds nothing in an empty project', () => {
     expect(scanImportableConfig(dir)).toEqual([])
@@ -108,6 +113,74 @@ describe('scanImportableConfig', () => {
     expect(found).toContainEqual({
       sourcePath: join('.claude', 'agents', 'reviewer.md'),
       kind: 'unsupported',
+      tool: 'claude-code'
+    })
+  })
+
+  // Security: a symlinked CLAUDE.md pointing outside the project must never
+  // be detected -- following it would stat/read an arbitrary locally
+  // readable file and surface its content in the import preview.
+  it('does not detect a symlinked CLAUDE.md pointing outside the project', () => {
+    const outsideFile = join(outsideDir, 'secret.md')
+    writeFileSync(outsideFile, 'secret content')
+    symlinkSync(outsideFile, join(dir, 'CLAUDE.md'))
+    expect(scanImportableConfig(dir)).toEqual([])
+  })
+
+  // Security: same as above but for a rules-directory entry, and proves the
+  // symlink filter is selective (a sibling real .md file is still detected).
+  it('excludes a symlinked file in .cursor/rules/ while still detecting a normal one', () => {
+    mkdirSync(join(dir, '.cursor', 'rules'), { recursive: true })
+    const outsideFile = join(outsideDir, 'evil.md')
+    writeFileSync(outsideFile, 'evil content')
+    symlinkSync(outsideFile, join(dir, '.cursor', 'rules', 'evil.md'))
+    writeFileSync(join(dir, '.cursor', 'rules', 'real.md'), 'real content')
+    const found = scanImportableConfig(dir)
+    expect(found.some((f) => f.sourcePath.includes('evil.md'))).toBe(false)
+    expect(found).toContainEqual({
+      sourcePath: join('.cursor', 'rules', 'real.md'),
+      kind: 'rule',
+      tool: 'cursor'
+    })
+  })
+
+  // Security (review follow-up on the fix above): the gap isn't only a
+  // symlinked LEAF file -- an INTERMEDIATE directory in the scanned path
+  // (`.cursor/rules` itself) can be a symlink to somewhere outside the
+  // project. readdirSync transparently follows it, so a real (non-symlink)
+  // file inside the external target would otherwise pass every existing
+  // check. This must be excluded too.
+  it('excludes everything under a symlinked .cursor/rules directory pointing outside the project', () => {
+    mkdirSync(join(dir, '.cursor'), { recursive: true })
+    const realOutsideRulesDir = join(outsideDir, 'rules')
+    mkdirSync(realOutsideRulesDir)
+    writeFileSync(join(realOutsideRulesDir, 'evil.md'), 'evil content')
+    symlinkSync(realOutsideRulesDir, join(dir, '.cursor', 'rules'))
+    expect(scanImportableConfig(dir)).toEqual([])
+  })
+
+  // Same intermediate-directory-symlink gap, but for the skill-directory
+  // listing path (`.claude/skills`), which has its own (previously
+  // unguarded) readdirSync-based listing function.
+  it('excludes everything under a symlinked .claude/skills directory pointing outside the project', () => {
+    mkdirSync(join(dir, '.claude'), { recursive: true })
+    const realOutsideSkillsDir = join(outsideDir, 'skills')
+    mkdirSync(realOutsideSkillsDir)
+    mkdirSync(join(realOutsideSkillsDir, 'evil-skill'))
+    writeFileSync(join(realOutsideSkillsDir, 'evil-skill', 'SKILL.md'), 'evil content')
+    symlinkSync(realOutsideSkillsDir, join(dir, '.claude', 'skills'))
+    expect(scanImportableConfig(dir)).toEqual([])
+  })
+
+  // No-regression: a normal (non-symlinked) .claude/skills directory still
+  // works exactly as before.
+  it('still detects a skill under a normal (non-symlinked) .claude/skills directory', () => {
+    mkdirSync(join(dir, '.claude', 'skills', 'pdf-export'), { recursive: true })
+    writeFileSync(join(dir, '.claude', 'skills', 'pdf-export', 'SKILL.md'), 'x')
+    const found = scanImportableConfig(dir)
+    expect(found).toContainEqual({
+      sourcePath: join('.claude', 'skills', 'pdf-export'),
+      kind: 'skill',
       tool: 'claude-code'
     })
   })

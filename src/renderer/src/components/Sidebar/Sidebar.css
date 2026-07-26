@@ -51,6 +51,9 @@
   width: 100%;
   text-align: left;
   font-family: inherit;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .nav-item:hover {
   background: var(--bg-hover);
@@ -184,6 +187,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Optional worktree-branch subtitle (Display options > Subtitles). Own
+   truncation + flex-shrink: 0 (rather than sharing `.name`'s flex: 1) so a
+   long branch name can't starve the conversation title of its space. */
+.sb-flatrow .sub {
+  flex-shrink: 0;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: 11.5px;
 }
 
 /* Hover-revealed Pin/Archive/⋮ actions (ConvoRowMenu), same pattern as

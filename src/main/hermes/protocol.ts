@@ -5,6 +5,10 @@ export const HERMES_PROTOCOL_VERSION = 1 as const
 export const HERMES_MAX_FILES = 5
 export const HERMES_MAX_FILE_BYTES = 10 * 1024 * 1024
 export const HERMES_MAX_CHUNK_BYTES = 256 * 1024
+export const HERMES_MAX_TEXT_LENGTH = 256 * 1024
+export const HERMES_MAX_LABEL_LENGTH = 500
+export const HERMES_MAX_CHOICES = 50
+export const HERMES_MAX_CHOICE_LENGTH = 500
 
 export interface HermesWireError {
   code: string
@@ -33,7 +37,7 @@ export class ProtocolViolation extends Error {
 
 const uuid = z.uuid()
 const wireError = z.object({
-  code: z.string(), message: z.string(), retryable: z.boolean(),
+  code: z.string(), message: z.string().max(HERMES_MAX_TEXT_LENGTH), retryable: z.boolean(),
   details: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional()
 }).strict()
 const attachment = z.object({
@@ -61,13 +65,13 @@ const serverSchemas = [
   z.object({ type: z.literal('turn.accepted'), ...sequencedPayload.shape, payload: z.object({}).strict() }).strict(),
   z.object({ type: z.literal('turn.duplicate'), ...sequencedPayload.shape, payload: z.object({ status: z.string() }).strict() }).strict(),
   z.object({ type: z.literal('assistant.started'), ...sequencedPayload.shape, payload: z.object({ messageId: uuid }).strict() }).strict(),
-  z.object({ type: z.literal('assistant.delta'), ...sequencedPayload.shape, payload: z.object({ messageId: uuid, text: z.string(), replace: z.literal(true).optional() }).strict() }).strict(),
+  z.object({ type: z.literal('assistant.delta'), ...sequencedPayload.shape, payload: z.object({ messageId: uuid, text: z.string().max(HERMES_MAX_TEXT_LENGTH), replace: z.literal(true).optional() }).strict() }).strict(),
   z.object({ type: z.literal('assistant.completed'), ...sequencedPayload.shape, payload: z.object({ messageId: uuid }).strict() }).strict(),
-  z.object({ type: z.literal('tool.started'), ...sequencedPayload.shape, payload: z.object({ toolCallId: uuid, name: z.string(), label: z.string() }).strict() }).strict(),
-  z.object({ type: z.literal('tool.progress'), ...sequencedPayload.shape, payload: z.object({ toolCallId: uuid, label: z.string() }).strict() }).strict(),
+  z.object({ type: z.literal('tool.started'), ...sequencedPayload.shape, payload: z.object({ toolCallId: uuid, name: z.string().max(HERMES_MAX_LABEL_LENGTH), label: z.string().max(HERMES_MAX_LABEL_LENGTH) }).strict() }).strict(),
+  z.object({ type: z.literal('tool.progress'), ...sequencedPayload.shape, payload: z.object({ toolCallId: uuid, label: z.string().max(HERMES_MAX_LABEL_LENGTH) }).strict() }).strict(),
   z.object({ type: z.literal('tool.completed'), ...sequencedPayload.shape, payload: z.object({ toolCallId: uuid, status: z.string() }).strict() }).strict(),
-  z.object({ type: z.literal('approval.requested'), ...sequencedPayload.shape, payload: z.object({ requestId: uuid, toolCallId: uuid, command: z.string(), description: z.string(), allowSession: z.boolean(), allowPermanent: z.boolean(), smartDenied: z.boolean() }).strict() }).strict(),
-  z.object({ type: z.literal('clarification.requested'), ...sequencedPayload.shape, payload: z.object({ requestId: uuid, question: z.string(), choices: z.array(z.string()) }).strict() }).strict(),
+  z.object({ type: z.literal('approval.requested'), ...sequencedPayload.shape, payload: z.object({ requestId: uuid, toolCallId: uuid, command: z.string().max(HERMES_MAX_LABEL_LENGTH), description: z.string().max(HERMES_MAX_LABEL_LENGTH), allowSession: z.boolean(), allowPermanent: z.boolean(), smartDenied: z.boolean() }).strict() }).strict(),
+  z.object({ type: z.literal('clarification.requested'), ...sequencedPayload.shape, payload: z.object({ requestId: uuid, question: z.string().max(HERMES_MAX_LABEL_LENGTH), choices: z.array(z.string().max(HERMES_MAX_CHOICE_LENGTH)).max(HERMES_MAX_CHOICES) }).strict() }).strict(),
   z.object({ type: z.literal('attachment.download.begin'), ...sequencedPayload.shape, payload: z.object({ attachment: z.object({ id: uuid, name: z.string(), mime: z.string(), kind: z.string(), sizeBytes: z.number().int().min(0), sha256: z.string() }).strict() }).strict() }).strict(),
   z.object({ type: z.literal('attachment.download.completed'), ...sequencedPayload.shape, payload: z.object({ attachmentId: uuid }).strict() }).strict(),
   z.object({ type: z.literal('turn.completed'), ...sequencedPayload.shape, payload: z.object({ sessionId: z.string() }).strict() }).strict(),

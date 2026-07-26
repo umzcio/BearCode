@@ -16,7 +16,7 @@ export function buildSkillCandidate(
 ): SkillCandidate | null {
   const folderName = source.sourcePath.split(/[/\\]/).pop() ?? source.sourcePath
   const skillMdPath = join(projectPath, source.sourcePath, 'SKILL.md')
-  const read = readFileCapped(skillMdPath, MAX_IMPORT_BYTES)
+  const read = readFileCapped(skillMdPath, MAX_IMPORT_BYTES, projectPath)
   if (!read) return null
 
   const parsed = parseSkillFolder(folderName, read.text, 'project')

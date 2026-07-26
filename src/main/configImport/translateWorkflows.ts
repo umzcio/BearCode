@@ -25,7 +25,7 @@ export function buildWorkflowCandidate(
   source: DetectedSource
 ): WorkflowCandidate | null {
   const abs = join(projectPath, source.sourcePath)
-  const read = readFileCapped(abs, MAX_IMPORT_BYTES)
+  const read = readFileCapped(abs, MAX_IMPORT_BYTES, projectPath)
   if (!read || read.text.trim() === '') return null
 
   const suggestedName = nameFromSourcePath(source.sourcePath)

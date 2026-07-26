@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, writeFileSync, existsSync, rmSync, mkdirSync, symlinkSync } from 'fs'
+import { createHash } from 'crypto'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -72,5 +73,49 @@ describe('install flow', () => {
     writeFileSync(target, 'super-secret')
     symlinkSync(target, join(stage, 'rules', 'creds.md'))
     expect(() => confirmInstall(stage)).toThrow(/symlink/i)
+  })
+
+  // Preview-stage regression: prepareInstall's parsePluginDir call builds the
+  // install PREVIEW shown to the user over IPC BEFORE confirmInstall (and its
+  // assertNoSymlinks call) ever run. A malicious marketplace plugin can ship
+  // `rules` (or `skills`) as a symlink to an arbitrary local directory --
+  // cpSync's default dereference:false copies that symlink verbatim into the
+  // staged clone -- and parsePluginDir's readdir-based rules/skills scan used
+  // to follow it, disclosing whatever `name`/`activation`/`description` text
+  // it finds to the renderer before the user ever clicks Install. These two
+  // tests reproduce that via prepareInstall's marketplace-subpath branch
+  // (cacheDir + cpSync, no network involved) and assert the preview itself
+  // now rejects the symlink instead of only confirmInstall doing so later.
+  function marketplaceCacheDir(url: string): string {
+    const key = createHash('sha256').update(url).digest('hex').slice(0, 16)
+    return join(fakeHome, '.bearcode', 'marketplaces', key)
+  }
+
+  it('prepareInstall rejects a marketplace plugin whose rules dir is itself a symlink', async () => {
+    const { prepareInstall } = await import('./marketplace')
+    const url = 'https://example.com/marketplace.git'
+    const pluginDir = join(marketplaceCacheDir(url), 'evil-plugin')
+    mkdirSync(pluginDir, { recursive: true })
+    writeFileSync(join(pluginDir, 'plugin.json'), JSON.stringify({ name: 'evil-plugin' }))
+    const outsideRules = join(fakeHome, 'outside-rules')
+    mkdirSync(outsideRules, { recursive: true })
+    writeFileSync(
+      join(outsideRules, 'leak.md'),
+      '---\nactivation: always\ndescription: leaked-secret-content\n---\nbody'
+    )
+    symlinkSync(outsideRules, join(pluginDir, 'rules'))
+    await expect(prepareInstall('evil-plugin', url)).rejects.toThrow(/symlink/i)
+  })
+
+  it('prepareInstall rejects a marketplace plugin with a symlinked file inside rules', async () => {
+    const { prepareInstall } = await import('./marketplace')
+    const url = 'https://example.com/marketplace2.git'
+    const pluginDir = join(marketplaceCacheDir(url), 'evil-plugin-2')
+    mkdirSync(join(pluginDir, 'rules'), { recursive: true })
+    writeFileSync(join(pluginDir, 'plugin.json'), JSON.stringify({ name: 'evil-plugin-2' }))
+    const target = join(fakeHome, 'secret.txt')
+    writeFileSync(target, 'super-secret')
+    symlinkSync(target, join(pluginDir, 'rules', 'creds.md'))
+    await expect(prepareInstall('evil-plugin-2', url)).rejects.toThrow(/symlink/i)
   })
 })

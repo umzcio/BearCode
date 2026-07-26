@@ -4,8 +4,8 @@ import { useAppStore } from '../../state/store'
 import { relativeAge } from '../../lib/time'
 import { EmptyState } from '../ui/EmptyState'
 import { Hint } from '../Hint'
-import { ConvoRowMenu } from '../Sidebar/ConvoRowMenu'
-import { IconArchive, IconFolder, IconPin, IconPlus, IconSettings, IconTerminal } from '../icons'
+import { ConvoRow } from '../Sidebar/ConvoRow'
+import { IconFolder, IconPin, IconPlus, IconSettings, IconTerminal } from '../icons'
 import { projectIcon } from '../ProjectSettings/projectIcons'
 import './ProjectPage.css'
 
@@ -29,6 +29,7 @@ export function ProjectPage({ path }: { path: string | null }): React.JSX.Elemen
   const toggleProjectPinned = useAppStore((s) => s.toggleProjectPinned)
   const goHome = useAppStore((s) => s.goHome)
   const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
+  const subtitle = useAppStore((s) => s.settings?.sidebarSubtitle ?? 'none')
 
   const fp = path ? folderSettings.find((f) => f.path === path) : undefined
   const Icon = path ? projectIcon(fp?.icon) : IconFolder
@@ -112,52 +113,24 @@ export function ProjectPage({ path }: { path: string | null }): React.JSX.Elemen
                 const convo = conversations[id]
                 if (!convo) return null
                 return (
-                  <div
+                  <ConvoRow
                     key={id}
-                    className="pp-row"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openConvo(id)}
-                    onKeyDown={(e) => {
-                      // Ignore keys that originated on a nested action button
-                      // (Pin/Archive/⋮) -- only the row's own focus target
-                      // should open the conversation. Mirrors Sidebar.tsx's
-                      // existing conversation-row convention exactly.
-                      if (e.target !== e.currentTarget) return
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        openConvo(id)
-                      }
-                    }}
-                  >
-                    <span className="name">{convo.title}</span>
-                    <span className="age">{relativeAge(convo.updatedAt)}</span>
-                    <span className="pp-rowact">
-                      <button
-                        type="button"
-                        className={'row-act' + (convo.pinned ? ' active' : '')}
-                        aria-label={convo.pinned ? 'Unpin' : 'Pin'}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setPinned(id, !convo.pinned)
-                        }}
-                      >
-                        <IconPin size={13} />
-                      </button>
-                      <button
-                        type="button"
-                        className={'row-act' + (convo.archived ? ' active' : '')}
-                        aria-label={convo.archived ? 'Unarchive' : 'Archive'}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setArchived(id, !convo.archived)
-                        }}
-                      >
-                        <IconArchive size={13} />
-                      </button>
-                      <ConvoRowMenu convoId={id} title={convo.title} />
-                    </span>
-                  </div>
+                    id={id}
+                    title={convo.title}
+                    pinned={convo.pinned}
+                    archived={convo.archived}
+                    subtitle={
+                      subtitle === 'worktree' && convo.environment === 'worktree' && convo.worktrees[0]
+                        ? convo.worktrees[0].branch
+                        : undefined
+                    }
+                    age={relativeAge(convo.updatedAt)}
+                    rowClassName="pp-row"
+                    actionsClassName="pp-rowact"
+                    onOpen={() => openConvo(id)}
+                    onTogglePinned={() => setPinned(id, !convo.pinned)}
+                    onToggleArchived={() => setArchived(id, !convo.archived)}
+                  />
                 )
               })}
             </div>

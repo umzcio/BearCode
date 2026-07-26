@@ -1,5 +1,6 @@
-import { existsSync, readdirSync } from 'fs'
+import { existsSync, lstatSync, readdirSync } from 'fs'
 import { join } from 'path'
+import { isPathWithinRoot } from '../fsCapped'
 import type { ImportedConfigRow } from '../db'
 import type { DetectedSource, ImportTool } from './types'
 
@@ -22,10 +23,18 @@ function listMdFilesRel(
 ): string[] {
   const dir = join(projectPath, dirRel)
   if (!existsSync(dir)) return []
+  // Security: `dirRel` (e.g. `.cursor/rules`) can itself be a symlink
+  // committed into a malicious repo, pointing outside the project. A
+  // leaf-only `isSymbolicLink()` check (below, per-entry) never sees that --
+  // readdirSync transparently follows an intermediate symlinked directory,
+  // so a real (non-symlink) file inside the EXTERNAL target would otherwise
+  // pass every check. realpath-based containment catches every path
+  // component, not just the leaf.
+  if (!isPathWithinRoot(dir, projectPath)) return []
   try {
-    return readdirSync(dir)
-      .filter((f) => exts.some((e) => f.endsWith(e)))
-      .map((f) => join(dirRel, f))
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((d) => !d.isSymbolicLink() && exts.some((e) => d.name.endsWith(e)))
+      .map((d) => join(dirRel, d.name))
   } catch {
     return []
   }
@@ -36,6 +45,8 @@ const RULE_DIR_EXTS = ['.md', '.mdc']
 function listSkillDirsRel(projectPath: string, dirRel: string): string[] {
   const dir = join(projectPath, dirRel)
   if (!existsSync(dir)) return []
+  // Same intermediate-directory-symlink guard as listMdFilesRel above.
+  if (!isPathWithinRoot(dir, projectPath)) return []
   try {
     return readdirSync(dir, { withFileTypes: true })
       .filter((d) => d.isDirectory() && existsSync(join(dir, d.name, 'SKILL.md')))
@@ -51,7 +62,14 @@ export function scanImportableConfig(projectPath: string): DetectedSource[] {
   const found: DetectedSource[] = []
 
   for (const { rel, tool } of INSTRUCTION_FILES) {
-    if (existsSync(join(projectPath, rel))) {
+    const abs = join(projectPath, rel)
+    let isSymlink = false
+    try {
+      isSymlink = lstatSync(abs).isSymbolicLink()
+    } catch {
+      // doesn't exist — fall through, existsSync below will also be false
+    }
+    if (!isSymlink && existsSync(abs)) {
       found.push({ sourcePath: rel, kind: 'rule', tool })
     }
   }

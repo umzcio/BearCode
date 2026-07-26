@@ -1366,7 +1366,17 @@ export const useAppStore = create<AppState>((set, get) => {
     },
     toggleProjectPinned: async (path) => {
       const current = get().folderSettings.find((f) => f.path === path)?.pinned ?? false
-      await get().updateProject(path, { pinned: !current })
+      const next = !current
+      // Patch in-memory state immediately (mirrors setPinned's conversation-pin
+      // shape) so rapid double-clicks each read the just-toggled value instead of
+      // racing on the same stale snapshot while the IPC round-trip is in flight.
+      // No rollback on failure, matching updateProject's existing convention: its
+      // catch already surfaces a toast and leaves stored state as-is rather than
+      // reverting it.
+      set((s) => ({
+        folderSettings: s.folderSettings.map((f) => (f.path === path ? { ...f, pinned: next } : f))
+      }))
+      await get().updateProject(path, { pinned: next })
     },
     setAsNewProjectDefault: async (patch) => {
       await get().saveSettings({ newProjectDefaults: patch })

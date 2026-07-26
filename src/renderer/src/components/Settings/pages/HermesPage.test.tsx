@@ -595,6 +595,20 @@ describe('HermesPage', () => {
     )
   })
 
+  it('wraps the mode-conditional fields in a key-remounted crossfade container', () => {
+    mount({ hermesEnabled: true, hermesConnectionMode: 'legacy' })
+    const legacyWrapper = document.querySelector('.hermes-mode-fields')
+    expect(legacyWrapper).not.toBeNull()
+    expect(legacyWrapper).toContainElement(screen.getByLabelText('Gateway URL'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connection mode' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Native Platform/ }))
+
+    const nativeWrapper = document.querySelector('.hermes-mode-fields')
+    expect(nativeWrapper).not.toBeNull()
+    expect(nativeWrapper).toContainElement(screen.getByLabelText('Native WebSocket URL'))
+  })
+
   it.each([
     'Native platform unavailable — install and enable the BearCode plugin on Hermes',
     'Rejected — check the platform key in Settings',

@@ -18,6 +18,7 @@ export type UpdateCheck =
   | { state: 'up-to-date' }
   | { state: 'changed'; oldBody: string; newBody: string }
   | { state: 'source-missing' }
+  | { state: 'changed-unparseable' }
 
 // Where an imported entity of each type lives under .agents/. An explicit
 // exhaustive switch rather than a `=== 'rule' ? 'rules' : 'workflows'` ternary
@@ -74,7 +75,18 @@ export function checkSourceForUpdate(projectPath: string, sourcePath: string): U
   if (row?.sourceHash === currentHash) return { state: 'up-to-date' }
 
   const newBody = candidateBody(projectPath, sourcePath)
-  if (newBody === null || !row?.importedAsType || !row.importedAsName) return { state: 'up-to-date' }
+  if (!row?.importedAsType || !row.importedAsName) return { state: 'up-to-date' }
+  // candidateBody() only ever computes a real body for 'rule'/'workflow' sources
+  // -- it always returns null for 'skill'/'mcp' by design (skills are diffed as
+  // whole folders; MCP servers are import-once), not because their content is
+  // unparseable. Check the row's type BEFORE inspecting newBody so those two
+  // kinds keep reporting up-to-date exactly as before (see the still-passing
+  // skill tests), and only a rule/workflow whose hash changed AND whose new
+  // content is now unparseable reports 'changed-unparseable'.
+  if (row.importedAsType !== 'rule' && row.importedAsType !== 'workflow') {
+    return { state: 'up-to-date' }
+  }
+  if (newBody === null) return { state: 'changed-unparseable' }
 
   const dir = importedDirFor(projectPath, row.importedAsType)
   if (dir === null) return { state: 'up-to-date' }

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { ApprovalDecision, Event } from '@shared/types'
 import { useAppStore } from '../../state/store'
+import { useAnimatedUnmount } from '../../lib/useAnimatedUnmount'
 import './events.css'
 
 type HermesToolCall = Extract<Event, { type: 'hermes_tool_call' }>
@@ -30,6 +31,14 @@ export function HermesToolStep({
   const [submitted, setSubmitted] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const status = result?.status ?? call.status
+  // durationMs must match .approval-card's own CSS transition duration
+  // (--dur-fast, events.css) -- the default 220ms (--dur-modal) would keep
+  // this mounted ~70ms after its exit transition finishes, reflowing content
+  // below late.
+  const { mounted: approvalMounted, state: approvalState } = useAnimatedUnmount(
+    status === 'awaiting-approval',
+    { durationMs: 150 }
+  )
   const statusText =
     status === 'awaiting-approval'
       ? 'Awaiting approval'
@@ -68,11 +77,12 @@ export function HermesToolStep({
           {result ? ` · ${hermesDurationLabel(result.durationMs)}` : ''}
         </span>
       </div>
-      {status === 'awaiting-approval' ? (
+      {approvalMounted ? (
         <>
           <div className="waiting-note">Waiting for your approval…</div>
           <div
             className="approval-card pulse-once"
+            data-state={approvalState}
             id={interactive ? 'pending-approval-card' : undefined}
           >
             <div className="approval-title">{call.description ?? call.label}</div>

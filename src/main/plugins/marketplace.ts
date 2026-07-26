@@ -246,6 +246,19 @@ export async function prepareInstall(
   } else {
     throw new Error('prepareInstall needs a git URL or a marketplaceUrl + subpath.')
   }
+  // Reject symlinks BEFORE the preview parse, not just at confirmInstall.
+  // parsePluginDir below reads skills/ and rules/ via readdir-based scans
+  // (listSkillFolders/safeReaddir in manifest.ts) that transparently follow a
+  // symlinked intermediate directory or file -- and cpSync above (default
+  // dereference:false) copies a symlink verbatim into the staged clone, so a
+  // malicious plugin repo can ship e.g. `skills -> ~/.ssh` and have its
+  // description/name/activation text disclosed to the install PREVIEW, shown
+  // to the user before they've confirmed anything. assertNoSymlinks walks the
+  // whole staged tree and throws on the first symlink found, so running it
+  // here closes the gap for both this preview-stage parse and the later
+  // confirmInstall parse (which keeps its own call as defense in depth against
+  // the stage directory changing between preview and confirm).
+  assertNoSymlinks(stagePath)
   const manifest = parsePluginDir(stagePath, 'global')
   if (!manifest) {
     if (existsSync(join(stagePath, 'marketplace.json')))
@@ -263,10 +276,14 @@ export async function prepareInstall(
 // follow symlinks, unlike statSync) and throws on the first symlink found.
 // cpSync's default `dereference: false` copies a symlink verbatim rather
 // than the file it points to, so a malicious plugin could ship e.g.
-// `rules/creds.md -> ~/.aws/credentials`; once enabled, readFileCapped
-// follows the link at load time -- a read-side escape of the plugin
-// directory's path-jail. Rejecting any symlink at install time closes this
-// at the root, before anything is ever copied into the live plugins tree.
+// `rules/creds.md -> ~/.aws/credentials`, or `skills`/`rules` itself as a
+// symlinked directory; once enabled, readFileCapped (or the readdir-based
+// listSkillFolders/safeReaddir scans in manifest.ts) follows the link at load
+// time -- a read-side escape of the plugin directory's path-jail. Called from
+// BOTH prepareInstall (protects the install PREVIEW parse, which surfaces
+// skill/rule text to the renderer before the user has confirmed anything) and
+// confirmInstall (protects the copy into the live plugins tree), so no
+// symlink is ever followed at either stage.
 function assertNoSymlinks(dir: string): void {
   for (const entry of readdirSync(dir)) {
     const p = join(dir, entry)
