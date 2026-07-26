@@ -52,6 +52,7 @@ import type {
   SkillProposalResolution,
   SkillSaveResult,
   SmitheryHit,
+  TerminalSessionView,
   TranscribeMeta,
   UpdateCheck,
   UpdaterStatus,
@@ -334,6 +335,17 @@ const bearcode: BearcodeApi = {
     show: (): Promise<void> => ipcRenderer.invoke('bearcode:browser:show'),
     hide: (): Promise<void> => ipcRenderer.invoke('bearcode:browser:hide')
   },
+  terminal: {
+    create: (projectPath: string): Promise<TerminalSessionView> =>
+      ipcRenderer.invoke('bearcode:terminal:create', projectPath),
+    write: (id: string, data: string): Promise<void> =>
+      ipcRenderer.invoke('bearcode:terminal:write', id, data),
+    resize: (id: string, cols: number, rows: number): Promise<void> =>
+      ipcRenderer.invoke('bearcode:terminal:resize', id, cols, rows),
+    close: (id: string): Promise<void> => ipcRenderer.invoke('bearcode:terminal:close', id),
+    list: (projectPath: string): Promise<TerminalSessionView[]> =>
+      ipcRenderer.invoke('bearcode:terminal:list', projectPath)
+  },
   mcp: {
     list: (projectPath: string | null): Promise<McpServerView[]> =>
       ipcRenderer.invoke('bearcode:mcp:list', projectPath),
@@ -530,6 +542,16 @@ const bearcode: BearcodeApi = {
     const listener = (_e: Electron.IpcRendererEvent, status: UpdaterStatus): void => cb(status)
     ipcRenderer.on('bearcode:updater:status', listener)
     return () => ipcRenderer.removeListener('bearcode:updater:status', listener)
+  },
+  onTerminalData: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, id: string, chunk: string): void => cb(id, chunk)
+    ipcRenderer.on('bearcode:terminal:data', listener)
+    return () => ipcRenderer.removeListener('bearcode:terminal:data', listener)
+  },
+  onTerminalExit: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, id: string): void => cb(id)
+    ipcRenderer.on('bearcode:terminal:exit', listener)
+    return () => ipcRenderer.removeListener('bearcode:terminal:exit', listener)
   }
 }
 

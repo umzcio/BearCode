@@ -1,0 +1,74 @@
+.terminal-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.terminal-tabstrip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  flex-shrink: 0;
+}
+
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-mid);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.terminal-tab:hover {
+  background: var(--bg-hover);
+}
+
+.terminal-tab.active {
+  background: var(--bg-active);
+  color: var(--text);
+}
+
+.terminal-tab.exited {
+  color: var(--text-dim);
+}
+
+.terminal-tab-close {
+  display: inline-flex;
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.terminal-tab-close:hover {
+  background: var(--bg-hover);
+}
+
+.terminal-tab-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-mid);
+  cursor: pointer;
+}
+
+.terminal-tab-new:hover {
+  background: var(--bg-hover);
+}
+
+.terminal-panes {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}

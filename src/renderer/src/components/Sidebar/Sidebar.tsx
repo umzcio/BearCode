@@ -39,7 +39,7 @@ function toConvoLike(c: Convo): ConvoLike {
 }
 import { DisplayOptions } from './DisplayOptions'
 import { ConvoRowMenu } from './ConvoRowMenu'
-import { IconArchive, IconHistory, IconPanel, IconPin, IconPlus, IconSettings } from '../icons'
+import { IconArchive, IconHistory, IconPanel, IconPin, IconPlus, IconSettings, IconTerminal } from '../icons'
 import { projectIcon } from '../ProjectSettings/projectIcons'
 import './Sidebar.css'
 
@@ -70,6 +70,7 @@ export function Sidebar(): React.JSX.Element {
   const setArchived = useAppStore((s) => s.setArchived)
   const newConversationInProject = useAppStore((s) => s.newConversationInProject)
   const openProjectSettings = useAppStore((s) => s.openProjectSettings)
+  const openTerminalView = useAppStore((s) => s.openTerminalView)
   const groupBy = useAppStore((s) => s.settings?.sidebarGroupBy ?? 'project')
   const sort = useAppStore((s) => s.settings?.sidebarSort ?? 'updated')
   const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
@@ -276,7 +277,7 @@ export function Sidebar(): React.JSX.Element {
                   <span>{label}</span>
                   {path ? (
                     <span className="proj-actions">
-                      {/* Order matches Antigravity: gear (settings) then + (new). */}
+                      {/* Order: gear (settings), terminal, + (new). */}
                       <Hint label="Project settings" side="bottom">
                         <button
                           className="row-act"
@@ -287,6 +288,18 @@ export function Sidebar(): React.JSX.Element {
                           }}
                         >
                           <IconSettings size={13} />
+                        </button>
+                      </Hint>
+                      <Hint label="Open terminal" side="bottom">
+                        <button
+                          className="row-act"
+                          aria-label="Open terminal"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openTerminalView(path)
+                          }}
+                        >
+                          <IconTerminal size={13} />
                         </button>
                       </Hint>
                       <Hint label="New conversation in this folder" side="bottom">

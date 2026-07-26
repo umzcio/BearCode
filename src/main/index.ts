@@ -7,6 +7,7 @@ import { initUpdater } from './updater'
 import { runDevSmoke } from './devSmoke'
 import { REMOTE_DEBUG_PORT, setMainWindow, setBrowserDebuggingEnabled } from './mainWindow'
 import { getSettings } from './settings'
+import { terminalManager } from './terminal/manager'
 import icon from '../../resources/icon.png?asset'
 
 // F4: expose a CDP endpoint so BrowserManager can drive an embedded
@@ -157,4 +158,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('before-quit', () => {
+  terminalManager.killAll()
 })
