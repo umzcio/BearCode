@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { HERMES_MODEL_REF } from '@shared/types'
 import type { Convo } from '../../state/store'
 import { useAppStore } from '../../state/store'
@@ -442,5 +442,70 @@ describe('Pinned Projects section', () => {
     expect(betaRow).not.toBeNull()
     expect(alphaRow!.className).toContain('selected')
     expect(betaRow!.className).not.toContain('selected')
+  })
+})
+
+// Coverage for plan 002 (improve-animations): the FLIP collapse effect must
+// resolve --ease-drawer/--dur-drawer from :root at animation time instead of
+// hand-typing them, and must NOT fall back to a hardcoded value if the tokens
+// fail to resolve -- it should log via console.error and snap instantly.
+describe('FLIP collapse animation resolves motion tokens (plan 002)', () => {
+  beforeEach(() => {
+    // jsdom has neither matchMedia nor real layout, but does provide
+    // requestAnimationFrame; the effect's reduced-motion early-return
+    // requires matchMedia to exist at all.
+    ;(window as unknown as { matchMedia: unknown }).matchMedia = vi
+      .fn()
+      .mockReturnValue({ matches: false })
+  })
+
+  afterEach(() => {
+    document.documentElement.style.removeProperty('--ease-drawer')
+    document.documentElement.style.removeProperty('--dur-drawer')
+  })
+
+  it('builds the transition string from --ease-drawer/--dur-drawer when both resolve', async () => {
+    document.documentElement.style.setProperty('--ease-drawer', 'cubic-bezier(0.32, 0.72, 0, 1)')
+    document.documentElement.style.setProperty('--dur-drawer', '340ms')
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const container = mount({ conversations: {} })
+    const sidebarEl = container.querySelector('.sidebar') as HTMLElement
+    expect(sidebarEl).not.toBeNull()
+
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: true } as never)
+    })
+    // The transition is applied inside a requestAnimationFrame callback.
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    expect(sidebarEl.style.transition).toBe('transform 340ms cubic-bezier(0.32, 0.72, 0, 1)')
+    expect(errorSpy).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
+  it('escape hatch: skips the animation and logs an error instead of using a hardcoded fallback when the tokens do not resolve', async () => {
+    // Deliberately leave --ease-drawer/--dur-drawer unset on :root.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const container = mount({ conversations: {} })
+    const sidebarEl = container.querySelector('.sidebar') as HTMLElement
+    expect(sidebarEl).not.toBeNull()
+
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: true } as never)
+    })
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(errorSpy.mock.calls[0][0]).toMatch(/could not resolve --ease-drawer\/--dur-drawer/)
+    // No animation is played and no hardcoded cubic-bezier/ms string is used.
+    expect(sidebarEl.style.transition).toBe('')
+    expect(sidebarEl.style.transform).toBe('translate3d(0, 0, 0)')
+    errorSpy.mockRestore()
   })
 })

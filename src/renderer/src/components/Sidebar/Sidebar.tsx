@@ -154,7 +154,22 @@ export function Sidebar(): React.JSX.Element {
     el.style.transform = `translate3d(${collapsed ? dist : -dist}px, 0, 0)`
     void el.offsetWidth // commit the inverted start before animating
     const raf = requestAnimationFrame(() => {
-      el.style.transition = 'transform 0.34s cubic-bezier(0.32, 0.72, 0, 1)'
+      const rootStyle = getComputedStyle(document.documentElement)
+      const ease = rootStyle.getPropertyValue('--ease-drawer').trim()
+      const dur = rootStyle.getPropertyValue('--dur-drawer').trim()
+      if (!ease || !dur) {
+        // Escape hatch: --ease-drawer/--dur-drawer failed to resolve from :root.
+        // Do NOT fall back to a hardcoded value -- that would silently mask a
+        // future token rename/retune. Snap instantly instead (matches the
+        // reduced-motion early-return above) and surface the failure loudly.
+        console.error(
+          'Sidebar FLIP: could not resolve --ease-drawer/--dur-drawer from :root; skipping animation.'
+        )
+        el.style.transition = ''
+        el.style.transform = 'translate3d(0, 0, 0)'
+        return
+      }
+      el.style.transition = `transform ${dur} ${ease}`
       el.style.transform = 'translate3d(0, 0, 0)'
     })
     const done = (e: TransitionEvent): void => {
