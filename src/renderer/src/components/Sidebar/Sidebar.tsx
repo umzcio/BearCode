@@ -83,6 +83,7 @@ export function Sidebar(): React.JSX.Element {
   const setArchived = useAppStore((s) => s.setArchived)
   const [mode, setMode] = useState<'conversations' | 'hermes'>('conversations')
   const sort = useAppStore((s) => s.settings?.sidebarSort ?? 'updated')
+  const subtitle = useAppStore((s) => s.settings?.sidebarSubtitle ?? 'none')
   const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
   const hermesEnabled = useAppStore((s) => s.settings?.hermesEnabled ?? false)
   const hermesLabel = useAppStore((s) => s.settings?.hermesLabel)
@@ -383,6 +384,11 @@ export function Sidebar(): React.JSX.Element {
                   >
                     <span className="dot" style={{ background: fp?.color ?? 'var(--text-dim)' }} />
                     <span className="name">{convo.title}</span>
+                    {subtitle === 'worktree' &&
+                    convo.environment === 'worktree' &&
+                    convo.worktrees[0] ? (
+                      <span className="sub">{convo.worktrees[0].branch}</span>
+                    ) : null}
                     <span className="sb-rowact">
                       <button
                         type="button"
@@ -451,6 +457,11 @@ export function Sidebar(): React.JSX.Element {
                   >
                     <span className="dot" style={{ background: fp?.color ?? 'var(--text-dim)' }} />
                     <span className="name">{convo.title}</span>
+                    {subtitle === 'worktree' &&
+                    convo.environment === 'worktree' &&
+                    convo.worktrees[0] ? (
+                      <span className="sub">{convo.worktrees[0].branch}</span>
+                    ) : null}
                     <span className="sb-rowact">
                       <button
                         type="button"

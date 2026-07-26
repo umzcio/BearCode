@@ -123,6 +123,18 @@
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
+/* Optional worktree-branch subtitle (Display options > Subtitles). Own
+   truncation + flex-shrink: 0 (rather than sharing `.name`'s flex: 1) so a
+   long branch name can't starve the conversation title of its space. */
+.pp-row .sub {
+  color: var(--text-dim);
+  font-size: 12px;
+  flex-shrink: 0;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .pp-rowact {
   display: flex;
   gap: 4px;

@@ -29,6 +29,7 @@ export function ProjectPage({ path }: { path: string | null }): React.JSX.Elemen
   const toggleProjectPinned = useAppStore((s) => s.toggleProjectPinned)
   const goHome = useAppStore((s) => s.goHome)
   const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
+  const subtitle = useAppStore((s) => s.settings?.sidebarSubtitle ?? 'none')
 
   const fp = path ? folderSettings.find((f) => f.path === path) : undefined
   const Icon = path ? projectIcon(fp?.icon) : IconFolder
@@ -131,6 +132,11 @@ export function ProjectPage({ path }: { path: string | null }): React.JSX.Elemen
                     }}
                   >
                     <span className="name">{convo.title}</span>
+                    {subtitle === 'worktree' &&
+                    convo.environment === 'worktree' &&
+                    convo.worktrees[0] ? (
+                      <span className="sub">{convo.worktrees[0].branch}</span>
+                    ) : null}
                     <span className="age">{relativeAge(convo.updatedAt)}</span>
                     <span className="pp-rowact">
                       <button

@@ -222,6 +222,57 @@ describe('Projects/Pinned/Recents (Conversations segment)', () => {
     expect(useAppStore.getState().openConvo).toHaveBeenCalledWith('r1')
   })
 
+  // Regression test for the dead "Worktree" Subtitles option (plan 007):
+  // Sidebar.tsx now reads `settings.sidebarSubtitle` and renders the first
+  // worktree's branch as a second line, in both the Pinned and Recents
+  // blocks, gated on the convo actually being in worktree mode.
+  it('renders the worktree branch as a subtitle when sidebarSubtitle is "worktree"', () => {
+    mount({
+      conversations: {
+        p1: {
+          title: 'Pinned convo',
+          projectPath: null,
+          updatedAt: 5,
+          pinned: true,
+          environment: 'worktree',
+          worktrees: [
+            { repoPath: '/r', worktreePath: '/r-wt', branch: 'feature-x', baseBranch: 'main' }
+          ]
+        },
+        r1: {
+          title: 'Recent convo',
+          projectPath: null,
+          updatedAt: 3,
+          pinned: false,
+          environment: 'worktree',
+          worktrees: [
+            { repoPath: '/r', worktreePath: '/r-wt', branch: 'feature-x', baseBranch: 'main' }
+          ]
+        }
+      },
+      settings: { sidebarSubtitle: 'worktree' }
+    })
+    expect(screen.getAllByText('feature-x')).toHaveLength(2)
+  })
+
+  it('does not render a worktree subtitle when sidebarSubtitle is "none" (default)', () => {
+    mount({
+      conversations: {
+        r1: {
+          title: 'Recent convo',
+          projectPath: null,
+          updatedAt: 3,
+          pinned: false,
+          environment: 'worktree',
+          worktrees: [
+            { repoPath: '/r', worktreePath: '/r-wt', branch: 'feature-x', baseBranch: 'main' }
+          ]
+        }
+      }
+    })
+    expect(screen.queryByText('feature-x')).not.toBeInTheDocument()
+  })
+
   // Regression test for the chip-color bug (final review #4), now exercised
   // through the "Pinned Projects" section instead of the retired flat list:
   // checks both the resolved custom name renders (not the raw folder

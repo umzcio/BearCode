@@ -75,6 +75,64 @@ describe('ProjectPage', () => {
     expect(openConvo).toHaveBeenCalledWith('a')
   })
 
+  // Regression test for the dead "Worktree" Subtitles option (plan 007):
+  // ProjectPage.tsx now reads `settings.sidebarSubtitle` and renders the
+  // first worktree's branch as a subtitle span, gated on the convo actually
+  // being in worktree mode.
+  it('renders the worktree branch as a subtitle when sidebarSubtitle is "worktree"', () => {
+    useAppStore.setState({
+      settings: { sidebarSubtitle: 'worktree' } as never,
+      conversations: {
+        a: {
+          id: 'a',
+          projectPath: '/proj',
+          projectLabel: 'proj',
+          title: 'First chat',
+          updatedAt: Date.now(),
+          createdAt: Date.now(),
+          pinned: false,
+          archived: false,
+          runState: 'idle',
+          environment: 'worktree',
+          worktrees: [
+            { repoPath: '/proj', worktreePath: '/proj-wt', branch: 'feature-x', baseBranch: 'main' }
+          ]
+        }
+      } as never
+    })
+    render(<ProjectPage path="/proj" />)
+    expect(screen.getByText('feature-x')).toBeTruthy()
+  })
+
+  it('does not render a worktree subtitle when sidebarSubtitle is "none" (default)', () => {
+    useAppStore.setState({
+      // Explicitly reset (rather than relying on beforeEach, which doesn't
+      // touch `settings`) so this assertion holds regardless of test order --
+      // a prior test in this file may have left `settings.sidebarSubtitle`
+      // set to 'worktree'.
+      settings: undefined as never,
+      conversations: {
+        a: {
+          id: 'a',
+          projectPath: '/proj',
+          projectLabel: 'proj',
+          title: 'First chat',
+          updatedAt: Date.now(),
+          createdAt: Date.now(),
+          pinned: false,
+          archived: false,
+          runState: 'idle',
+          environment: 'worktree',
+          worktrees: [
+            { repoPath: '/proj', worktreePath: '/proj-wt', branch: 'feature-x', baseBranch: 'main' }
+          ]
+        }
+      } as never
+    })
+    render(<ProjectPage path="/proj" />)
+    expect(screen.queryByText('feature-x')).not.toBeInTheDocument()
+  })
+
   it('Pin and Archive buttons call their store actions without opening the conversation', () => {
     render(<ProjectPage path="/proj" />)
     fireEvent.click(screen.getByLabelText('Pin'))
