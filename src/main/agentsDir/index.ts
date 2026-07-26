@@ -9,8 +9,8 @@
 // AgentsContent, at worst empty.
 import { existsSync, readdirSync, realpathSync, statSync } from 'fs'
 import { homedir } from 'os'
-import { basename, dirname, isAbsolute, join, resolve, sep } from 'path'
-import { isPathWithinRoot, readFileCapped } from '../fsCapped'
+import { isAbsolute, join, resolve, sep } from 'path'
+import { isPathWithinRoot, readFileCapped, realpathExistingPrefix } from '../fsCapped'
 import { enumeratePluginIngredients } from '../plugins'
 import { capMap } from './lruCap'
 import { parseRuleFile } from './parseRule'
@@ -715,36 +715,9 @@ function isInsideWorkspaceAllowingMissing(root: string, candidate: string): bool
   return realCandidatePrefix === realRoot || realCandidatePrefix.startsWith(realRoot + sep)
 }
 
-// Resolve the longest EXISTING prefix of a path through realpath, re-
-// appending the not-yet-existing suffix untouched. Deliberately a local
-// copy of orchestrator/fsBackend.ts's identically-named, identically-shaped
-// helper (same technique, same rationale: a path whose final component(s)
-// don't exist yet still gets its existing ancestors -- and any symlinks
-// among them -- normalized to their canonical location) rather than an
-// import: orchestrator/tools.ts imports from agentsDir (loadAgentsContent)
-// and orchestrator/fsBackend.ts imports from orchestrator/tools.ts, so
-// importing fsBackend.ts's version here closes a three-way module cycle
-// (tools.ts -> agentsDir/index.ts -> fsBackend.ts -> tools.ts) that breaks
-// vitest's vi.mock hoisting for unrelated tests (observed:
-// orchestrator/tools.memory.test.ts's `vi.mock('../memory')` silently
-// stopped intercepting `addMemory`). Two independent ~10-line copies of a
-// pure, dependency-free path-walk is the safer trade here.
-function realpathExistingPrefix(p: string): string {
-  let probe = p
-  let suffix = ''
-  for (;;) {
-    try {
-      probe = realpathSync(probe)
-      break
-    } catch {
-      suffix = sep + basename(probe) + suffix
-      const parent = dirname(probe)
-      if (parent === probe) break
-      probe = parent
-    }
-  }
-  return probe + suffix
-}
+// realpathExistingPrefix now lives in fsCapped.ts (round3 plan 003) --
+// fsCapped.ts has zero dependents in the tools.ts/fsBackend.ts/agentsDir
+// cycle this file used to duplicate the helper to avoid.
 
 // Deterministic ordering for plugin-sourced ingredients (skills/rules) before
 // folding them into the merged map: project-scope plugins before global-scope

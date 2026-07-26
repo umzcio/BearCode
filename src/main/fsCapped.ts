@@ -14,7 +14,7 @@
 // never throw on a bad target. `truncated` reports whether the file held
 // more bytes than `cap`.
 import { closeSync, lstatSync, openSync, readSync, realpathSync, statSync } from 'fs'
-import { sep } from 'path'
+import { basename, dirname, sep } from 'path'
 
 // Resolves symlinks in EVERY path component (not just the leaf) via
 // fs.realpathSync and confirms the fully-resolved target still lives inside
@@ -34,6 +34,34 @@ export function isPathWithinRoot(candidatePath: string, root: string): boolean {
   } catch {
     return false
   }
+}
+
+// Resolve the longest EXISTING prefix of `p` through realpathSync, re-
+// appending the not-yet-existing suffix untouched -- so a path whose final
+// component(s) don't exist yet still has every EXISTING ancestor -- and
+// any symlink among them -- normalized to its real, canonical location
+// before any containment check runs. Hoisted here (round3 plan 003) from
+// two independently-maintained, byte-identical copies that used to live in
+// orchestrator/fsBackend.ts and agentsDir/index.ts -- see those files for
+// why they were duplicated rather than cross-imported (a 3-way module
+// cycle through orchestrator/tools.ts). fsCapped.ts has zero dependents in
+// that cycle, so hosting the shared logic here closes the duplication
+// without reintroducing it.
+export function realpathExistingPrefix(p: string): string {
+  let probe = p
+  let suffix = ''
+  for (;;) {
+    try {
+      probe = realpathSync(probe)
+      break
+    } catch {
+      suffix = sep + basename(probe) + suffix
+      const parent = dirname(probe)
+      if (parent === probe) break
+      probe = parent
+    }
+  }
+  return probe + suffix
 }
 
 export function readFileCapped(
