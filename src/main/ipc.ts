@@ -1074,7 +1074,7 @@ export function registerIpc(): void {
     terminalManager.close(reqTerminalId(id))
   })
   ipcMain.handle('bearcode:terminal:list', (_e, projectPath: unknown) =>
-    terminalManager.list(reqPath(projectPath))
+    terminalManager.list(reqTerminalProjectPath(projectPath))
   )
   terminalManager.onData((id, chunk) => broadcast('bearcode:terminal:data', id, chunk))
   terminalManager.onExit((id) => broadcast('bearcode:terminal:exit', id))

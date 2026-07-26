@@ -145,6 +145,30 @@ describe('bearcode:terminal:* IPC surface', () => {
     expect(terminalManager.list).toHaveBeenCalledWith('/proj')
   })
 
+  it('list() rejects a path that is not absolute', () => {
+    const handler = handlers.get('bearcode:terminal:list')!
+    expect(() => handler(null, 'relative/path')).toThrow(/Unknown or invalid project path/)
+    expect(terminalManager.list).not.toHaveBeenCalled()
+  })
+
+  it('list() rejects a path this app has never seen', () => {
+    vi.mocked(db.getProjectSettings).mockReturnValue(null)
+    vi.mocked(db.hasConversationForProject).mockReturnValue(false)
+    const handler = handlers.get('bearcode:terminal:list')!
+    expect(() => handler(null, '/proj/unknown')).toThrow(/Unknown or invalid project path/)
+    expect(terminalManager.list).not.toHaveBeenCalled()
+  })
+
+  it('list() rejects a path that does not exist / is not a directory', () => {
+    vi.mocked(statSync).mockImplementationOnce(() => {
+      throw new Error('ENOENT')
+    })
+    vi.mocked(db.hasConversationForProject).mockReturnValue(true)
+    const handler = handlers.get('bearcode:terminal:list')!
+    expect(() => handler(null, '/proj/gone')).toThrow(/Unknown or invalid project path/)
+    expect(terminalManager.list).not.toHaveBeenCalled()
+  })
+
   it('wires terminalManager.onData/onExit exactly once per registerIpc() call', () => {
     expect(terminalManager.onData).toHaveBeenCalledTimes(1)
     expect(terminalManager.onExit).toHaveBeenCalledTimes(1)
