@@ -97,3 +97,23 @@
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
+/* Hover-revealed Settings/Terminal/New/Pin actions, same pattern as
+   Sidebar.css's `.sb-rowact` and ProjectPage.css's `.pp-rowact` -- opacity-
+   only reveal on this wrapper; `.row-act` itself (defined in
+   ProjectPage.css) stays a plain, always-visible, focusable button. */
+.pidx-rowact {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.pidx-row:hover .pidx-rowact,
+.pidx-row:focus-within .pidx-rowact {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pidx-rowact {
+    transition: none;
+  }
+}

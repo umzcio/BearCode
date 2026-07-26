@@ -135,6 +135,19 @@ describe('ProjectsIndex', () => {
     expect(bRow!.className).not.toContain('selected')
   })
 
+  // Plan 009: row actions (Settings/Terminal/New/Pin) must be wrapped in a
+  // hover/focus-reveal wrapper (`.pidx-rowact`), matching the Sidebar's
+  // `.sb-rowact` and ProjectPage's `.pp-rowact`. This only asserts the
+  // wrapper class is present -- opacity-on-hover is a CSS `:hover`/
+  // `:focus-within` pseudo-state that jsdom doesn't meaningfully simulate,
+  // so the real verification of the fade in/out behavior is a live-smoke
+  // check in the running app, not this test.
+  it('wraps the row action buttons in the hover-reveal .pidx-rowact wrapper', () => {
+    render(<ProjectsIndex />)
+    const settingsButton = screen.getAllByLabelText('Project settings')[0]
+    expect(settingsButton.closest('.pidx-rowact')).not.toBeNull()
+  })
+
   it('shows a project derived from conversations even with no folderSettings row (root-cause regression)', () => {
     // A project that has never been renamed/colored/iconed/pinned has no
     // `project_settings` row -- this is the common case, not the exception.
