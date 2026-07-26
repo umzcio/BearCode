@@ -35,7 +35,7 @@
 - Reference: `src/main/db/index.ts`
 - Reference: `src/shared/types.ts`
 
-- [ ] **Step 1: Add real-filesystem tests for metadata lookup and name sanitization**
+- [x] **Step 1: Add real-filesystem tests for metadata lookup and name sanitization**
 
 Create `attachmentAccess.test.ts` with helpers that create:
 
@@ -65,7 +65,7 @@ Assert all of the following:
 - backslashes and control characters are removed;
 - an empty or dot-only result falls back to `attachment`.
 
-- [ ] **Step 2: Run the new test and confirm RED**
+- [x] **Step 2: Run the new test and confirm RED**
 
 Run:
 
@@ -75,7 +75,7 @@ npx vitest run src/main/hermes/attachmentAccess.test.ts
 
 Expected: Vitest fails because `./attachmentAccess` does not exist.
 
-- [ ] **Step 3: Implement the metadata resolver and descriptor-based reader**
+- [x] **Step 3: Implement the metadata resolver and descriptor-based reader**
 
 Create these public contracts:
 
@@ -124,7 +124,7 @@ throw new Error('Attachment could not be verified')
 throw new Error('Attachment is too large')
 ```
 
-- [ ] **Step 4: Add adversarial filesystem tests**
+- [x] **Step 4: Add adversarial filesystem tests**
 
 Extend `attachmentAccess.test.ts` to assert rejection of:
 
@@ -150,7 +150,7 @@ export interface AttachmentReadHooks {
 Make it the optional fifth argument to `readVerifiedStoredAttachment`; do not
 expose it through IPC.
 
-- [ ] **Step 5: Run the focused suite green**
+- [x] **Step 5: Run the focused suite green**
 
 Run:
 
@@ -160,7 +160,7 @@ npx vitest run src/main/hermes/attachmentAccess.test.ts
 
 Expected: all new tests pass.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add src/main/hermes/attachmentAccess.ts src/main/hermes/attachmentAccess.test.ts
@@ -182,7 +182,7 @@ git commit -m "feat: verify stored Hermes attachments"
 - Reference: `src/main/attachments/extract.ts`
 - Reference: `src/main/db/index.ts`
 
-- [ ] **Step 1: Specify a byte-oriented shared preview renderer**
+- [x] **Step 1: Specify a byte-oriented shared preview renderer**
 
 Add table-driven tests to `render.test.ts` for:
 
@@ -200,7 +200,7 @@ Add table-driven tests to `render.test.ts` for:
 Mock only `runOfficeHtml` and `runOfficeRows`; use real buffers for every
 other lane.
 
-- [ ] **Step 2: Run the render test and confirm RED**
+- [x] **Step 2: Run the render test and confirm RED**
 
 Run:
 
@@ -210,7 +210,7 @@ npx vitest run src/main/preview/render.test.ts
 
 Expected: the test fails because `./render` does not exist.
 
-- [ ] **Step 3: Extract the current diff format logic into `renderPreviewPayload`**
+- [x] **Step 3: Extract the current diff format logic into `renderPreviewPayload`**
 
 Implement:
 
@@ -241,7 +241,7 @@ Keep Office parsing behind `runOfficeHtml`/`runOfficeRows`, keep JSON
 pretty-print fallback, and return existing unsupported notes for extraction
 failures.
 
-- [ ] **Step 4: Specify opaque attachment preview URLs and protocol responses**
+- [x] **Step 4: Specify opaque attachment preview URLs and protocol responses**
 
 Extend `protocol.test.ts` with assertions that:
 
@@ -266,7 +266,7 @@ Add handler-level tests using an injected verified-reader callback:
   the reader;
 - the existing `preview` host still resolves the diff file and sibling assets.
 
-- [ ] **Step 5: Run protocol tests and confirm RED**
+- [x] **Step 5: Run protocol tests and confirm RED**
 
 Run:
 
@@ -276,7 +276,7 @@ npx vitest run src/main/preview/protocol.test.ts
 
 Expected: the new tests fail because no attachment host or URL builder exists.
 
-- [ ] **Step 6: Extend the protocol without weakening the diff route**
+- [x] **Step 6: Extend the protocol without weakening the diff route**
 
 Add:
 
@@ -324,7 +324,7 @@ The attachment route must not use the display-name segment for lookup or path
 construction. `PREVIEW_CSP` must still contain no `http:`, `https:`, or `ws:`
 sources.
 
-- [ ] **Step 7: Run both focused suites green**
+- [x] **Step 7: Run both focused suites green**
 
 Run:
 
@@ -334,7 +334,7 @@ npx vitest run src/main/preview/render.test.ts src/main/preview/protocol.test.ts
 
 Expected: both suites pass, including existing diff-protocol tests.
 
-- [ ] **Step 8: Commit Task 2**
+- [x] **Step 8: Commit Task 2**
 
 ```bash
 git add src/main/preview/render.ts src/main/preview/render.test.ts \
@@ -355,7 +355,7 @@ git commit -m "feat: preview verified Hermes attachments"
 - Modify: `src/main/ipc.previewFile.test.ts`
 - Create: `src/main/ipc.attachmentPreview.test.ts`
 
-- [ ] **Step 1: Add failing public-API and IPC tests**
+- [x] **Step 1: Add failing public-API and IPC tests**
 
 In `src/preload/index.test.ts`, assert:
 
@@ -384,7 +384,7 @@ renderer, register the IPC handlers, invoke the captured handler, and assert:
 Extend `ipc.previewFile.test.ts` to assert that the existing diff IPC delegates
 to `renderPreviewPayload` and passes `previewUrlFor(fileId, path)` for HTML.
 
-- [ ] **Step 2: Run the IPC/preload tests and confirm RED**
+- [x] **Step 2: Run the IPC/preload tests and confirm RED**
 
 Run:
 
@@ -397,7 +397,7 @@ npx vitest run src/preload/index.test.ts \
 Expected: failures report the missing `attachments.preview` API and IPC
 handler.
 
-- [ ] **Step 3: Add the typed preload method**
+- [x] **Step 3: Add the typed preload method**
 
 Add the preview method immediately after `read` in
 `BearcodeApi.attachments` in `src/shared/types.ts`:
@@ -415,7 +415,7 @@ preview: (conversationId, id) =>
   ipcRenderer.invoke('bearcode:attachments:preview', conversationId, id)
 ```
 
-- [ ] **Step 4: Register attachment preview IPC and refactor diff preview**
+- [x] **Step 4: Register attachment preview IPC and refactor diff preview**
 
 In `src/main/ipc.ts`, add:
 
@@ -461,7 +461,7 @@ return renderPreviewPayload({
 Preserve the current not-found, too-large, and read-failure notes around the
 existing stat/read guard.
 
-- [ ] **Step 5: Run the focused tests green**
+- [x] **Step 5: Run the focused tests green**
 
 Run:
 
@@ -474,7 +474,7 @@ npx vitest run src/preload/index.test.ts \
 Expected: all focused tests pass and existing diff-preview assertions remain
 green.
 
-- [ ] **Step 6: Run a no-path boundary assertion**
+- [x] **Step 6: Run a no-path boundary assertion**
 
 Add a test that recursively scans the attachment preview result and its preload
 arguments:
@@ -489,7 +489,7 @@ expect(invoke).not.toHaveBeenCalledWith(
 
 Rerun `ipc.attachmentPreview.test.ts` and confirm green.
 
-- [ ] **Step 7: Commit Task 3**
+- [x] **Step 7: Commit Task 3**
 
 ```bash
 git add src/shared/types.ts src/preload/index.ts src/preload/index.test.ts \
@@ -519,7 +519,7 @@ git commit -m "feat: expose Hermes attachment previews"
 - Modify: `src/renderer/src/state/store.ts`
 - Modify: `src/renderer/src/state/store.test.ts`
 
-- [ ] **Step 1: Lock down the shared renderer before extraction**
+- [x] **Step 1: Lock down the shared renderer before extraction**
 
 Move the existing payload-lane expectations into
 `PreviewContent.test.tsx`. Explicitly assert:
@@ -535,7 +535,7 @@ Move the existing payload-lane expectations into
 Add a `FilePreview.test.tsx` assertion that stale diff promises do not replace
 the current file's loading state.
 
-- [ ] **Step 2: Run the renderer tests and confirm RED**
+- [x] **Step 2: Run the renderer tests and confirm RED**
 
 Run:
 
@@ -548,7 +548,7 @@ npx vitest run \
 Expected: the new shared component test fails because `PreviewContent` does
 not exist.
 
-- [ ] **Step 3: Extract the pure preview component**
+- [x] **Step 3: Extract the pure preview component**
 
 Create:
 
@@ -569,7 +569,7 @@ if (!payload) return <div className="file-preview loading">Loading preview…</d
 return <PreviewContent payload={payload} />
 ```
 
-- [ ] **Step 4: Add failing store and pill-selection tests**
+- [x] **Step 4: Add failing store and pill-selection tests**
 
 In `store.test.ts`, assert:
 
@@ -595,7 +595,7 @@ npx vitest run src/renderer/src/state/store.test.ts \
 Expected: failures report the missing selection kind/action and current OS-open
 behavior.
 
-- [ ] **Step 5: Implement selection and route all attachment pills**
+- [x] **Step 5: Implement selection and route all attachment pills**
 
 Extend:
 
@@ -630,7 +630,7 @@ onClick={() => openAttachmentPane(convoId, attachment.id)}
 
 Keep lazy image-byte loading for the transcript thumbnail only.
 
-- [ ] **Step 6: Add failing attachment body and pane tests**
+- [x] **Step 6: Add failing attachment body and pane tests**
 
 In `AttachmentPreview.test.tsx`, assert:
 
@@ -649,7 +649,7 @@ assert:
 - missing event metadata shows `Attachment is no longer available`;
 - after store rehydration/reload, the persisted event can reopen the pane.
 
-- [ ] **Step 7: Implement the attachment pane**
+- [x] **Step 7: Implement the attachment pane**
 
 Create:
 
@@ -681,7 +681,7 @@ version list. Add a local `formatBytes(sizeBytes: number): string` helper beside
 the existing `baseName`/`languageFor` helpers so the verified size has a stable
 human-readable representation.
 
-- [ ] **Step 8: Run all Task 4 suites green**
+- [x] **Step 8: Run all Task 4 suites green**
 
 Run:
 
@@ -697,7 +697,7 @@ npx vitest run \
 
 Expected: all suites pass and no test observes an OS-open call.
 
-- [ ] **Step 9: Commit Task 4**
+- [x] **Step 9: Commit Task 4**
 
 ```bash
 git add src/renderer/src/components/FilePreview \
@@ -727,7 +727,7 @@ git commit -m "feat: open Hermes attachments in BearCode"
 - Modify: `src/renderer/src/components/AuxiliaryPane.tsx`
 - Modify: `src/renderer/src/components/AuxiliaryPane.test.tsx`
 
-- [ ] **Step 1: Specify atomic destination writes**
+- [x] **Step 1: Specify atomic destination writes**
 
 In `attachmentSave.test.ts`, use real temporary directories to assert:
 
@@ -751,7 +751,7 @@ export async function saveVerifiedBytes(
 The optional dependencies contain only random-name and filesystem operation
 seams needed by tests.
 
-- [ ] **Step 2: Run the save test and confirm RED**
+- [x] **Step 2: Run the save test and confirm RED**
 
 Run:
 
@@ -761,7 +761,7 @@ npx vitest run src/main/hermes/attachmentSave.test.ts
 
 Expected: the test fails because `./attachmentSave` does not exist.
 
-- [ ] **Step 3: Implement private-temp, sync, and atomic rename**
+- [x] **Step 3: Implement private-temp, sync, and atomic rename**
 
 Implement this sequence:
 
@@ -779,7 +779,7 @@ Implement this sequence:
 Never stream from the attachment-store pathname after the Save As dialog;
 write only the already verified bytes.
 
-- [ ] **Step 4: Add failing Save As IPC and preload tests**
+- [x] **Step 4: Add failing Save As IPC and preload tests**
 
 In `preload/index.test.ts`, assert `attachments.save` invokes:
 
@@ -799,7 +799,7 @@ In `ipc.attachmentSave.test.ts`, assert:
 - verification or save failure rejects so the renderer can report it;
 - malicious stored names cannot choose a parent directory.
 
-- [ ] **Step 5: Run the API/IPC tests and confirm RED**
+- [x] **Step 5: Run the API/IPC tests and confirm RED**
 
 Run:
 
@@ -809,7 +809,7 @@ npx vitest run src/preload/index.test.ts src/main/ipc.attachmentSave.test.ts
 
 Expected: failures report the missing `attachments.save` API and IPC handler.
 
-- [ ] **Step 6: Add the typed Save As API and main handler**
+- [x] **Step 6: Add the typed Save As API and main handler**
 
 Add to `BearcodeApi.attachments`:
 
@@ -842,7 +842,7 @@ ipcMain.handle(
 )
 ```
 
-- [ ] **Step 7: Add Download header-action tests and implementation**
+- [x] **Step 7: Add Download header-action tests and implementation**
 
 Extend `AuxiliaryPane.test.tsx` to assert:
 
@@ -858,7 +858,7 @@ the pending flag local to that attachment selection, call the store's existing
 `showToast` action for success/failure, and clear the flag in `finally`. Do not
 put download state into the transcript event and do not add an OS-open action.
 
-- [ ] **Step 8: Run all Task 5 suites green**
+- [x] **Step 8: Run all Task 5 suites green**
 
 Run:
 
@@ -872,7 +872,7 @@ npx vitest run \
 
 Expected: save, cancellation, cleanup, and UI-routing tests all pass.
 
-- [ ] **Step 9: Commit Task 5**
+- [x] **Step 9: Commit Task 5**
 
 ```bash
 git add src/main/hermes/attachmentSave.ts \
@@ -893,7 +893,7 @@ git commit -m "feat: download Hermes attachments"
 - Modify only if verification finds a defect: files changed in Tasks 1-5
 - Update: `docs/superpowers/plans/2026-07-25-hermes-attachment-preview.md`
 
-- [ ] **Step 1: Run every focused attachment and preview suite**
+- [x] **Step 1: Run every focused attachment and preview suite**
 
 ```bash
 npx vitest run \
@@ -915,7 +915,7 @@ npx vitest run \
 
 Expected: all focused suites pass.
 
-- [ ] **Step 2: Run the complete BearCode suite**
+- [x] **Step 2: Run the complete BearCode suite**
 
 ```bash
 npm test
@@ -924,7 +924,7 @@ npm test
 Expected: the complete Vitest suite passes with no regression from the prior
 2637/2637 baseline.
 
-- [ ] **Step 3: Check TypeScript against the known baseline**
+- [x] **Step 3: Check TypeScript against the known baseline**
 
 ```bash
 npm run typecheck:node
@@ -935,7 +935,7 @@ Expected: no diagnostic references a file changed by this plan. Record the
 known pre-existing node diagnostics separately; do not label them as caused
 by this change.
 
-- [ ] **Step 4: Build the production Electron bundles**
+- [x] **Step 4: Build the production Electron bundles**
 
 ```bash
 npx electron-vite build
@@ -943,7 +943,7 @@ npx electron-vite build
 
 Expected: main, preload, and renderer bundles complete successfully.
 
-- [ ] **Step 5: Prove the native Hermes plugin is untouched**
+- [x] **Step 5: Prove the native Hermes plugin is untouched**
 
 Run from the repository worktree:
 
@@ -955,7 +955,7 @@ PYTHONPATH=integrations/hermes-bearcode/tests/fakes:integrations/hermes-bearcode
 
 Expected: the same 183/183 Python tests pass.
 
-- [ ] **Step 6: Run hygiene and security checks**
+- [x] **Step 6: Run hygiene and security checks**
 
 ```bash
 git diff --check
@@ -977,7 +977,7 @@ Expected:
 - any URL-like matches are comments explaining denial, not CSP sources;
 - attachment preview/save IPC accepts IDs only.
 
-- [ ] **Step 7: Perform an independent code review**
+- [x] **Step 7: Perform an independent code review**
 
 Use `superpowers:requesting-code-review` with the approved design and this
 plan. Require explicit review of:
@@ -993,7 +993,7 @@ plan. Require explicit review of:
 Resolve every Critical or Important finding with a failing regression test
 before changing production code, then rerun Steps 1-6.
 
-- [ ] **Step 8: Run live macOS acceptance**
+- [x] **Step 8: Run live macOS acceptance**
 
 Start the worktree dev app:
 
@@ -1021,7 +1021,7 @@ Using the existing native endpoint
    against the persisted attachment SHA-256 shown by the server/test fixture.
 6. Cancel a second Save As and confirm no file or notification is produced.
 
-- [ ] **Step 9: Record evidence and commit any verification-only adjustments**
+- [x] **Step 9: Record evidence and commit any verification-only adjustments**
 
 Check every completed item in this plan. If verification required code fixes,
 stage only the exact regression tests and production files changed by those
