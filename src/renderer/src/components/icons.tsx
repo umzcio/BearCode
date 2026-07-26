@@ -318,3 +318,4 @@ export const IconTerminal = icon(
     <line x1="12" y1="16" x2="17" y2="16" />
   </>
 )
+export const IconMoon = icon(<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z" />)

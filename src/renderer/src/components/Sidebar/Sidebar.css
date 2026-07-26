@@ -22,31 +22,18 @@
 }
 
 /* Native macOS traffic lights sit over this row, pinned to the same line
-   by trafficLightPosition in src/main/index.ts. */
+   by trafficLightPosition in src/main/index.ts. padding-left uses the
+   shared --traffic-light-inset token (tokens.css) so this can't drift out
+   of sync with App.css's collapsed-topbar fallback again. */
 .chrome {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 2px 4px 16px 78px;
+  padding: 2px 4px 16px var(--traffic-light-inset);
   -webkit-app-region: drag;
 }
-
-.wordmark {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  color: var(--text-mid);
-  padding-right: 4px;
+.chrome .chrome-btn {
   -webkit-app-region: no-drag;
-}
-.wordmark img {
-  width: 17px;
-  height: 17px;
-  flex-shrink: 0;
 }
 
 .nav-item {
@@ -79,217 +66,165 @@
   flex-shrink: 0;
 }
 
-.projects-head {
+.sidebar-empty {
+  padding: 0 10px;
+}
+
+.seg-toggle {
+  display: flex;
+  background: var(--bg-active);
+  border-radius: 10px;
+  padding: 3px;
+  margin: 8px 6px 10px;
+}
+.seg-toggle button {
+  flex: 1;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin: 22px 6px 6px;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 0;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.seg-toggle button:hover {
+  color: var(--text-mid);
+}
+.seg-toggle button.active {
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+}
+.seg-toggle button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.seg-toggle button svg,
+.seg-toggle button img {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.sb-label {
+  display: flex;
+  align-items: center;
+  padding: 14px 10px 6px;
   color: var(--text-dim);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
-.projects-head .actions {
-  display: flex;
-  gap: 2px;
-}
-/* Icon + label as ONE flex child, so a header with an icon (Hermes section)
-   keeps .projects-head at two children -- otherwise justify-content:
-   space-between distributes icon/label/actions as left/center/right and the
-   label ends up centered. The group also spaces the icon from the label and
-   truncates a long custom label instead of shoving the action button off. */
-.projects-head .head-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.projects-head .head-label-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.sb-label .display-options {
+  margin-left: auto;
 }
 
-.projects-scroll {
-  overflow-y: auto;
-  min-height: 0;
-}
-/* The Hermes conversation list is a SECONDARY scroll region above the main
-   Projects list. Left as a plain .projects-scroll it competes with Projects
-   for vertical space (both flex-shrink:1, min-height:0) and collapses to a
-   ~9px sliver -- all you see is its scrollbar. Pin it to its content instead:
-   don't shrink, cap the height so a long list scrolls internally rather than
-   crowding out Projects. Projects stays the one space-absorbing scroll region. */
-.hermes-scroll {
-  flex-shrink: 0;
-  max-height: 30vh;
-}
-
-.proj-group {
-  margin-top: 6px;
-}
-.proj-label {
+.sb-flatrow {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
+  width: 100%;
   padding: 7px 10px;
+  border-radius: 9px;
+  border: none;
+  background: none;
   color: var(--text-mid);
-  font-size: 13px;
-  border-radius: 8px;
-  cursor: default;
-  white-space: nowrap;
-  overflow: hidden;
-}
-/* The folder-name text only — NOT .proj-actions (also a <span>), which must keep
-   its natural width and sit flush right via margin-left:auto. */
-.proj-label > span:not(.proj-actions) {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.proj-label svg {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  color: var(--text-dim);
-}
-
-.convo {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px 7px 34px;
-  border-radius: 8px;
-  color: var(--text-mid);
-  font-size: 13px;
+  font-size: 13.5px;
   cursor: pointer;
-  user-select: none;
+  text-align: left;
+  font-family: inherit;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
-.convo:hover {
+.sb-flatrow:hover {
   background: var(--bg-hover);
   color: var(--text);
 }
-.convo:focus-visible {
+.sb-flatrow:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
-.convo.selected {
+.sb-flatrow.selected {
   background: var(--bg-active);
   color: var(--text);
 }
-.convo.active-run .dot {
-  width: 7px;
-  height: 7px;
+.sb-flatrow .dot {
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: var(--accent);
   flex-shrink: 0;
-  box-shadow: 0 0 6px var(--accent);
 }
-.convo .name-wrap {
+/* Pinned Projects rows reuse .sb-flatrow but swap the conversation-row `.dot`
+   for a project icon chip (same visual language as ProjectPage's header
+   icon), so this is the one styled definition for it here. */
+.sb-flatrow .chip {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-active);
+  color: var(--text-dim);
+}
+.sb-flatrow .name {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.convo .name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.convo .convo-sub {
-  color: var(--text-dim);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.convo .age {
-  color: var(--text-dim);
-  font-size: 12px;
-  flex-shrink: 0;
-}
-.sidebar-empty {
-  padding: 0 10px;
-}
 
-.sidebar-footer {
-  margin-top: auto;
-  padding-top: 10px;
-}
-
-.convo .del {
-  display: none;
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  padding: 2px;
-  border-radius: 5px;
-  flex-shrink: 0;
-  align-items: center;
-}
-.convo:hover .del {
+/* Hover-revealed Pin/Archive/⋮ actions (ConvoRowMenu), same pattern as
+   ProjectPage.css's `.pp-rowact` -- opacity-only reveal on the wrapper, not a
+   `display:none` on `.row-act` itself (that was the sidebar's own prior
+   gotcha: a `.row-act` default of `display:none` un-hidden only by a
+   *different* ancestor's `:hover` selector became invisible everywhere else
+   it got reused). `.row-act` is owned/defined by ProjectPage.css and is
+   always a normal focusable button; only the reveal wrapper is local here. */
+.sb-rowact {
   display: flex;
-}
-.convo:hover .age {
-  display: none;
-}
-.convo .del:hover {
-  background: var(--bg-active);
-  color: var(--red);
-}
-
-.convo .move-proj {
-  display: none;
-  font-size: 11px;
-  background: transparent;
-  color: var(--text-dim);
-  border: none;
-  max-width: 84px;
-  flex-shrink: 0;
-}
-.convo:hover .move-proj {
-  display: block;
-}
-
-.row-act {
-  display: none;
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  padding: 2px;
-  border-radius: 5px;
-  flex-shrink: 0;
-  align-items: center;
-}
-.convo:hover .row-act {
-  display: flex;
-}
-.row-act:hover {
-  background: var(--bg-active);
-  color: var(--text);
-}
-.row-act.active {
-  display: flex;
-  color: var(--accent);
-}
-.row-act.menu-open {
-  display: flex;
-}
-
-.proj-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
+  gap: 4px;
   margin-left: auto;
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
-/* Mirror the conversation-row behavior: the gear / + are `.row-act` (default
-   display:none) and reveal on hover — here on hover of the whole folder group,
-   since they live in .proj-label rather than inside a .convo. */
-.proj-group:hover .proj-actions .row-act {
+.sb-flatrow:hover .sb-rowact,
+.sb-flatrow:focus-within .sb-rowact {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sb-rowact {
+    transition: none;
+  }
+}
+
+/* The Projects/Pinned/Recents body (or the Hermes segment's own flat list)
+   can be arbitrarily long -- real accounts have far more than the handful of
+   projects test fixtures use. `.sb-scroll` is the ONE scrolling region for
+   that whole body, so Pinned/Recents/the footer stay reachable no matter how
+   long the Projects list grows. `.sb-recents` itself no longer scrolls on its
+   own -- it's just a labeled sub-section within that shared scroll area. */
+.sb-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
+  flex-direction: column;
+}
+.sb-recents {
+  display: flex;
+  flex-direction: column;
 }

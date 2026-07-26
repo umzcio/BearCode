@@ -6,15 +6,8 @@ import { IconFilter } from '../icons'
 import { Popover } from '../ui/Popover'
 import './DisplayOptions.css'
 
-type GroupBy = AppSettings['sidebarGroupBy']
 type Sort = AppSettings['sidebarSort']
 
-const GROUP_OPTIONS: { id: GroupBy; label: string }[] = [
-  { id: 'project', label: 'Project' },
-  { id: 'environment', label: 'Environment' },
-  { id: 'status', label: 'Status' },
-  { id: 'none', label: 'None' }
-]
 const SUBTITLE_OPTIONS: { id: AppSettings['sidebarSubtitle']; label: string }[] = [
   { id: 'none', label: 'No Subtitle' },
   { id: 'worktree', label: 'Worktree' }
@@ -36,17 +29,12 @@ export function DisplayOptions(): React.JSX.Element {
   const [wasOpen, setWasOpen] = useState(open)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const groupBy: GroupBy = settings?.sidebarGroupBy ?? 'project'
   const sort: Sort = settings?.sidebarSort ?? 'updated'
   const subtitle: AppSettings['sidebarSubtitle'] = settings?.sidebarSubtitle ?? 'none'
 
-  // Flatten every row across the four groups (group-by, sort, subtitle, the
+  // Flatten every row across the three groups (sort, subtitle, the
   // archived-filter toggle) into one navigable list, in render order.
   const flatOptions: { id: string; commit: () => void }[] = [
-    ...GROUP_OPTIONS.map((o) => ({
-      id: `group-${o.id}`,
-      commit: () => void setSidebarView({ sidebarGroupBy: o.id })
-    })),
     ...SORT_OPTIONS.map((o) => ({
       id: `sort-${o.id}`,
       commit: () => void setSidebarView({ sidebarSort: o.id })
@@ -62,15 +50,15 @@ export function DisplayOptions(): React.JSX.Element {
   ]
 
   // When the menu transitions from closed -> open, start the active row on
-  // the current group-by selection. This is the React-endorsed "adjust
-  // state during render" pattern (not an effect) -- it re-renders
-  // synchronously before paint instead of causing an extra commit, and only
-  // fires on the closed->open edge. See
+  // the current sort selection. This is the React-endorsed "adjust state
+  // during render" pattern (not an effect) -- it re-renders synchronously
+  // before paint instead of causing an extra commit, and only fires on the
+  // closed->open edge. See
   // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
   if (open !== wasOpen) {
     setWasOpen(open)
     if (open) {
-      const i = flatOptions.findIndex((o) => o.id === `group-${groupBy}`)
+      const i = flatOptions.findIndex((o) => o.id === `sort-${sort}`)
       setActiveIndex(i >= 0 ? i : 0)
     }
   }
@@ -128,29 +116,6 @@ export function DisplayOptions(): React.JSX.Element {
           aria-activedescendant={`opt-${flatOptions[activeIndex]?.id}`}
           onKeyDown={onMenuKey}
         >
-          <div className="menu-group-label">Group By</div>
-          {GROUP_OPTIONS.map((o) => {
-            const idx = flatOptions.findIndex((f) => f.id === `group-${o.id}`)
-            return (
-              <div
-                key={o.id}
-                id={`opt-group-${o.id}`}
-                role="option"
-                aria-selected={o.id === groupBy}
-                className={
-                  'menu-item' +
-                  (o.id === groupBy ? ' selected' : '') +
-                  (idx === activeIndex ? ' active' : '')
-                }
-                onClick={() => flatOptions[idx]?.commit()}
-                onMouseEnter={() => idx >= 0 && setActiveIndex(idx)}
-              >
-                <span>{o.label}</span>
-                {o.id === groupBy ? <span className="check">✓</span> : null}
-              </div>
-            )
-          })}
-          <div className="display-sep" />
           <div className="menu-group-label">Sort Conversations</div>
           {SORT_OPTIONS.map((o) => {
             const idx = flatOptions.findIndex((f) => f.id === `sort-${o.id}`)

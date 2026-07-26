@@ -85,6 +85,8 @@ type View =
   | { kind: 'conversation'; id: string }
   | { kind: 'history' }
   | { kind: 'terminal'; path: string }
+  | { kind: 'project'; path: string | null }
+  | { kind: 'projects' }
 
 export type TerminalTabMeta = {
   id: string
@@ -388,6 +390,8 @@ interface AppState {
   goHome(): void
   openHistory(): void
   openTerminalView(path: string): void
+  openProjectPage(path: string | null): void
+  openProjectsIndex(): void
   createTerminalTab(path: string): Promise<void>
   closeTerminalTab(path: string, id: string): Promise<void>
   setActiveTerminalTab(path: string, id: string): void
@@ -462,6 +466,9 @@ interface AppState {
   // F9 (folder = project) settings, keyed by workspace path.
   refreshProjectSettings(): Promise<void>
   updateProject(path: string, patch: ProjectSettings): Promise<void>
+  // Sidebar redesign: toggles a project's `pinned` flag through the same
+  // updateProject persistence path (bearcode:projects:update).
+  toggleProjectPinned(path: string): Promise<void>
   setAsNewProjectDefault(patch: ProjectSettings): Promise<void>
   openProjectSettings(path: string): void
   closeProjectSettings(): void
@@ -878,6 +885,11 @@ export const useAppStore = create<AppState>((set, get) => {
       // being left.
       set((s) => ({
         view: { kind: 'home' },
+        // A Hermes conversation just left behind must not leak its sentinel
+        // modelRef into the next new conversation's composer (it would render
+        // in Hermes-lean mode with no model/mode pickers) -- reset it here
+        // alongside the other draft state below.
+        modelRef: s.settings?.defaultModelRef ?? URSA_MODEL_REF,
         permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
         effort: s.settings?.defaultEffort ?? 'adaptive',
         thinking: s.settings?.defaultThinking ?? true,
@@ -897,6 +909,12 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ view: { kind: 'history' }, auxSelection: null, reviewFocusPath: null }),
     openTerminalView: (path: string) => {
       set({ view: { kind: 'terminal', path }, auxSelection: null })
+    },
+    openProjectPage: (path: string | null) => {
+      set({ view: { kind: 'project', path }, auxSelection: null })
+    },
+    openProjectsIndex: () => {
+      set({ view: { kind: 'projects' }, auxSelection: null, reviewFocusPath: null })
     },
     createTerminalTab: async (path: string) => {
       const view = await window.bearcode.terminal.create(path)
@@ -1345,6 +1363,10 @@ export const useAppStore = create<AppState>((set, get) => {
         // rejection; surface it and leave the modal's stored state as-is.
         get().showToast('Could not save project settings')
       }
+    },
+    toggleProjectPinned: async (path) => {
+      const current = get().folderSettings.find((f) => f.path === path)?.pinned ?? false
+      await get().updateProject(path, { pinned: !current })
     },
     setAsNewProjectDefault: async (patch) => {
       await get().saveSettings({ newProjectDefaults: patch })

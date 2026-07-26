@@ -1,12 +1,11 @@
-import { useMemo, useRef, useLayoutEffect } from 'react'
+import { useMemo, useRef, useState, useLayoutEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { HERMES_MODEL_REF } from '@shared/types'
 import { useAppStore, type Convo } from '../../state/store'
-import { relativeAge } from '../../lib/time'
 import bearMark from '../../assets/bear.svg'
 import { Hint } from '../Hint'
 import { EmptyState } from '../ui/EmptyState'
-import { groupConversations, type ConvoLike } from './grouping'
+import { sortIds, type ConvoLike } from './grouping'
 
 // Cache the projected subset per Convo object reference (audit M-15). The
 // store only replaces a convo's object when THAT convo changes (see
@@ -38,8 +37,18 @@ function toConvoLike(c: Convo): ConvoLike {
   return cached
 }
 import { DisplayOptions } from './DisplayOptions'
+import { SidebarFooterMenu } from './SidebarFooterMenu'
 import { ConvoRowMenu } from './ConvoRowMenu'
-import { IconArchive, IconHistory, IconPanel, IconPin, IconPlus, IconSettings, IconTerminal } from '../icons'
+import {
+  IconArchive,
+  IconFolder,
+  IconPanel,
+  IconPin,
+  IconPlus,
+  IconSearch,
+  IconSettings,
+  IconTerminal
+} from '../icons'
 import { projectIcon } from '../ProjectSettings/projectIcons'
 import './Sidebar.css'
 
@@ -61,20 +70,20 @@ export function Sidebar(): React.JSX.Element {
     })
   )
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
-  const goHome = useAppStore((s) => s.goHome)
   const openHistory = useAppStore((s) => s.openHistory)
   const openConvo = useAppStore((s) => s.openConvo)
-  const openSettings = useAppStore((s) => s.openSettings)
   const folderSettings = useAppStore((s) => s.folderSettings)
-  const setPinned = useAppStore((s) => s.setPinned)
-  const setArchived = useAppStore((s) => s.setArchived)
-  const newConversationInProject = useAppStore((s) => s.newConversationInProject)
+  const openProjectPage = useAppStore((s) => s.openProjectPage)
   const openProjectSettings = useAppStore((s) => s.openProjectSettings)
   const openTerminalView = useAppStore((s) => s.openTerminalView)
-  const groupBy = useAppStore((s) => s.settings?.sidebarGroupBy ?? 'project')
+  const newConversationInProject = useAppStore((s) => s.newConversationInProject)
+  const openProjectsIndex = useAppStore((s) => s.openProjectsIndex)
+  const goHome = useAppStore((s) => s.goHome)
+  const setPinned = useAppStore((s) => s.setPinned)
+  const setArchived = useAppStore((s) => s.setArchived)
+  const [mode, setMode] = useState<'conversations' | 'hermes'>('conversations')
   const sort = useAppStore((s) => s.settings?.sidebarSort ?? 'updated')
   const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
-  const subtitle = useAppStore((s) => s.settings?.sidebarSubtitle ?? 'none')
   const hermesEnabled = useAppStore((s) => s.settings?.hermesEnabled ?? false)
   const hermesLabel = useAppStore((s) => s.settings?.hermesLabel)
   const hermesIcon = useAppStore((s) => s.settings?.hermesIcon)
@@ -96,9 +105,38 @@ export function Sidebar(): React.JSX.Element {
     [convoOrder, conversations]
   )
 
-  const groups = useMemo(
-    () => groupConversations(projectConvoOrder, conversations, { groupBy, sort, showArchived }),
-    [projectConvoOrder, conversations, groupBy, sort, showArchived]
+  // Cross-project "Pinned Projects" section (sidebar redesign): only the
+  // handful of projects the user starred, distinct from the "Pinned"
+  // section below (pinned CONVERSATIONS). The full project list now lives
+  // on the dedicated Projects index page (openProjectsIndex).
+  const pinnedProjects = useMemo(() => folderSettings.filter((fp) => fp.pinned), [folderSettings])
+
+  const RECENTS_LIMIT = 20
+
+  const pinnedIds = useMemo(
+    () =>
+      sortIds(
+        projectConvoOrder.filter((id) => {
+          const c = conversations[id]
+          return c != null && c.pinned && (showArchived || !c.archived)
+        }),
+        conversations,
+        sort
+      ),
+    [projectConvoOrder, conversations, showArchived, sort]
+  )
+
+  const recentIds = useMemo(
+    () =>
+      sortIds(
+        projectConvoOrder.filter((id) => {
+          const c = conversations[id]
+          return c != null && !c.pinned && (showArchived || !c.archived)
+        }),
+        conversations,
+        sort
+      ).slice(0, RECENTS_LIMIT),
+    [projectConvoOrder, conversations, showArchived, sort]
   )
 
   // FLIP collapse animation (apple-design §11): margin-left has already snapped
@@ -156,199 +194,185 @@ export function Sidebar(): React.JSX.Element {
             <IconPanel />
           </button>
         </Hint>
-        <span className="wordmark">
-          <img src={bearMark} alt="" />
-          BearCode
-        </span>
+        <Hint label="History" side="bottom">
+          <button className="chrome-btn" onClick={openHistory} aria-label="History">
+            <IconSearch />
+          </button>
+        </Hint>
       </div>
 
+      {hermesEnabled ? (
+        <div className="seg-toggle">
+          <button
+            type="button"
+            className={mode === 'conversations' ? 'active' : ''}
+            onClick={() => setMode('conversations')}
+          >
+            <img src={bearMark} alt="" />
+            Conversations
+          </button>
+          <button
+            type="button"
+            className={mode === 'hermes' ? 'active' : ''}
+            onClick={() => setMode('hermes')}
+          >
+            {(() => {
+              const HermesIcon = projectIcon(hermesIcon)
+              return <HermesIcon size={13} />
+            })()}
+            {hermesLabel || 'Hermes'}
+          </button>
+        </div>
+      ) : null}
+
       <Hint label="New Conversation" keys="⌘N" side="right">
-        <button className={'nav-item' + (view.kind === 'home' ? ' selected' : '')} onClick={goHome}>
+        <button
+          className={'nav-item' + (view.kind === 'home' ? ' selected' : '')}
+          onClick={() => (mode === 'hermes' && hermesEnabled ? void newHermesConversation() : goHome())}
+        >
           <IconPlus />
           New Conversation
         </button>
       </Hint>
-      <button
-        className={'nav-item' + (view.kind === 'history' ? ' selected' : '')}
-        onClick={openHistory}
-      >
-        <IconHistory />
-        Conversation History
-      </button>
 
-      {hermesEnabled ? (
-        <>
-          <div className="projects-head">
-            <span className="head-label">
-              {(() => {
-                const HermesIcon = projectIcon(hermesIcon)
-                return <HermesIcon size={14} />
-              })()}
-              <span className="head-label-text">{hermesLabel || 'Hermes'}</span>
-            </span>
-            <div className="actions">
-              <Hint label="New Hermes conversation" side="bottom">
-                <button
-                  type="button"
-                  className="chrome-btn"
-                  aria-label="New Hermes conversation"
-                  onClick={() => void newHermesConversation()}
-                >
-                  <IconPlus size={13} />
-                </button>
-              </Hint>
+      {mode === 'hermes' && hermesEnabled ? null : (
+        <button
+          className={'nav-item' + (view.kind === 'projects' ? ' selected' : '')}
+          onClick={openProjectsIndex}
+        >
+          <IconFolder />
+          Projects
+        </button>
+      )}
+
+      <div className="sb-scroll">
+      {mode === 'hermes' && hermesEnabled ? (
+        <div className="sb-recents">
+          <div className="sb-label">Recents</div>
+          {hermesConvoIds.length === 0 ? (
+            <div className="sidebar-empty">
+              <EmptyState title="No Hermes conversations yet" />
             </div>
-          </div>
-          <div className="projects-scroll hermes-scroll">
-            {hermesConvoIds.length === 0 ? (
-              <div className="sidebar-empty">
-                <EmptyState title="No Hermes conversations yet" />
-              </div>
-            ) : null}
-            {hermesConvoIds.map((id) => {
+          ) : (
+            hermesConvoIds.map((id) => {
               const convo = conversations[id]
               if (!convo) return null
               const selected = view.kind === 'conversation' && view.id === id
               return (
-                <div
+                <button
+                  type="button"
                   key={id}
-                  className={'convo' + (selected ? ' selected' : '')}
-                  role="button"
-                  tabIndex={0}
+                  className={'sb-flatrow' + (selected ? ' selected' : '')}
                   onClick={() => openConvo(id)}
-                  onKeyDown={(e) => {
-                    if (e.target !== e.currentTarget) return
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      openConvo(id)
-                    }
-                  }}
                 >
-                  <span className="name-wrap">
-                    <span className="name">{convo.title}</span>
-                  </span>
-                  <span className="age">{relativeAge(convo.updatedAt)}</span>
-                  <ConvoRowMenu convoId={id} title={convo.title} />
-                </div>
+                  <span className="name">{convo.title}</span>
+                </button>
               )
-            })}
-          </div>
-        </>
-      ) : null}
-
-      <div className="projects-head">
-        Projects
-        <div className="actions">
-          <DisplayOptions />
+            })
+          )}
         </div>
-      </div>
-
-      <div className="projects-scroll">
-        {groups.length === 0 ? (
-          <div className="sidebar-empty">
-            <EmptyState title="No conversations yet" />
-          </div>
-        ) : null}
-        {groups.map((group) => {
-          // Every folder group is a project keyed by its path; look up its
-          // stored color/icon/name (a folder with no row shows the default icon
-          // and its basename). "No folder" (path null) has no settings + no gear.
-          const path = group.kind === 'folder' ? group.path : null
-          const fp = path ? folderSettings.find((f) => f.path === path) : undefined
-          const Icon = projectIcon(fp?.icon)
-          const label = group.kind === 'folder' ? (fp?.name ?? group.label) : ''
-          // F3: stable per-kind key so switching Group By re-keys cleanly.
-          const key =
-            group.kind === 'all'
-              ? 'all'
-              : group.kind === 'folder'
-                ? 'folder:' + (path ?? 'none')
-                : group.kind === 'environment'
-                  ? 'env:' + group.env
-                  : 'status:' + group.bucket
-          return (
-            <div className="proj-group" key={key}>
-              {group.kind === 'folder' ? (
-                <div className="proj-label">
-                  {fp?.color ? (
-                    <span className="proj-dot" style={{ background: fp.color }} />
-                  ) : null}
-                  <Icon size={16} />
-                  <span>{label}</span>
-                  {path ? (
-                    <span className="proj-actions">
-                      {/* Order: gear (settings), terminal, + (new). */}
-                      <Hint label="Project settings" side="bottom">
+      ) : (
+        <>
+          {pinnedProjects.length > 0 ? (
+            <>
+              <div className="sb-label">Pinned Projects</div>
+              {pinnedProjects.map((fp) => {
+                const Icon = projectIcon(fp.icon)
+                const label = fp.name ?? fp.path.split('/').pop() ?? fp.path
+                return (
+                  <div
+                    key={fp.path}
+                    className="sb-flatrow"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openProjectPage(fp.path)}
+                    onKeyDown={(e) => {
+                      // Ignore keys that originated on the nested Settings
+                      // action -- only the row's own focus target should open
+                      // the project. Mirrors the Pinned conversation row
+                      // convention just below.
+                      if (e.target !== e.currentTarget) return
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        openProjectPage(fp.path)
+                      }
+                    }}
+                  >
+                    <span
+                      className="chip"
+                      style={fp.color ? { background: fp.color + '2e', color: fp.color } : undefined}
+                    >
+                      <Icon size={11} />
+                    </span>
+                    <span className="name">{label}</span>
+                    <span className="sb-rowact">
+                      <Hint label="Project settings">
                         <button
+                          type="button"
                           className="row-act"
                           aria-label="Project settings"
                           onClick={(e) => {
                             e.stopPropagation()
-                            openProjectSettings(path)
+                            openProjectSettings(fp.path)
                           }}
                         >
                           <IconSettings size={13} />
                         </button>
                       </Hint>
-                      <Hint label="Open terminal" side="bottom">
+                      <Hint label="Open terminal">
                         <button
+                          type="button"
                           className="row-act"
                           aria-label="Open terminal"
                           onClick={(e) => {
                             e.stopPropagation()
-                            openTerminalView(path)
+                            openTerminalView(fp.path)
                           }}
                         >
                           <IconTerminal size={13} />
                         </button>
                       </Hint>
-                      <Hint label="New conversation in this folder" side="bottom">
+                      <Hint label="New conversation">
                         <button
+                          type="button"
                           className="row-act"
-                          aria-label="New conversation in this folder"
+                          aria-label="New conversation"
                           onClick={(e) => {
                             e.stopPropagation()
-                            void newConversationInProject(path)
+                            void newConversationInProject(fp.path)
                           }}
                         >
                           <IconPlus size={13} />
                         </button>
                       </Hint>
                     </span>
-                  ) : null}
-                </div>
-              ) : group.kind === 'environment' || group.kind === 'status' ? (
-                // F3: Environment/Status buckets are simple label rows — no
-                // gear/+ (those are folder-only project actions).
-                <div className="proj-label">
-                  <span>{group.label}</span>
-                </div>
-              ) : null}
-              {group.convoIds.map((id) => {
+                  </div>
+                )
+              })}
+            </>
+          ) : null}
+
+          {pinnedIds.length > 0 ? (
+            <>
+              <div className="sb-label">Pinned</div>
+              {pinnedIds.map((id) => {
                 const convo = conversations[id]
                 if (!convo) return null
-                const running =
-                  convo.runState === 'running' || convo.runState === 'awaiting-approval'
+                const fp = convo.projectPath
+                  ? folderSettings.find((f) => f.path === convo.projectPath)
+                  : undefined
                 const selected = view.kind === 'conversation' && view.id === id
-                // F3: show the worktree branch under the title when the
-                // Worktree subtitle is on and this convo has a worktree
-                // (first repo drives the subtitle line for multi-repo).
-                const branch =
-                  subtitle === 'worktree' && convo.environment === 'worktree'
-                    ? convo.worktrees[0]?.branch
-                    : undefined
                 return (
                   <div
                     key={id}
-                    className={
-                      'convo' + (running ? ' active-run' : '') + (selected ? ' selected' : '')
-                    }
+                    className={'sb-flatrow' + (selected ? ' selected' : '')}
                     role="button"
                     tabIndex={0}
                     onClick={() => openConvo(id)}
                     onKeyDown={(e) => {
-                      // Ignore keys that originated on a nested action button (Pin/Archive/⋮);
-                      // only the row's own focus target should open the conversation.
+                      // Ignore keys that originated on a nested action button
+                      // (Pin/Archive/⋮) -- only the row's own focus target
+                      // should open the conversation. Mirrors ProjectPage.tsx.
                       if (e.target !== e.currentTarget) return
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
@@ -356,59 +380,111 @@ export function Sidebar(): React.JSX.Element {
                       }
                     }}
                   >
-                    {convo.pinned ? <IconPin size={11} /> : null}
-                    <span className="name-wrap">
-                      <span className="name">{convo.title}</span>
-                      {branch ? <span className="convo-sub">{branch}</span> : null}
+                    <span className="dot" style={{ background: fp?.color ?? 'var(--text-dim)' }} />
+                    <span className="name">{convo.title}</span>
+                    <span className="sb-rowact">
+                      <button
+                        type="button"
+                        className={'row-act' + (convo.pinned ? ' active' : '')}
+                        aria-label={convo.pinned ? 'Unpin' : 'Pin'}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setPinned(id, !convo.pinned)
+                        }}
+                      >
+                        <IconPin size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className={'row-act' + (convo.archived ? ' active' : '')}
+                        aria-label={convo.archived ? 'Unarchive' : 'Archive'}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setArchived(id, !convo.archived)
+                        }}
+                      >
+                        <IconArchive size={13} />
+                      </button>
+                      <ConvoRowMenu convoId={id} title={convo.title} />
                     </span>
-                    {running ? (
-                      <span className="dot" />
-                    ) : (
-                      <>
-                        <span className="age">{relativeAge(convo.updatedAt)}</span>
-                        <ConvoRowMenu convoId={id} title={convo.title} />
-                        <Hint label={convo.pinned ? 'Unpin' : 'Pin'} side="bottom">
-                          <button
-                            className={'row-act' + (convo.pinned ? ' active' : '')}
-                            aria-label={convo.pinned ? 'Unpin' : 'Pin'}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setPinned(id, !convo.pinned)
-                            }}
-                          >
-                            <IconPin size={13} />
-                          </button>
-                        </Hint>
-                        <Hint label={convo.archived ? 'Unarchive' : 'Archive'} side="bottom">
-                          <button
-                            className={'row-act' + (convo.archived ? ' active' : '')}
-                            aria-label={convo.archived ? 'Unarchive' : 'Archive'}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setArchived(id, !convo.archived)
-                            }}
-                          >
-                            <IconArchive size={13} />
-                          </button>
-                        </Hint>
-                      </>
-                    )}
                   </div>
                 )
               })}
+            </>
+          ) : null}
+
+          <div className="sb-recents">
+            <div className="sb-label">
+              Recents
+              <DisplayOptions />
             </div>
-          )
-        })}
+            {recentIds.length === 0 ? (
+              <div className="sidebar-empty">
+                <EmptyState title="No conversations yet" />
+              </div>
+            ) : (
+              recentIds.map((id) => {
+                const convo = conversations[id]
+                if (!convo) return null
+                const fp = convo.projectPath
+                  ? folderSettings.find((f) => f.path === convo.projectPath)
+                  : undefined
+                const selected = view.kind === 'conversation' && view.id === id
+                return (
+                  <div
+                    key={id}
+                    className={'sb-flatrow' + (selected ? ' selected' : '')}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openConvo(id)}
+                    onKeyDown={(e) => {
+                      // Ignore keys that originated on a nested action button
+                      // (Pin/Archive/⋮) -- only the row's own focus target
+                      // should open the conversation. Mirrors ProjectPage.tsx.
+                      if (e.target !== e.currentTarget) return
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        openConvo(id)
+                      }
+                    }}
+                  >
+                    <span className="dot" style={{ background: fp?.color ?? 'var(--text-dim)' }} />
+                    <span className="name">{convo.title}</span>
+                    <span className="sb-rowact">
+                      <button
+                        type="button"
+                        className={'row-act' + (convo.pinned ? ' active' : '')}
+                        aria-label={convo.pinned ? 'Unpin' : 'Pin'}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setPinned(id, !convo.pinned)
+                        }}
+                      >
+                        <IconPin size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className={'row-act' + (convo.archived ? ' active' : '')}
+                        aria-label={convo.archived ? 'Unarchive' : 'Archive'}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setArchived(id, !convo.archived)
+                        }}
+                      >
+                        <IconArchive size={13} />
+                      </button>
+                      <ConvoRowMenu convoId={id} title={convo.title} />
+                    </span>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </>
+      )}
       </div>
 
-      <div className="sidebar-footer">
-        <Hint label="Open Settings" keys="⌘," side="right">
-          <button className="nav-item" onClick={() => openSettings()}>
-            <IconSettings />
-            Settings
-          </button>
-        </Hint>
-      </div>
+      <SidebarFooterMenu />
     </div>
   )
 }

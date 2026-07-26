@@ -18,7 +18,8 @@ const folder = {
   outsideFolderAccess: 'ask' as const,
   outsideFolderAllowedPaths: ['/allowed/one'],
   outsideFolderDeniedPaths: ['/denied/one'],
-  outsideFolderPendingPaths: [] as string[]
+  outsideFolderPendingPaths: [] as string[],
+  pinned: false
 }
 
 const updateSpy = vi.fn((path: string, patch: Record<string, unknown>) =>

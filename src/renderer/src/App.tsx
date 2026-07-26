@@ -3,6 +3,8 @@ import { Sidebar } from './components/Sidebar/Sidebar'
 import { Home } from './components/Home'
 import { HistoryView } from './components/History/HistoryView'
 import { TerminalView } from './components/Terminal/TerminalView'
+import { ProjectPage } from './components/ProjectPage/ProjectPage'
+import { ProjectsIndex } from './components/ProjectsIndex/ProjectsIndex'
 import { ConversationView } from './components/ConversationView'
 import { AuxiliaryPane } from './components/AuxiliaryPane'
 import { ResizeHandle } from './components/ResizeHandle'
@@ -140,11 +142,19 @@ function App(): React.JSX.Element {
         <UpdateBanner />
         <div
           className="main-view"
-          key={view.kind === 'conversation' && convo ? `conversation:${convo.id}` : view.kind}
+          key={
+            view.kind === 'conversation' && convo
+              ? `conversation:${convo.id}`
+              : view.kind === 'project'
+                ? `project:${view.path ?? 'none'}`
+                : view.kind
+          }
         >
           {view.kind === 'home' ? <Home /> : null}
           {view.kind === 'history' ? <HistoryView /> : null}
           {view.kind === 'terminal' ? <TerminalView path={view.path} /> : null}
+          {view.kind === 'project' ? <ProjectPage path={view.path} /> : null}
+          {view.kind === 'projects' ? <ProjectsIndex /> : null}
           {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}
         </div>
         <SettingsModal />

@@ -40,6 +40,7 @@ function mount(opts: {
   conversations?: Record<string, Partial<Convo>>
   settings?: Record<string, unknown>
   newHermesConversation?: ReturnType<typeof vi.fn>
+  folderSettings?: Record<string, unknown>[]
 }): HTMLElement {
   const conversations: Record<string, Convo> = {}
   for (const [id, partial] of Object.entries(opts.conversations ?? {})) {
@@ -51,7 +52,7 @@ function mount(opts: {
     view: { kind: 'home' },
     convoOrder: Object.keys(conversations),
     conversations,
-    folderSettings: [],
+    folderSettings: (opts.folderSettings ?? []) as never,
     settings: opts.settings as never,
     toggleSidebar: vi.fn(),
     goHome: vi.fn(),
@@ -59,6 +60,9 @@ function mount(opts: {
     openConvo: vi.fn(),
     openSettings: vi.fn(),
     openProjectSettings: vi.fn(),
+    openTerminalView: vi.fn(),
+    openProjectPage: vi.fn(),
+    openProjectsIndex: vi.fn(),
     showToast: vi.fn(),
     setPinned: vi.fn(),
     setArchived: vi.fn(),
@@ -73,6 +77,9 @@ function mount(opts: {
 afterEach(cleanup)
 
 describe('Hermes section', () => {
+  // The Conversations/Hermes segmented toggle defaults to the Conversations
+  // segment, so every Hermes-only assertion below clicks the toggle first
+  // (via its label text) to switch into the Hermes segment.
   it('lists only conversations with the Hermes sentinel modelRef, newest first', () => {
     const container = mount({
       conversations: {
@@ -80,61 +87,69 @@ describe('Hermes section', () => {
         h1: { modelRef: HERMES_MODEL_REF, title: 'ZRResearch', updatedAt: 200, projectPath: null },
         h2: { modelRef: HERMES_MODEL_REF, title: 'random stuff', updatedAt: 100, projectPath: null }
       },
-      settings: { hermesEnabled: true, hermesLabel: 'Hermes', hermesIcon: 'IconChat' }
+      settings: { hermesEnabled: true, hermesLabel: 'Hermes' }
     })
 
     expect(screen.getByText('Hermes')).toBeInTheDocument()
-    // Project chat is a real project conversation, so it legitimately still
-    // renders elsewhere in the sidebar (under Projects) -- just not in the
-    // Hermes section itself.
+    // Project chat is a real project conversation, projectPath'd but unpinned,
+    // so it renders cross-project in Recents while the Conversations segment
+    // (the default) is showing -- just not in the Hermes segment's list.
     expect(screen.getByText('Project chat')).toBeInTheDocument()
 
-    // The Hermes section is the first .projects-head/.projects-scroll pair
-    // (it renders above Projects); scope to it to assert it holds *only* the
-    // two Hermes conversations, newest first.
-    const hermesScroll = container.querySelectorAll('.projects-scroll')[0]
-    const names = [...hermesScroll.querySelectorAll('.convo .name')].map((el) => el.textContent)
+    // Switch to the Hermes segment; its flat Recents list should hold *only*
+    // the two Hermes conversations, newest first.
+    fireEvent.click(screen.getByText('Hermes'))
+    const names = [...container.querySelectorAll('.sb-recents .sb-flatrow .name')].map(
+      (el) => el.textContent
+    )
     expect(names).toEqual(['ZRResearch', 'random stuff'])
   })
 
-  it('does not also render Hermes conversations in the "No folder" Projects bucket', () => {
+  it('does not also render Hermes conversations in the Conversations segment', () => {
     // Both conversations are project-less; without an exclusion filter the
-    // Hermes one would land in Projects' own null-path group too, so it
-    // would render (and be clickable) twice.
+    // Hermes one would land in the Conversations segment's Recents too, so it
+    // would render (and be clickable) twice across segments.
     mount({
       conversations: {
         h1: { modelRef: HERMES_MODEL_REF, title: 'ZRResearch', updatedAt: 200, projectPath: null },
         p1: { modelRef: 'anthropic/claude', title: 'Plain chat', updatedAt: 50, projectPath: null }
       },
-      settings: { hermesEnabled: true, hermesLabel: 'Hermes', hermesIcon: 'IconChat' }
+      settings: { hermesEnabled: true, hermesLabel: 'Hermes' }
     })
 
-    // The Hermes convo renders exactly once (in the Hermes section).
-    expect(screen.getAllByText('ZRResearch')).toHaveLength(1)
-    // The non-Hermes, project-less convo still renders in Projects' "No folder" bucket.
+    // In the default Conversations segment, the Hermes convo doesn't render
+    // at all -- only the project-less, non-Hermes convo does (in Recents).
+    expect(screen.queryByText('ZRResearch')).not.toBeInTheDocument()
     expect(screen.getByText('Plain chat')).toBeInTheDocument()
+
+    // Switching to Hermes shows exactly the Hermes convo; Conversations-only
+    // content unmounts.
+    fireEvent.click(screen.getByText('Hermes'))
+    expect(screen.getAllByText('ZRResearch')).toHaveLength(1)
+    expect(screen.queryByText('Plain chat')).not.toBeInTheDocument()
   })
 
   it('uses the customized label from settings', () => {
-    mount({ conversations: {}, settings: { hermesEnabled: true, hermesLabel: 'Assistant', hermesIcon: 'IconChat' } })
+    mount({ conversations: {}, settings: { hermesEnabled: true, hermesLabel: 'Assistant' } })
     expect(screen.getByText('Assistant')).toBeInTheDocument()
     expect(screen.queryByText('Hermes')).not.toBeInTheDocument()
   })
 
   it('is hidden entirely when Hermes is disabled', () => {
-    mount({ conversations: {}, settings: { hermesEnabled: false } })
+    const container = mount({ conversations: {}, settings: { hermesEnabled: false } })
     expect(screen.queryByText('Hermes')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('New Hermes conversation')).not.toBeInTheDocument()
+    expect(container.querySelector('.seg-toggle')).toBeNull()
   })
 
-  it('clicking + New calls newHermesConversation', () => {
+  it('clicking + New calls newHermesConversation when the Hermes segment is active', () => {
     const newHermesConversation = vi.fn(() => Promise.resolve())
     mount({
       conversations: {},
-      settings: { hermesEnabled: true, hermesLabel: 'Hermes', hermesIcon: 'IconChat' },
+      settings: { hermesEnabled: true, hermesLabel: 'Hermes' },
       newHermesConversation
     })
-    fireEvent.click(screen.getByLabelText('New Hermes conversation'))
+    fireEvent.click(screen.getByText('Hermes'))
+    fireEvent.click(screen.getByText('New Conversation'))
     expect(newHermesConversation).toHaveBeenCalledTimes(1)
   })
 
@@ -143,9 +158,189 @@ describe('Hermes section', () => {
       conversations: {
         h1: { modelRef: HERMES_MODEL_REF, title: 'ZRResearch', updatedAt: 200, projectPath: null }
       },
-      settings: { hermesEnabled: true, hermesLabel: 'Hermes', hermesIcon: 'IconChat' }
+      settings: { hermesEnabled: true, hermesLabel: 'Hermes' }
     })
+    fireEvent.click(screen.getByText('Hermes'))
     fireEvent.click(screen.getByText('ZRResearch'))
     expect(useAppStore.getState().openConvo).toHaveBeenCalledWith('h1')
+  })
+
+  it('the Conversations/Hermes toggle switches which list renders', () => {
+    mount({
+      conversations: {
+        p1: { modelRef: 'anthropic/claude', title: 'Plain chat', updatedAt: 50, projectPath: null },
+        h1: { modelRef: HERMES_MODEL_REF, title: 'ZRResearch', updatedAt: 200, projectPath: null }
+      },
+      settings: { hermesEnabled: true, hermesLabel: 'ChuckAI' }
+    })
+    expect(screen.getByText('ChuckAI')).toBeTruthy()
+    expect(screen.getByText('Plain chat')).toBeInTheDocument()
+    expect(screen.queryByText('ZRResearch')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('ChuckAI'))
+    expect(screen.getByText('ZRResearch')).toBeInTheDocument()
+    expect(screen.queryByText('Plain chat')).not.toBeInTheDocument()
+  })
+})
+
+describe('Projects/Pinned/Recents (Conversations segment)', () => {
+  it('renders a single "Projects" nav link (not one row per folder) that opens the Projects index', () => {
+    mount({
+      conversations: {
+        a: { title: 'A1', projectPath: '/proj-a', projectLabel: 'proj-a', updatedAt: 10 },
+        b: { title: 'A2', projectPath: '/proj-a', projectLabel: 'proj-a', updatedAt: 20 }
+      }
+    })
+    // The old flat per-project list is gone -- no bare "proj-a" row or count
+    // renders inline in the sidebar anymore, just the nav link.
+    expect(screen.queryByText('proj-a')).not.toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Projects'))
+    expect(useAppStore.getState().openProjectsIndex).toHaveBeenCalledTimes(1)
+  })
+
+  it('pinned conversations render in Pinned and not in Recents', () => {
+    mount({
+      conversations: {
+        p1: { title: 'Pinned one', projectPath: null, updatedAt: 5, pinned: true },
+        r1: { title: 'Recent one', projectPath: null, updatedAt: 3, pinned: false }
+      }
+    })
+    expect(screen.getByText('Pinned')).toBeInTheDocument()
+    expect(screen.getByText('Pinned one')).toBeInTheDocument()
+    expect(screen.getByText('Recent one')).toBeInTheDocument()
+  })
+
+  it('clicking a Recents/Pinned row calls openConvo with its id', () => {
+    mount({
+      conversations: {
+        r1: { title: 'Recent one', projectPath: null, updatedAt: 3, pinned: false }
+      }
+    })
+    fireEvent.click(screen.getByText('Recent one'))
+    expect(useAppStore.getState().openConvo).toHaveBeenCalledWith('r1')
+  })
+
+  // Regression test for the chip-color bug (final review #4), now exercised
+  // through the "Pinned Projects" section instead of the retired flat list:
+  // checks both the resolved custom name renders (not the raw folder
+  // basename) and the chip's inline style carries the project's color.
+  it('resolves the pinned-project label and chip color from a matching folderSettings entry', () => {
+    const container = mount({
+      conversations: {
+        a: { title: 'A1', projectPath: '/proj-a', projectLabel: 'proj-a', updatedAt: 10 }
+      },
+      folderSettings: [
+        { path: '/proj-a', color: '#4c8dff', icon: 'IconChat', name: 'Campus Work', pinned: true }
+      ]
+    })
+    const label = screen.getByText('Campus Work')
+    expect(label).toBeInTheDocument()
+    const row = label.closest('.sb-flatrow')
+    expect(row).not.toBeNull()
+    const chip = row!.querySelector('.chip') as HTMLElement
+    expect(chip.style.color).toBe('rgb(76, 141, 255)')
+    expect(chip.style.background).toContain('76, 141, 255')
+    expect(container).toBeTruthy()
+  })
+})
+
+describe('Conversation row actions (Pin/Archive/⋮)', () => {
+  // Regression coverage for the row-actions bug: Pinned and Recents rows
+  // must expose the same hover-revealed Pin/Archive/ConvoRowMenu actions as
+  // ProjectPage.tsx's rows (ProjectPage.test.tsx's "Pin and Archive buttons"
+  // test is the sibling of this one). Both sections are checked so a fix
+  // that only covers one doesn't regress silently.
+  it('Recents row: Pin/Archive buttons call their store actions without opening the conversation', () => {
+    mount({
+      conversations: {
+        r1: { title: 'Recent one', projectPath: null, updatedAt: 3, pinned: false, archived: false }
+      }
+    })
+    fireEvent.click(screen.getByLabelText('Pin'))
+    expect(useAppStore.getState().setPinned).toHaveBeenCalledWith('r1', true)
+    fireEvent.click(screen.getByLabelText('Archive'))
+    expect(useAppStore.getState().setArchived).toHaveBeenCalledWith('r1', true)
+    expect(useAppStore.getState().openConvo).not.toHaveBeenCalled()
+  })
+
+  it('Pinned row: Pin/Archive buttons call their store actions without opening the conversation', () => {
+    mount({
+      conversations: {
+        p1: { title: 'Pinned one', projectPath: null, updatedAt: 5, pinned: true, archived: false }
+      }
+    })
+    // The Pin button on an already-pinned row toggles it off.
+    fireEvent.click(screen.getByLabelText('Unpin'))
+    expect(useAppStore.getState().setPinned).toHaveBeenCalledWith('p1', false)
+    fireEvent.click(screen.getByLabelText('Archive'))
+    expect(useAppStore.getState().setArchived).toHaveBeenCalledWith('p1', true)
+    expect(useAppStore.getState().openConvo).not.toHaveBeenCalled()
+  })
+
+  it('Recents row: the ⋮ menu opens with Rename/Delete and wires them to store actions', () => {
+    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('New title')
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mount({
+      conversations: {
+        r1: { title: 'Recent one', projectPath: null, updatedAt: 3, pinned: false }
+      }
+    })
+    fireEvent.click(screen.getByLabelText('More'))
+    fireEvent.click(screen.getByText('Rename'))
+    expect(useAppStore.getState().renameConversation).toHaveBeenCalledWith('r1', 'New title')
+
+    fireEvent.click(screen.getByLabelText('More'))
+    fireEvent.click(screen.getByText('Delete Conversation'))
+    expect(useAppStore.getState().deleteConvo).toHaveBeenCalledWith('r1')
+    expect(useAppStore.getState().openConvo).not.toHaveBeenCalled()
+
+    promptSpy.mockRestore()
+    confirmSpy.mockRestore()
+  })
+})
+
+describe('Pinned Projects section', () => {
+  it('is hidden when no project is pinned', () => {
+    mount({
+      conversations: {},
+      folderSettings: [{ path: '/proj-a', color: null, icon: null, name: null, pinned: false }]
+    })
+    expect(screen.queryByText('Pinned Projects')).not.toBeInTheDocument()
+  })
+
+  it('lists only pinned projects and opens the project page on click', () => {
+    mount({
+      conversations: {},
+      folderSettings: [
+        { path: '/proj-a', color: null, icon: null, name: 'Alpha', pinned: true },
+        { path: '/proj-b', color: null, icon: null, name: 'Beta', pinned: false }
+      ]
+    })
+    expect(screen.getByText('Pinned Projects')).toBeInTheDocument()
+    expect(screen.getByText('Alpha')).toBeInTheDocument()
+    expect(screen.queryByText('Beta')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('Alpha'))
+    expect(useAppStore.getState().openProjectPage).toHaveBeenCalledWith('/proj-a')
+  })
+
+  it('the Open terminal action calls openTerminalView without opening the project page', () => {
+    mount({
+      conversations: {},
+      folderSettings: [{ path: '/proj-a', color: null, icon: null, name: 'Alpha', pinned: true }]
+    })
+    fireEvent.click(screen.getByLabelText('Open terminal'))
+    expect(useAppStore.getState().openTerminalView).toHaveBeenCalledWith('/proj-a')
+    expect(useAppStore.getState().openProjectPage).not.toHaveBeenCalled()
+  })
+
+  it('the New conversation action calls newConversationInProject without opening the project page', () => {
+    mount({
+      conversations: {},
+      folderSettings: [{ path: '/proj-a', color: null, icon: null, name: 'Alpha', pinned: true }]
+    })
+    fireEvent.click(screen.getByLabelText('New conversation'))
+    expect(useAppStore.getState().newConversationInProject).toHaveBeenCalledWith('/proj-a')
+    expect(useAppStore.getState().openProjectPage).not.toHaveBeenCalled()
   })
 })

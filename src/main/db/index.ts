@@ -301,6 +301,14 @@ function getDb(): Database.Database {
   } catch {
     // column already exists
   }
+  // Sidebar redesign: pin a project into the sidebar's "Pinned Projects"
+  // section. Same idempotent-guarded ALTER idiom as above; old DBs upgrade in
+  // place. NULL = unpinned.
+  try {
+    db.exec(`ALTER TABLE project_settings ADD COLUMN pinned INTEGER`)
+  } catch {
+    // column already exists
+  }
   backfillEventFts(db)
   zombieRunIds = cancelZombieRuns(db)
   return db
@@ -1013,6 +1021,7 @@ interface ProjectSettingsRow {
   outside_folder_allowed_paths: string | null
   outside_folder_denied_paths: string | null
   outside_folder_pending_paths: string | null
+  pinned: number | null
 }
 
 function parseJsonStringArray(raw: string | null): string[] {
@@ -1047,7 +1056,8 @@ function rowToFolderProject(r: ProjectSettingsRow): FolderProject {
     outsideFolderAccess: coerceOutsidePolicy(r.outside_folder_access),
     outsideFolderAllowedPaths: parseJsonStringArray(r.outside_folder_allowed_paths),
     outsideFolderDeniedPaths: parseJsonStringArray(r.outside_folder_denied_paths),
-    outsideFolderPendingPaths: parseJsonStringArray(r.outside_folder_pending_paths)
+    outsideFolderPendingPaths: parseJsonStringArray(r.outside_folder_pending_paths),
+    pinned: r.pinned === 1
   }
 }
 
@@ -1101,6 +1111,10 @@ export function upsertProjectSettings(path: string, patch: ProjectSettings): voi
   if (patch.outsideFolderAccess !== undefined) {
     cols.push('outside_folder_access = ?')
     vals.push(coerceOutsidePolicy(patch.outsideFolderAccess ?? null))
+  }
+  if (patch.pinned !== undefined) {
+    cols.push('pinned = ?')
+    vals.push(patch.pinned === true ? 1 : 0)
   }
   // Empty patch is a no-op — return BEFORE touching the table so an INSERT OR
   // IGNORE never leaves a phantom all-null row that then haunts listProjectSettings.
