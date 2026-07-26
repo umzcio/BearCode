@@ -1193,6 +1193,27 @@
    dropdown where a flat set of options reads better as chips). */
 .clarify-card .clarify-field {
   margin-bottom: 12px;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+  opacity: 1;
+  transform: translateY(0);
+}
+@starting-style {
+  .clarify-card .clarify-field {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .clarify-card .clarify-field {
+    transition: opacity var(--dur-fast) ease;
+  }
+  @starting-style {
+    .clarify-card .clarify-field {
+      transform: none;
+    }
+  }
 }
 .clarify-label {
   display: block;
