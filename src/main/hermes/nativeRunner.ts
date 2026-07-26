@@ -69,6 +69,47 @@ function toolStatus(status: string): 'completed' | 'failed' {
   return status === 'completed' ? 'completed' : 'failed'
 }
 
+// Shared cleanup for every native-turn termination path. Call sites:
+//   1. `invalidateInteractions` wrapper inside `runHermesNative` (wire events
+//      `turn.completed` / `turn.failed` / `turn.cancelled`)
+//   2. `runHermesNative`'s top-level `catch` block (turn.run() rejects
+//      directly, e.g. heartbeat timeout / dropped socket / establishment
+//      timeout, with no wire event at all)
+//   3. `cancelHermesNative` (user-initiated cancel, including the race where
+//      the grace timer settles 'cancelled' without a `turn.cancelled` wire
+//      event)
+// Idempotent by construction: the status/state guards make repeat calls for
+// an already-terminated turn a no-op.
+function terminateInteractions(conversationId: string, active: ActiveNativeTurn): void {
+  for (const requestId of active.pendingApprovals) {
+    const toolCallId = active.approvalToolCallIds.get(requestId)
+    const previous = toolCallId ? active.toolCalls.get(toolCallId) : undefined
+    if (toolCallId && previous && previous.status === 'awaiting-approval') {
+      const event: Extract<Event, { type: 'hermes_tool_call' }> = {
+        ...previous,
+        status: 'failed'
+      }
+      active.toolCalls.set(toolCallId, event)
+      emitAndReplace(conversationId, active.sink, event)
+    }
+  }
+  for (const requestId of active.pendingClarifications) {
+    const previous = active.clarifications.get(requestId)
+    if (previous && previous.state === 'pending') {
+      const event: Extract<Event, { type: 'hermes_clarification' }> = {
+        ...previous,
+        state: 'expired'
+      }
+      active.clarifications.set(requestId, event)
+      emitAndReplace(conversationId, active.sink, event)
+    }
+  }
+  active.pendingApprovals.clear()
+  active.pendingClarifications.clear()
+  active.approvalToolCallIds.clear()
+  active.clarifications.clear()
+}
+
 export async function runHermesNative(
   conversationId: string,
   userText: string,
@@ -98,10 +139,7 @@ export async function runHermesNative(
   let active!: ActiveNativeTurn
 
   const invalidateInteractions = (): void => {
-    active.pendingApprovals.clear()
-    active.pendingClarifications.clear()
-    active.approvalToolCallIds.clear()
-    active.clarifications.clear()
+    terminateInteractions(conversationId, active)
   }
 
   const persistAssistant = (messageId: string): void => {
@@ -307,6 +345,7 @@ export async function runHermesNative(
     sink.setState(conversationId, 'done')
     return { paused: false }
   } catch (error) {
+    invalidateInteractions()
     if (latestAssistantId) persistAssistant(latestAssistantId)
     const cancelled = signal.aborted
     return fail(
@@ -325,10 +364,7 @@ export function cancelHermesNative(conversationId: string): boolean {
   const active = activeTurns.get(conversationId)
   if (!active) return false
   active.turn.cancel()
-  active.pendingApprovals.clear()
-  active.pendingClarifications.clear()
-  active.approvalToolCallIds.clear()
-  active.clarifications.clear()
+  terminateInteractions(conversationId, active)
   return true
 }
 

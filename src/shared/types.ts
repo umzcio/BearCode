@@ -760,7 +760,7 @@ export type Event =
       requestId: string
       question: string
       choices: string[]
-      state: 'pending' | 'answered'
+      state: 'pending' | 'answered' | 'expired'
       response?: string
     }
   | {

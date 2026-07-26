@@ -50,9 +50,11 @@ export function HermesClarifyCard({
         <div className="waiting-note">
           {event.state === 'answered' && event.response
             ? `Answered: ${event.response}`
-            : event.choices.length > 0
-              ? event.choices.join(' · ')
-              : 'Waiting for a response…'}
+            : event.state === 'expired'
+              ? 'This request ended before it was answered.'
+              : event.choices.length > 0
+                ? event.choices.join(' · ')
+                : 'Waiting for a response…'}
         </div>
       </div>
     )
