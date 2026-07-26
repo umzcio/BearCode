@@ -208,6 +208,30 @@ describe('TerminalView', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('spawn failed')
   })
 
+  it("a fresh mount for a different path never carries over a previous path's stale error (this is what the App.tsx remount key relies on)", async () => {
+    // Project A: hydration fails, error banner shows.
+    vi.mocked(window.bearcode.terminal.list).mockRejectedValueOnce(new Error('boom: project A'))
+    const { unmount } = render(<TerminalView path="/proj/a" />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('boom: project A')
+
+    // Simulate the App.tsx remount that happens when the `main-view` wrapper's
+    // key changes from `terminal:/proj/a` to `terminal:/proj/b` -- a full
+    // unmount of the old instance, then a fresh mount of a new one for the new
+    // path. Project B already has cached tabs in the store from an earlier
+    // visit this session, and its own hydration succeeds cleanly.
+    unmount()
+    useAppStore.setState({
+      terminalTabs: { '/proj/b': [{ id: 'b1', title: 'zsh', exited: false }] },
+      activeTerminalTab: { '/proj/b': 'b1' }
+    })
+    render(<TerminalView path="/proj/b" />)
+
+    // The fresh instance must show Project B's working terminal, not Project
+    // A's stale error banner.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pane-b1')).toBeInTheDocument()
+  })
+
   it('shows the shared empty state (not a blank pane) after the user closes every open tab', async () => {
     // This path already had a tab at mount, so the hydration effect's
     // early-return branch runs (no list()/create() involved) and marks
