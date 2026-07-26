@@ -273,6 +273,33 @@ describe('Projects/Pinned/Recents (Conversations segment)', () => {
     expect(screen.queryByText('feature-x')).not.toBeInTheDocument()
   })
 
+  // Guards against a regression that drops the `environment === 'worktree'`
+  // half of the render guard: if only `sidebarSubtitle === 'worktree'` were
+  // checked, every conversation (including plain local ones, BASE_CONVO's
+  // default) would grow a subtitle the moment the Display Option was turned
+  // on -- even ones with no worktree at all.
+  it('does not render a worktree subtitle for a local (non-worktree) conversation, even when sidebarSubtitle is "worktree"', () => {
+    mount({
+      conversations: {
+        r1: {
+          title: 'Recent convo',
+          projectPath: null,
+          updatedAt: 3,
+          pinned: false,
+          // environment defaults to 'local' via BASE_CONVO, but a
+          // `worktrees` entry is present anyway -- if the render guard ever
+          // dropped its `environment === 'worktree'` check, this would be
+          // enough data for the subtitle to render regardless.
+          worktrees: [
+            { repoPath: '/r', worktreePath: '/r-wt', branch: 'feature-x', baseBranch: 'main' }
+          ]
+        }
+      },
+      settings: { sidebarSubtitle: 'worktree' }
+    })
+    expect(screen.queryByText('feature-x')).not.toBeInTheDocument()
+  })
+
   // Regression test for the chip-color bug (final review #4), now exercised
   // through the "Pinned Projects" section instead of the retired flat list:
   // checks both the resolved custom name renders (not the raw folder
