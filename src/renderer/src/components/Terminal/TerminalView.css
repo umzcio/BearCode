@@ -88,6 +88,8 @@
   display: inline-flex;
   border-radius: 4px;
   padding: 2px;
+  background: none;
+  border: none;
   transition:
     background var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out);
