@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { resolveRuleRefs, type OutsidePolicy } from './index'
@@ -63,5 +63,35 @@ describe('resolveRefPath outside-folder policy', () => {
     const abs = join(outside, 'secret.txt')
     const r = resolveRuleRefs(`x @${abs}`, root) // opts omitted
     expect(r.body).toContain('SECRET')
+  })
+})
+
+describe('resolveRefPath symlink containment', () => {
+  it('rejects a relative ref through a symlinked intermediate directory pointing outside the workspace', () => {
+    symlinkSync(outside, join(root, 'vendor'))
+
+    const r = resolveRuleRefs('see @vendor/secret.txt', root, { outside: P('allow') })
+
+    expect(r.body).not.toContain('SECRET')
+    expect(r.body).toContain('@vendor/secret.txt')
+  })
+
+  it('rejects an absolute ref through a symlinked intermediate directory that only LEXICALLY looks in-workspace', () => {
+    // A ref that is textually "root/vendor/secret.txt" (i.e. starts with the
+    // project root as a string) but whose real path resolves outside it via
+    // a symlinked `vendor` -- this must NOT be treated as an always-ok
+    // in-workspace ref; it must fall through to the OutsidePolicy gate like
+    // any other out-of-workspace ref, and specifically be denied here.
+    symlinkSync(outside, join(root, 'vendor'))
+    const lexicallyInWorkspace = join(root, 'vendor', 'secret.txt')
+
+    const r = resolveRuleRefs(`x @${lexicallyInWorkspace}`, root, { outside: P('deny') })
+
+    expect(r.body).not.toContain('SECRET')
+  })
+
+  it('a genuinely in-workspace relative ref still resolves after the realpath swap (no regression)', () => {
+    const r = resolveRuleRefs('see @sub/in.md', root, { outside: P('deny') })
+    expect(r.body).toContain('IN-FOLDER-CONTENT')
   })
 })

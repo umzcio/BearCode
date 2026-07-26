@@ -451,13 +451,18 @@ export function loadAgentsContent(
 //   1. Absolute path (starts with "/"): read directly, READ-ONLY, allowed to
 //      point anywhere on disk (documented Antigravity-parity behavior).
 //   2. Otherwise: resolve relative to the workspace root (projectPath) and
-//      verify containment with a path-separator boundary check (see
-//      isInsideWorkspace below) before reading -- this is the same
-//      resolve-then-verify-prefix idiom as fsBackend.ts's jailPath, reused
-//      here per the design's explicit instruction. A plain resolve+prefix
-//      check (no realpath/symlink resolution) is sufficient because this is
-//      read-only TEXT INCLUSION into a prompt, never executed and never
-//      written back (design 10).
+//      verify containment (see isInsideWorkspace below) before reading.
+//      UPDATED (round2 plan 002): containment is now realpath-based
+//      (isInsideWorkspace delegates to isPathWithinRoot), not a plain
+//      resolve+prefix string check. Design 10's original rationale -- "a
+//      lexical check is sufficient because this is read-only TEXT INCLUSION,
+//      never executed and never written back" -- addressed code-execution
+//      risk, not read-disclosure risk: a symlinked intermediate directory
+//      (e.g. a committed `vendor` -> ~/.ssh) is lexically "inside" the
+//      workspace even though its real target is not, so its content would
+//      still get inlined into the LLM's context (transcripts/logs) without
+//      ever reaching the OutsidePolicy consent gate. See
+//      planning/round2-plans/002-atref-resolver-realpath-containment.md.
 //
 // Unresolvable refs (file missing, escapes the workspace, or a repeat within
 // the current resolution chain -- see cycle detection below) are left as the
@@ -562,7 +567,18 @@ function resolveRefsInner(
     // Bounded, non-regular-rejecting read: a missing file, a directory, a
     // FIFO, a device node, or any read error all degrade to the literal
     // token + warning, and at most MAX_REF_BYTES are ever read.
-    const read = readFileCapped(resolved, MAX_REF_BYTES)
+    //
+    // `root` is passed ONLY when this resolved path is actually inside the
+    // project (by realpath, via isInsideWorkspace/isPathWithinRoot above) --
+    // an absolute ref legitimately outside the workspace and allowed by
+    // OutsidePolicy keeps the existing no-root, symlinks-followed read
+    // (unchanged behavior, still capped). For an in-workspace resolution,
+    // passing root gives readFileCapped's own leaf-symlink rejection as
+    // additional defense-in-depth beyond the isInsideWorkspace check that
+    // already ran inside resolveRefPath.
+    const root =
+      projectPath && isInsideWorkspace(resolve(projectPath), resolved) ? projectPath : undefined
+    const read = readFileCapped(resolved, MAX_REF_BYTES, root)
     if (!read) {
       result += token
       warnings.push(`Could not resolve rule reference: @${refPath}`)
@@ -626,14 +642,21 @@ function resolveRefPath(
     : { path: null, pending: null }
 }
 
-// Boundary-safe containment check (mirrors fsBackend.ts's jailPath idiom,
-// reused here per the design's instruction): compares against `root + sep`
-// rather than a naive startsWith(root), so a sibling directory that merely
-// shares root as a string prefix (e.g. root "/work/proj" and candidate
-// "/work/proj-evil/secret") is correctly rejected instead of misclassified
-// as inside the workspace.
+// Boundary-safe containment check. Uses isPathWithinRoot (fsCapped.ts),
+// which realpathSync()s BOTH sides before comparing -- this is what closes
+// the "symlinked intermediate directory" gap: a project can commit `vendor`
+// as a symlink (a valid git tree entry) pointing anywhere on disk, and a ref
+// like `@vendor/x` is lexically "inside" the workspace as a plain string
+// comparison even though it resolves somewhere else entirely. See
+// planning/round2-plans/002-atref-resolver-realpath-containment.md for the
+// full rationale, including the documented prior design decision this
+// revisits (originally a plain resolve+prefix check was judged sufficient
+// because ref inclusion is read-only text, never executed -- that reasoning
+// covers code-execution risk but not read-disclosure risk, which this
+// codebase's later config-import and agentsDir loader fixes treat as
+// independently in-scope).
 function isInsideWorkspace(root: string, candidate: string): boolean {
-  return candidate === root || candidate.startsWith(root + sep)
+  return isPathWithinRoot(candidate, root)
 }
 
 // Deterministic ordering for plugin-sourced ingredients (skills/rules) before
