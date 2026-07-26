@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { memoryDir, parseMemoryBullets, serializeMemoryBullets, loadMemory } from './memory'
@@ -78,5 +78,27 @@ describe('loadMemory', () => {
     expect(loadMemory(projectDir).project).toEqual([])
     expect(loadMemory(projectDir).global.map((e) => e.text)).toEqual(['g1'])
     expect(loadMemory(projectDir, { trusted: true }).project.map((e) => e.text)).toEqual(['p1'])
+  })
+
+  // Security follow-up on the config-import symlink-containment fix: an
+  // untrusted (but already-trusted-by-the-user) project's own
+  // `.agents/memory/memory.md` could be a symlink pointing outside the
+  // project, silently leaking an external file's content into agent memory.
+  // Trust gating alone doesn't close this -- only a containment check on the
+  // read does. Global memory keeps the legacy allow-symlinks behavior.
+  it('rejects a symlinked project memory.md pointing outside the project instead of leaking its content', () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bc-mem-outside-'))
+    try {
+      const outsideFile = join(outsideDir, 'secret.md')
+      writeFileSync(outsideFile, '- SECRET EXTERNAL MEMORY BULLET\n')
+      mkdirSync(memoryDir('project', projectDir), { recursive: true })
+      symlinkSync(outsideFile, join(memoryDir('project', projectDir), 'memory.md'))
+
+      const mem = loadMemory(projectDir, { trusted: true })
+
+      expect(mem.project).toEqual([])
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
   })
 })
