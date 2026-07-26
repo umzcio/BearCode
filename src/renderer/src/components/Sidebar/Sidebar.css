@@ -226,11 +226,20 @@
   white-space: nowrap;
 }
 
-.sb-recents {
-  position: relative;
+/* The Projects/Pinned/Recents body (or the Hermes segment's own flat list)
+   can be arbitrarily long -- real accounts have far more than the handful of
+   projects test fixtures use. `.sb-scroll` is the ONE scrolling region for
+   that whole body, so Pinned/Recents/the footer stay reachable no matter how
+   long the Projects list grows. `.sb-recents` itself no longer scrolls on its
+   own -- it's just a labeled sub-section within that shared scroll area. */
+.sb-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.sb-recents {
   display: flex;
   flex-direction: column;
 }

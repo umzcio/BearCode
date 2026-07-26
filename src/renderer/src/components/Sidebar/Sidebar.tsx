@@ -214,6 +214,7 @@ export function Sidebar(): React.JSX.Element {
         </button>
       </Hint>
 
+      <div className="sb-scroll">
       {mode === 'hermes' && hermesEnabled ? (
         <div className="sb-recents">
           <div className="sb-label">Recents</div>
@@ -335,6 +336,7 @@ export function Sidebar(): React.JSX.Element {
           </div>
         </>
       )}
+      </div>
 
       <SidebarFooterMenu />
     </div>
