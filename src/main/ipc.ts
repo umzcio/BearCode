@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { statSync, readFileSync } from 'fs'
+import { isAbsolute } from 'path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import type {
   AddRuleInput,
@@ -1025,20 +1026,55 @@ export function registerIpc(): void {
   // Embedded Terminal (2026-07-25 design): TerminalManager is a main-side
   // singleton keyed by project path. Data/exit are pushed to every window via
   // `broadcast`, mirroring the `sink` object above -- never polled.
-  ipcMain.handle('bearcode:terminal:create', (_e, projectPath: string) =>
-    terminalManager.create(projectPath)
+  //
+  // Terminal IPC hardening (advisor plan 001): unlike every other main-process
+  // feature, `create()` spawns a real, fully unsandboxed shell -- treat its inputs
+  // like a genuine trust boundary even though today only this app's own renderer
+  // can reach it. `isKnownProjectPath` mirrors `reqPath` above but additionally
+  // requires the path to be a real, existing, absolute directory this app has
+  // already seen (see "Current state" in the plan for why project_settings alone
+  // isn't sufficient).
+  const isKnownProjectPath = (path: string): boolean => {
+    if (!isAbsolute(path)) return false
+    try {
+      if (!statSync(path).isDirectory()) return false
+    } catch {
+      return false
+    }
+    return db.getProjectSettings(path) != null || db.hasConversationForProject(path)
+  }
+  const reqTerminalProjectPath = (p: unknown): string => {
+    if (typeof p !== 'string' || p.length === 0 || !isKnownProjectPath(p)) {
+      throw new Error(`Unknown or invalid project path: ${String(p)}`)
+    }
+    return p
+  }
+  const reqTerminalId = (id: unknown): string => {
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new Error(`Invalid terminal id: ${String(id)}`)
+    }
+    return id
+  }
+  ipcMain.handle('bearcode:terminal:create', (_e, projectPath: unknown) =>
+    terminalManager.create(reqTerminalProjectPath(projectPath))
   )
-  ipcMain.handle('bearcode:terminal:write', (_e, id: string, data: string) => {
-    terminalManager.write(id, data)
+  ipcMain.handle('bearcode:terminal:write', (_e, id: unknown, data: unknown) => {
+    const sid = reqTerminalId(id)
+    if (typeof data !== 'string') throw new Error(`Invalid terminal data: ${typeof data}`)
+    terminalManager.write(sid, data)
   })
-  ipcMain.handle('bearcode:terminal:resize', (_e, id: string, cols: number, rows: number) => {
-    terminalManager.resize(id, cols, rows)
+  ipcMain.handle('bearcode:terminal:resize', (_e, id: unknown, cols: unknown, rows: unknown) => {
+    const sid = reqTerminalId(id)
+    if (!Number.isFinite(cols) || !Number.isFinite(rows)) {
+      throw new Error(`Invalid terminal size: ${String(cols)}x${String(rows)}`)
+    }
+    terminalManager.resize(sid, cols as number, rows as number)
   })
-  ipcMain.handle('bearcode:terminal:close', (_e, id: string) => {
-    terminalManager.close(id)
+  ipcMain.handle('bearcode:terminal:close', (_e, id: unknown) => {
+    terminalManager.close(reqTerminalId(id))
   })
-  ipcMain.handle('bearcode:terminal:list', (_e, projectPath: string) =>
-    terminalManager.list(projectPath)
+  ipcMain.handle('bearcode:terminal:list', (_e, projectPath: unknown) =>
+    terminalManager.list(reqPath(projectPath))
   )
   terminalManager.onData((id, chunk) => broadcast('bearcode:terminal:data', id, chunk))
   terminalManager.onExit((id) => broadcast('bearcode:terminal:exit', id))

@@ -1126,6 +1126,18 @@ export function upsertProjectSettings(path: string, patch: ProjectSettings): voi
     .run(...vals, path)
 }
 
+// Terminal IPC validation (advisor plan 001): a project-scoped resource (unlike
+// per-conversation ones) has no single conversationId to derive trust from, so
+// "known project" here means either has a project_settings row OR has hosted at
+// least one conversation -- see the plan for why getProjectSettings alone under-
+// counts freshly-opened folders.
+export function hasConversationForProject(path: string): boolean {
+  const row = getDb()
+    .prepare(`SELECT 1 FROM conversations WHERE project_path = ? LIMIT 1`)
+    .get(path)
+  return row !== undefined
+}
+
 // ---- Project Trust + Outside-of-Folder Access (audit C-1) ----
 
 export function isProjectTrusted(path: string): boolean {
