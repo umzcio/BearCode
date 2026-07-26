@@ -208,9 +208,10 @@ describe('TerminalManager', () => {
 
   it('close() on an already-exited session does not call kill again', () => {
     const view = terminalManager.create('/proj/a')
+    const killSpy = vi.mocked(process.kill)
     spawned[0].emitExit()
     terminalManager.close(view.id)
-    expect(spawned[0].kill).not.toHaveBeenCalled()
+    expect(killSpy).not.toHaveBeenCalled()
   })
 
   it("killAll() sends SIGHUP to every live session's process group and clears the list", () => {
