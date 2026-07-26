@@ -343,7 +343,7 @@ export class HermesNativeTurn {
     // A duplicate is the ledger's alternate response to this client's first
     // turn.start. It carries sequence 1 without a preceding turn.accepted.
     if (event.type !== 'turn.duplicate') this.sequence.accept(event)
-    await this.handleServerEvent(event)
+    await this.handleServerEvent(connection, event)
   }
 
   private async handleBinary(frame: Buffer): Promise<void> {
@@ -358,7 +358,7 @@ export class HermesNativeTurn {
     }
   }
 
-  private async handleServerEvent(event: HermesServerEvent): Promise<void> {
+  private async handleServerEvent(connection: WebSocket, event: HermesServerEvent): Promise<void> {
     if (event.type === 'attachment.upload.accepted') {
       this.resolvePending(`upload.accepted:${event.attachmentId}`)
       return
@@ -379,6 +379,7 @@ export class HermesNativeTurn {
       } catch (error) {
         throw this.asFileError(error)
       }
+      if (this.connection !== connection || this.settled) return
       this.options.onEvent(event)
       return
     }
@@ -389,6 +390,7 @@ export class HermesNativeTurn {
       try {
         const attachment = await this.downloadWriter.complete(event.payload.attachmentId)
         this.downloadIds.delete(event.payload.attachmentId)
+        if (this.connection !== connection || this.settled) return
         this.options.onEvent(event)
         this.options.onAttachment(attachment)
       } catch (error) {

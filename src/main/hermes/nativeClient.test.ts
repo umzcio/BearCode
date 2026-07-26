@@ -601,6 +601,67 @@ describe('HermesNativeTurn connection state machine', () => {
     expect(await readdir(join(root, 'attachments', ids.conversation))).toEqual([])
   })
 
+  it('drops a download begin event that resolves after settle interrupts the write', async () => {
+    let releaseBegin!: () => void
+    const beginBlocked = new Promise<void>((resolve) => {
+      releaseBegin = () => resolve(undefined)
+    })
+    vi.spyOn(NativeDownloadWriter.prototype, 'begin').mockImplementation(() => beginBlocked)
+    const events: HermesServerEvent[] = []
+    const { turn, socket } = testHarness({ onEvent: (event) => events.push(event) })
+    const result = start(turn, socket)
+    socket.server(helloAccepted())
+    socket.server(serverEvent('turn.accepted', 1, {}))
+    await eventually(() => turn.accepted ? true : undefined)
+    socket.server(serverEvent('attachment.download.begin', 2, {
+      attachment: { id: ids.download, name: 'result.txt', mime: 'text/plain', kind: 'text', sizeBytes: 4, sha256: '3b9c358f36f0a31b6ad3e14f309c7cf198ac9246e8316f9ce543d5b19ac02b80' }
+    }))
+    await new Promise((resolve) => setImmediate(resolve))
+
+    socket.emit('error', new Error('late socket error'))
+    await expect(result).rejects.toMatchObject({ kind: 'network', code: 'network.disconnected' })
+
+    releaseBegin()
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(events.map((event) => event.type)).not.toContain('attachment.download.begin')
+  })
+
+  it('drops a download completed event and attachment that resolve after settle interrupts finalization', async () => {
+    const root = await rootDir()
+    const events: HermesServerEvent[] = []
+    const attachments: HermesAttachment[] = []
+    const { turn, socket } = testHarness({
+      onEvent: (event) => events.push(event),
+      onAttachment: (attachment) => attachments.push(attachment)
+    }, root)
+    const result = start(turn, socket)
+    socket.server(helloAccepted())
+    socket.server(serverEvent('turn.accepted', 1, {}))
+    await eventually(() => turn.accepted ? true : undefined)
+    socket.server(serverEvent('attachment.download.begin', 2, {
+      attachment: { id: ids.download, name: 'result.txt', mime: 'text/plain', kind: 'text', sizeBytes: 4, sha256: '3b9c358f36f0a31b6ad3e14f309c7cf198ac9246e8316f9ce543d5b19ac02b80' }
+    }))
+    await eventually(() => events.some((event) => event.type === 'attachment.download.begin') ? true : undefined)
+
+    let releaseComplete!: (attachment: HermesAttachment) => void
+    const completeBlocked = new Promise<HermesAttachment>((resolve) => {
+      releaseComplete = resolve
+    })
+    vi.spyOn(NativeDownloadWriter.prototype, 'complete').mockImplementation(() => completeBlocked)
+
+    socket.server(serverEvent('attachment.download.completed', 3, { attachmentId: ids.download }))
+    await new Promise((resolve) => setImmediate(resolve))
+
+    socket.emit('error', new Error('late socket error'))
+    await expect(result).rejects.toMatchObject({ kind: 'network', code: 'network.disconnected' })
+
+    releaseComplete({ id: ids.download, name: 'result.txt', mime: 'text/plain', kind: 'text', sizeBytes: 4, sha256: '3b9c358f36f0a31b6ad3e14f309c7cf198ac9246e8316f9ce543d5b19ac02b80' })
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(events.map((event) => event.type)).not.toContain('attachment.download.completed')
+    expect(attachments).toEqual([])
+  })
+
   it('retries a failed connection exactly once before acceptance', async () => {
     const { turn, socket, sockets } = testHarness()
     const result = start(turn, socket)
