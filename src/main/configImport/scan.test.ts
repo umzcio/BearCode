@@ -1,15 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'fs'
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { scanImportableConfig, shouldShowImportBanner } from './scan'
 
 describe('scanImportableConfig', () => {
   let dir: string
+  let outsideDir: string
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'bearcode-import-'))
+    outsideDir = mkdtempSync(join(tmpdir(), 'bearcode-import-outside-'))
   })
-  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+  })
 
   it('finds nothing in an empty project', () => {
     expect(scanImportableConfig(dir)).toEqual([])
@@ -109,6 +114,33 @@ describe('scanImportableConfig', () => {
       sourcePath: join('.claude', 'agents', 'reviewer.md'),
       kind: 'unsupported',
       tool: 'claude-code'
+    })
+  })
+
+  // Security: a symlinked CLAUDE.md pointing outside the project must never
+  // be detected -- following it would stat/read an arbitrary locally
+  // readable file and surface its content in the import preview.
+  it('does not detect a symlinked CLAUDE.md pointing outside the project', () => {
+    const outsideFile = join(outsideDir, 'secret.md')
+    writeFileSync(outsideFile, 'secret content')
+    symlinkSync(outsideFile, join(dir, 'CLAUDE.md'))
+    expect(scanImportableConfig(dir)).toEqual([])
+  })
+
+  // Security: same as above but for a rules-directory entry, and proves the
+  // symlink filter is selective (a sibling real .md file is still detected).
+  it('excludes a symlinked file in .cursor/rules/ while still detecting a normal one', () => {
+    mkdirSync(join(dir, '.cursor', 'rules'), { recursive: true })
+    const outsideFile = join(outsideDir, 'evil.md')
+    writeFileSync(outsideFile, 'evil content')
+    symlinkSync(outsideFile, join(dir, '.cursor', 'rules', 'evil.md'))
+    writeFileSync(join(dir, '.cursor', 'rules', 'real.md'), 'real content')
+    const found = scanImportableConfig(dir)
+    expect(found.some((f) => f.sourcePath.includes('evil.md'))).toBe(false)
+    expect(found).toContainEqual({
+      sourcePath: join('.cursor', 'rules', 'real.md'),
+      kind: 'rule',
+      tool: 'cursor'
     })
   })
 })

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'fs'
+import { existsSync, lstatSync, readdirSync } from 'fs'
 import { join } from 'path'
 import type { ImportedConfigRow } from '../db'
 import type { DetectedSource, ImportTool } from './types'
@@ -23,9 +23,9 @@ function listMdFilesRel(
   const dir = join(projectPath, dirRel)
   if (!existsSync(dir)) return []
   try {
-    return readdirSync(dir)
-      .filter((f) => exts.some((e) => f.endsWith(e)))
-      .map((f) => join(dirRel, f))
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((d) => !d.isSymbolicLink() && exts.some((e) => d.name.endsWith(e)))
+      .map((d) => join(dirRel, d.name))
   } catch {
     return []
   }
@@ -51,7 +51,14 @@ export function scanImportableConfig(projectPath: string): DetectedSource[] {
   const found: DetectedSource[] = []
 
   for (const { rel, tool } of INSTRUCTION_FILES) {
-    if (existsSync(join(projectPath, rel))) {
+    const abs = join(projectPath, rel)
+    let isSymlink = false
+    try {
+      isSymlink = lstatSync(abs).isSymbolicLink()
+    } catch {
+      // doesn't exist — fall through, existsSync below will also be false
+    }
+    if (!isSymlink && existsSync(abs)) {
       found.push({ sourcePath: rel, kind: 'rule', tool })
     }
   }

@@ -13,7 +13,7 @@
 // Returns null on any error (missing, unreadable, non-regular): callers
 // never throw on a bad target. `truncated` reports whether the file held
 // more bytes than `cap`.
-import { closeSync, openSync, readSync, statSync } from 'fs'
+import { closeSync, lstatSync, openSync, readSync, statSync } from 'fs'
 
 export function readFileCapped(
   path: string,
@@ -22,6 +22,8 @@ export function readFileCapped(
   let fd: number
   let size: number
   try {
+    const lstat = lstatSync(path)
+    if (lstat.isSymbolicLink()) return null
     const stats = statSync(path)
     if (!stats.isFile()) return null
     size = stats.size
