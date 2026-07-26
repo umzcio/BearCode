@@ -59,6 +59,15 @@
   outline: none;
   box-shadow: var(--focus-ring);
 }
+/* Matches Sidebar.css's .sb-flatrow.selected treatment (same tokens) so the
+   active-project highlight reads as one visual language across the sidebar's
+   Pinned Projects rows and this index page. */
+.pidx-row.selected {
+  background: var(--bg-active);
+}
+.pidx-row.selected .name {
+  color: var(--text);
+}
 .pidx-row .chip {
   width: 24px;
   height: 24px;

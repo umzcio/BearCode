@@ -279,10 +279,11 @@ export function Sidebar(): React.JSX.Element {
               {pinnedProjects.map((fp) => {
                 const Icon = projectIcon(fp.icon)
                 const label = fp.name ?? fp.path.split('/').pop() ?? fp.path
+                const selected = view.kind === 'project' && view.path === fp.path
                 return (
                   <div
                     key={fp.path}
-                    className="sb-flatrow"
+                    className={'sb-flatrow' + (selected ? ' selected' : '')}
                     role="button"
                     tabIndex={0}
                     onClick={() => openProjectPage(fp.path)}

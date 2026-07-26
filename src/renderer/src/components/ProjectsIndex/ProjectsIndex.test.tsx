@@ -36,6 +36,10 @@ function convo(over: Partial<{
 beforeEach(() => {
   vi.clearAllMocks()
   useAppStore.setState({
+    // Explicitly reset `view` every test (mirrors Sidebar.test.tsx's `mount()`
+    // convention) so Zustand state from a prior test file can't leak into a
+    // selected-highlight assertion here.
+    view: { kind: 'projects' },
     folderSettings: [
       { path: '/proj-a', name: null, color: null, icon: null, pinned: false },
       { path: '/proj-b', name: 'Beta', color: '#4c8dff', icon: null, pinned: true }
@@ -115,6 +119,20 @@ describe('ProjectsIndex', () => {
     })
     render(<ProjectsIndex />)
     expect(screen.getByText('No projects yet')).toBeInTheDocument()
+  })
+
+  // Plan 008: the row for the project currently open (view: { kind:
+  // 'project', path }) must get the same `.selected` treatment the sidebar's
+  // Pinned Projects rows and conversation rows already have.
+  it('highlights the row matching the current project view and not other rows', () => {
+    useAppStore.setState({ view: { kind: 'project', path: '/proj-a' } } as never)
+    render(<ProjectsIndex />)
+    const aRow = screen.getByText('proj-a').closest('.pidx-row')
+    const bRow = screen.getByText('Beta').closest('.pidx-row')
+    expect(aRow).not.toBeNull()
+    expect(bRow).not.toBeNull()
+    expect(aRow!.className).toContain('selected')
+    expect(bRow!.className).not.toContain('selected')
   })
 
   it('shows a project derived from conversations even with no folderSettings row (root-cause regression)', () => {

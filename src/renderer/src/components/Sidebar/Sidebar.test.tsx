@@ -41,6 +41,7 @@ function mount(opts: {
   settings?: Record<string, unknown>
   newHermesConversation?: ReturnType<typeof vi.fn>
   folderSettings?: Record<string, unknown>[]
+  view?: { kind: string; path?: string | null; id?: string }
 }): HTMLElement {
   const conversations: Record<string, Convo> = {}
   for (const [id, partial] of Object.entries(opts.conversations ?? {})) {
@@ -49,7 +50,7 @@ function mount(opts: {
   ;(window as unknown as { bearcode: unknown }).bearcode = {}
   useAppStore.setState({
     sidebarCollapsed: false,
-    view: { kind: 'home' },
+    view: opts.view ?? { kind: 'home' },
     convoOrder: Object.keys(conversations),
     conversations,
     folderSettings: (opts.folderSettings ?? []) as never,
@@ -342,5 +343,26 @@ describe('Pinned Projects section', () => {
     fireEvent.click(screen.getByLabelText('New conversation'))
     expect(useAppStore.getState().newConversationInProject).toHaveBeenCalledWith('/proj-a')
     expect(useAppStore.getState().openProjectPage).not.toHaveBeenCalled()
+  })
+
+  // Regression test for plan 008: the currently-open project's row must get
+  // the same `.selected` treatment conversation rows already have (see
+  // "Conversation row actions" tests' `openConvo` assertions for the sibling
+  // behavior this mirrors).
+  it('highlights the row matching the current project view and not other pinned rows', () => {
+    mount({
+      conversations: {},
+      folderSettings: [
+        { path: '/proj-a', color: null, icon: null, name: 'Alpha', pinned: true },
+        { path: '/proj-b', color: null, icon: null, name: 'Beta', pinned: true }
+      ],
+      view: { kind: 'project', path: '/proj-a' }
+    })
+    const alphaRow = screen.getByText('Alpha').closest('.sb-flatrow')
+    const betaRow = screen.getByText('Beta').closest('.sb-flatrow')
+    expect(alphaRow).not.toBeNull()
+    expect(betaRow).not.toBeNull()
+    expect(alphaRow!.className).toContain('selected')
+    expect(betaRow!.className).not.toContain('selected')
   })
 })

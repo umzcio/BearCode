@@ -49,6 +49,7 @@ export function ProjectsIndex(): React.JSX.Element {
   const folderSettings = useAppStore((s) => s.folderSettings)
   const convoOrder = useAppStore((s) => s.convoOrder)
   const conversations = useAppStore((s) => s.conversations)
+  const view = useAppStore((s) => s.view)
   const openProjectPage = useAppStore((s) => s.openProjectPage)
   const openProjectSettings = useAppStore((s) => s.openProjectSettings)
   const openTerminalView = useAppStore((s) => s.openTerminalView)
@@ -152,10 +153,11 @@ export function ProjectsIndex(): React.JSX.Element {
           sorted.map(({ fp, count }) => {
             const Icon = projectIcon(fp.icon)
             const label = fp.name ?? fp.path.split('/').pop() ?? fp.path
+            const selected = view.kind === 'project' && view.path === fp.path
             return (
               <div
                 key={fp.path}
-                className="pidx-row"
+                className={'pidx-row' + (selected ? ' selected' : '')}
                 role="button"
                 tabIndex={0}
                 onClick={() => openProjectPage(fp.path)}
