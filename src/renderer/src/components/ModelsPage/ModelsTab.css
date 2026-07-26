@@ -141,3 +141,34 @@
   opacity: 0.4;
   cursor: default;
 }
+.mt-bulk-btn {
+  border: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.mt-bulk-btn:hover {
+  background: var(--wash);
+}
+.mt-footer {
+  display: flex;
+}
+.mt-add-model {
+  border: 1px dashed var(--border-soft);
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.mt-add-model::before {
+  content: '+ ';
+}
+.mt-add-model:hover {
+  color: var(--text);
+  border-color: var(--border);
+}

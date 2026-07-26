@@ -1,13 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { ProviderId } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { buildModelRows, formatTokens, type ModelStatus } from '../../lib/modelRows'
 import { Select, type SelectOption } from '../Select'
 import { Toggle } from '../Toggle'
 import { EmptyState } from '../ui/EmptyState'
+import { Menu } from '../ui/Menu'
 import { ProviderIcon } from '../ProviderIcon'
 import { IconDots, IconSearch, IconStar } from '../icons'
 import { ModelDetailModal } from './ModelDetailModal'
+import { AddCustomModelModal } from './AddCustomModelModal'
 import './ModelsTab.css'
 
 const STATUS_LABEL: Record<ModelStatus, string> = {
@@ -58,6 +60,9 @@ export function ModelsTab(): React.JSX.Element {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<'10' | '25' | '50'>('25')
   const [openRef, setOpenRef] = useState<string | null>(null)
+  const [addModelOpen, setAddModelOpen] = useState(false)
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const bulkBtnRef = useRef<HTMLButtonElement>(null)
 
   const vendorOptions: SelectOption<'all' | ProviderId>[] = [
     { value: 'all', label: 'All vendors' },
@@ -101,6 +106,11 @@ export function ModelsTab(): React.JSX.Element {
     if (set.has(ref)) set.delete(ref)
     else set.add(ref)
     void saveSettings({ favoriteModels: [...set] })
+  }
+
+  const bulkSetEnabled = (enabled: boolean): void => {
+    for (const row of filtered) void setModelEnabled(row.ref, enabled)
+    setBulkOpen(false)
   }
 
   if (!settings) return <EmptyState title="Loading models…" />
@@ -167,6 +177,25 @@ export function ModelsTab(): React.JSX.Element {
           />
           Show enabled only
         </label>
+        <button ref={bulkBtnRef} type="button" className="mt-bulk-btn" onClick={() => setBulkOpen((o) => !o)}>
+          Bulk actions
+        </button>
+        <Menu
+          anchorRef={bulkBtnRef}
+          open={bulkOpen}
+          onClose={() => setBulkOpen(false)}
+          groups={[
+            {
+              items: [
+                { value: 'enable', label: 'Enable all filtered' },
+                { value: 'disable', label: 'Disable all filtered' }
+              ]
+            }
+          ]}
+          onSelect={(v) => bulkSetEnabled(v === 'enable')}
+          ariaLabel="Bulk actions"
+          placement="bottom-end"
+        />
       </div>
 
       {pageRows.length === 0 ? (
@@ -325,7 +354,14 @@ export function ModelsTab(): React.JSX.Element {
         </button>
       </div>
 
+      <div className="mt-footer">
+        <button type="button" className="mt-add-model" onClick={() => setAddModelOpen(true)}>
+          Add custom model
+        </button>
+      </div>
+
       <ModelDetailModal modelRef={openRef} onClose={() => setOpenRef(null)} />
+      {addModelOpen ? <AddCustomModelModal onClose={() => setAddModelOpen(false)} /> : null}
     </div>
   )
 }

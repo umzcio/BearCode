@@ -136,4 +136,23 @@ describe('ModelsTab', () => {
     fireEvent.click(screen.getByLabelText('Next page'))
     expect(screen.getByText(/Showing 11–12 of 12/)).toBeTruthy()
   })
+
+  it('opens the Add Custom Model modal from the footer button', () => {
+    seed()
+    render(<ModelsTab />)
+    fireEvent.click(screen.getByText('Add custom model'))
+    expect(screen.getByLabelText('Add a custom model')).toBeTruthy()
+  })
+
+  it('bulk-disables every FILTERED row (not just the current page) via Bulk actions', () => {
+    const setModelEnabled = vi.fn().mockResolvedValue(undefined)
+    seed({ setModelEnabled })
+    render(<ModelsTab />)
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'claude' } })
+    fireEvent.click(screen.getByText('Bulk actions'))
+    fireEvent.click(screen.getByText('Disable all filtered'))
+    expect(setModelEnabled).toHaveBeenCalledWith('anthropic/claude-opus-4-8', false)
+    expect(setModelEnabled).toHaveBeenCalledWith('anthropic/claude-haiku-4-5', false)
+    expect(setModelEnabled).not.toHaveBeenCalledWith('openai/gpt-5.6-sol', expect.anything())
+  })
 })
