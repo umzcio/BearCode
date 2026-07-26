@@ -64,9 +64,8 @@ export function SidebarFooterMenu(): React.JSX.Element {
               type="button"
               role="menuitemcheckbox"
               aria-checked={isDark}
-              aria-disabled={!isBinary}
               aria-label="Dark Mode"
-              className={'menu-item' + (isDark ? ' selected' : '') + (!isBinary ? ' disabled' : '')}
+              className={'menu-item' + (isDark ? ' selected' : '') + (!isBinary ? ' redirect' : '')}
               onClick={() => {
                 if (!isBinary) {
                   setOpen(false)

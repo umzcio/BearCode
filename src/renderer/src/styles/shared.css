@@ -264,6 +264,16 @@
 .menu-item.danger {
   color: var(--danger, var(--red));
 }
+/* For an item whose usual action doesn't apply right now but which still
+   performs a real, different action on click/activation (e.g. the sidebar's
+   Dark Mode toggle routing to Settings when the theme is System/Custom).
+   Deliberately NOT `.disabled` -- that class means genuinely inert (see
+   Menu.tsx's `commit()`, which no-ops before `onSelect` for disabled items).
+   A color-only treatment (no opacity/cursor change) signals "still live,
+   just different" -- mirrors ModelPicker's `.add-key`. */
+.menu-item.redirect {
+  color: var(--accent);
+}
 .menu-item .badge {
   font-size: 10.5px;
   padding: 2px 6px;
