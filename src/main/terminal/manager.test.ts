@@ -156,6 +156,10 @@ describe('TerminalManager', () => {
     expect(spawned[0].resize).not.toHaveBeenCalled()
   })
 
+  it('ignores a resize to an unknown id', () => {
+    expect(() => terminalManager.resize('nope', 120, 40)).not.toThrow()
+  })
+
   it('marks a session exited and stops accepting writes/resizes after exit', () => {
     const view = terminalManager.create('/proj/a')
     spawned[0].emitExit()
@@ -212,6 +216,29 @@ describe('TerminalManager', () => {
     spawned[0].emitExit()
     terminalManager.close(view.id)
     expect(killSpy).not.toHaveBeenCalled()
+  })
+
+  it('close() on an id that was never created (or already closed) does not throw', () => {
+    expect(() => terminalManager.close('nope')).not.toThrow()
+  })
+
+  it('closing the same id twice is a no-op the second time', () => {
+    const view = terminalManager.create('/proj/a')
+    terminalManager.close(view.id)
+    expect(() => terminalManager.close(view.id)).not.toThrow()
+    expect(terminalManager.list('/proj/a')).toHaveLength(0)
+  })
+
+  it('ignores write/resize on a session that was removed via close() (not just exited)', () => {
+    const view = terminalManager.create('/proj/a')
+    terminalManager.close(view.id)
+    expect(() => terminalManager.write(view.id, 'x')).not.toThrow()
+    expect(() => terminalManager.resize(view.id, 100, 30)).not.toThrow()
+    // The pty behind this session is gone from the map entirely (unlike the
+    // "exited but still present" case tested elsewhere in this file) -- its write/
+    // resize mocks must not have been called post-close.
+    expect(spawned[0].write).not.toHaveBeenCalled()
+    expect(spawned[0].resize).not.toHaveBeenCalled()
   })
 
   it("killAll() sends SIGHUP to every live session's process group and clears the list", () => {
