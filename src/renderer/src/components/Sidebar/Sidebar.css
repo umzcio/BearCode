@@ -22,12 +22,14 @@
 }
 
 /* Native macOS traffic lights sit over this row, pinned to the same line
-   by trafficLightPosition in src/main/index.ts. */
+   by trafficLightPosition in src/main/index.ts. padding-left uses the
+   shared --traffic-light-inset token (tokens.css) so this can't drift out
+   of sync with App.css's collapsed-topbar fallback again. */
 .chrome {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 2px 4px 16px 78px;
+  padding: 2px 4px 16px var(--traffic-light-inset);
   -webkit-app-region: drag;
 }
 .chrome .chrome-btn {
@@ -126,62 +128,6 @@
   margin-left: auto;
 }
 
-.sb-projrow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 10px;
-  border-radius: 9px;
-  border: none;
-  background: none;
-  color: var(--text-mid);
-  font-size: 13.5px;
-  cursor: pointer;
-  text-align: left;
-  font-family: inherit;
-  transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
-}
-.sb-projrow:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-.sb-projrow:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-.sb-projrow .chip {
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-active);
-  color: var(--text-dim);
-}
-.sb-projrow .name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sb-projrow .cnt {
-  color: var(--text-dim);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-}
-.sb-projrow > svg {
-  width: 13px;
-  height: 13px;
-  color: var(--text-dim);
-  flex-shrink: 0;
-}
-
 .sb-flatrow {
   display: flex;
   align-items: center;
@@ -218,12 +164,51 @@
   border-radius: 50%;
   flex-shrink: 0;
 }
+/* Pinned Projects rows reuse .sb-flatrow but swap the conversation-row `.dot`
+   for a project icon chip (same visual language as ProjectPage's header
+   icon), so this is the one styled definition for it here. */
+.sb-flatrow .chip {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-active);
+  color: var(--text-dim);
+}
 .sb-flatrow .name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Hover-revealed Pin/Archive/⋮ actions (ConvoRowMenu), same pattern as
+   ProjectPage.css's `.pp-rowact` -- opacity-only reveal on the wrapper, not a
+   `display:none` on `.row-act` itself (that was the sidebar's own prior
+   gotcha: a `.row-act` default of `display:none` un-hidden only by a
+   *different* ancestor's `:hover` selector became invisible everywhere else
+   it got reused). `.row-act` is owned/defined by ProjectPage.css and is
+   always a normal focusable button; only the reveal wrapper is local here. */
+.sb-rowact {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.sb-flatrow:hover .sb-rowact,
+.sb-flatrow:focus-within .sb-rowact {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sb-rowact {
+    transition: none;
+  }
 }
 
 /* The Projects/Pinned/Recents body (or the Hermes segment's own flat list)

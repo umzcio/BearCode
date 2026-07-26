@@ -66,7 +66,8 @@ describe('project_settings (folder = project)', () => {
       outsideFolderAccess: 'ask',
       outsideFolderAllowedPaths: [],
       outsideFolderDeniedPaths: [],
-      outsideFolderPendingPaths: []
+      outsideFolderPendingPaths: [],
+      pinned: false
     })
   })
   it('getProjectSettings returns null for an unknown path', () => {
@@ -132,7 +133,8 @@ describe('project_settings (folder = project)', () => {
         outsideFolderAccess: 'ask',
         outsideFolderAllowedPaths: [],
         outsideFolderDeniedPaths: [],
-        outsideFolderPendingPaths: []
+        outsideFolderPendingPaths: [],
+        pinned: false
       }
     ])
   })

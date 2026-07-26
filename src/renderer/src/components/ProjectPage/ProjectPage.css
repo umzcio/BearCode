@@ -75,6 +75,10 @@
   border-color: var(--accent);
   color: #fff;
 }
+.pp-btn.pp-pin.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 .pp-list {
   padding: 8px 16px 24px;
 }

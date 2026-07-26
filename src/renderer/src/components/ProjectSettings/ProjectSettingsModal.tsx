@@ -81,7 +81,8 @@ export function ProjectSettingsModal(): JSX.Element | null {
         outsideFolderAccess: 'ask',
         outsideFolderAllowedPaths: [],
         outsideFolderDeniedPaths: [],
-        outsideFolderPendingPaths: []
+        outsideFolderPendingPaths: [],
+        pinned: false
       }
     )
   }, [path, stored])

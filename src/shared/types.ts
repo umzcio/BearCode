@@ -1006,6 +1006,9 @@ export interface ProjectSettings {
   // Project Trust (audit C-1). Secure default: untrusted / ask.
   trusted?: boolean | null
   outsideFolderAccess?: OutsideFolderAccess | null
+  // Sidebar redesign: surfaces the project in the sidebar's "Pinned Projects"
+  // section and the Projects index page's pin toggle. Default unpinned.
+  pinned?: boolean | null
 }
 
 // F9 (folder = project): per-folder settings keyed by the workspace PATH. A
@@ -1026,6 +1029,7 @@ export interface FolderProject {
   outsideFolderAllowedPaths: string[]
   outsideFolderDeniedPaths: string[]
   outsideFolderPendingPaths: string[]
+  pinned: boolean
 }
 
 // Project Trust + Outside-of-Folder Access (audit C-1). See

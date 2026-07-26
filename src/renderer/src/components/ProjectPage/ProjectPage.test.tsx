@@ -11,6 +11,7 @@ const openConvo = vi.fn()
 const setPinned = vi.fn()
 const setArchived = vi.fn()
 const goHome = vi.fn()
+const toggleProjectPinned = vi.fn(() => Promise.resolve())
 
 beforeEach(() => {
   // The mocks above are module-scoped (shared across every test in this
@@ -44,7 +45,8 @@ beforeEach(() => {
     openConvo,
     setPinned,
     setArchived,
-    goHome
+    goHome,
+    toggleProjectPinned
   } as never)
 })
 afterEach(cleanup)
@@ -82,6 +84,19 @@ describe('ProjectPage', () => {
     expect(openConvo).not.toHaveBeenCalled()
   })
 
+  it('the pin toggle reflects folderSettings and calls toggleProjectPinned', () => {
+    useAppStore.setState({ folderSettings: [{ path: '/proj', pinned: false }] as never })
+    const { unmount } = render(<ProjectPage path="/proj" />)
+    const pinBtn = screen.getByLabelText('Pin project')
+    fireEvent.click(pinBtn)
+    expect(toggleProjectPinned).toHaveBeenCalledWith('/proj')
+    unmount()
+
+    useAppStore.setState({ folderSettings: [{ path: '/proj', pinned: true }] as never })
+    render(<ProjectPage path="/proj" />)
+    expect(screen.getByLabelText('Unpin project')).toBeTruthy()
+  })
+
   it('the "No folder" bucket (null path) has no Settings/Terminal buttons', () => {
     useAppStore.setState({
       conversations: {
@@ -104,6 +119,7 @@ describe('ProjectPage', () => {
     render(<ProjectPage path={null} />)
     expect(screen.queryByText('Settings')).toBeNull()
     expect(screen.queryByText('Terminal')).toBeNull()
+    expect(screen.queryByLabelText('Pin project')).toBeNull()
     expect(screen.getByText('New')).toBeTruthy()
     fireEvent.click(screen.getByText('New'))
     expect(goHome).toHaveBeenCalled()

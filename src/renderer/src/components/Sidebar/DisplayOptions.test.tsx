@@ -22,7 +22,6 @@ describe('DisplayOptions', () => {
   it('opens the menu and shows the sections', () => {
     render(<DisplayOptions />)
     fireEvent.click(screen.getByLabelText('Display options'))
-    expect(screen.getByText('Group By')).toBeTruthy()
     expect(screen.getByText('Sort Conversations')).toBeTruthy()
   })
   it('picking a Sort persists via settings.set', () => {
@@ -30,16 +29,6 @@ describe('DisplayOptions', () => {
     fireEvent.click(screen.getByLabelText('Display options'))
     fireEvent.click(screen.getByText('Alphabetical (A–Z)'))
     expect(settingsSet).toHaveBeenCalledWith({ sidebarSort: 'alpha' })
-  })
-  it('Environment + Status group-by are enabled (no "coming soon") and persist', () => {
-    render(<DisplayOptions />)
-    fireEvent.click(screen.getByLabelText('Display options'))
-    expect(screen.queryByText('coming soon')).toBeNull()
-    fireEvent.click(screen.getByText('Environment'))
-    expect(settingsSet).toHaveBeenCalledWith({ sidebarGroupBy: 'environment' })
-    settingsSet.mockClear()
-    fireEvent.click(screen.getByText('Status'))
-    expect(settingsSet).toHaveBeenCalledWith({ sidebarGroupBy: 'status' })
   })
   it('Worktree subtitle option toggles sidebarSubtitle', () => {
     render(<DisplayOptions />)

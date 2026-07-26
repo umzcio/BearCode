@@ -3,6 +3,7 @@ import { HERMES_MODEL_REF } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { relativeAge } from '../../lib/time'
 import { EmptyState } from '../ui/EmptyState'
+import { Hint } from '../Hint'
 import { ConvoRowMenu } from '../Sidebar/ConvoRowMenu'
 import { IconArchive, IconFolder, IconPin, IconPlus, IconSettings, IconTerminal } from '../icons'
 import { projectIcon } from '../ProjectSettings/projectIcons'
@@ -25,6 +26,7 @@ export function ProjectPage({ path }: { path: string | null }): React.JSX.Elemen
   const openConvo = useAppStore((s) => s.openConvo)
   const setPinned = useAppStore((s) => s.setPinned)
   const setArchived = useAppStore((s) => s.setArchived)
+  const toggleProjectPinned = useAppStore((s) => s.toggleProjectPinned)
   const goHome = useAppStore((s) => s.goHome)
   const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
 
@@ -65,6 +67,18 @@ export function ProjectPage({ path }: { path: string | null }): React.JSX.Elemen
           </div>
         </div>
         <div className="pp-actions">
+          {path ? (
+            <Hint label={fp?.pinned ? 'Unpin project' : 'Pin project'}>
+              <button
+                type="button"
+                className={'pp-btn pp-pin' + (fp?.pinned ? ' active' : '')}
+                aria-label={fp?.pinned ? 'Unpin project' : 'Pin project'}
+                onClick={() => void toggleProjectPinned(path)}
+              >
+                <IconPin size={13} />
+              </button>
+            </Hint>
+          ) : null}
           {path ? (
             <button type="button" className="pp-btn" onClick={() => openProjectSettings(path)}>
               <IconSettings size={13} />

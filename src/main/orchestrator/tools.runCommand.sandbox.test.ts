@@ -140,7 +140,8 @@ describe('runCommandTool sandbox branching', () => {
       outsideFolderAccess: 'ask',
       outsideFolderAllowedPaths: [],
       outsideFolderDeniedPaths: [],
-      outsideFolderPendingPaths: []
+      outsideFolderPendingPaths: [],
+      pinned: false
     })
     const tool = runTool()
     await tool.invoke({ command: 'echo hi' }, { toolCallId: 'tc6' })

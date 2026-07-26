@@ -60,7 +60,9 @@ function mount(opts: {
     openConvo: vi.fn(),
     openSettings: vi.fn(),
     openProjectSettings: vi.fn(),
+    openTerminalView: vi.fn(),
     openProjectPage: vi.fn(),
+    openProjectsIndex: vi.fn(),
     showToast: vi.fn(),
     setPinned: vi.fn(),
     setArchived: vi.fn(),
@@ -182,17 +184,19 @@ describe('Hermes section', () => {
 })
 
 describe('Projects/Pinned/Recents (Conversations segment)', () => {
-  it('renders one flat row per folder with its conversation count, and opens the project page on click', () => {
+  it('renders a single "Projects" nav link (not one row per folder) that opens the Projects index', () => {
     mount({
       conversations: {
         a: { title: 'A1', projectPath: '/proj-a', projectLabel: 'proj-a', updatedAt: 10 },
         b: { title: 'A2', projectPath: '/proj-a', projectLabel: 'proj-a', updatedAt: 20 }
       }
     })
-    expect(screen.getByText('proj-a')).toBeInTheDocument()
-    expect(screen.getByText('2')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('proj-a'))
-    expect(useAppStore.getState().openProjectPage).toHaveBeenCalledWith('/proj-a')
+    // The old flat per-project list is gone -- no bare "proj-a" row or count
+    // renders inline in the sidebar anymore, just the nav link.
+    expect(screen.queryByText('proj-a')).not.toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Projects'))
+    expect(useAppStore.getState().openProjectsIndex).toHaveBeenCalledTimes(1)
   })
 
   it('pinned conversations render in Pinned and not in Recents', () => {
@@ -217,26 +221,126 @@ describe('Projects/Pinned/Recents (Conversations segment)', () => {
     expect(useAppStore.getState().openConvo).toHaveBeenCalledWith('r1')
   })
 
-  // Regression test for the chip-color bug (final review #4): every prior
-  // test in this file left folderSettings empty, so the fp?.color /
-  // projectIcon(fp?.icon) / fp?.name resolution path was never exercised --
-  // exactly where that bug hid. This mounts with a real folderSettings entry
-  // and checks both the resolved custom name renders (not the raw folder
+  // Regression test for the chip-color bug (final review #4), now exercised
+  // through the "Pinned Projects" section instead of the retired flat list:
+  // checks both the resolved custom name renders (not the raw folder
   // basename) and the chip's inline style carries the project's color.
-  it('resolves the project label and chip color from a matching folderSettings entry', () => {
+  it('resolves the pinned-project label and chip color from a matching folderSettings entry', () => {
     const container = mount({
       conversations: {
         a: { title: 'A1', projectPath: '/proj-a', projectLabel: 'proj-a', updatedAt: 10 }
       },
-      folderSettings: [{ path: '/proj-a', color: '#4c8dff', icon: 'IconChat', name: 'Campus Work' }]
+      folderSettings: [
+        { path: '/proj-a', color: '#4c8dff', icon: 'IconChat', name: 'Campus Work', pinned: true }
+      ]
     })
     const label = screen.getByText('Campus Work')
     expect(label).toBeInTheDocument()
-    const row = label.closest('.sb-projrow')
+    const row = label.closest('.sb-flatrow')
     expect(row).not.toBeNull()
     const chip = row!.querySelector('.chip') as HTMLElement
     expect(chip.style.color).toBe('rgb(76, 141, 255)')
     expect(chip.style.background).toContain('76, 141, 255')
     expect(container).toBeTruthy()
+  })
+})
+
+describe('Conversation row actions (Pin/Archive/⋮)', () => {
+  // Regression coverage for the row-actions bug: Pinned and Recents rows
+  // must expose the same hover-revealed Pin/Archive/ConvoRowMenu actions as
+  // ProjectPage.tsx's rows (ProjectPage.test.tsx's "Pin and Archive buttons"
+  // test is the sibling of this one). Both sections are checked so a fix
+  // that only covers one doesn't regress silently.
+  it('Recents row: Pin/Archive buttons call their store actions without opening the conversation', () => {
+    mount({
+      conversations: {
+        r1: { title: 'Recent one', projectPath: null, updatedAt: 3, pinned: false, archived: false }
+      }
+    })
+    fireEvent.click(screen.getByLabelText('Pin'))
+    expect(useAppStore.getState().setPinned).toHaveBeenCalledWith('r1', true)
+    fireEvent.click(screen.getByLabelText('Archive'))
+    expect(useAppStore.getState().setArchived).toHaveBeenCalledWith('r1', true)
+    expect(useAppStore.getState().openConvo).not.toHaveBeenCalled()
+  })
+
+  it('Pinned row: Pin/Archive buttons call their store actions without opening the conversation', () => {
+    mount({
+      conversations: {
+        p1: { title: 'Pinned one', projectPath: null, updatedAt: 5, pinned: true, archived: false }
+      }
+    })
+    // The Pin button on an already-pinned row toggles it off.
+    fireEvent.click(screen.getByLabelText('Unpin'))
+    expect(useAppStore.getState().setPinned).toHaveBeenCalledWith('p1', false)
+    fireEvent.click(screen.getByLabelText('Archive'))
+    expect(useAppStore.getState().setArchived).toHaveBeenCalledWith('p1', true)
+    expect(useAppStore.getState().openConvo).not.toHaveBeenCalled()
+  })
+
+  it('Recents row: the ⋮ menu opens with Rename/Delete and wires them to store actions', () => {
+    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('New title')
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mount({
+      conversations: {
+        r1: { title: 'Recent one', projectPath: null, updatedAt: 3, pinned: false }
+      }
+    })
+    fireEvent.click(screen.getByLabelText('More'))
+    fireEvent.click(screen.getByText('Rename'))
+    expect(useAppStore.getState().renameConversation).toHaveBeenCalledWith('r1', 'New title')
+
+    fireEvent.click(screen.getByLabelText('More'))
+    fireEvent.click(screen.getByText('Delete Conversation'))
+    expect(useAppStore.getState().deleteConvo).toHaveBeenCalledWith('r1')
+    expect(useAppStore.getState().openConvo).not.toHaveBeenCalled()
+
+    promptSpy.mockRestore()
+    confirmSpy.mockRestore()
+  })
+})
+
+describe('Pinned Projects section', () => {
+  it('is hidden when no project is pinned', () => {
+    mount({
+      conversations: {},
+      folderSettings: [{ path: '/proj-a', color: null, icon: null, name: null, pinned: false }]
+    })
+    expect(screen.queryByText('Pinned Projects')).not.toBeInTheDocument()
+  })
+
+  it('lists only pinned projects and opens the project page on click', () => {
+    mount({
+      conversations: {},
+      folderSettings: [
+        { path: '/proj-a', color: null, icon: null, name: 'Alpha', pinned: true },
+        { path: '/proj-b', color: null, icon: null, name: 'Beta', pinned: false }
+      ]
+    })
+    expect(screen.getByText('Pinned Projects')).toBeInTheDocument()
+    expect(screen.getByText('Alpha')).toBeInTheDocument()
+    expect(screen.queryByText('Beta')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('Alpha'))
+    expect(useAppStore.getState().openProjectPage).toHaveBeenCalledWith('/proj-a')
+  })
+
+  it('the Open terminal action calls openTerminalView without opening the project page', () => {
+    mount({
+      conversations: {},
+      folderSettings: [{ path: '/proj-a', color: null, icon: null, name: 'Alpha', pinned: true }]
+    })
+    fireEvent.click(screen.getByLabelText('Open terminal'))
+    expect(useAppStore.getState().openTerminalView).toHaveBeenCalledWith('/proj-a')
+    expect(useAppStore.getState().openProjectPage).not.toHaveBeenCalled()
+  })
+
+  it('the New conversation action calls newConversationInProject without opening the project page', () => {
+    mount({
+      conversations: {},
+      folderSettings: [{ path: '/proj-a', color: null, icon: null, name: 'Alpha', pinned: true }]
+    })
+    fireEvent.click(screen.getByLabelText('New conversation'))
+    expect(useAppStore.getState().newConversationInProject).toHaveBeenCalledWith('/proj-a')
+    expect(useAppStore.getState().openProjectPage).not.toHaveBeenCalled()
   })
 })
