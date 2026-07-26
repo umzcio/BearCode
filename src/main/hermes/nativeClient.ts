@@ -8,6 +8,7 @@ import {
   HERMES_MAX_CHUNK_BYTES,
   HERMES_MAX_FILES,
   HERMES_MAX_FILE_BYTES,
+  HERMES_MAX_TEXT_LENGTH,
   HERMES_PROTOCOL,
   HERMES_PROTOCOL_VERSION,
   ProtocolViolation,
@@ -37,7 +38,7 @@ export interface HermesNativeTurnOptions {
 export interface NativeClientDeps {
   createWebSocket: (
     url: string,
-    options: { headers: Record<string, string> }
+    options: { headers: Record<string, string>; maxPayload?: number }
   ) => import('ws').WebSocket
   userDataDir: string
   now: () => number
@@ -117,8 +118,11 @@ const HelloRejectedSchema = z.object({
   supportedVersions: z.array(z.number().int()), error: WireErrorSchema
 }).strict()
 
+const HERMES_MAX_WS_PAYLOAD_BYTES = HERMES_MAX_TEXT_LENGTH * 4
+
 function defaultDeps(overrides: Partial<NativeClientDeps>): NativeClientDeps {
-  overrides.createWebSocket ??= (url, options) => new WebSocket(url, options)
+  overrides.createWebSocket ??= (url, options) =>
+    new WebSocket(url, { ...options, maxPayload: HERMES_MAX_WS_PAYLOAD_BYTES })
   overrides.userDataDir ??=
     process.env.BEARCODE_USER_DATA ?? app.getPath('userData')
   overrides.now ??= () => Date.now()
