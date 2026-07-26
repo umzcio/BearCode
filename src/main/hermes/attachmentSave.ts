@@ -3,6 +3,8 @@ import { constants } from 'fs'
 import { lstat, open, rename, unlink, type FileHandle } from 'fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 
+const IDENTITY_CHANGED = 'Attachment save file identity changed'
+
 export interface AttachmentSaveDependencies {
   randomName?: () => string
   open?: (path: string, flags: number, mode: number) => Promise<FileHandle>
@@ -25,6 +27,28 @@ async function assertRegularDestination(destination: string): Promise<void> {
   }
   if (info.isSymbolicLink() || !info.isFile()) {
     throw new Error('Save destination must be a regular file')
+  }
+}
+
+async function assertPathMatchesOwnedFile(
+  path: string,
+  owned: Awaited<ReturnType<FileHandle['stat']>>
+): Promise<void> {
+  let info: Awaited<ReturnType<typeof lstat>>
+  try {
+    info = await lstat(path)
+  } catch {
+    throw new Error(IDENTITY_CHANGED)
+  }
+  if (
+    !owned.isFile() ||
+    !info.isFile() ||
+    info.isSymbolicLink() ||
+    info.dev !== owned.dev ||
+    info.ino !== owned.ino ||
+    info.size !== owned.size
+  ) {
+    throw new Error(IDENTITY_CHANGED)
   }
 }
 
@@ -107,11 +131,18 @@ export async function saveVerifiedBytes(
     }
 
     await sync(handle)
-    await handle.close()
-    handle = undefined
-
+    const owned = await handle.stat()
+    if (!owned.isFile() || owned.size !== bytes.length) {
+      throw new Error('Could not write the complete attachment')
+    }
+    await assertPathMatchesOwnedFile(temporaryPath, owned)
     await assertRegularDestination(absoluteDestination)
     await replace(temporaryPath, absoluteDestination)
+    temporaryPath = absoluteDestination
+    await assertPathMatchesOwnedFile(absoluteDestination, owned)
+
+    await handle.close()
+    handle = undefined
     temporaryPath = undefined
   } catch (error) {
     const cleanupFailures = await cleanupOwnedTemporary(handle, temporaryPath)

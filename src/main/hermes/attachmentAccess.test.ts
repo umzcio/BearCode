@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'fs/promises'
+import { link, mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -259,6 +259,58 @@ describe('readVerifiedStoredAttachment', () => {
       )
     ).rejects.toThrow('Attachment could not be verified')
   })
+
+  it('rejects conversation-directory substitution through a hard-link alias after open', async () => {
+    const root = await rootDir()
+    const bytes = Buffer.from('original verified bytes')
+    const leaf = await store(root, attachmentId, bytes)
+    const conversationDirectory = dirname(leaf)
+    const aliasDirectory = join(root, 'conversation-alias')
+    const parkedDirectory = join(root, 'conversation-original')
+    await mkdir(aliasDirectory)
+    await link(leaf, join(aliasDirectory, attachmentId))
+
+    await expect(
+      readVerifiedStoredAttachment(
+        root,
+        conversationId,
+        attachmentId,
+        attachmentEvents(attachment(bytes)),
+        {
+          afterOpen: async () => {
+            await rename(conversationDirectory, parkedDirectory)
+            await symlink(aliasDirectory, conversationDirectory)
+          }
+        }
+      )
+    ).rejects.toThrow('Attachment could not be verified')
+  })
+
+  it('rejects attachment-root substitution through a hard-link alias after open', async () => {
+    const root = await rootDir()
+    const bytes = Buffer.from('original verified bytes')
+    const leaf = await store(root, attachmentId, bytes)
+    const attachmentRoot = dirname(dirname(leaf))
+    const aliasRoot = join(root, 'attachment-root-alias')
+    const parkedRoot = join(root, 'attachment-root-original')
+    await mkdir(join(aliasRoot, conversationId), { recursive: true })
+    await link(leaf, join(aliasRoot, conversationId, attachmentId))
+
+    await expect(
+      readVerifiedStoredAttachment(
+        root,
+        conversationId,
+        attachmentId,
+        attachmentEvents(attachment(bytes)),
+        {
+          afterOpen: async () => {
+            await rename(attachmentRoot, parkedRoot)
+            await symlink(aliasRoot, attachmentRoot)
+          }
+        }
+      )
+    ).rejects.toThrow('Attachment could not be verified')
+  })
 })
 
 describe('sanitizeAttachmentName', () => {
@@ -281,5 +333,22 @@ describe('sanitizeAttachmentName', () => {
   it('falls back when sanitization leaves no usable name', () => {
     expect(sanitizeAttachmentName('...')).toBe('attachment')
     expect(sanitizeAttachmentName('\u0000')).toBe('attachment')
+  })
+
+  it('removes every Windows-invalid character from the leaf', () => {
+    expect(sanitizeAttachmentName('in<va>l"id|name?.txt*')).toBe('invalidname.txt')
+  })
+
+  it('removes trailing dots and spaces from the leaf', () => {
+    expect(sanitizeAttachmentName('report.txt. ')).toBe('report.txt')
+  })
+
+  it.each([
+    ['CON', '_CON'],
+    ['NUL.txt', '_NUL.txt'],
+    ['COM1', '_COM1'],
+    ['LPT9.log', '_LPT9.log']
+  ])('normalizes reserved Windows device leaf %s', (storedName, safeName) => {
+    expect(sanitizeAttachmentName(storedName)).toBe(safeName)
   })
 })

@@ -146,4 +146,22 @@ describe('attachments:save IPC', () => {
       expect(options.defaultPath).not.toMatch(/[\\/:]/)
     }
   )
+
+  it.each([
+    ['in<va>l"id|name?.txt*', 'invalidname.txt'],
+    ['report.txt. ', 'report.txt'],
+    ['CON', '_CON'],
+    ['NUL.txt', '_NUL.txt'],
+    ['COM1', '_COM1'],
+    ['LPT9.log', '_LPT9.log']
+  ])('uses the platform-safe default path %s -> %s', async (storedName, safeName) => {
+    readVerifiedStoredAttachment.mockResolvedValueOnce({
+      attachment: { ...attachment, name: storedName },
+      bytes
+    })
+
+    await handlers.get('bearcode:attachments:save')!({}, 'conv_123', 'att_123')
+
+    expect(showSaveDialog).toHaveBeenCalledWith({ defaultPath: safeName })
+  })
 })

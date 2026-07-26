@@ -173,6 +173,55 @@ describe('saveVerifiedBytes', () => {
     expect(await temporarySiblings(directory)).toEqual([])
   })
 
+  it('rejects and removes a temporary path replaced with a symlink before rename', async () => {
+    const directory = await makeTemporaryDirectory()
+    const attackerTarget = join(directory, 'attacker-target.txt')
+    const destination = join(directory, 'report.txt')
+    const attackerBytes = Buffer.from('attacker-controlled bytes')
+    await writeFile(attackerTarget, attackerBytes)
+
+    await expect(
+      saveVerifiedBytes(destination, Buffer.from('verified replacement'), {
+        rename: async (source, target) => {
+          await unlink(source)
+          await symlink(attackerTarget, source)
+          await rename(source, target)
+        }
+      })
+    ).rejects.toThrow('Attachment save file identity changed')
+
+    expect(await readFile(attackerTarget)).toEqual(attackerBytes)
+    await expect(lstat(destination)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await temporarySiblings(directory)).toEqual([])
+  })
+
+  it('rejects a substituted temporary source before replacing an existing destination', async () => {
+    const directory = await makeTemporaryDirectory()
+    const attackerTarget = join(directory, 'attacker-target.txt')
+    const destination = join(directory, 'report.txt')
+    const originalDestination = Buffer.from('preserve this destination')
+    const attackerBytes = Buffer.from('attacker-controlled bytes')
+    await writeFile(attackerTarget, attackerBytes)
+    await writeFile(destination, originalDestination)
+
+    await expect(
+      saveVerifiedBytes(destination, Buffer.from('verified replacement'), {
+        sync: async (handle) => {
+          await handle.sync()
+          const [temporaryName] = await temporarySiblings(directory)
+          if (!temporaryName) throw new Error('private temporary file was not created')
+          const temporaryPath = join(directory, temporaryName)
+          await unlink(temporaryPath)
+          await symlink(attackerTarget, temporaryPath)
+        }
+      })
+    ).rejects.toThrow('Attachment save file identity changed')
+
+    expect(await readFile(destination)).toEqual(originalDestination)
+    expect(await readFile(attackerTarget)).toEqual(attackerBytes)
+    expect(await temporarySiblings(directory)).toEqual([])
+  })
+
   it('creates the private sibling with exclusive no-follow flags and mode 0600', async () => {
     const directory = await makeTemporaryDirectory()
     const destination = join(directory, 'report.bin')

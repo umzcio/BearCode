@@ -24,6 +24,7 @@ const UNVERIFIED = 'Attachment could not be verified'
 const TOO_LARGE = 'Attachment is too large'
 const SHA256_BYTES = 32
 const READ_CHUNK_BYTES = 64 * 1024
+const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
 
 function unavailable(): Error {
   return new Error(UNAVAILABLE)
@@ -41,7 +42,7 @@ function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
 }
 
-async function readDirectory(path: string): Promise<void> {
+async function readDirectory(path: string): Promise<Awaited<ReturnType<typeof lstat>>> {
   let info: Awaited<ReturnType<typeof lstat>>
   try {
     info = await lstat(path)
@@ -50,6 +51,7 @@ async function readDirectory(path: string): Promise<void> {
     throw unverified()
   }
   if (info.isSymbolicLink() || !info.isDirectory()) throw unverified()
+  return info
 }
 
 async function readRegularFile(path: string): Promise<Awaited<ReturnType<typeof lstat>>> {
@@ -93,12 +95,20 @@ function immutableMetadataSnapshot(attachment: HermesAttachment): Readonly<Herme
   })
 }
 
+function hasSameIdentity(
+  first: Awaited<ReturnType<typeof lstat>>,
+  second: Awaited<ReturnType<typeof lstat>>
+): boolean {
+  return first.dev === second.dev && first.ino === second.ino
+}
+
 export function sanitizeAttachmentName(name: string): string {
   if (typeof name !== 'string') return 'attachment'
   const separator = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'))
   const leaf = name.slice(separator + 1).replace(/^[a-z]:/i, '')
-  const sanitized = leaf.replace(/[:\u0000-\u001f\u007f-\u009f]/g, '')
-  return sanitized.length === 0 || /^\.+$/.test(sanitized) ? 'attachment' : sanitized
+  const sanitized = leaf.replace(/[<>:"|?*\u0000-\u001f\u007f-\u009f]/g, '').replace(/[. ]+$/g, '')
+  if (sanitized.length === 0 || /^\.+$/.test(sanitized)) return 'attachment'
+  return WINDOWS_DEVICE_NAME.test(sanitized) ? `_${sanitized}` : sanitized
 }
 
 export async function readVerifiedStoredAttachment(
@@ -117,9 +127,9 @@ export async function readVerifiedStoredAttachment(
   const path = resolveStoredAttachmentPath(userDataDir, conversationId, attachmentId)
   const conversationDirectory = dirname(path)
   const root = dirname(conversationDirectory)
-  await readDirectory(root)
-  await readDirectory(conversationDirectory)
-  await readRegularFile(path)
+  const initialRoot = await readDirectory(root)
+  const initialConversationDirectory = await readDirectory(conversationDirectory)
+  const initialLeaf = await readRegularFile(path)
 
   let handle: Awaited<ReturnType<typeof open>> | undefined
   try {
@@ -133,7 +143,13 @@ export async function readVerifiedStoredAttachment(
     const before = await handle.stat().catch(() => {
       throw unverified()
     })
-    if (!before.isFile()) throw unverified()
+    if (
+      !before.isFile() ||
+      !hasSameIdentity(initialLeaf, before) ||
+      initialLeaf.size !== before.size
+    ) {
+      throw unverified()
+    }
     if (before.size > MAX_ATTACHMENT_BYTES) throw tooLarge()
 
     await hooks.afterOpen?.()
@@ -157,16 +173,19 @@ export async function readVerifiedStoredAttachment(
     const after = await handle.stat().catch(() => {
       throw unverified()
     })
+    const finalRoot = await readDirectory(root)
+    const finalConversationDirectory = await readDirectory(conversationDirectory)
     const finalPathInfo = await readRegularFile(path)
     if (
       !after.isFile() ||
-      before.dev !== after.dev ||
-      before.ino !== after.ino ||
+      !hasSameIdentity(initialRoot, finalRoot) ||
+      !hasSameIdentity(initialConversationDirectory, finalConversationDirectory) ||
+      !hasSameIdentity(before, after) ||
       before.size !== after.size ||
       before.size !== attachment.sizeBytes ||
       observedSize !== attachment.sizeBytes ||
-      finalPathInfo.dev !== before.dev ||
-      finalPathInfo.ino !== before.ino ||
+      !hasSameIdentity(initialLeaf, finalPathInfo) ||
+      !hasSameIdentity(before, finalPathInfo) ||
       finalPathInfo.size !== observedSize
     ) {
       throw unverified()
