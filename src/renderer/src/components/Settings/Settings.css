@@ -21,7 +21,8 @@
    their trigger. Shared by every panel class rendered inside .modal-overlay
    (settings-panel, smithery-panel, conflict-panel -- see ConflictResolver.css). */
 .settings-panel,
-.smithery-panel {
+.smithery-panel,
+.model-detail-panel {
   transition:
     opacity var(--dur-modal) var(--ease-out),
     transform var(--dur-modal) var(--ease-out);
@@ -30,7 +31,8 @@
 }
 @starting-style {
   .settings-panel,
-  .smithery-panel {
+  .smithery-panel,
+  .model-detail-panel {
     opacity: 0;
     transform: scale(0.96);
   }
@@ -40,12 +42,14 @@
     transition: opacity var(--dur-fast) ease;
   }
   .settings-panel,
-  .smithery-panel {
+  .smithery-panel,
+  .model-detail-panel {
     transition: opacity var(--dur-fast) ease;
   }
   @starting-style {
     .settings-panel,
-    .smithery-panel {
+    .smithery-panel,
+    .model-detail-panel {
       transform: none;
     }
   }
@@ -60,13 +64,15 @@
   pointer-events: none;
 }
 .settings-panel[data-state='closing'],
-.smithery-panel[data-state='closing'] {
+.smithery-panel[data-state='closing'],
+.model-detail-panel[data-state='closing'] {
   opacity: 0;
   transform: scale(0.96);
 }
 @media (prefers-reduced-motion: reduce) {
   .settings-panel[data-state='closing'],
-  .smithery-panel[data-state='closing'] {
+  .smithery-panel[data-state='closing'],
+  .model-detail-panel[data-state='closing'] {
     transform: none;
   }
 }
