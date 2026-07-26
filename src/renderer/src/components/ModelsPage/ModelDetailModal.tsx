@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../state/store'
 import { useAnimatedUnmount } from '../../lib/useAnimatedUnmount'
 import { useModalDialog } from '../../lib/useModalDialog'
-import { buildModelRows, formatTokens, MODE_LABEL } from '../../lib/modelRows'
+import { buildModelRows, formatTokens, MODE_LABEL, type ModelStatus } from '../../lib/modelRows'
 import { relativeAge } from '../../lib/time'
 import { ProviderIcon } from '../ProviderIcon'
 import { Toggle } from '../Toggle'
@@ -11,7 +11,7 @@ import { Menu } from '../ui/Menu'
 import { IconClose, IconCopy, IconDots, IconStar } from '../icons'
 import './ModelDetailModal.css'
 
-const STATUS_LABEL: Record<string, string> = {
+const STATUS_LABEL: Record<ModelStatus, string> = {
   available: 'Available',
   'not-configured': 'Provider not configured',
   unavailable: 'Unavailable'
@@ -30,14 +30,14 @@ const CAPABILITY_LABELS: {
 
 // The Models page's popup detail view (not a docked rail -- that direction was
 // mocked and explicitly rejected during design). Always rendered mounted by
-// its caller only while a ref is selected; this component itself owns its
-// exit animation via useAnimatedUnmount so a caller can flip to `null` and
-// this still animates out.
+// its caller; drives its own open/close purely off `modelRef` going null <->
+// a real ref, so a caller that flips `modelRef` to `null` sees it animate out
+// instead of vanishing instantly.
 export function ModelDetailModal({
   modelRef,
   onClose
 }: {
-  modelRef: string
+  modelRef: string | null
   onClose: () => void
 }): React.JSX.Element | null {
   const manageableModels = useAppStore((s) => s.manageableModels)
@@ -46,14 +46,41 @@ export function ModelDetailModal({
   const setModelEnabled = useAppStore((s) => s.setModelEnabled)
   const saveSettings = useAppStore((s) => s.saveSettings)
   const removeCustomModel = useAppStore((s) => s.removeCustomModel)
-  const { mounted, state } = useAnimatedUnmount(true)
+  const { mounted, state } = useAnimatedUnmount(modelRef != null)
   const { ref: dialogRef, dialogProps } = useModalDialog(onClose)
   const menuBtnRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
 
-  const row = settings
+  const freshRow = settings
     ? buildModelRows(manageableModels, providers, settings).find((r) => r.ref === modelRef)
     : undefined
+
+  // `modelRef` (and therefore `freshRow`) goes null the instant the modal
+  // starts closing, but the panel must keep rendering its last content while
+  // it fades out -- retain the last known row across that window (mirrors
+  // ProjectSettingsModal's `lastFolder` pattern). A plain ref (mutated during
+  // render, read in the same pass) rather than state: `buildModelRows`
+  // returns a brand-new row object every render even when the underlying
+  // data hasn't changed, so comparing by state would never settle and would
+  // loop forever re-rendering.
+  const lastRowRef = useRef(freshRow)
+  if (freshRow) lastRowRef.current = freshRow
+  const row = freshRow ?? lastRowRef.current
+
+  // Esc closes only this modal, not any modal behind it (mirrors
+  // BrowseSmitheryModal.tsx's identical pattern): intercept in the CAPTURE
+  // phase and stop propagation. The listener is only added while mounted.
+  useEffect(() => {
+    if (!mounted) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [mounted, onClose])
 
   if (!mounted || !settings || !row) return null
 

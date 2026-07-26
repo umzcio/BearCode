@@ -3,7 +3,7 @@
   max-width: calc(100vw - 80px);
   max-height: calc(100vh - 80px);
   overflow-y: auto;
-  background: var(--bg-panel);
+  background: var(--bg-window);
   border-radius: 14px;
   border: 1px solid var(--border-soft);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
