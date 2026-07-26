@@ -378,5 +378,38 @@ describe('TerminalView', () => {
       await expect(vi.advanceTimersByTimeAsync(150)).resolves.not.toThrow()
       clearSpy.mockRestore()
     })
+
+    it('unmounting while a close timer is pending still flushes the deferred close (not just cancels it)', async () => {
+      // Regression test: clearing the pending JS timeout on unmount must not
+      // silently cancel the close it was deferring -- the tab's pty/session
+      // would survive and reappear next time this path's Terminal view opens.
+      // The cleanup must fire closeTerminalTab for every still-pending tab
+      // instead of dropping it.
+      vi.useFakeTimers()
+      useAppStore.setState({
+        terminalTabs: {
+          '/proj/a': [
+            { id: 't1', title: 'zsh', exited: false },
+            { id: 't2', title: 'bash', exited: false }
+          ]
+        },
+        activeTerminalTab: { '/proj/a': 't1' }
+      })
+      const { unmount } = render(<TerminalView path="/proj/a" />)
+      const closeButtons = screen.getAllByLabelText('Close terminal tab')
+      fireEvent.click(closeButtons[1])
+
+      // Not yet closed -- still mid-fade when we navigate away.
+      expect(vi.mocked(window.bearcode.terminal.close)).not.toHaveBeenCalled()
+
+      unmount()
+
+      // The deferred close must have been flushed synchronously as part of
+      // the unmount cleanup, not dropped. `waitFor`'s real-timer polling
+      // doesn't apply here (fake timers are active) -- just flush the
+      // microtask queue the mocked async close() resolves on.
+      await vi.advanceTimersByTimeAsync(0)
+      expect(window.bearcode.terminal.close).toHaveBeenCalledWith('t2')
+    })
   })
 })

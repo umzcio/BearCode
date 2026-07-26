@@ -57,10 +57,19 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
   useEffect(() => {
     const timers = closeTimersRef.current
     return () => {
-      timers.forEach((id) => window.clearTimeout(id))
+      // Flush, don't cancel: a pending timer here means the user closed a
+      // tab and then navigated away before the 150ms fade finished. Clearing
+      // the JS timeout without also firing the deferred closeTerminalTab
+      // would silently keep that pty/session alive -- the tab would just
+      // reappear next time this path's Terminal view is opened, looking like
+      // the close never happened.
+      timers.forEach((id, tabId) => {
+        window.clearTimeout(id)
+        void closeTerminalTab(path, tabId)
+      })
       timers.clear()
     }
-  }, [])
+  }, [path, closeTerminalTab])
 
   const handleCloseTab = (tabId: string): void => {
     // Guard the whole body, not just the setClosingIds update -- otherwise a
