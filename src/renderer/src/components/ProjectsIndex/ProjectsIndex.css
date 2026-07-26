@@ -51,6 +51,9 @@
   padding: 11px 12px;
   border-radius: 9px;
   cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .pidx-row:hover {
   background: var(--bg-hover);

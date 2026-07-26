@@ -51,6 +51,9 @@
   width: 100%;
   text-align: left;
   font-family: inherit;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .nav-item:hover {
   background: var(--bg-hover);

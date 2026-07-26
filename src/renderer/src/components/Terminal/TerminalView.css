@@ -87,6 +87,9 @@
   display: inline-flex;
   border-radius: 4px;
   padding: 2px;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .terminal-tab-close:hover {
@@ -103,6 +106,9 @@
   background: transparent;
   color: var(--text-mid);
   cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .terminal-tab-new:hover {
