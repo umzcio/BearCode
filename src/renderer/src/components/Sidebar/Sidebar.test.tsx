@@ -40,6 +40,7 @@ function mount(opts: {
   conversations?: Record<string, Partial<Convo>>
   settings?: Record<string, unknown>
   newHermesConversation?: ReturnType<typeof vi.fn>
+  folderSettings?: Record<string, unknown>[]
 }): HTMLElement {
   const conversations: Record<string, Convo> = {}
   for (const [id, partial] of Object.entries(opts.conversations ?? {})) {
@@ -51,7 +52,7 @@ function mount(opts: {
     view: { kind: 'home' },
     convoOrder: Object.keys(conversations),
     conversations,
-    folderSettings: [],
+    folderSettings: (opts.folderSettings ?? []) as never,
     settings: opts.settings as never,
     toggleSidebar: vi.fn(),
     goHome: vi.fn(),
@@ -214,5 +215,28 @@ describe('Projects/Pinned/Recents (Conversations segment)', () => {
     })
     fireEvent.click(screen.getByText('Recent one'))
     expect(useAppStore.getState().openConvo).toHaveBeenCalledWith('r1')
+  })
+
+  // Regression test for the chip-color bug (final review #4): every prior
+  // test in this file left folderSettings empty, so the fp?.color /
+  // projectIcon(fp?.icon) / fp?.name resolution path was never exercised --
+  // exactly where that bug hid. This mounts with a real folderSettings entry
+  // and checks both the resolved custom name renders (not the raw folder
+  // basename) and the chip's inline style carries the project's color.
+  it('resolves the project label and chip color from a matching folderSettings entry', () => {
+    const container = mount({
+      conversations: {
+        a: { title: 'A1', projectPath: '/proj-a', projectLabel: 'proj-a', updatedAt: 10 }
+      },
+      folderSettings: [{ path: '/proj-a', color: '#4c8dff', icon: 'IconChat', name: 'Campus Work' }]
+    })
+    const label = screen.getByText('Campus Work')
+    expect(label).toBeInTheDocument()
+    const row = label.closest('.sb-projrow')
+    expect(row).not.toBeNull()
+    const chip = row!.querySelector('.chip') as HTMLElement
+    expect(chip.style.color).toBe('rgb(76, 141, 255)')
+    expect(chip.style.background).toContain('76, 141, 255')
+    expect(container).toBeTruthy()
   })
 })

@@ -96,6 +96,10 @@
 .pp-row:hover {
   background: var(--bg-hover);
 }
+.pp-row:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
 .pp-row .name {
   flex: 1;
   min-width: 0;

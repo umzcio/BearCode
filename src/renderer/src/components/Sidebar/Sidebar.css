@@ -175,7 +175,7 @@
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
 }
-.sb-projrow svg:last-child {
+.sb-projrow > svg {
   width: 13px;
   height: 13px;
   color: var(--text-dim);

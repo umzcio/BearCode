@@ -5,7 +5,7 @@ import { useAppStore, type Convo } from '../../state/store'
 import bearMark from '../../assets/bear.svg'
 import { Hint } from '../Hint'
 import { EmptyState } from '../ui/EmptyState'
-import { groupConversations, type ConvoLike } from './grouping'
+import { groupConversations, sortIds, type ConvoLike } from './grouping'
 
 // Cache the projected subset per Convo object reference (audit M-15). The
 // store only replaces a convo's object when THAT convo changes (see
@@ -38,7 +38,7 @@ function toConvoLike(c: Convo): ConvoLike {
 }
 import { DisplayOptions } from './DisplayOptions'
 import { SidebarFooterMenu } from './SidebarFooterMenu'
-import { IconChevronRight, IconHistory, IconPanel, IconPlus, IconSearch } from '../icons'
+import { IconChevronRight, IconPanel, IconPlus, IconSearch } from '../icons'
 import { projectIcon } from '../ProjectSettings/projectIcons'
 import './Sidebar.css'
 
@@ -70,6 +70,7 @@ export function Sidebar(): React.JSX.Element {
   const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
   const hermesEnabled = useAppStore((s) => s.settings?.hermesEnabled ?? false)
   const hermesLabel = useAppStore((s) => s.settings?.hermesLabel)
+  const hermesIcon = useAppStore((s) => s.settings?.hermesIcon)
   const newHermesConversation = useAppStore((s) => s.newHermesConversation)
 
   // Hermes conversations are project-less (projectPath: null), so they'd
@@ -100,25 +101,28 @@ export function Sidebar(): React.JSX.Element {
 
   const pinnedIds = useMemo(
     () =>
-      projectConvoOrder
-        .filter((id) => {
+      sortIds(
+        projectConvoOrder.filter((id) => {
           const c = conversations[id]
           return c != null && c.pinned && (showArchived || !c.archived)
-        })
-        .sort((a, b) => (conversations[b]?.updatedAt ?? 0) - (conversations[a]?.updatedAt ?? 0)),
-    [projectConvoOrder, conversations, showArchived]
+        }),
+        conversations,
+        sort
+      ),
+    [projectConvoOrder, conversations, showArchived, sort]
   )
 
   const recentIds = useMemo(
     () =>
-      projectConvoOrder
-        .filter((id) => {
+      sortIds(
+        projectConvoOrder.filter((id) => {
           const c = conversations[id]
           return c != null && !c.pinned && (showArchived || !c.archived)
-        })
-        .sort((a, b) => (conversations[b]?.updatedAt ?? 0) - (conversations[a]?.updatedAt ?? 0))
-        .slice(0, RECENTS_LIMIT),
-    [projectConvoOrder, conversations, showArchived]
+        }),
+        conversations,
+        sort
+      ).slice(0, RECENTS_LIMIT),
+    [projectConvoOrder, conversations, showArchived, sort]
   )
 
   // FLIP collapse animation (apple-design §11): margin-left has already snapped
@@ -198,7 +202,10 @@ export function Sidebar(): React.JSX.Element {
             className={mode === 'hermes' ? 'active' : ''}
             onClick={() => setMode('hermes')}
           >
-            <IconHistory size={13} />
+            {(() => {
+              const HermesIcon = projectIcon(hermesIcon)
+              return <HermesIcon size={13} />
+            })()}
             {hermesLabel || 'Hermes'}
           </button>
         </div>

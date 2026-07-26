@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { HERMES_MODEL_REF } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { relativeAge } from '../../lib/time'
 import { EmptyState } from '../ui/EmptyState'
@@ -25,6 +26,7 @@ export function ProjectPage({ path }: { path: string | null }): React.JSX.Elemen
   const setPinned = useAppStore((s) => s.setPinned)
   const setArchived = useAppStore((s) => s.setArchived)
   const goHome = useAppStore((s) => s.goHome)
+  const showArchived = useAppStore((s) => s.settings?.sidebarShowArchived ?? false)
 
   const fp = path ? folderSettings.find((f) => f.path === path) : undefined
   const Icon = path ? projectIcon(fp?.icon) : IconFolder
@@ -33,9 +35,14 @@ export function ProjectPage({ path }: { path: string | null }): React.JSX.Elemen
   const ids = useMemo(
     () =>
       convoOrder
-        .filter((id) => conversations[id]?.projectPath === path)
+        .filter(
+          (id) =>
+            conversations[id]?.projectPath === path &&
+            conversations[id]?.modelRef !== HERMES_MODEL_REF &&
+            (showArchived || !conversations[id]?.archived)
+        )
         .sort((a, b) => (conversations[b]?.updatedAt ?? 0) - (conversations[a]?.updatedAt ?? 0)),
-    [convoOrder, conversations, path]
+    [convoOrder, conversations, path, showArchived]
   )
 
   const now = Date.now()

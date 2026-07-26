@@ -46,7 +46,7 @@ export function statusBucket(runState: string): 'active' | 'idle' | 'error' {
 
 const DEFAULT_OPTS: GroupOpts = { groupBy: 'project', sort: 'updated', showArchived: false }
 
-function sortIds(
+export function sortIds(
   ids: string[],
   convos: Record<string, ConvoLike | undefined>,
   sort: GroupOpts['sort']

@@ -51,3 +51,11 @@
 .acct-menu {
   min-width: 200px;
 }
+.acct-menu .menu-item {
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
