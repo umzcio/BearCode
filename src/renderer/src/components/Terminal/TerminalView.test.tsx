@@ -77,6 +77,15 @@ describe('TerminalView', () => {
     await waitFor(() => expect(useAppStore.getState().terminalTabs['/proj/a']).toHaveLength(2))
   })
 
+  it('shows a persistent notice that the terminal is not sandboxed', async () => {
+    useAppStore.setState({
+      terminalTabs: { '/proj/a': [{ id: 't1', title: 'zsh', exited: false }] },
+      activeTerminalTab: { '/proj/a': 't1' }
+    })
+    render(<TerminalView path="/proj/a" />)
+    expect(await screen.findByText('Unsandboxed')).toBeInTheDocument()
+  })
+
   it("only the active tab's pane is marked active", () => {
     useAppStore.setState({
       terminalTabs: {

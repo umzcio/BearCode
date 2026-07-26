@@ -28,6 +28,15 @@
   cursor: pointer;
 }
 
+.terminal-sandbox-notice {
+  margin-left: auto;
+  padding: 2px 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: default;
+  white-space: nowrap;
+}
+
 .terminal-tab:hover {
   background: var(--bg-hover);
 }

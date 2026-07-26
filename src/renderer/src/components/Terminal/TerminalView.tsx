@@ -5,6 +5,7 @@ import { TerminalPane } from './TerminalPane'
 import { IconPlus, IconClose, IconTerminal } from '../icons'
 import { ErrorCard } from '../ui/ErrorCard'
 import { EmptyState } from '../ui/EmptyState'
+import { Hint } from '../Hint'
 import './TerminalView.css'
 
 function toErrorMessage(err: unknown): string {
@@ -138,6 +139,12 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
         >
           <IconPlus size={13} />
         </button>
+        <Hint
+          label="Commands typed here run in a real, unsandboxed shell — unlike agent-run commands, they are not restricted by BearCode's sandbox."
+          side="bottom"
+        >
+          <span className="terminal-sandbox-notice">Unsandboxed</span>
+        </Hint>
       </div>
       {error ? <ErrorCard>{error}</ErrorCard> : null}
       <div className="terminal-panes">
