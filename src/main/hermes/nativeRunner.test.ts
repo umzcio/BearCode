@@ -5,6 +5,7 @@ import type {
   Event,
   HermesAttachment
 } from '../../shared/types'
+import { HermesNativeClientError } from './nativeClient'
 import type { HermesNativeTurnOptions } from './nativeClient'
 import { HERMES_MAX_TEXT_LENGTH } from './protocol'
 import type { HermesServerEvent } from './protocol'
@@ -46,6 +47,17 @@ vi.mock('./nativeClient', () => ({
       const error = native.constructorErrors.shift()
       if (error) throw error
       native.turns.push(this as unknown as FakeTurn)
+    }
+  },
+  HermesNativeClientError: class extends Error {
+    constructor(
+      message: string,
+      public readonly kind: string,
+      public readonly code: string,
+      public readonly retryable = false
+    ) {
+      super(message)
+      this.name = 'HermesNativeClientError'
     }
   }
 }))
@@ -210,6 +222,34 @@ describe('runHermesNative assistant output', () => {
     })
     expect(sink.setState).toHaveBeenCalledWith(ids.conversation, 'error')
     expect(native.turns).toHaveLength(1)
+  })
+
+  it('persists a retryable wire error onto the error event', async () => {
+    const { promise, turn } = begin()
+    turn.fail(new HermesNativeClientError('agent overloaded', 'hermes', 'agent.overloaded', true))
+    await expect(promise).resolves.toEqual({ paused: false, failed: true })
+
+    const writes = vi.mocked(appendEvent).mock.calls.map(([, event]) => event)
+    const errorEvent = writes.find((event) => event.type === 'error')
+    expect(errorEvent).toMatchObject({
+      type: 'error',
+      message: 'agent overloaded',
+      recoverable: true,
+      retryable: true
+    })
+  })
+
+  it('omits retryable when the underlying error is not a HermesNativeClientError', async () => {
+    const { promise, turn } = begin()
+    turn.fail(new Error('socket exploded'))
+    await expect(promise).resolves.toEqual({ paused: false, failed: true })
+
+    const writes = vi.mocked(appendEvent).mock.calls.map(([, event]) => event)
+    const errorEvent = writes.find((event) => event.type === 'error') as
+      | { retryable?: boolean }
+      | undefined
+    expect(errorEvent?.retryable).toBeUndefined()
+    expect(errorEvent).not.toHaveProperty('retryable')
   })
 
   it('truncates accumulated assistant text at HERMES_MAX_TEXT_LENGTH instead of growing unbounded', async () => {

@@ -14,7 +14,7 @@ import {
 } from '../db'
 import { getSettings } from '../settings'
 import { getHermesPlatformKey, getOrCreateHermesInstallationId } from '../keys'
-import { HermesNativeTurn } from './nativeClient'
+import { HermesNativeClientError, HermesNativeTurn } from './nativeClient'
 import { HERMES_MAX_TEXT_LENGTH } from './protocol'
 import type { HermesServerEvent } from './protocol'
 
@@ -51,13 +51,15 @@ function fail(
   conversationId: string,
   sink: RunSink,
   message: string,
-  state: 'error' | 'cancelled' = 'error'
+  state: 'error' | 'cancelled' = 'error',
+  retryable?: boolean
 ): { paused: false; failed: true } {
   emitAndAppend(conversationId, sink, {
     type: 'error',
     id: randomUUID(),
     message,
-    recoverable: true
+    recoverable: true,
+    ...(retryable === undefined ? {} : { retryable })
   })
   sink.setState(conversationId, state)
   return { paused: false, failed: true }
@@ -311,7 +313,8 @@ export async function runHermesNative(
       conversationId,
       sink,
       cancelled ? 'Cancelled' : error instanceof Error ? error.message : 'Native Hermes request failed',
-      cancelled ? 'cancelled' : 'error'
+      cancelled ? 'cancelled' : 'error',
+      !cancelled && error instanceof HermesNativeClientError ? error.retryable : undefined
     )
   } finally {
     if (activeTurns.get(conversationId) === active) activeTurns.delete(conversationId)
