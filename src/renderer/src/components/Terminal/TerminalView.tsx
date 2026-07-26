@@ -6,6 +6,7 @@ import { IconPlus, IconClose, IconTerminal } from '../icons'
 import { ErrorCard } from '../ui/ErrorCard'
 import { EmptyState } from '../ui/EmptyState'
 import { Hint } from '../Hint'
+import { prefersReducedMotion } from '../../lib/prefersReducedMotion'
 import './TerminalView.css'
 
 function toErrorMessage(err: unknown): string {
@@ -75,8 +76,7 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
     // Guard the whole body, not just the setClosingIds update -- otherwise a
     // double-click within TAB_CLOSE_MS schedules closeTerminalTab twice.
     if (closingIds.has(tabId)) return
-    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
-    if (reduce) {
+    if (prefersReducedMotion()) {
       void closeTerminalTab(path, tabId)
       return
     }

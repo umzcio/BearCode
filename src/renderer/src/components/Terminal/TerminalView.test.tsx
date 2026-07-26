@@ -336,6 +336,29 @@ describe('TerminalView', () => {
       expect(useAppStore.getState().terminalTabs['/proj/a'][0].id).toBe('t1')
     })
 
+    it('closes immediately when only the in-app data-motion="reduced" attribute is set (OS matchMedia stays false)', async () => {
+      document.documentElement.setAttribute('data-motion', 'reduced')
+      useAppStore.setState({
+        terminalTabs: {
+          '/proj/a': [
+            { id: 't1', title: 'zsh', exited: false },
+            { id: 't2', title: 'bash', exited: false }
+          ]
+        },
+        activeTerminalTab: { '/proj/a': 't1' }
+      })
+      render(<TerminalView path="/proj/a" />)
+      const closeButtons = screen.getAllByLabelText('Close terminal tab')
+
+      fireEvent.click(closeButtons[1])
+      // No deferral -- takes the immediate-removal path even though
+      // stubMatchMedia(false) is still active from the outer beforeEach.
+      await waitFor(() => expect(useAppStore.getState().terminalTabs['/proj/a']).toHaveLength(1))
+      expect(useAppStore.getState().terminalTabs['/proj/a'][0].id).toBe('t1')
+
+      document.documentElement.removeAttribute('data-motion')
+    })
+
     it('a tab freshly created via the + button starts as data-state="open" (mount motion is CSS-only via @starting-style)', async () => {
       useAppStore.setState({
         terminalTabs: { '/proj/a': [{ id: 't1', title: 'zsh', exited: false }] },
