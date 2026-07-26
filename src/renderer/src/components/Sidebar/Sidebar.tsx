@@ -38,17 +38,8 @@ function toConvoLike(c: Convo): ConvoLike {
 }
 import { DisplayOptions } from './DisplayOptions'
 import { SidebarFooterMenu } from './SidebarFooterMenu'
-import { ConvoRowMenu } from './ConvoRowMenu'
-import {
-  IconArchive,
-  IconFolder,
-  IconPanel,
-  IconPin,
-  IconPlus,
-  IconSearch,
-  IconSettings,
-  IconTerminal
-} from '../icons'
+import { ConvoRow } from './ConvoRow'
+import { IconFolder, IconPanel, IconPlus, IconSearch, IconSettings, IconTerminal } from '../icons'
 import { projectIcon } from '../ProjectSettings/projectIcons'
 import './Sidebar.css'
 
@@ -365,56 +356,25 @@ export function Sidebar(): React.JSX.Element {
                   : undefined
                 const selected = view.kind === 'conversation' && view.id === id
                 return (
-                  <div
+                  <ConvoRow
                     key={id}
-                    className={'sb-flatrow' + (selected ? ' selected' : '')}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openConvo(id)}
-                    onKeyDown={(e) => {
-                      // Ignore keys that originated on a nested action button
-                      // (Pin/Archive/⋮) -- only the row's own focus target
-                      // should open the conversation. Mirrors ProjectPage.tsx.
-                      if (e.target !== e.currentTarget) return
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        openConvo(id)
-                      }
-                    }}
-                  >
-                    <span className="dot" style={{ background: fp?.color ?? 'var(--text-dim)' }} />
-                    <span className="name">{convo.title}</span>
-                    {subtitle === 'worktree' &&
-                    convo.environment === 'worktree' &&
-                    convo.worktrees[0] ? (
-                      <span className="sub">{convo.worktrees[0].branch}</span>
-                    ) : null}
-                    <span className="sb-rowact">
-                      <button
-                        type="button"
-                        className={'row-act' + (convo.pinned ? ' active' : '')}
-                        aria-label={convo.pinned ? 'Unpin' : 'Pin'}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setPinned(id, !convo.pinned)
-                        }}
-                      >
-                        <IconPin size={13} />
-                      </button>
-                      <button
-                        type="button"
-                        className={'row-act' + (convo.archived ? ' active' : '')}
-                        aria-label={convo.archived ? 'Unarchive' : 'Archive'}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setArchived(id, !convo.archived)
-                        }}
-                      >
-                        <IconArchive size={13} />
-                      </button>
-                      <ConvoRowMenu convoId={id} title={convo.title} />
-                    </span>
-                  </div>
+                    id={id}
+                    title={convo.title}
+                    pinned={convo.pinned}
+                    archived={convo.archived}
+                    selected={selected}
+                    dotColor={fp?.color ?? 'var(--text-dim)'}
+                    subtitle={
+                      subtitle === 'worktree' && convo.environment === 'worktree' && convo.worktrees[0]
+                        ? convo.worktrees[0].branch
+                        : undefined
+                    }
+                    rowClassName="sb-flatrow"
+                    actionsClassName="sb-rowact"
+                    onOpen={() => openConvo(id)}
+                    onTogglePinned={() => setPinned(id, !convo.pinned)}
+                    onToggleArchived={() => setArchived(id, !convo.archived)}
+                  />
                 )
               })}
             </>
@@ -438,56 +398,25 @@ export function Sidebar(): React.JSX.Element {
                   : undefined
                 const selected = view.kind === 'conversation' && view.id === id
                 return (
-                  <div
+                  <ConvoRow
                     key={id}
-                    className={'sb-flatrow' + (selected ? ' selected' : '')}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openConvo(id)}
-                    onKeyDown={(e) => {
-                      // Ignore keys that originated on a nested action button
-                      // (Pin/Archive/⋮) -- only the row's own focus target
-                      // should open the conversation. Mirrors ProjectPage.tsx.
-                      if (e.target !== e.currentTarget) return
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        openConvo(id)
-                      }
-                    }}
-                  >
-                    <span className="dot" style={{ background: fp?.color ?? 'var(--text-dim)' }} />
-                    <span className="name">{convo.title}</span>
-                    {subtitle === 'worktree' &&
-                    convo.environment === 'worktree' &&
-                    convo.worktrees[0] ? (
-                      <span className="sub">{convo.worktrees[0].branch}</span>
-                    ) : null}
-                    <span className="sb-rowact">
-                      <button
-                        type="button"
-                        className={'row-act' + (convo.pinned ? ' active' : '')}
-                        aria-label={convo.pinned ? 'Unpin' : 'Pin'}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setPinned(id, !convo.pinned)
-                        }}
-                      >
-                        <IconPin size={13} />
-                      </button>
-                      <button
-                        type="button"
-                        className={'row-act' + (convo.archived ? ' active' : '')}
-                        aria-label={convo.archived ? 'Unarchive' : 'Archive'}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setArchived(id, !convo.archived)
-                        }}
-                      >
-                        <IconArchive size={13} />
-                      </button>
-                      <ConvoRowMenu convoId={id} title={convo.title} />
-                    </span>
-                  </div>
+                    id={id}
+                    title={convo.title}
+                    pinned={convo.pinned}
+                    archived={convo.archived}
+                    selected={selected}
+                    dotColor={fp?.color ?? 'var(--text-dim)'}
+                    subtitle={
+                      subtitle === 'worktree' && convo.environment === 'worktree' && convo.worktrees[0]
+                        ? convo.worktrees[0].branch
+                        : undefined
+                    }
+                    rowClassName="sb-flatrow"
+                    actionsClassName="sb-rowact"
+                    onOpen={() => openConvo(id)}
+                    onTogglePinned={() => setPinned(id, !convo.pinned)}
+                    onToggleArchived={() => setArchived(id, !convo.archived)}
+                  />
                 )
               })
             )}
