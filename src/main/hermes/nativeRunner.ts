@@ -15,11 +15,13 @@ import {
 import { getSettings } from '../settings'
 import { getHermesPlatformKey, getOrCreateHermesInstallationId } from '../keys'
 import { HermesNativeTurn } from './nativeClient'
+import { HERMES_MAX_TEXT_LENGTH } from './protocol'
 import type { HermesServerEvent } from './protocol'
 
 interface AssistantState {
   text: string
   persisted: boolean
+  truncated: boolean
 }
 
 interface ActiveNativeTurn {
@@ -114,17 +116,25 @@ export async function runHermesNative(
   const onEvent = (wire: HermesServerEvent): void => {
     switch (wire.type) {
       case 'assistant.started':
-        assistants.set(wire.payload.messageId, { text: '', persisted: false })
+        assistants.set(wire.payload.messageId, { text: '', persisted: false, truncated: false })
         latestAssistantId = wire.payload.messageId
         return
       case 'assistant.delta': {
         const assistant = assistants.get(wire.payload.messageId) ?? {
           text: '',
-          persisted: false
+          persisted: false,
+          truncated: false
         }
-        assistant.text = wire.payload.replace === true
+        if (assistant.truncated) return
+        const next = wire.payload.replace === true
           ? wire.payload.text
           : assistant.text + wire.payload.text
+        if (next.length > HERMES_MAX_TEXT_LENGTH) {
+          assistant.text = next.slice(0, HERMES_MAX_TEXT_LENGTH)
+          assistant.truncated = true
+        } else {
+          assistant.text = next
+        }
         assistants.set(wire.payload.messageId, assistant)
         latestAssistantId = wire.payload.messageId
         sink.emit(conversationId, {

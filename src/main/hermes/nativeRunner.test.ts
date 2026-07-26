@@ -6,6 +6,7 @@ import type {
   HermesAttachment
 } from '../../shared/types'
 import type { HermesNativeTurnOptions } from './nativeClient'
+import { HERMES_MAX_TEXT_LENGTH } from './protocol'
 import type { HermesServerEvent } from './protocol'
 import type { RunSink } from '../sink'
 
@@ -209,6 +210,49 @@ describe('runHermesNative assistant output', () => {
     })
     expect(sink.setState).toHaveBeenCalledWith(ids.conversation, 'error')
     expect(native.turns).toHaveLength(1)
+  })
+
+  it('truncates accumulated assistant text at HERMES_MAX_TEXT_LENGTH instead of growing unbounded', async () => {
+    const { promise, sink, turn } = begin()
+    turn.options.onEvent(serverEvent('assistant.started', { messageId: ids.message }))
+
+    // A single delta that overshoots the cap should be truncated, not rejected.
+    turn.options.onEvent(
+      serverEvent(
+        'assistant.delta',
+        { messageId: ids.message, text: 'x'.repeat(HERMES_MAX_TEXT_LENGTH + 100) },
+        2
+      )
+    )
+    const emitsAfterFirstDelta = emitted(sink).filter(
+      (event) => event.type === 'assistant_text'
+    ).length
+
+    // Further deltas for the same message, once truncated, must be no-ops:
+    // no further growth, no redundant re-emit/re-slice.
+    turn.options.onEvent(
+      serverEvent('assistant.delta', { messageId: ids.message, text: 'more text' }, 3)
+    )
+    turn.options.onEvent(
+      serverEvent('assistant.delta', { messageId: ids.message, text: 'even more' }, 4)
+    )
+    turn.options.onEvent(serverEvent('assistant.completed', { messageId: ids.message }, 5))
+    turn.options.onEvent(serverEvent('turn.completed', { sessionId: 'session-new' }, 6))
+    turn.complete('completed')
+    await promise
+
+    const deltaEmits = emitted(sink).filter(
+      (event) => event.type === 'assistant_text'
+    ) as Array<{ text: string }>
+    expect(deltaEmits.length).toBe(emitsAfterFirstDelta)
+    expect(deltaEmits.at(-1)?.text.length).toBe(HERMES_MAX_TEXT_LENGTH)
+
+    const persisted = vi
+      .mocked(appendEvent)
+      .mock.calls.map(([, event]) => event)
+      .find((event) => event.type === 'assistant_text')
+    expect(persisted).toMatchObject({ type: 'assistant_text', id: ids.message })
+    expect((persisted as { text: string }).text.length).toBe(HERMES_MAX_TEXT_LENGTH)
   })
 })
 
