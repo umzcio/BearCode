@@ -2,7 +2,7 @@
 // Change deliberately and update all three layers together.
 
 import type { ThemeMode, CustomColors, FontSize, ConversationWidth, ChatFont } from './appearance'
-import type { PricingMap } from './pricing'
+import type { ModelMetadataMap, PricingMap } from './pricing'
 
 // Command-name grammar (D2 design 5.1/6.2), shared so the parse-time check
 // (a workflow's filename, src/main/agentsDir/parseWorkflow.ts) and the
@@ -1246,6 +1246,13 @@ export interface AppSettings {
   // before this feature load unchanged (coerced to {} / 0).
   modelPricing?: PricingMap
   modelPricingSyncedAt?: number
+  // Model capability/shape metadata (mode, context limits, supports_* flags)
+  // from LiteLLM's catalog, synced by the same action as modelPricing above
+  // (one fetch, two derived maps -- see src/main/pricing/sync.ts). Optional &
+  // additive: settings persisted before this feature coerce to {}. Absent for
+  // any ref LiteLLM doesn't catalog (custom models, Ollama) -- the UI must
+  // render that as "unknown," never as every capability being false.
+  modelMetadata?: ModelMetadataMap
   // Voice input STT backend (E5). Optional & additive: settings persisted before
   // this feature load unchanged (coerced to 'openai', the guaranteed default).
   sttBackend?: SttBackend
@@ -1584,7 +1591,12 @@ export interface BearcodeApi {
     set(patch: Partial<AppSettings>): Promise<SettingsInfo>
   }
   pricing: {
-    sync(): Promise<{ syncedCount: number; unmatched: string[]; syncedAt: number }>
+    sync(): Promise<{
+      syncedCount: number
+      metadataCount: number
+      unmatched: string[]
+      syncedAt: number
+    }>
   }
   conversations: {
     list(): Promise<ConversationMeta[]>

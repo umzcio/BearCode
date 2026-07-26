@@ -451,7 +451,12 @@ interface AppState {
     sidebarSubtitle?: AppSettings['sidebarSubtitle']
   }): Promise<void>
   setAppearance(patch: Partial<AppSettings>): Promise<void>
-  syncPricing(): Promise<{ syncedCount: number; unmatched: string[]; syncedAt: number }>
+  syncPricing(): Promise<{
+    syncedCount: number
+    metadataCount: number
+    unmatched: string[]
+    syncedAt: number
+  }>
   setPermissionMode(mode: PermissionMode): void
   setEffort(effort: EffortLevel): void
   setThinking(thinking: boolean): void
