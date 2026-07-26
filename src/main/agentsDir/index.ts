@@ -7,9 +7,9 @@
 // Pure Node builtins only, no new deps. Malformed or missing content never
 // throws (design 11 / Global Constraints): callers always get back an
 // AgentsContent, at worst empty.
-import { existsSync, readdirSync, statSync } from 'fs'
+import { existsSync, readdirSync, realpathSync, statSync } from 'fs'
 import { homedir } from 'os'
-import { isAbsolute, join, resolve, sep } from 'path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'path'
 import { isPathWithinRoot, readFileCapped } from '../fsCapped'
 import { enumeratePluginIngredients } from '../plugins'
 import { capMap } from './lruCap'
@@ -448,8 +448,15 @@ export function loadAgentsContent(
 // not an exact token grammar for rule-body refs).
 //
 // Resolution order (design 2, security-authoritative in design 10):
-//   1. Absolute path (starts with "/"): read directly, READ-ONLY, allowed to
-//      point anywhere on disk (documented Antigravity-parity behavior).
+//   1. Absolute path (starts with "/"): allowed to point anywhere on disk
+//      (documented Antigravity-parity behavior) -- an IN-workspace absolute
+//      ref (see isInsideWorkspaceAllowingMissing below) always reads
+//      READ-ONLY same as a relative ref; an OUT-of-workspace absolute ref is
+//      instead gated by OutsidePolicy (see resolveRefPath's own comment).
+//      UPDATED (round2 plan 002 follow-up): a MISSING absolute ref that
+//      would be in-workspace if it existed is still classified as in-
+//      workspace (not routed into the OutsidePolicy consent gate) -- see
+//      isInsideWorkspaceAllowingMissing.
 //   2. Otherwise: resolve relative to the workspace root (projectPath) and
 //      verify containment (see isInsideWorkspace below) before reading.
 //      UPDATED (round2 plan 002): containment is now realpath-based
@@ -608,8 +615,15 @@ function resolveRefsInner(
 
 // Resolve one `@<path>` token to an absolute filesystem path, or null if it
 // cannot be resolved (missing projectPath for a relative ref, or a relative
-// ref that escapes the workspace). Existence is NOT checked here -- callers
-// attempt the read and treat a failure the same as an unresolvable path.
+// ref that escapes the workspace). Existence is NOT checked here for the
+// purpose of deciding readability -- callers attempt the read and treat a
+// failure the same as an unresolvable path. It IS consulted, however, for the
+// absolute-ref "is this inside the workspace" classification just below
+// (round2 plan 002 follow-up fix): a MISSING absolute ref still needs to be
+// recognized as in-workspace when it genuinely would be, via
+// isInsideWorkspaceAllowingMissing, so it fails cleanly as "could not
+// resolve" instead of being misrouted into the OutsidePolicy consent flow --
+// see that function's own comment for why.
 //
 // Outside-of-folder policy (Task 3, audit C-1): an ABSOLUTE ref that points
 // outside the workspace is now gated by `outside` (only ever passed for
@@ -624,8 +638,14 @@ function resolveRefPath(
   if (isAbsolute(refPath)) {
     const abs = resolve(refPath)
     // Inside the workspace? treat like a relative in-folder ref (always ok).
+    // Missing-but-would-be-in-project paths count as inside here (see
+    // isInsideWorkspaceAllowingMissing) so a typo'd/deleted in-project ref
+    // fails cleanly below (the read attempt returns null) instead of
+    // triggering an outside-folder consent prompt -- the actual read a few
+    // lines into resolveRefsInner still applies its own realpath-based
+    // symlink defense, so this only changes the pre-read classification.
     const root = projectPath ? resolve(projectPath) : null
-    if (root && isInsideWorkspace(root, abs)) return { path: abs, pending: null }
+    if (root && isInsideWorkspaceAllowingMissing(root, abs)) return { path: abs, pending: null }
     // Out-of-folder absolute ref: apply policy. No policy = legacy allow (global).
     if (!outside || outside.policy === 'allow') return { path: abs, pending: null }
     if (outside.policy === 'deny') return { path: null, pending: null }
@@ -657,6 +677,73 @@ function resolveRefPath(
 // independently in-scope).
 function isInsideWorkspace(root: string, candidate: string): boolean {
   return isPathWithinRoot(candidate, root)
+}
+
+// Same containment check as isInsideWorkspace, but a candidate that does not
+// exist on disk gets a second chance instead of being unconditionally
+// classified as outside (round2 plan 002 follow-up fix).
+//
+// isPathWithinRoot/isInsideWorkspace realpathSync()s the candidate, which
+// THROWS on a missing path (ENOENT) -- and the catch there treats any thrown
+// error the same as "confirmed outside root". That collapses two very
+// different cases into one: a path that genuinely resolves outside the
+// workspace (reject, correct), and a path that would be inside the workspace
+// if it existed -- e.g. a typo'd or since-deleted `@/<project>/docs/x.md`
+// where `<project>` IS the open project (also being rejected as "outside" is
+// wrong: it used to fail cleanly with "could not resolve", not with a
+// misleading outside-folder consent prompt).
+//
+// Only a MISSING candidate gets the second chance, and only via the longest
+// EXISTING prefix (realpathExistingPrefix just below): every existing
+// ancestor directory is realpath'd (so a symlinked intermediate directory --
+// e.g. a committed `vendor` -> ~/.ssh -- still resolves to its real,
+// possibly-outside-the-workspace target) and the not-yet-existing suffix is
+// re-appended lexically on top of that real prefix before the containment
+// check runs. A candidate that DOES exist keeps the exact isInsideWorkspace
+// verdict (no second chance) -- this function never weakens the
+// existing-path symlink-escape defense plan 002 closed.
+function isInsideWorkspaceAllowingMissing(root: string, candidate: string): boolean {
+  if (isInsideWorkspace(root, candidate)) return true
+  if (existsSync(candidate)) return false
+  let realRoot: string
+  try {
+    realRoot = realpathSync(root)
+  } catch {
+    return false
+  }
+  const realCandidatePrefix = realpathExistingPrefix(candidate)
+  return realCandidatePrefix === realRoot || realCandidatePrefix.startsWith(realRoot + sep)
+}
+
+// Resolve the longest EXISTING prefix of a path through realpath, re-
+// appending the not-yet-existing suffix untouched. Deliberately a local
+// copy of orchestrator/fsBackend.ts's identically-named, identically-shaped
+// helper (same technique, same rationale: a path whose final component(s)
+// don't exist yet still gets its existing ancestors -- and any symlinks
+// among them -- normalized to their canonical location) rather than an
+// import: orchestrator/tools.ts imports from agentsDir (loadAgentsContent)
+// and orchestrator/fsBackend.ts imports from orchestrator/tools.ts, so
+// importing fsBackend.ts's version here closes a three-way module cycle
+// (tools.ts -> agentsDir/index.ts -> fsBackend.ts -> tools.ts) that breaks
+// vitest's vi.mock hoisting for unrelated tests (observed:
+// orchestrator/tools.memory.test.ts's `vi.mock('../memory')` silently
+// stopped intercepting `addMemory`). Two independent ~10-line copies of a
+// pure, dependency-free path-walk is the safer trade here.
+function realpathExistingPrefix(p: string): string {
+  let probe = p
+  let suffix = ''
+  for (;;) {
+    try {
+      probe = realpathSync(probe)
+      break
+    } catch {
+      suffix = sep + basename(probe) + suffix
+      const parent = dirname(probe)
+      if (parent === probe) break
+      probe = parent
+    }
+  }
+  return probe + suffix
 }
 
 // Deterministic ordering for plugin-sourced ingredients (skills/rules) before
