@@ -819,6 +819,7 @@ export const useAppStore = create<AppState>((set, get) => {
       const model = get()
         .manageableModels.find((p) => p.id === providerId)
         ?.models.find((m) => m.id === modelId)
+      if (!model) return
       // liveOnly models (discovered, not curated) are opt-IN: absence from
       // enabledLiveModels means disabled. Everything else is opt-OUT via
       // disabledModels, unchanged from before liveOnly existed.
@@ -830,9 +831,19 @@ export const useAppStore = create<AppState>((set, get) => {
             const enabledLiveModels = enabled
               ? [...new Set([...cur, ref])]
               : cur.filter((r) => r !== ref)
-            return !enabled && s.defaultModelRef === ref
-              ? { enabledLiveModels, defaultModelRef: null }
+            // Enabling a liveOnly model also proactively removes any stale
+            // disabledModels entry for the same ref: if this ref was disabled
+            // before liveOnly existed (or by any other path), that entry is
+            // currently harmless while liveOnly stays true, but would silently
+            // re-disable the model the moment it becomes a curated (non-live)
+            // entry and liveOnly flips to false.
+            const base = enabled
+              ? {
+                  enabledLiveModels,
+                  disabledModels: (s.disabledModels ?? []).filter((r) => r !== ref)
+                }
               : { enabledLiveModels }
+            return !enabled && s.defaultModelRef === ref ? { ...base, defaultModelRef: null } : base
           })()
         : (() => {
             const cur = s.disabledModels ?? []
@@ -1658,7 +1669,8 @@ export const useAppStore = create<AppState>((set, get) => {
       if (
         patch.ollamaBaseUrl !== undefined ||
         patch.disabledModels !== undefined ||
-        patch.customModels !== undefined
+        patch.customModels !== undefined ||
+        patch.enabledLiveModels !== undefined
       )
         await get().refreshProviders()
     },
