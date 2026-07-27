@@ -21,11 +21,15 @@
   font-family: inherit;
   transition:
     background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
 }
 .sb-name-btn:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+.sb-name-btn:active {
+  transform: scale(0.97);
 }
 .sb-name-btn:focus-visible {
   outline: none;
@@ -52,6 +56,13 @@
   .sb-name-btn svg {
     transition: none;
   }
+  .sb-name-btn:active {
+    transform: none;
+  }
+}
+
+:root[data-motion='reduced'] .sb-name-btn:active {
+  transform: none;
 }
 .acct-menu {
   min-width: 200px;

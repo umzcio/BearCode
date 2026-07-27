@@ -97,10 +97,14 @@
   font-family: inherit;
   transition:
     background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
 }
 .seg-toggle button:hover {
   color: var(--text-mid);
+}
+.seg-toggle button:active {
+  transform: scale(0.97);
 }
 .seg-toggle button.active {
   background: var(--bg-raised);
@@ -224,6 +228,13 @@
   .sb-rowact {
     transition: none;
   }
+  .seg-toggle button:active {
+    transform: none;
+  }
+}
+
+:root[data-motion='reduced'] .seg-toggle button:active {
+  transform: none;
 }
 
 /* The Projects/Pinned/Recents body (or the Hermes segment's own flat list)

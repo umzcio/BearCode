@@ -178,11 +178,15 @@
   align-items: center;
   transition:
     background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
 }
 .row-act:hover {
   background: var(--bg-active);
   color: var(--text);
+}
+.row-act:active {
+  transform: scale(0.97);
 }
 .row-act.active {
   color: var(--accent);
@@ -190,4 +194,13 @@
 .row-act:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-act:active {
+    transform: none;
+  }
+}
+
+:root[data-motion='reduced'] .row-act:active {
+  transform: none;
 }
