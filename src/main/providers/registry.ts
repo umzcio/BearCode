@@ -509,12 +509,24 @@ async function ensureLiveDiscovery(provider: ProviderId): Promise<void> {
   const apiKey = getKey(provider)
   if (!apiKey) return
 
+  // Each fetcher (liveDiscovery.ts) already wraps its own body in try/catch
+  // and resolves null rather than rejecting -- but this call site must not
+  // implicitly depend on that invariant holding forever. A future change to
+  // any fetcher that drops its own try/catch would otherwise reintroduce an
+  // unhandled rejection here that breaks listAllModels/listManageableModels
+  // entirely, undermining the "fail closed to the static array" premise this
+  // whole feature is built on. Belt-and-suspenders: a thrown/rejected fetch
+  // degrades to the exact same fallback as a `null` resolution.
   let result: Awaited<ReturnType<typeof fetchAnthropicModels>> = null
-  if (provider === 'anthropic') result = await fetchAnthropicModels(apiKey)
-  else if (provider === 'google') result = await fetchGoogleModels(apiKey)
-  else if (provider === 'openai') {
-    const metadata = getSettings().modelMetadata
-    result = await fetchOpenAIModels(apiKey, (id) => isKnownOpenAIChatModel(id, metadata))
+  try {
+    if (provider === 'anthropic') result = await fetchAnthropicModels(apiKey)
+    else if (provider === 'google') result = await fetchGoogleModels(apiKey)
+    else if (provider === 'openai') {
+      const metadata = getSettings().modelMetadata
+      result = await fetchOpenAIModels(apiKey, (id) => isKnownOpenAIChatModel(id, metadata))
+    }
+  } catch {
+    return
   }
   if (!result) return
 

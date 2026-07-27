@@ -94,4 +94,14 @@ describe('registry live discovery orchestration', () => {
     await listManageableModels()
     expect(fetchAnthropicModels).toHaveBeenCalledTimes(2)
   })
+
+  it('degrades to the static fallback when a fetcher rejects instead of resolving null', async () => {
+    getKey.mockReturnValue('sk-test')
+    fetchAnthropicModels.mockRejectedValue(new Error('network error'))
+    fetchGoogleModels.mockResolvedValue(null)
+    fetchOpenAIModels.mockResolvedValue(null)
+    const { knownModels, listManageableModels, ANTHROPIC_MODELS } = await import('./registry')
+    await expect(listManageableModels()).resolves.toBeDefined()
+    expect(knownModels('anthropic')).toEqual(ANTHROPIC_MODELS)
+  })
 })
