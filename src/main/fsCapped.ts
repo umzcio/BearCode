@@ -1,10 +1,17 @@
 // Bounded, stat-gated file read, shared by agentsDir/index.ts and
 // mcp/store.ts (security review item 1). Two guarantees:
-// 1. Regular files ONLY: stats.isFile() is checked BEFORE any open. This is
-//    what keeps a target like a FIFO (open blocks forever when no writer
-//    exists), a device node (/dev/zero never ends), or any other non-regular
-//    file from hanging or flooding the synchronous main process -- such
-//    targets return null, which callers treat as unresolvable.
+// 1. Regular files ONLY: the open always includes O_NONBLOCK, and stats.isFile()
+//    is checked via fstatSync on the resulting DESCRIPTOR right after (never a
+//    pre-open statSync on the pathname -- that would reopen the TOCTOU gap the
+//    O_NOFOLLOW hardening below was added to close). O_NONBLOCK is what keeps a
+//    target like a FIFO from hanging the synchronous main process: opening a
+//    FIFO with no writer normally blocks forever, but with O_NONBLOCK the open
+//    returns immediately with a "not ready" fd instead, which the isFile()
+//    check below then correctly rejects. O_NONBLOCK has no effect on regular
+//    files (silently ignored), so normal reads are unaffected. A device node
+//    (/dev/zero never ends) or any other non-regular file is likewise rejected
+//    by the same isFile() check -- such targets return null, which callers
+//    treat as unresolvable.
 // 2. The read itself is bounded by a preallocated buffer of at most `cap`
 //    bytes filled via fs.readSync on an fd -- never a whole-file
 //    readFileSync -- so no unbounded read can occur regardless of what stat
@@ -127,15 +134,22 @@ export function readFileCapped(
     // the leaf-symlink check just above. Callers that never pass `root` (the
     // ~12 non-config-import call sites) must keep transparently following a
     // symlinked leaf (e.g. a dotfiles-managed ~/.bearcode/agents/rules/foo.md
-    // symlink), so they get the plain O_RDONLY open, identical to the
-    // previous `openSync(path, 'r')`. When `root` IS provided, O_NOFOLLOW
-    // closes the TOCTOU race window between the lstat/isPathWithinRoot
-    // checks above and this open: even if a symlink is swapped onto `path`
-    // in between, the open itself fails (ELOOP) instead of transparently
-    // following it. Mirrors hermes/nativeFiles.ts's
+    // symlink), so they get a plain O_RDONLY|O_NONBLOCK open. When `root` IS
+    // provided, O_NOFOLLOW closes the TOCTOU race window between the
+    // lstat/isPathWithinRoot checks above and this open: even if a symlink is
+    // swapped onto `path` in between, the open itself fails (ELOOP) instead of
+    // transparently following it. Mirrors hermes/nativeFiles.ts's
     // describeNativeUpload/openAttachment pattern (open with O_NOFOLLOW,
     // then fstat the DESCRIPTOR below, never the pathname again).
-    fd = openSync(path, root ? constants.O_RDONLY | constants.O_NOFOLLOW : constants.O_RDONLY)
+    // O_NONBLOCK is unconditional (both branches) -- it's what actually
+    // prevents the FIFO-hang described above, and it's a no-op for regular
+    // files, so it costs every caller (root or not) nothing.
+    fd = openSync(
+      path,
+      root
+        ? constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+        : constants.O_RDONLY | constants.O_NONBLOCK
+    )
   } catch {
     return null
   }

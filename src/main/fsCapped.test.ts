@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'fs'
+import { execSync } from 'child_process'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { readFileCapped, isPathWithinRoot } from './fsCapped'
@@ -143,6 +144,38 @@ describe('readFileCapped', () => {
   // openSync" / "Module namespace is not configurable in ESM") -- confirmed
   // by attempting `vi.spyOn(fs, 'openSync')` here, which throws rather than
   // intercepting the call.
+
+  // Regression test (round3 whole-branch review): the O_NOFOLLOW hardening
+  // above switched the isFile() check from a pre-open statSync(path) to a
+  // post-open fstatSync(fd), which reintroduced a real hang risk -- opening a
+  // FIFO with no writer via a bare O_RDONLY blocks the synchronous main
+  // process INDEFINITELY. openSync must always include O_NONBLOCK (regardless
+  // of whether `root` is passed) so the open itself returns immediately with
+  // a "not ready" fd instead of blocking; the existing fstatSync(fd).isFile()
+  // check then correctly rejects it as non-regular. This uses a REAL FIFO
+  // (via the `mkfifo` binary -- Node's fs module has no direct mkfifo) with no
+  // writer ever attached, so a regression here would hang this test (and the
+  // whole `vitest run` process) rather than merely failing it -- that's the
+  // exact failure mode this test exists to catch.
+  it('returns null promptly (does not hang) for a FIFO with no writer', () => {
+    const fifoPath = join(dir, 'a-fifo')
+    execSync(`mkfifo "${fifoPath}"`)
+    const start = Date.now()
+    const result = readFileCapped(fifoPath, 1024)
+    const elapsedMs = Date.now() - start
+    expect(result).toBeNull()
+    expect(elapsedMs).toBeLessThan(2000)
+  })
+
+  it('returns null promptly (does not hang) for a FIFO with no writer, given a root', () => {
+    const fifoPath = join(dir, 'a-fifo-rooted')
+    execSync(`mkfifo "${fifoPath}"`)
+    const start = Date.now()
+    const result = readFileCapped(fifoPath, 1024, dir)
+    const elapsedMs = Date.now() - start
+    expect(result).toBeNull()
+    expect(elapsedMs).toBeLessThan(2000)
+  })
 })
 
 describe('isPathWithinRoot', () => {
