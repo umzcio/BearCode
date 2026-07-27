@@ -62,7 +62,14 @@ describe('buildModelRows', () => {
       displayName: 'Anthropic',
       color: '#d97757',
       models: [
-        { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', contextWindow: 1_000_000, custom: false, enabled: true }
+        {
+          id: 'claude-sonnet-5',
+          label: 'Claude Sonnet 5',
+          contextWindow: 1_000_000,
+          custom: false,
+          enabled: true,
+          liveOnly: false
+        }
       ]
     }
   ]
@@ -105,7 +112,7 @@ describe('buildModelRows', () => {
           id: 'openai',
           displayName: 'OpenAI',
           color: '#9ad0b7',
-          models: [{ id: 'my-custom', label: 'My Custom', custom: true, enabled: true }]
+          models: [{ id: 'my-custom', label: 'My Custom', custom: true, enabled: true, liveOnly: false }]
         }
       ],
       providers,
@@ -130,6 +137,7 @@ describe('buildModelRows', () => {
               label: 'Claude Opus 4.8',
               custom: false,
               enabled: true,
+              liveOnly: false,
               liveCapabilities: { vision: true, codeExecution: true }
             }
           ]
@@ -177,6 +185,7 @@ describe('buildModelRows', () => {
               label: 'Claude New Model',
               custom: false,
               enabled: true,
+              liveOnly: false,
               liveCapabilities: { vision: true }
             }
           ]
