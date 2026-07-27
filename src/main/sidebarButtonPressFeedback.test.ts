@@ -94,11 +94,34 @@ function activeRuleDeclarations(
   }
 }
 
-function ruleSelectorsWithDeclaration(stylesheet: string, declaration: string): string[] {
-  return cssRules(stylesheet)
-    .filter((rule) => rule.declarations.includes(declaration))
-    .flatMap((rule) => rule.selectors)
+function selectorTargetsSubject(selector: string, target: string): boolean {
+  const targetIndex = selector.lastIndexOf(target)
+  if (targetIndex === -1) return false
+  const suffix = selector.slice(targetIndex + target.length)
+  if (suffix !== '' && !['.', '#', ':', '['].includes(suffix[0])) return false
+  return !/[\s>+~]/.test(suffix)
 }
+
+function subjectRules(stylesheet: string, target: string): Array<CssRule & { selector: string }> {
+  return cssRules(stylesheet).flatMap((rule) =>
+    rule.selectors
+      .filter((selector) => selectorTargetsSubject(selector, target))
+      .map((selector) => ({ ...rule, selector }))
+  )
+}
+
+function declaresTransformMotion(declarations: string): boolean {
+  return (
+    /\btransform\s*:/.test(declarations) ||
+    /\btransition(?:-property)?\s*:[^;}]*\btransform\b/.test(declarations)
+  )
+}
+
+function declaresTargetMotion(declarations: string): boolean {
+  return declaresTransformMotion(declarations) || /\btransition(?:-[a-z-]+)?\s*:/.test(declarations)
+}
+
+const motionTokens = readFileSync(join(mainDir, '../renderer/src/styles/tokens.css'), 'utf8')
 
 const pressableStylesheets = [
   {
@@ -121,21 +144,63 @@ const pressableStylesheets = [
   }
 ]
 
+const deniedNavigationSelectors = [
+  {
+    css: pressableStylesheets[0].css,
+    selectors: ['.nav-item', '.sb-flatrow']
+  },
+  {
+    css: pressableStylesheets[2].css,
+    selectors: ['.pp-row']
+  }
+]
+
 describe('sidebar button press feedback', () => {
-  it('gives only genuine sidebar buttons the shared press transform', () => {
+  it('uses a 140ms press-in and a 100ms release for the three genuine sidebar buttons', () => {
+    const tokenDeclarations = rootRuleDeclaration(motionTokens, ':root')
+    expect(tokenDeclarations).toContain('--dur-press: 140ms;')
+    expect(tokenDeclarations).toContain('--dur-press-release: 100ms;')
+
     for (const { css, selector } of pressableStylesheets) {
       const transition = rootRuleDeclaration(css, selector)
       const active = activeRuleDeclarations(css, `${selector}:active`)
 
       expect(transition).toContain('background var(--dur-fast) var(--ease-out)')
       expect(transition).toContain('color var(--dur-fast) var(--ease-out)')
-      expect(transition).toContain('transform var(--dur-press) var(--ease-out)')
+      expect(transition).toContain('transform var(--dur-press-release) var(--ease-out)')
       expect(active.normal).toContain('transform: scale(0.97);')
-      expect(
-        ruleSelectorsWithDeclaration(css, 'transform var(--dur-press) var(--ease-out)')
-      ).toEqual([selector])
-      expect(ruleSelectorsWithDeclaration(css, 'transform: scale(')).toEqual([`${selector}:active`])
-      expect(ruleSelectorsWithDeclaration(css, 'box-shadow')).not.toContain(selector)
+      expect(active.normal).toContain('transform var(--dur-press) var(--ease-out)')
+      expect(transition).not.toContain('box-shadow')
+      expect(active.normal).not.toContain('box-shadow')
+    }
+  })
+
+  it('allows only the exact target rules and their two reduced-motion overrides to define target motion', () => {
+    for (const { css, selector } of pressableStylesheets) {
+      const targetMotionRules = subjectRules(css, selector)
+        .filter((rule) => declaresTargetMotion(rule.declarations))
+        .map(
+          (rule) =>
+            `${rule.atRules.length === 0 ? 'root' : rule.atRules.join(' > ')} :: ${rule.selector}`
+        )
+
+      expect(targetMotionRules).toEqual([
+        `root :: ${selector}`,
+        `root :: ${selector}:active`,
+        `${osReducedMotion} :: ${selector}:active`,
+        `root :: :root[data-motion='reduced'] ${selector}:active`
+      ])
+    }
+  })
+
+  it('does not transform navigation rows, including rules nested in a context or at-rule', () => {
+    for (const { css, selectors } of deniedNavigationSelectors) {
+      for (const selector of selectors) {
+        const transformRules = subjectRules(css, selector).filter((rule) =>
+          declaresTransformMotion(rule.declarations)
+        )
+        expect(transformRules).toEqual([])
+      }
     }
   })
 

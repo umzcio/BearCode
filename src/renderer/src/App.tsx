@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { WindowChromeControls } from './components/WindowChrome/WindowChromeControls'
-import { Sidebar } from './components/Sidebar/Sidebar'
+import { Sidebar, type SidebarMotionControl } from './components/Sidebar/Sidebar'
 import { Home } from './components/Home'
 import { HistoryView } from './components/History/HistoryView'
 import { TerminalView } from './components/Terminal/TerminalView'
@@ -40,6 +40,7 @@ function App(): React.JSX.Element {
   const dismissToast = useAppStore((s) => s.dismissToast)
   const init = useAppStore((s) => s.init)
   const cmdHeld = useCmdHeld()
+  const sidebarMotionControl = useRef<SidebarMotionControl>({ skipNextAnimation: false })
 
   useEffect(() => {
     init()
@@ -78,6 +79,7 @@ function App(): React.JSX.Element {
           break
         case 'b':
           e.preventDefault()
+          sidebarMotionControl.current.skipNextAnimation = true
           s.toggleSidebar()
           break
         case ',':
@@ -115,7 +117,7 @@ function App(): React.JSX.Element {
   return (
     <div className={'app' + (cmdHeld ? ' cmd-held' : '')}>
       <WindowChromeControls />
-      <Sidebar />
+      <Sidebar motionControl={sidebarMotionControl.current} />
       {!collapsed ? (
         <ResizeHandle
           onDrag={(dx) =>

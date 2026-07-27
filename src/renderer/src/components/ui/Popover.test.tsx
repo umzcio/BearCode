@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // @ts-expect-error -- Vitest executes this stylesheet harness in Node; the web tsconfig omits Node types.
 import { readFileSync } from 'node:fs'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { Popover } from './Popover'
@@ -49,6 +49,21 @@ function Harness({ open, onClose }: { open: boolean; onClose: () => void }): Rea
   )
 }
 
+function ControlledHarness({ initialOpen = true }: { initialOpen?: boolean }): React.JSX.Element {
+  const anchorRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(initialOpen)
+  return (
+    <div>
+      <button ref={anchorRef} onClick={() => setOpen((value) => !value)}>
+        Anchor
+      </button>
+      <Popover anchorRef={anchorRef} open={open} onClose={() => setOpen(false)}>
+        <button>Popover action</button>
+      </Popover>
+    </div>
+  )
+}
+
 describe('Popover', () => {
   it('renders nothing when closed', () => {
     render(<Harness open={false} onClose={vi.fn()} />)
@@ -74,6 +89,38 @@ describe('Popover', () => {
     render(<Harness open={true} onClose={onClose} />)
     fireEvent.pointerDown(document.body)
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it.each([
+    ['Escape', () => fireEvent.keyDown(document, { key: 'Escape' })],
+    ['resize', () => fireEvent(window, new Event('resize'))],
+    ['external scroll', () => fireEvent.scroll(document.body)]
+  ])('removes the popover immediately when %s invalidates its geometry', (_reason, close) => {
+    render(<ControlledHarness />)
+    const action = screen.getByRole('button', { name: 'Popover action' })
+    action.focus()
+
+    close()
+
+    expect(screen.queryByText('Popover action')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Anchor' }))
+  })
+
+  it('retains the 150ms exit after a pointer outside-close', () => {
+    render(<ControlledHarness />)
+
+    fireEvent.pointerDown(document.body)
+
+    const closing = screen.getByText('Popover action').closest('.popover')
+    expect(closing?.getAttribute('data-state')).toBe('closing')
+    act(() => {
+      vi.advanceTimersByTime(149)
+    })
+    expect(screen.queryByText('Popover action')).not.toBeNull()
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+    expect(screen.queryByText('Popover action')).toBeNull()
   })
 
   it('does not close on pointerdown inside the popover', () => {
@@ -102,7 +149,7 @@ describe('Popover', () => {
     expect(screen.queryByText('Popover content')).toBeNull()
   })
 
-  it('makes the retained closing wrapper aria-hidden and pointer-inert', () => {
+  it('makes the retained closing wrapper aria-hidden, pointer-inert, and keyboard-inert', () => {
     const { rerender } = render(<Harness open={true} onClose={vi.fn()} />)
 
     rerender(<Harness open={false} onClose={vi.fn()} />)
@@ -110,6 +157,7 @@ describe('Popover', () => {
 
     expect(wrapper?.getAttribute('aria-hidden')).toBe('true')
     expect(getComputedStyle(wrapper as Element).pointerEvents).toBe('none')
+    expect(wrapper).toHaveAttribute('inert')
   })
 
   it('reopens the same closing DOM node and cancels its pending unmount', () => {

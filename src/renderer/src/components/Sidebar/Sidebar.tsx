@@ -46,17 +46,19 @@ function computedTranslateX(el: HTMLElement): number {
 import { DisplayOptions } from './DisplayOptions'
 import { SidebarFooterMenu } from './SidebarFooterMenu'
 import { ConvoRow } from './ConvoRow'
-import {
-  IconFolder,
-  IconGrid,
-  IconPlus,
-  IconSettings,
-  IconTerminal
-} from '../icons'
+import { IconFolder, IconGrid, IconPlus, IconSettings, IconTerminal } from '../icons'
 import { projectIcon } from '../ProjectSettings/projectIcons'
 import './Sidebar.css'
 
-export function Sidebar(): React.JSX.Element {
+export interface SidebarMotionControl {
+  skipNextAnimation: boolean
+}
+
+export function Sidebar({
+  motionControl
+}: {
+  motionControl?: SidebarMotionControl
+} = {}): React.JSX.Element {
   const collapsed = useAppStore((s) => s.sidebarCollapsed)
   const sidebarWidth = useAppStore((s) => s.sidebarWidth)
   const view = useAppStore((s) => s.view)
@@ -165,6 +167,11 @@ export function Sidebar(): React.JSX.Element {
       el.style.transition = ''
       el.style.transform = ''
     }
+    if (motionControl?.skipNextAnimation) {
+      motionControl.skipNextAnimation = false
+      clearMotionStyles()
+      return
+    }
     if (prefersReducedMotion()) {
       clearMotionStyles()
       return
@@ -206,7 +213,7 @@ export function Sidebar(): React.JSX.Element {
       el.style.transform = 'translate3d(0, 0, 0)'
     })
     const done = (e: TransitionEvent): void => {
-      if (e.propertyName !== 'transform') return
+      if (e.target !== el || e.propertyName !== 'transform') return
       clearMotionStyles()
       el.removeEventListener('transitionend', done)
     }
@@ -215,7 +222,7 @@ export function Sidebar(): React.JSX.Element {
       cancelAnimationFrame(raf)
       el.removeEventListener('transitionend', done)
     }
-  }, [collapsed])
+  }, [collapsed, motionControl])
 
   return (
     <div
@@ -256,7 +263,9 @@ export function Sidebar(): React.JSX.Element {
       <Hint label="New Conversation" keys="⌘N" side="right">
         <button
           className={'nav-item' + (view.kind === 'home' ? ' selected' : '')}
-          onClick={() => (mode === 'hermes' && hermesEnabled ? void newHermesConversation() : goHome())}
+          onClick={() =>
+            mode === 'hermes' && hermesEnabled ? void newHermesConversation() : goHome()
+          }
         >
           <IconPlus />
           New Conversation
@@ -284,191 +293,197 @@ export function Sidebar(): React.JSX.Element {
       )}
 
       <div className="sb-scroll">
-      {mode === 'hermes' && hermesEnabled ? (
-        <div className="sb-recents">
-          <div className="sb-label">Recents</div>
-          {hermesConvoIds.length === 0 ? (
-            <div className="sidebar-empty">
-              <EmptyState title="No Hermes conversations yet" />
-            </div>
-          ) : (
-            hermesConvoIds.map((id) => {
-              const convo = conversations[id]
-              if (!convo) return null
-              const selected = view.kind === 'conversation' && view.id === id
-              return (
-                <button
-                  type="button"
-                  key={id}
-                  className={'sb-flatrow' + (selected ? ' selected' : '')}
-                  onClick={() => openConvo(id)}
-                >
-                  <span className="name">{convo.title}</span>
-                </button>
-              )
-            })
-          )}
-        </div>
-      ) : (
-        <>
-          {pinnedProjects.length > 0 ? (
-            <>
-              <div className="sb-label">Pinned Projects</div>
-              {pinnedProjects.map((fp) => {
-                const Icon = projectIcon(fp.icon)
-                const label = fp.name ?? fp.path.split('/').pop() ?? fp.path
-                const selected = view.kind === 'project' && view.path === fp.path
-                return (
-                  <div
-                    key={fp.path}
-                    className={'sb-flatrow' + (selected ? ' selected' : '')}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openProjectPage(fp.path)}
-                    onKeyDown={(e) => {
-                      // Ignore keys that originated on the nested Settings
-                      // action -- only the row's own focus target should open
-                      // the project. Mirrors the Pinned conversation row
-                      // convention just below.
-                      if (e.target !== e.currentTarget) return
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        openProjectPage(fp.path)
-                      }
-                    }}
-                  >
-                    <span
-                      className="chip"
-                      style={fp.color ? { background: fp.color + '2e', color: fp.color } : undefined}
-                    >
-                      <Icon size={11} />
-                    </span>
-                    <span className="name">{label}</span>
-                    <span className="sb-rowact">
-                      <Hint label="Project settings">
-                        <button
-                          type="button"
-                          className="row-act"
-                          aria-label="Project settings"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            openProjectSettings(fp.path)
-                          }}
-                        >
-                          <IconSettings size={13} />
-                        </button>
-                      </Hint>
-                      <Hint label="Open terminal">
-                        <button
-                          type="button"
-                          className="row-act"
-                          aria-label="Open terminal"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            openTerminalView(fp.path)
-                          }}
-                        >
-                          <IconTerminal size={13} />
-                        </button>
-                      </Hint>
-                      <Hint label="New conversation">
-                        <button
-                          type="button"
-                          className="row-act"
-                          aria-label="New conversation"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            void newConversationInProject(fp.path)
-                          }}
-                        >
-                          <IconPlus size={13} />
-                        </button>
-                      </Hint>
-                    </span>
-                  </div>
-                )
-              })}
-            </>
-          ) : null}
-
-          {pinnedIds.length > 0 ? (
-            <>
-              <div className="sb-label">Pinned</div>
-              {pinnedIds.map((id) => {
-                const convo = conversations[id]
-                if (!convo) return null
-                const fp = convo.projectPath
-                  ? folderSettings.find((f) => f.path === convo.projectPath)
-                  : undefined
-                const selected = view.kind === 'conversation' && view.id === id
-                return (
-                  <ConvoRow
-                    key={id}
-                    id={id}
-                    title={convo.title}
-                    pinned={convo.pinned}
-                    archived={convo.archived}
-                    selected={selected}
-                    dotColor={fp?.color ?? 'var(--text-dim)'}
-                    subtitle={
-                      subtitle === 'worktree' && convo.environment === 'worktree' && convo.worktrees[0]
-                        ? convo.worktrees[0].branch
-                        : undefined
-                    }
-                    rowClassName="sb-flatrow"
-                    actionsClassName="sb-rowact"
-                    onOpen={() => openConvo(id)}
-                    onTogglePinned={() => setPinned(id, !convo.pinned)}
-                    onToggleArchived={() => setArchived(id, !convo.archived)}
-                  />
-                )
-              })}
-            </>
-          ) : null}
-
+        {mode === 'hermes' && hermesEnabled ? (
           <div className="sb-recents">
-            <div className="sb-label">
-              Recents
-              <DisplayOptions />
-            </div>
-            {recentIds.length === 0 ? (
+            <div className="sb-label">Recents</div>
+            {hermesConvoIds.length === 0 ? (
               <div className="sidebar-empty">
-                <EmptyState title="No conversations yet" />
+                <EmptyState title="No Hermes conversations yet" />
               </div>
             ) : (
-              recentIds.map((id) => {
+              hermesConvoIds.map((id) => {
                 const convo = conversations[id]
                 if (!convo) return null
-                const fp = convo.projectPath
-                  ? folderSettings.find((f) => f.path === convo.projectPath)
-                  : undefined
                 const selected = view.kind === 'conversation' && view.id === id
                 return (
-                  <ConvoRow
+                  <button
+                    type="button"
                     key={id}
-                    id={id}
-                    title={convo.title}
-                    pinned={convo.pinned}
-                    archived={convo.archived}
-                    selected={selected}
-                    dotColor={fp?.color ?? 'var(--text-dim)'}
-                    subtitle={
-                      subtitle === 'worktree' && convo.environment === 'worktree' && convo.worktrees[0]
-                        ? convo.worktrees[0].branch
-                        : undefined
-                    }
-                    rowClassName="sb-flatrow"
-                    actionsClassName="sb-rowact"
-                    onOpen={() => openConvo(id)}
-                    onTogglePinned={() => setPinned(id, !convo.pinned)}
-                    onToggleArchived={() => setArchived(id, !convo.archived)}
-                  />
+                    className={'sb-flatrow' + (selected ? ' selected' : '')}
+                    onClick={() => openConvo(id)}
+                  >
+                    <span className="name">{convo.title}</span>
+                  </button>
                 )
               })
             )}
           </div>
-        </>
-      )}
+        ) : (
+          <>
+            {pinnedProjects.length > 0 ? (
+              <>
+                <div className="sb-label">Pinned Projects</div>
+                {pinnedProjects.map((fp) => {
+                  const Icon = projectIcon(fp.icon)
+                  const label = fp.name ?? fp.path.split('/').pop() ?? fp.path
+                  const selected = view.kind === 'project' && view.path === fp.path
+                  return (
+                    <div
+                      key={fp.path}
+                      className={'sb-flatrow' + (selected ? ' selected' : '')}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openProjectPage(fp.path)}
+                      onKeyDown={(e) => {
+                        // Ignore keys that originated on the nested Settings
+                        // action -- only the row's own focus target should open
+                        // the project. Mirrors the Pinned conversation row
+                        // convention just below.
+                        if (e.target !== e.currentTarget) return
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          openProjectPage(fp.path)
+                        }
+                      }}
+                    >
+                      <span
+                        className="chip"
+                        style={
+                          fp.color ? { background: fp.color + '2e', color: fp.color } : undefined
+                        }
+                      >
+                        <Icon size={11} />
+                      </span>
+                      <span className="name">{label}</span>
+                      <span className="sb-rowact">
+                        <Hint label="Project settings">
+                          <button
+                            type="button"
+                            className="row-act"
+                            aria-label="Project settings"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openProjectSettings(fp.path)
+                            }}
+                          >
+                            <IconSettings size={13} />
+                          </button>
+                        </Hint>
+                        <Hint label="Open terminal">
+                          <button
+                            type="button"
+                            className="row-act"
+                            aria-label="Open terminal"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openTerminalView(fp.path)
+                            }}
+                          >
+                            <IconTerminal size={13} />
+                          </button>
+                        </Hint>
+                        <Hint label="New conversation">
+                          <button
+                            type="button"
+                            className="row-act"
+                            aria-label="New conversation"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void newConversationInProject(fp.path)
+                            }}
+                          >
+                            <IconPlus size={13} />
+                          </button>
+                        </Hint>
+                      </span>
+                    </div>
+                  )
+                })}
+              </>
+            ) : null}
+
+            {pinnedIds.length > 0 ? (
+              <>
+                <div className="sb-label">Pinned</div>
+                {pinnedIds.map((id) => {
+                  const convo = conversations[id]
+                  if (!convo) return null
+                  const fp = convo.projectPath
+                    ? folderSettings.find((f) => f.path === convo.projectPath)
+                    : undefined
+                  const selected = view.kind === 'conversation' && view.id === id
+                  return (
+                    <ConvoRow
+                      key={id}
+                      id={id}
+                      title={convo.title}
+                      pinned={convo.pinned}
+                      archived={convo.archived}
+                      selected={selected}
+                      dotColor={fp?.color ?? 'var(--text-dim)'}
+                      subtitle={
+                        subtitle === 'worktree' &&
+                        convo.environment === 'worktree' &&
+                        convo.worktrees[0]
+                          ? convo.worktrees[0].branch
+                          : undefined
+                      }
+                      rowClassName="sb-flatrow"
+                      actionsClassName="sb-rowact"
+                      onOpen={() => openConvo(id)}
+                      onTogglePinned={() => setPinned(id, !convo.pinned)}
+                      onToggleArchived={() => setArchived(id, !convo.archived)}
+                    />
+                  )
+                })}
+              </>
+            ) : null}
+
+            <div className="sb-recents">
+              <div className="sb-label">
+                Recents
+                <DisplayOptions />
+              </div>
+              {recentIds.length === 0 ? (
+                <div className="sidebar-empty">
+                  <EmptyState title="No conversations yet" />
+                </div>
+              ) : (
+                recentIds.map((id) => {
+                  const convo = conversations[id]
+                  if (!convo) return null
+                  const fp = convo.projectPath
+                    ? folderSettings.find((f) => f.path === convo.projectPath)
+                    : undefined
+                  const selected = view.kind === 'conversation' && view.id === id
+                  return (
+                    <ConvoRow
+                      key={id}
+                      id={id}
+                      title={convo.title}
+                      pinned={convo.pinned}
+                      archived={convo.archived}
+                      selected={selected}
+                      dotColor={fp?.color ?? 'var(--text-dim)'}
+                      subtitle={
+                        subtitle === 'worktree' &&
+                        convo.environment === 'worktree' &&
+                        convo.worktrees[0]
+                          ? convo.worktrees[0].branch
+                          : undefined
+                      }
+                      rowClassName="sb-flatrow"
+                      actionsClassName="sb-rowact"
+                      onOpen={() => openConvo(id)}
+                      onTogglePinned={() => setPinned(id, !convo.pinned)}
+                      onToggleArchived={() => setArchived(id, !convo.archived)}
+                    />
+                  )
+                })
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       <SidebarFooterMenu />

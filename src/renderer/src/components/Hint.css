@@ -5,6 +5,9 @@
 .hint-bubble {
   position: fixed;
   z-index: 300;
+  pointer-events: none;
+}
+.hint-surface {
   background: var(--bg-active);
   border: 1px solid var(--border-soft);
   border-radius: 10px;
@@ -13,7 +16,8 @@
   color: var(--text);
   white-space: nowrap;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
-  pointer-events: none;
+}
+.hint-surface.hint-enter {
   animation: hint-in var(--dur-fast) var(--ease-out);
 }
 .hint-bubble.right {
@@ -25,6 +29,15 @@
 .hint-bubble.top {
   transform: translate(-50%, -100%);
 }
+.hint-bubble.right .hint-surface {
+  transform-origin: left center;
+}
+.hint-bubble.bottom .hint-surface {
+  transform-origin: center top;
+}
+.hint-bubble.top .hint-surface {
+  transform-origin: center bottom;
+}
 
 .hint-keys {
   color: var(--text-dim);
@@ -35,6 +48,17 @@
 @keyframes hint-in {
   from {
     opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes hint-fade-in {
+  from {
+    opacity: 0;
   }
   to {
     opacity: 1;
@@ -42,7 +66,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hint-bubble {
-    animation: none;
+  .hint-surface.hint-enter {
+    animation-name: hint-fade-in;
   }
+}
+
+:root[data-motion='reduced'] .hint-surface.hint-enter {
+  animation-name: hint-fade-in;
 }

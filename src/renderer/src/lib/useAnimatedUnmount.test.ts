@@ -88,6 +88,19 @@ describe('useAnimatedUnmount', () => {
     expect(result.current.mounted).toBe(false)
   })
 
+  it('unmounts immediately for an explicitly non-animated close', () => {
+    const { result, rerender } = renderHook(
+      ({ open, immediate }) => useAnimatedUnmount(open, { immediate }),
+      {
+        initialProps: { open: true, immediate: false }
+      }
+    )
+
+    rerender({ open: false, immediate: true })
+
+    expect(result.current).toEqual({ mounted: false, state: 'closing' })
+  })
+
   it('unmounts immediately under prefers-reduced-motion, skipping the closing delay', () => {
     stubMatchMedia(true)
     const { result, rerender } = renderHook(({ open }) => useAnimatedUnmount(open), {

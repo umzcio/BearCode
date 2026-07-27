@@ -22,7 +22,7 @@
   transition:
     background var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out),
-    transform var(--dur-press) var(--ease-out);
+    transform var(--dur-press-release) var(--ease-out);
 }
 .sb-name-btn:hover {
   background: var(--bg-hover);
@@ -30,6 +30,10 @@
 }
 .sb-name-btn:active {
   transform: scale(0.97);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
 }
 .sb-name-btn:focus-visible {
   outline: none;

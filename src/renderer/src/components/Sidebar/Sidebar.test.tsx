@@ -85,7 +85,12 @@ describe('Hermes section', () => {
   it('lists only conversations with the Hermes sentinel modelRef, newest first', () => {
     const container = mount({
       conversations: {
-        p1: { modelRef: 'anthropic/claude', title: 'Project chat', updatedAt: 1, projectPath: '/x' },
+        p1: {
+          modelRef: 'anthropic/claude',
+          title: 'Project chat',
+          updatedAt: 1,
+          projectPath: '/x'
+        },
         h1: { modelRef: HERMES_MODEL_REF, title: 'ZRResearch', updatedAt: 200, projectPath: null },
         h2: { modelRef: HERMES_MODEL_REF, title: 'random stuff', updatedAt: 100, projectPath: null }
       },
@@ -623,6 +628,42 @@ describe('FLIP collapse animation lifecycle', () => {
     Object.defineProperty(transitionEnd, 'propertyName', { value: 'transform' })
     act(() => {
       sidebarEl.dispatchEvent(transitionEnd)
+    })
+
+    expect(sidebarEl.style.willChange).toBe('')
+    expect(sidebarEl.style.transition).toBe('')
+    expect(sidebarEl.style.transform).toBe('')
+  })
+
+  it("ignores a child's bubbled transform transitionend until the sidebar's own transform completes", async () => {
+    document.documentElement.style.setProperty('--ease-drawer', 'cubic-bezier(0.32, 0.72, 0, 1)')
+    document.documentElement.style.setProperty('--dur-drawer', '340ms')
+
+    const container = mount({ conversations: {} })
+    const sidebarEl = container.querySelector('.sidebar') as HTMLElement
+    const child = container.querySelector('.sidebar-chrome-spacer') as HTMLElement
+
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: true } as never)
+    })
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    const childTransitionEnd = new Event('transitionend', { bubbles: true })
+    Object.defineProperty(childTransitionEnd, 'propertyName', { value: 'transform' })
+    act(() => {
+      child.dispatchEvent(childTransitionEnd)
+    })
+
+    expect(sidebarEl.style.willChange).toBe('transform')
+    expect(sidebarEl.style.transition).toBe('transform 340ms cubic-bezier(0.32, 0.72, 0, 1)')
+    expect(sidebarEl.style.transform).toBe('translate3d(0, 0, 0)')
+
+    const sidebarTransitionEnd = new Event('transitionend')
+    Object.defineProperty(sidebarTransitionEnd, 'propertyName', { value: 'transform' })
+    act(() => {
+      sidebarEl.dispatchEvent(sidebarTransitionEnd)
     })
 
     expect(sidebarEl.style.willChange).toBe('')

@@ -3,41 +3,60 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react'
 import { Hint, resetHintWarmStateForTests } from './Hint'
 
+function expectHintEntry(label: string, animated: boolean): void {
+  const labelElement = screen.queryByText(label)
+  expect(labelElement).not.toBeNull()
+  const surface = labelElement?.closest('.hint-surface')
+  expect(surface).not.toBeNull()
+  if (!surface) return
+  if (animated) expect(surface).toHaveClass('hint-enter')
+  else expect(surface).not.toHaveClass('hint-enter')
+}
+
 describe('Hint keyboard focus', () => {
+  let fineHoverPointer = true
+
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(0))
     resetHintWarmStateForTests()
+    fineHoverPointer = true
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({
+        matches: query === '(hover: hover) and (pointer: fine)' && fineHoverPointer,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      }))
+    )
   })
 
   afterEach(() => {
     cleanup()
     resetHintWarmStateForTests()
     vi.useRealTimers()
+    vi.unstubAllGlobals()
   })
 
-  it('shows the bubble on focus and hides on blur', () => {
+  it('shows the bubble immediately without entry motion on focus, then hides on blur', () => {
     render(
       <Hint label="Toggle Sidebar" keys="⌘B">
         <button>btn</button>
       </Hint>
     )
-    const wrap = screen.getByText('btn').parentElement as HTMLElement
+    const button = screen.getByRole('button', { name: 'btn' })
     act(() => {
-      fireEvent.focus(wrap)
+      fireEvent.focus(button)
     })
-    // show() has a 450ms timer; advance it
+    expectHintEntry('Toggle Sidebar', false)
     act(() => {
-      vi.advanceTimersByTime(500)
-    })
-    expect(screen.getByText('Toggle Sidebar')).not.toBeNull()
-    act(() => {
-      fireEvent.blur(wrap)
+      fireEvent.blur(button)
     })
     expect(screen.queryByText('Toggle Sidebar')).toBeNull()
   })
 
-  it('delays the first Hint, then reveals a sibling immediately after it hides', () => {
+  it('delays and animates the first pointer Hint, then reveals a warm sibling immediately without replaying entry motion', () => {
     render(
       <>
         <Hint label="First Hint">
@@ -60,13 +79,64 @@ describe('Hint keyboard focus', () => {
     act(() => {
       vi.advanceTimersByTime(1)
     })
-    expect(screen.getByText('First Hint')).not.toBeNull()
+    expectHintEntry('First Hint', true)
 
     act(() => {
       fireEvent.mouseLeave(first)
       fireEvent.mouseEnter(second)
     })
-    expect(screen.getByText('Second Hint')).not.toBeNull()
+    expectHintEntry('Second Hint', false)
+  })
+
+  it('ignores pointer hover without hover/fine capability while keeping focus hints available', () => {
+    fineHoverPointer = false
+    render(
+      <Hint label="Adaptive Hint">
+        <button>adaptive</button>
+      </Hint>
+    )
+    const button = screen.getByRole('button', { name: 'adaptive' })
+    const wrap = button.parentElement as HTMLElement
+
+    act(() => {
+      fireEvent.mouseEnter(wrap)
+      vi.advanceTimersByTime(450)
+    })
+    expect(screen.queryByText('Adaptive Hint')).toBeNull()
+
+    act(() => {
+      fireEvent.focus(button)
+    })
+    expectHintEntry('Adaptive Hint', false)
+  })
+
+  it('does not let keyboard focus warm the first eligible pointer Hint', () => {
+    render(
+      <>
+        <Hint label="Focus Hint">
+          <button>focus first</button>
+        </Hint>
+        <Hint label="Pointer Hint">
+          <button>pointer second</button>
+        </Hint>
+      </>
+    )
+    const focusButton = screen.getByRole('button', { name: 'focus first' })
+    const pointerWrap = screen.getByRole('button', { name: 'pointer second' })
+      .parentElement as HTMLElement
+
+    act(() => {
+      fireEvent.focus(focusButton)
+      fireEvent.blur(focusButton)
+      fireEvent.mouseEnter(pointerWrap)
+      vi.advanceTimersByTime(449)
+    })
+    expect(screen.queryByText('Pointer Hint')).toBeNull()
+
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+    expectHintEntry('Pointer Hint', true)
   })
 
   it('returns to the initial delay after the shared warm window expires', () => {

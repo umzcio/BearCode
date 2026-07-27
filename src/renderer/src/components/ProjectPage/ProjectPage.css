@@ -179,7 +179,7 @@
   transition:
     background var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out),
-    transform var(--dur-press) var(--ease-out);
+    transform var(--dur-press-release) var(--ease-out);
 }
 .row-act:hover {
   background: var(--bg-active);
@@ -187,6 +187,10 @@
 }
 .row-act:active {
   transform: scale(0.97);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
 }
 .row-act.active {
   color: var(--accent);

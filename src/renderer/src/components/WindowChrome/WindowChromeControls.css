@@ -10,3 +10,11 @@
   transform-origin: top left;
   -webkit-app-region: no-drag;
 }
+
+.window-chrome-controls .chrome-btn {
+  transition: none;
+}
+
+.window-chrome-controls .chrome-btn:active {
+  transform: none;
+}
