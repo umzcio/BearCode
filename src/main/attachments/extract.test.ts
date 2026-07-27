@@ -52,14 +52,16 @@ describe('extractTextLane', () => {
 })
 
 describe('extractPdf', () => {
-  it('joins page text and reports a page-count badge; passes isEvalSupported:false', async () => {
+  it('joins page text and reports a page-count badge', async () => {
     extractTextMock.mockResolvedValue({ totalPages: 3, text: 'page text here' })
     const out = await extractPdf(Buffer.from('%PDF-1.7'))
     expect(out.text).toBe('page text here')
     expect(out.badge).toMatch(/3 pp/)
     expect(out.notice).toBeNull()
-    // Hardening: getDocumentProxy must receive isEvalSupported:false.
-    expect(getDocumentProxyMock).toHaveBeenCalledWith(expect.anything(), { isEvalSupported: false })
+    // unpdf 1.8.0 removed eval-based code paths from the library entirely
+    // (no more isEvalSupported option to pass) — just confirm the parse path
+    // is exercised with the raw bytes, no options object.
+    expect(getDocumentProxyMock).toHaveBeenCalledWith(expect.anything())
   })
 
   it('emits a "no extractable text" notice for an image-only PDF', async () => {
