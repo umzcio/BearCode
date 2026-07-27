@@ -8,9 +8,12 @@ const mainDir = dirname(fileURLToPath(import.meta.url))
 type CssRule = {
   selectors: string[]
   declarations: string
+  atRules: string[]
 }
 
-function cssRules(stylesheet: string, recursive = true): CssRule[] {
+const osReducedMotion = '@media (prefers-reduced-motion: reduce)'
+
+function cssRules(stylesheet: string, atRules: string[] = []): CssRule[] {
   const rules: CssRule[] = []
   let ruleStart = 0
 
@@ -32,11 +35,12 @@ function cssRules(stylesheet: string, recursive = true): CssRule[] {
       .trim()
     const declarations = stylesheet.slice(openBrace + 1, cursor - 1)
     if (selectorList.startsWith('@')) {
-      if (recursive) rules.push(...cssRules(declarations))
+      rules.push(...cssRules(declarations, [...atRules, selectorList]))
     } else {
       rules.push({
         selectors: selectorList.split(',').map((selector) => selector.trim()),
-        declarations
+        declarations,
+        atRules
       })
     }
 
@@ -46,59 +50,48 @@ function cssRules(stylesheet: string, recursive = true): CssRule[] {
   return rules
 }
 
-function exactRuleDeclarations(stylesheet: string, selector: string): string[] {
-  return cssRules(stylesheet, false)
-    .filter((rule) => rule.selectors.length === 1 && rule.selectors[0] === selector)
-    .map((rule) => rule.declarations)
+function targetRules(stylesheet: string, selector: string): CssRule[] {
+  return cssRules(stylesheet).filter((rule) => rule.selectors.includes(selector))
 }
 
-function ruleDeclarations(stylesheet: string, selector: string): string {
-  const declarations = exactRuleDeclarations(stylesheet, selector)
-  if (declarations.length !== 1) {
-    throw new Error(`Expected exactly one CSS rule for ${selector}, found ${declarations.length}`)
-  }
-  return declarations[0]
-}
-
-function atRuleDeclarations(stylesheet: string, atRule: string, selector: string): string[] {
-  const declarations: string[] = []
-  let ruleStart = 0
-
-  while (ruleStart < stylesheet.length) {
-    const openBrace = stylesheet.indexOf('{', ruleStart)
-    if (openBrace === -1) break
-
-    let depth = 1
-    let cursor = openBrace + 1
-    while (depth > 0 && cursor < stylesheet.length) {
-      if (stylesheet[cursor] === '{') depth++
-      if (stylesheet[cursor] === '}') depth--
-      cursor++
-    }
-    const selectorList = stylesheet
-      .slice(ruleStart, openBrace)
-      .slice(stylesheet.slice(ruleStart, openBrace).lastIndexOf('*/') + 2)
-      .trim()
-    if (selectorList.startsWith(atRule)) {
-      declarations.push(
-        ...exactRuleDeclarations(stylesheet.slice(openBrace + 1, cursor - 1), selector)
-      )
-    }
-
-    ruleStart = cursor
-  }
-
-  return declarations
-}
-
-function atRuleDeclaration(stylesheet: string, atRule: string, selector: string): string {
-  const declarations = atRuleDeclarations(stylesheet, atRule, selector)
-  if (declarations.length !== 1) {
+function rootRuleDeclaration(stylesheet: string, selector: string): string {
+  const rules = targetRules(stylesheet, selector)
+  const rootRules = rules.filter((rule) => rule.atRules.length === 0)
+  const conditionalRules = rules.filter((rule) => rule.atRules.length > 0)
+  if (rootRules.length !== 1 || conditionalRules.length !== 0) {
     throw new Error(
-      `Expected exactly one ${atRule} CSS rule for ${selector}, found ${declarations.length}`
+      `Expected one root CSS rule and no conditional rules for ${selector}, found ${rootRules.length} root and ${conditionalRules.length} conditional`
     )
   }
-  return declarations[0]
+  return rootRules[0].declarations
+}
+
+function activeRuleDeclarations(
+  stylesheet: string,
+  selector: string
+): {
+  normal: string
+  osReducedMotion: string
+} {
+  const rules = targetRules(stylesheet, selector)
+  const normalRules = rules.filter((rule) => rule.atRules.length === 0)
+  const osReducedMotionRules = rules.filter((rule) => rule.atRules.includes(osReducedMotion))
+  const unauthorizedRules = rules.filter(
+    (rule) => rule.atRules.length > 0 && !rule.atRules.includes(osReducedMotion)
+  )
+  if (
+    normalRules.length !== 1 ||
+    osReducedMotionRules.length !== 1 ||
+    unauthorizedRules.length !== 0
+  ) {
+    throw new Error(
+      `Expected one normal and one OS reduced-motion CSS rule for ${selector}, found ${normalRules.length} normal, ${osReducedMotionRules.length} OS reduced-motion, and ${unauthorizedRules.length} unauthorized conditional`
+    )
+  }
+  return {
+    normal: normalRules[0].declarations,
+    osReducedMotion: osReducedMotionRules[0].declarations
+  }
 }
 
 function ruleSelectorsWithDeclaration(stylesheet: string, declaration: string): string[] {
@@ -131,13 +124,13 @@ const pressableStylesheets = [
 describe('sidebar button press feedback', () => {
   it('gives only genuine sidebar buttons the shared press transform', () => {
     for (const { css, selector } of pressableStylesheets) {
-      const transition = ruleDeclarations(css, selector)
-      const active = ruleDeclarations(css, `${selector}:active`)
+      const transition = rootRuleDeclaration(css, selector)
+      const active = activeRuleDeclarations(css, `${selector}:active`)
 
       expect(transition).toContain('background var(--dur-fast) var(--ease-out)')
       expect(transition).toContain('color var(--dur-fast) var(--ease-out)')
       expect(transition).toContain('transform var(--dur-press) var(--ease-out)')
-      expect(active).toContain('transform: scale(0.97);')
+      expect(active.normal).toContain('transform: scale(0.97);')
       expect(
         ruleSelectorsWithDeclaration(css, 'transform var(--dur-press) var(--ease-out)')
       ).toEqual([selector])
@@ -150,11 +143,10 @@ describe('sidebar button press feedback', () => {
     for (const { css, selector } of pressableStylesheets) {
       const activeSelector = `${selector}:active`
       const inAppReducedMotionSelector = `:root[data-motion='reduced'] ${activeSelector}`
+      const active = activeRuleDeclarations(css, activeSelector)
 
-      expect(
-        atRuleDeclaration(css, '@media (prefers-reduced-motion: reduce)', activeSelector)
-      ).toContain('transform: none;')
-      expect(ruleDeclarations(css, inAppReducedMotionSelector)).toContain('transform: none;')
+      expect(active.osReducedMotion).toContain('transform: none;')
+      expect(rootRuleDeclaration(css, inAppReducedMotionSelector)).toContain('transform: none;')
     }
   })
 })
