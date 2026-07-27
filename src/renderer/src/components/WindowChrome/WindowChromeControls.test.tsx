@@ -20,6 +20,15 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('WindowChromeControls', () => {
+  it('shows the Conversation History label and Command-K shortcut in the search hint', () => {
+    render(<WindowChromeControls />)
+
+    fireEvent.focus(screen.getByRole('button', { name: 'History' }))
+
+    expect(screen.getByText('Conversation History')).toBeInTheDocument()
+    expect(screen.getByText('⌘K')).toBeInTheDocument()
+  })
+
   it('routes Toggle Sidebar and History clicks to their store actions', () => {
     render(<WindowChromeControls />)
 

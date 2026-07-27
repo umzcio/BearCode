@@ -16,7 +16,7 @@ export function WindowChromeControls(): React.JSX.Element {
         </button>
       </Hint>
       {!collapsed ? (
-        <Hint label="History" side="bottom">
+        <Hint label="Conversation History" keys="⌘K" side="bottom">
           <button className="chrome-btn" onClick={openHistory} aria-label="History">
             <IconSearch />
           </button>
