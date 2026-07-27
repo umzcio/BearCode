@@ -119,8 +119,9 @@ body {
   user-select: none;
 }
 
-/* Reduce-motion: the setting mirrors the OS media query. Components that must
-   animate opt back in explicitly; this blanket rule kills the rest. */
+/* Reduce-motion: the setting mirrors the OS media query. This blanket duration
+   rule is the baseline; movement-bearing components must mirror OS
+   transform-removal variants for the in-app attribute. */
 :root[data-motion='reduced'] *,
 :root[data-motion='reduced'] *::before,
 :root[data-motion='reduced'] *::after {

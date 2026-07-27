@@ -25,3 +25,12 @@
     }
   }
 }
+
+:root[data-motion='reduced'] .popover {
+  transition: opacity var(--dur-fast) var(--ease-out) !important;
+}
+@starting-style {
+  :root[data-motion='reduced'] .popover {
+    transform: none;
+  }
+}
