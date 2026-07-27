@@ -78,3 +78,51 @@ export async function fetchAnthropicModels(apiKey: string): Promise<LiveDiscover
     return null
   }
 }
+
+interface GoogleModelEntry {
+  name: string
+  displayName?: string
+  inputTokenLimit?: number
+  thinking?: boolean
+}
+interface GoogleModelsResponse {
+  models?: GoogleModelEntry[]
+  nextPageToken?: string
+}
+
+const GOOGLE_MODELS_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
+
+export async function fetchGoogleModels(apiKey: string): Promise<LiveDiscoveryResult | null> {
+  try {
+    const models: ModelInfo[] = []
+    const capabilities: Record<string, Partial<ModelMetadata['capabilities']>> = {}
+    let pageToken: string | undefined
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const url = new URL(GOOGLE_MODELS_URL)
+      url.searchParams.set('pageSize', '50')
+      if (pageToken) url.searchParams.set('pageToken', pageToken)
+      const res = await fetch(url, {
+        headers: { 'x-goog-api-key': apiKey },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+      })
+      if (!res.ok) return null
+      const body = (await res.json()) as GoogleModelsResponse
+      for (const entry of body.models ?? []) {
+        const id = entry.name.replace(/^models\//, '')
+        models.push({
+          id,
+          label: entry.displayName ?? id,
+          ...(entry.inputTokenLimit ? { contextWindow: entry.inputTokenLimit } : {})
+        })
+        if (entry.thinking != null) {
+          capabilities[id] = { reasoning: entry.thinking }
+        }
+      }
+      if (!body.nextPageToken) break
+      pageToken = body.nextPageToken
+    }
+    return { models, capabilities }
+  } catch {
+    return null
+  }
+}

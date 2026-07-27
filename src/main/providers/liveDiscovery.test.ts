@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { fetchAnthropicModels } from './liveDiscovery'
+import { fetchAnthropicModels, fetchGoogleModels } from './liveDiscovery'
 
 const originalFetch = global.fetch
 
@@ -92,5 +92,54 @@ describe('fetchAnthropicModels', () => {
   it('returns null when fetch throws (network error/timeout)', async () => {
     global.fetch = vi.fn().mockRejectedValue(new Error('timeout')) as unknown as typeof fetch
     expect(await fetchAnthropicModels('sk-test')).toBeNull()
+  })
+})
+
+describe('fetchGoogleModels', () => {
+  it('strips the models/ prefix, maps displayName/inputTokenLimit, and the thinking flag', async () => {
+    mockFetchOnce({
+      models: [
+        {
+          name: 'models/gemini-3.1-pro-preview',
+          displayName: 'Gemini 3.1 Pro',
+          inputTokenLimit: 1_000_000,
+          thinking: true
+        }
+      ]
+    })
+    const result = await fetchGoogleModels('key-test')
+    expect(result?.models).toEqual([
+      { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', contextWindow: 1_000_000 }
+    ])
+    expect(result?.capabilities['gemini-3.1-pro-preview']).toEqual({ reasoning: true })
+  })
+
+  it('falls back to the stripped id as label when displayName is absent', async () => {
+    mockFetchOnce({ models: [{ name: 'models/some-new-model' }] })
+    const result = await fetchGoogleModels('key-test')
+    expect(result?.models[0]).toEqual({ id: 'some-new-model', label: 'some-new-model' })
+  })
+
+  it('follows nextPageToken pagination', async () => {
+    let call = 0
+    global.fetch = vi.fn().mockImplementation(() => {
+      call++
+      if (call === 1) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({ models: [{ name: 'models/a' }], nextPageToken: 'page2' })
+        })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ models: [{ name: 'models/b' }] }) })
+    }) as unknown as typeof fetch
+    const result = await fetchGoogleModels('key-test')
+    expect(result?.models.map((m) => m.id)).toEqual(['a', 'b'])
+    expect(call).toBe(2)
+  })
+
+  it('returns null on a non-2xx response', async () => {
+    mockFetchOnce({}, false)
+    expect(await fetchGoogleModels('key-test')).toBeNull()
   })
 })
