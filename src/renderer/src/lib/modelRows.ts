@@ -91,6 +91,36 @@ export interface ModelRow {
   favorite: boolean
 }
 
+// Per-field merge: live-discovered capabilities (Anthropic/Google, this
+// session only -- see src/main/providers/liveDiscovery.ts) win wherever they
+// have a signal; LiteLLM's persisted data fills every field live doesn't
+// cover. If there's neither a LiteLLM entry nor a live patch, the row's
+// metadata stays null (today's "fully unknown" state, unchanged). If there's
+// a live patch but no LiteLLM entry (a brand-new model LiteLLM hasn't
+// catalogued yet), a real metadata object is still built from the patch
+// alone, with every uncovered field defaulting to false/unknown -- same
+// shape contract either way.
+function mergeMetadata(
+  base: ModelMetadata | undefined,
+  live: Partial<ModelMetadata['capabilities']> | undefined
+): ModelMetadata | null {
+  if (!base && !live) return null
+  return {
+    mode: base?.mode ?? 'other',
+    maxInputTokens: base?.maxInputTokens,
+    maxOutputTokens: base?.maxOutputTokens,
+    capabilities: {
+      functionCalling: live?.functionCalling ?? base?.capabilities.functionCalling ?? false,
+      vision: live?.vision ?? base?.capabilities.vision ?? false,
+      responseSchema: live?.responseSchema ?? base?.capabilities.responseSchema ?? false,
+      reasoning: live?.reasoning ?? base?.capabilities.reasoning ?? false,
+      webSearch: live?.webSearch ?? base?.capabilities.webSearch ?? false,
+      codeExecution: live?.codeExecution ?? base?.capabilities.codeExecution ?? false,
+      pdfInput: live?.pdfInput ?? base?.capabilities.pdfInput ?? false
+    }
+  }
+}
+
 // The single row-shaping join every Models-page surface (table, catalog grid,
 // detail modal) builds its view from -- one manageable model x its provider's
 // live status x synced/bundled price x synced capability metadata x
@@ -120,7 +150,7 @@ export function buildModelRows(
         status: modelStatus(p.id, providers),
         price,
         priceSource: settings.modelPricing?.[ref] ? 'synced' : price ? 'default' : null,
-        metadata: settings.modelMetadata?.[ref] ?? null,
+        metadata: mergeMetadata(settings.modelMetadata?.[ref], m.liveCapabilities),
         catalog: catalogInfoFor(ref),
         favorite: favorites.has(ref)
       })

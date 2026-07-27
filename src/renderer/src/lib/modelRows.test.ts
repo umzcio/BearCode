@@ -116,6 +116,90 @@ describe('buildModelRows', () => {
     expect(rows[0].favorite).toBe(false)
     expect(rows[0].priceSource).toBeNull()
   })
+
+  it('overlays live-discovered capabilities on top of LiteLLM metadata, per field', () => {
+    const rows = buildModelRows(
+      [
+        {
+          id: 'anthropic',
+          displayName: 'Anthropic',
+          color: '#d97757',
+          models: [
+            {
+              id: 'claude-opus-4-8',
+              label: 'Claude Opus 4.8',
+              custom: false,
+              enabled: true,
+              liveCapabilities: { vision: true, codeExecution: true }
+            }
+          ]
+        }
+      ],
+      providers,
+      {
+        modelMetadata: {
+          'anthropic/claude-opus-4-8': {
+            mode: 'chat',
+            capabilities: {
+              functionCalling: true,
+              vision: false,
+              responseSchema: false,
+              reasoning: false,
+              webSearch: true,
+              codeExecution: false,
+              pdfInput: false
+            }
+          }
+        }
+      }
+    )
+    expect(rows[0].metadata?.capabilities).toEqual({
+      functionCalling: true, // from LiteLLM, no live signal for this field
+      vision: true, // live wins over LiteLLM's false
+      responseSchema: false,
+      reasoning: false,
+      webSearch: true, // from LiteLLM, no live signal for this field
+      codeExecution: true, // live only (LiteLLM never has this field)
+      pdfInput: false
+    })
+  })
+
+  it('builds a real metadata object from a live capability patch alone, when LiteLLM has no entry', () => {
+    const rows = buildModelRows(
+      [
+        {
+          id: 'anthropic',
+          displayName: 'Anthropic',
+          color: '#d97757',
+          models: [
+            {
+              id: 'claude-new-model',
+              label: 'Claude New Model',
+              custom: false,
+              enabled: true,
+              liveCapabilities: { vision: true }
+            }
+          ]
+        }
+      ],
+      providers,
+      {}
+    )
+    expect(rows[0].metadata).toEqual({
+      mode: 'other',
+      maxInputTokens: undefined,
+      maxOutputTokens: undefined,
+      capabilities: {
+        functionCalling: false,
+        vision: true,
+        responseSchema: false,
+        reasoning: false,
+        webSearch: false,
+        codeExecution: false,
+        pdfInput: false
+      }
+    })
+  })
 })
 
 describe('CAPABILITY_LABEL', () => {
