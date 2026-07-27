@@ -126,3 +126,38 @@ export async function fetchGoogleModels(apiKey: string): Promise<LiveDiscoveryRe
     return null
   }
 }
+
+interface OpenAIModelEntry {
+  id: string
+}
+interface OpenAIModelsResponse {
+  data: OpenAIModelEntry[]
+}
+
+const OPENAI_MODELS_URL = 'https://api.openai.com/v1/models'
+
+// OpenAI's list response has no display name and no capability/type field at
+// all -- it mixes chat models with embeddings/whisper/tts/dall-e/moderation/
+// fine-tunes. The caller (registry.ts) supplies the filter, since deciding
+// "is this a chat model" is BearCode-settings-shaped logic (a LiteLLM
+// cross-reference, with a hardcoded bootstrap fallback), not something this
+// pure fetch/parse layer should know about.
+export async function fetchOpenAIModels(
+  apiKey: string,
+  isKnownChatModel: (id: string) => boolean
+): Promise<LiveDiscoveryResult | null> {
+  try {
+    const res = await fetch(OPENAI_MODELS_URL, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+    })
+    if (!res.ok) return null
+    const body = (await res.json()) as OpenAIModelsResponse
+    const models: ModelInfo[] = body.data
+      .filter((entry) => isKnownChatModel(entry.id))
+      .map((entry) => ({ id: entry.id, label: entry.id }))
+    return { models, capabilities: {} }
+  } catch {
+    return null
+  }
+}

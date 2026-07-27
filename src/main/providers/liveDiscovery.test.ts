@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { fetchAnthropicModels, fetchGoogleModels } from './liveDiscovery'
+import { fetchAnthropicModels, fetchGoogleModels, fetchOpenAIModels } from './liveDiscovery'
 
 const originalFetch = global.fetch
 
@@ -141,5 +141,26 @@ describe('fetchGoogleModels', () => {
   it('returns null on a non-2xx response', async () => {
     mockFetchOnce({}, false)
     expect(await fetchGoogleModels('key-test')).toBeNull()
+  })
+})
+
+describe('fetchOpenAIModels', () => {
+  it('filters ids through the injected predicate and labels each by its raw id', async () => {
+    mockFetchOnce({
+      data: [{ id: 'gpt-5.6-sol' }, { id: 'text-embedding-3-large' }, { id: 'whisper-1' }]
+    })
+    const result = await fetchOpenAIModels('sk-test', (id) => id.startsWith('gpt-'))
+    expect(result?.models).toEqual([{ id: 'gpt-5.6-sol', label: 'gpt-5.6-sol' }])
+    expect(result?.capabilities).toEqual({})
+  })
+
+  it('returns null on a non-2xx response', async () => {
+    mockFetchOnce({}, false)
+    expect(await fetchOpenAIModels('sk-test', () => true)).toBeNull()
+  })
+
+  it('returns null when fetch throws', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error('timeout')) as unknown as typeof fetch
+    expect(await fetchOpenAIModels('sk-test', () => true)).toBeNull()
   })
 })
