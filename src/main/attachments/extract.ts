@@ -1,11 +1,13 @@
 // Text + PDF extraction for the + picker (D5). Runs MAIN-side on user-picked
 // bytes and NEVER executes them: bytes -> pure-JS parser -> text. PDF uses
-// unpdf (a serverless PDF.js build; no canvas/DOM) with isEvalSupported:false
-// so a malicious PDF cannot run JS (CVE-2024-4367 class — unpdf bundles
-// pdfjs-dist ~5.6.205, well past the 4.2.67 fix; isEvalSupported:false is
-// belt-and-suspenders on top of that and unpdf's own default). Every path
-// fails soft to { text:'', notice } so one bad attachment never breaks the
-// turn.
+// unpdf (a serverless PDF.js build; no canvas/DOM), which bundles pdfjs-dist
+// well past the 4.2.67 fix for the CVE-2024-4367 eval class. As of unpdf
+// 1.8.0 (pdfjs-dist's later rewrite), eval-based code paths were removed
+// from the library entirely rather than left as an option, so the
+// `isEvalSupported` flag this file used to pass no longer exists in
+// DocumentInitParameters — there is nothing left to configure off. Every
+// path fails soft to { text:'', notice } so one bad attachment never breaks
+// the turn.
 import { extractText as unpdfExtractText, getDocumentProxy } from 'unpdf'
 
 export interface ExtractResult {
@@ -58,7 +60,7 @@ export function extractTextLane(bytes: Buffer): ExtractResult {
 // terminate() guard Office extraction already had instead of running
 // unguarded on the main-process event loop.
 export async function extractPdfCore(bytes: Buffer): Promise<{ text: string; totalPages: number }> {
-  const pdf = await getDocumentProxy(new Uint8Array(bytes), { isEvalSupported: false })
+  const pdf = await getDocumentProxy(new Uint8Array(bytes))
   const { totalPages, text } = await unpdfExtractText(pdf, { mergePages: true })
   const merged = Array.isArray(text) ? text.join('\n\n') : text
   return { text: merged, totalPages }
