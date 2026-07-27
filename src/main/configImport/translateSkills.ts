@@ -12,11 +12,12 @@ export interface SkillCandidate {
 
 export function buildSkillCandidate(
   projectPath: string,
-  source: DetectedSource
+  source: DetectedSource,
+  preRead?: { text: string; truncated: boolean }
 ): SkillCandidate | null {
   const folderName = source.sourcePath.split(/[/\\]/).pop() ?? source.sourcePath
   const skillMdPath = join(projectPath, source.sourcePath, 'SKILL.md')
-  const read = readFileCapped(skillMdPath, MAX_IMPORT_BYTES)
+  const read = preRead ?? readFileCapped(skillMdPath, MAX_IMPORT_BYTES, projectPath)
   if (!read) return null
 
   const parsed = parseSkillFolder(folderName, read.text, 'project')

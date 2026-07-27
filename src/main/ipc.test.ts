@@ -17,6 +17,11 @@ const { shellOpenPath, deleteConversationAttachments, openAttachment } = vi.hois
   openAttachment: vi.fn()
 }))
 
+const { resolveHermesApproval, resolveHermesClarification } = vi.hoisted(() => ({
+  resolveHermesApproval: vi.fn(),
+  resolveHermesClarification: vi.fn()
+}))
+
 vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => '/tmp/bearcode-ipc-test') },
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
@@ -58,6 +63,7 @@ vi.mock('./db', () => ({
   listArtifactComments: vi.fn(() => [])
 }))
 vi.mock('./hermes/nativeFiles', () => ({ deleteConversationAttachments, openAttachment }))
+vi.mock('./hermes/nativeRunner', () => ({ resolveHermesApproval, resolveHermesClarification }))
 vi.mock('./agentsDir', () => ({ loadAgentsContent: vi.fn() }))
 vi.mock('./orchestrator/commands', () => ({ listCommands: vi.fn() }))
 vi.mock('./orchestrator/mentionSuggest', () => ({
@@ -166,5 +172,44 @@ describe('native attachment IPC and cleanup', () => {
     expect(db.clearAll).toHaveBeenCalledOnce()
     expect(deleteConversationAttachments).toHaveBeenCalledWith('/tmp/bearcode-ipc-test', 'c1')
     expect(deleteConversationAttachments).toHaveBeenCalledWith('/tmp/bearcode-ipc-test', 'c2')
+  })
+})
+
+describe('hermes approval/clarification IPC (already-resolved signal)', () => {
+  beforeEach(() => {
+    handlers.clear()
+    vi.clearAllMocks()
+    registerIpc()
+  })
+
+  const conversationId = '11111111-1111-4111-8111-111111111111'
+  const requestId = '44444444-4444-4444-8444-444444444444'
+
+  it('resolve-approval throws when resolveHermesApproval returns false (already resolved/ended)', () => {
+    vi.mocked(resolveHermesApproval).mockReturnValue(false)
+    const handler = handlers.get('bearcode:hermes:resolve-approval')!
+    expect(() => handler(null, conversationId, requestId, 'once')).toThrow(
+      /already been resolved|turn has ended/
+    )
+  })
+
+  it('resolve-approval does not throw when resolveHermesApproval returns true', () => {
+    vi.mocked(resolveHermesApproval).mockReturnValue(true)
+    const handler = handlers.get('bearcode:hermes:resolve-approval')!
+    expect(() => handler(null, conversationId, requestId, 'once')).not.toThrow()
+  })
+
+  it('resolve-clarification throws when resolveHermesClarification returns false (already resolved/ended)', () => {
+    vi.mocked(resolveHermesClarification).mockReturnValue(false)
+    const handler = handlers.get('bearcode:hermes:resolve-clarification')!
+    expect(() => handler(null, conversationId, requestId, 'desktop')).toThrow(
+      /already been resolved|turn has ended/
+    )
+  })
+
+  it('resolve-clarification does not throw when resolveHermesClarification returns true', () => {
+    vi.mocked(resolveHermesClarification).mockReturnValue(true)
+    const handler = handlers.get('bearcode:hermes:resolve-clarification')!
+    expect(() => handler(null, conversationId, requestId, 'desktop')).not.toThrow()
   })
 })

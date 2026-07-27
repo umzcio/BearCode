@@ -21,33 +21,76 @@ vi.mock('../settings', () => ({
 
 // In-memory 'fs' + 'os' mock so mcp.json reads/writes never touch disk.
 const fakeFiles = new Map<string, string>()
+// Lets a test simulate a symlinked config file whose realpath resolves
+// somewhere other than its literal path -- e.g. a project .agents/mcp.json
+// that is actually a symlink pointing outside the project root. Defaults to
+// identity (no override => realpathSync(p) === p), so every pre-existing
+// test is unaffected: isPathWithinRoot's realpath-based containment check
+// (fsCapped.ts) then reduces to the same lexical "does the literal path start
+// with root" check the code always effectively had in this mock.
+const fakeRealpathOverrides = new Map<string, string>()
 vi.mock('os', () => ({ homedir: vi.fn(() => '/fake-home') }))
-vi.mock('fs', () => ({
-  statSync: vi.fn((path: string) => {
-    const contents = fakeFiles.get(path)
-    if (contents === undefined) {
-      const err = new Error('ENOENT') as NodeJS.ErrnoException
-      err.code = 'ENOENT'
-      throw err
-    }
-    return { isFile: () => true, size: Buffer.byteLength(contents, 'utf8') }
-  }),
-  openSync: vi.fn((path: string) => path),
-  readSync: vi.fn((fd: string, buf: Buffer, offset: number, length: number) => {
-    const contents = fakeFiles.get(fd) ?? ''
-    const src = Buffer.from(contents, 'utf8')
-    const toCopy = Math.min(length, src.length - offset)
-    if (toCopy <= 0) return 0
-    src.copy(buf, offset, offset, offset + toCopy)
-    return toCopy
-  }),
-  closeSync: vi.fn(),
-  existsSync: vi.fn((path: string) => fakeFiles.has(path)),
-  mkdirSync: vi.fn(),
-  writeFileSync: vi.fn((path: string, contents: string) => {
-    fakeFiles.set(path, contents)
-  })
-}))
+vi.mock('fs', async () => {
+  // Pull the REAL `constants` (O_RDONLY/O_NOFOLLOW/etc) from the actual `fs`
+  // module rather than hand-rolling numeric values -- readFileCapped
+  // (fsCapped.ts, round3 plan 004) now references constants.O_RDONLY /
+  // constants.O_NOFOLLOW unconditionally, so this mock must provide the real
+  // ones for those bitwise flag checks to behave correctly.
+  const actual = await vi.importActual<typeof import('fs')>('fs')
+  return {
+    constants: actual.constants,
+    statSync: vi.fn((path: string) => {
+      const contents = fakeFiles.get(path)
+      if (contents === undefined) {
+        const err = new Error('ENOENT') as NodeJS.ErrnoException
+        err.code = 'ENOENT'
+        throw err
+      }
+      return { isFile: () => true, size: Buffer.byteLength(contents, 'utf8') }
+    }),
+    // readFileCapped now lstats before statting (symlink-safe config-import
+    // scan hardening) -- these fake files are never symlinks.
+    lstatSync: vi.fn((path: string) => {
+      const contents = fakeFiles.get(path)
+      if (contents === undefined) {
+        const err = new Error('ENOENT') as NodeJS.ErrnoException
+        err.code = 'ENOENT'
+        throw err
+      }
+      return { isSymbolicLink: () => false }
+    }),
+    openSync: vi.fn((path: string) => path),
+    // readFileCapped (round3 plan 004) now fstats the OPEN DESCRIPTOR instead
+    // of statSync-ing the pathname -- in this mock, `fd` is just the literal
+    // path string returned by the openSync mock above, so this looks up the
+    // same fakeFiles map keyed by that "fd". Must return the same shape
+    // readFileCapped reads off it: `.isFile()` and `.size`.
+    fstatSync: vi.fn((fd: string) => {
+      const contents = fakeFiles.get(fd)
+      if (contents === undefined) {
+        const err = new Error('ENOENT') as NodeJS.ErrnoException
+        err.code = 'ENOENT'
+        throw err
+      }
+      return { isFile: () => true, size: Buffer.byteLength(contents, 'utf8') }
+    }),
+    readSync: vi.fn((fd: string, buf: Buffer, offset: number, length: number) => {
+      const contents = fakeFiles.get(fd) ?? ''
+      const src = Buffer.from(contents, 'utf8')
+      const toCopy = Math.min(length, src.length - offset)
+      if (toCopy <= 0) return 0
+      src.copy(buf, offset, offset, offset + toCopy)
+      return toCopy
+    }),
+    closeSync: vi.fn(),
+    existsSync: vi.fn((path: string) => fakeFiles.has(path)),
+    mkdirSync: vi.fn(),
+    writeFileSync: vi.fn((path: string, contents: string) => {
+      fakeFiles.set(path, contents)
+    }),
+    realpathSync: vi.fn((path: string) => fakeRealpathOverrides.get(path) ?? path)
+  }
+})
 
 import { resolveVaultRefs } from '../keys'
 vi.mock('../keys', () => ({
@@ -86,6 +129,14 @@ function setProjectJson(obj: unknown): void {
   fakeFiles.set(PROJECT_PATH, JSON.stringify(obj))
 }
 
+// Top-level, so it runs before EVERY test in this file regardless of which
+// describe's own beforeEach also clears fakeFiles/fakeSettings -- otherwise a
+// realpath override set by one test (e.g. the symlink-escape test below)
+// leaks into a later describe block that reuses the same path constants.
+beforeEach(() => {
+  fakeRealpathOverrides.clear()
+})
+
 describe('mergeServerMaps (pure)', () => {
   it('project overrides global by name', () => {
     const g = { a: { name: 'a', transport: 'http', url: 'g', source: 'global' } } as const
@@ -120,6 +171,7 @@ describe('loadServers', () => {
   beforeEach(() => {
     fakeFiles.clear()
     fakeSettings = {}
+    fakeRealpathOverrides.clear()
   })
 
   it('merges global + project, project wins on name collision', () => {
@@ -188,6 +240,30 @@ describe('loadServers', () => {
     setGlobalJson({ mcpServers: { ok: { type: 'http', url: 'https://ok' }, bad: 'oops' } })
     const names = loadServers(null).map((s) => s.name)
     expect(names).toEqual(['ok'])
+  })
+
+  it('rejects a project .agents/mcp.json symlinked outside the project root, without affecting global servers', () => {
+    // A well-behaved global config, and a project config that LOOKS like it
+    // lives at /proj/.agents/mcp.json but is actually a symlink whose realpath
+    // resolves outside /proj (root) -- e.g. an attacker-controlled repo
+    // replacing .agents/mcp.json with a symlink to somewhere outside the
+    // project. isPathWithinRoot (fsCapped.ts) must catch this via realpathSync
+    // even though lstatSync on the leaf reports non-symlink in this mock.
+    setGlobalJson({ mcpServers: { onlyGlobal: { transport: 'http', url: 'gg' } } })
+    setProjectJson({ mcpServers: { evil: { transport: 'http', url: 'https://evil.example' } } })
+    fakeRealpathOverrides.set(PROJECT_PATH, '/outside/evil/mcp.json')
+    // Root itself still resolves to itself (identity, no override set).
+
+    const servers = loadServers('/proj')
+
+    // The escaping project file's server never appears...
+    expect(servers.find((s) => s.name === 'evil')).toBeUndefined()
+    // ...while the legitimate global server (a separate, non-overridden read)
+    // still loads normally -- proving the rejection is scoped to the escaping
+    // path, not a blanket failure of the whole loadServers call.
+    const onlyGlobal = servers.find((s) => s.name === 'onlyGlobal')
+    expect(onlyGlobal).toBeDefined()
+    expect(onlyGlobal!.source).toBe('global')
   })
 })
 

@@ -148,7 +148,9 @@ function App(): React.JSX.Element {
               ? `conversation:${convo.id}`
               : view.kind === 'project'
                 ? `project:${view.path ?? 'none'}`
-                : view.kind
+                : view.kind === 'terminal'
+                  ? `terminal:${view.path}`
+                  : view.kind
           }
         >
           {view.kind === 'home' ? <Home /> : null}

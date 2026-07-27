@@ -7,7 +7,15 @@
 // mocked at module level with a FakeDatabase that regex-matches the SQL
 // passed to prepare() against an in-memory Map.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, mkdirSync, existsSync } from 'fs'
+import {
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+  mkdirSync,
+  existsSync,
+  symlinkSync
+} from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -115,6 +123,22 @@ describe('checkSourceForUpdate', () => {
     expect(checkSourceForUpdate(dir, 'CLAUDE.md')).toEqual({ state: 'source-missing' })
   })
 
+  it('reports changed-unparseable when the source changed but is now empty', () => {
+    // The hash changes (so the early sourceHash === currentHash check correctly
+    // proceeds past up-to-date), but buildRuleCandidate rejects whitespace-only
+    // content via `read.text.trim() === ''`, so candidateBody returns null for
+    // this rule source. That must surface as changed-unparseable, not a repeated
+    // (and wrong) up-to-date.
+    writeFileSync(join(dir, 'CLAUDE.md'), '   \n  ')
+    expect(checkSourceForUpdate(dir, 'CLAUDE.md')).toEqual({ state: 'changed-unparseable' })
+  })
+
+  it('keeps reporting changed-unparseable on repeated checks (hash never silently bumped)', () => {
+    writeFileSync(join(dir, 'CLAUDE.md'), '   \n  ')
+    expect(checkSourceForUpdate(dir, 'CLAUDE.md')).toEqual({ state: 'changed-unparseable' })
+    expect(checkSourceForUpdate(dir, 'CLAUDE.md')).toEqual({ state: 'changed-unparseable' })
+  })
+
   it('applySourceUpdate overwrites the imported rule with the new content', () => {
     writeFileSync(join(dir, 'CLAUDE.md'), 'Updated content.')
     applySourceUpdate(dir, 'CLAUDE.md')
@@ -141,6 +165,36 @@ describe('checkSourceForUpdate', () => {
     detachSource(dir, 'CLAUDE.md')
     expect(getImportedConfig(dir, 'CLAUDE.md')).toBeNull()
     expect(readFileSync(join(dir, '.agents', 'rules', 'claude.md'), 'utf8')).toBe('Original content.')
+  })
+
+  // Security: checkSourceForUpdate reads the ALREADY-IMPORTED file at
+  // `.agents/rules/<name>.md` to build the diff's oldBody. That path lives
+  // inside the project directory, but nothing stops it from being replaced by
+  // hand with a symlink pointing outside the project (e.g. to a secret file
+  // elsewhere on disk) between import and this check. readFileCapped must be
+  // given `projectPath` as its `root` argument (matching every other
+  // config-import call site) so such a symlink is rejected rather than
+  // silently followed and its external target's content leaked into oldBody.
+  it('rejects a symlinked imported rule file pointing outside the project instead of leaking its content', () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bearcode-checkupdate-outside-'))
+    try {
+      const outsideFile = join(outsideDir, 'secret.md')
+      writeFileSync(outsideFile, 'SECRET EXTERNAL CONTENT')
+      const importedPath = join(dir, '.agents', 'rules', 'claude.md')
+      rmSync(importedPath)
+      symlinkSync(outsideFile, importedPath)
+
+      writeFileSync(join(dir, 'CLAUDE.md'), 'Updated content.')
+      const result = checkSourceForUpdate(dir, 'CLAUDE.md')
+
+      expect(result).toMatchObject({ state: 'changed', newBody: 'Updated content.' })
+      if (result.state === 'changed') {
+        expect(result.oldBody).toBe('')
+        expect(result.oldBody).not.toContain('SECRET EXTERNAL CONTENT')
+      }
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
   })
 
   it('does not throw when an mcp-typed row is passed to checkSourceForUpdate', () => {

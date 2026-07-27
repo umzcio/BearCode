@@ -47,7 +47,14 @@ function loadScope(scope: MemoryScopeName, projectPath: string | null): MemoryEn
   } catch {
     return [] // project scope with no project open
   }
-  const read = readFileCapped(join(dir, 'memory.md'), MAX_MEMORY_READ_BYTES)
+  // `root` (symlink-containment jail, mirrors agentsDir/index.ts's project
+  // readers) only for PROJECT scope: `<project>/.agents/memory/memory.md`
+  // could be swapped for a symlink pointing outside the project by an
+  // untrusted repo. Global memory (`~/.bearcode/agents/memory/memory.md`) is
+  // the user's own home-directory config with no untrusted boundary to jail
+  // against, so it keeps the legacy allow-symlinks behavior.
+  const root = scope === 'project' && projectPath ? projectPath : undefined
+  const read = readFileCapped(join(dir, 'memory.md'), MAX_MEMORY_READ_BYTES, root)
   if (!read) return []
   return parseMemoryBullets(read.text, scope)
 }

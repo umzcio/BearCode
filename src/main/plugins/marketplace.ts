@@ -5,9 +5,9 @@
 import { createHash } from 'crypto'
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, rmSync } from 'fs'
 import { homedir } from 'os'
-import { join, resolve, sep } from 'path'
+import { join, resolve } from 'path'
 import { git } from '../worktree/git'
-import { readFileCapped } from '../fsCapped'
+import { isPathWithinRoot, isPathWithinRootAllowingMissing, readJsonCapped } from '../fsCapped'
 import { getSettings, setSettings } from '../settings'
 import { parsePluginDir } from './manifest'
 import { pluginsDir } from './index'
@@ -110,8 +110,7 @@ async function cloneAndStage(rawUrl: string): Promise<string> {
   try {
     const root = resolve(repoDir)
     const resolved = resolve(root, norm.subpath)
-    if (!(resolved === root || resolved.startsWith(root + sep)))
-      throw new Error('That folder path escapes the repository.')
+    if (!isPathWithinRoot(resolved, root)) throw new Error('That folder path escapes the repository.')
     if (!existsSync(resolved))
       throw new Error(`That folder was not found in the repository: ${norm.subpath}`)
     if (existsSync(stagePath)) rmSync(stagePath, { recursive: true, force: true })
@@ -151,14 +150,16 @@ export async function removeMarketplace(url: string): Promise<void> {
 }
 
 function readManifest(dir: string): { name?: string; plugins?: unknown } | null {
-  const r = readFileCapped(join(dir, 'marketplace.json'), CAP)
-  if (!r) return null
-  try {
-    const v = JSON.parse(r.text)
-    return v && typeof v === 'object' ? v : null
-  } catch {
-    return null
-  }
+  // Containment: `dir` is the marketplace's own clone root (cacheDir(url)),
+  // and marketplace.json is fully attacker-controlled content from a REMOTE,
+  // UNTRUSTED repo -- passing `dir` as readJsonCapped's `root` makes it
+  // reject a symlinked leaf outright and realpath-check containment (see
+  // fsCapped.ts), matching the isPathWithinRoot checks already used
+  // elsewhere in this file (cloneAndStage's subpath jail, prepareInstall's
+  // marketplace subpath jail).
+  return readJsonCapped(join(dir, 'marketplace.json'), CAP, dir) as
+    | { name?: string; plugins?: unknown }
+    | null
 }
 
 export async function listCatalog(): Promise<MarketplacePlugin[]> {
@@ -224,15 +225,17 @@ export async function prepareInstall(
     const root = resolve(cacheDir(marketplaceUrl))
     const resolved = resolve(root, source)
     // Jail the marketplace-declared subpath inside the marketplace's own
-    // clone -- a malicious marketplace.json could otherwise point `source`
-    // at `../../..` and walk the install off the repo entirely. (The prior
-    // check compared `resolved` — itself `join(root, source)` — against
-    // `join(root, source)` again: a dead self-comparison that could never be
-    // true, so the containment check below was the only guard actually
-    // running. resolve()ing both sides collapses `..` segments so the
-    // startsWith containment check is real.)
-    if (!(resolved === root || resolved.startsWith(root + sep)))
-      throw new Error('Marketplace plugin path escapes the repo.')
+    // clone using realpath-based containment (isPathWithinRoot, fsCapped.ts)
+    // -- a malicious marketplace.json's `source` is fully marketplace-
+    // controlled (parsed straight from marketplace.json by listCatalog, only
+    // type-checked as a string) and could otherwise point through a
+    // symlinked intermediate directory the repo itself ships, escaping
+    // containment even though `resolved` is lexically inside `root`. (A
+    // prior fix already replaced a dead self-comparison here with a real
+    // resolve()+startsWith check; this replaces THAT check's lexical
+    // comparison with a realpath-based one, closing the symlink-following
+    // gap the lexical version still had.)
+    if (!isPathWithinRoot(resolved, root)) throw new Error('Marketplace plugin path escapes the repo.')
     stagePath = join(
       stageRoot(),
       createHash('sha256')
@@ -246,6 +249,19 @@ export async function prepareInstall(
   } else {
     throw new Error('prepareInstall needs a git URL or a marketplaceUrl + subpath.')
   }
+  // Reject symlinks BEFORE the preview parse, not just at confirmInstall.
+  // parsePluginDir below reads skills/ and rules/ via readdir-based scans
+  // (listSkillFolders/safeReaddir in manifest.ts) that transparently follow a
+  // symlinked intermediate directory or file -- and cpSync above (default
+  // dereference:false) copies a symlink verbatim into the staged clone, so a
+  // malicious plugin repo can ship e.g. `skills -> ~/.ssh` and have its
+  // description/name/activation text disclosed to the install PREVIEW, shown
+  // to the user before they've confirmed anything. assertNoSymlinks walks the
+  // whole staged tree and throws on the first symlink found, so running it
+  // here closes the gap for both this preview-stage parse and the later
+  // confirmInstall parse (which keeps its own call as defense in depth against
+  // the stage directory changing between preview and confirm).
+  assertNoSymlinks(stagePath)
   const manifest = parsePluginDir(stagePath, 'global')
   if (!manifest) {
     if (existsSync(join(stagePath, 'marketplace.json')))
@@ -263,10 +279,14 @@ export async function prepareInstall(
 // follow symlinks, unlike statSync) and throws on the first symlink found.
 // cpSync's default `dereference: false` copies a symlink verbatim rather
 // than the file it points to, so a malicious plugin could ship e.g.
-// `rules/creds.md -> ~/.aws/credentials`; once enabled, readFileCapped
-// follows the link at load time -- a read-side escape of the plugin
-// directory's path-jail. Rejecting any symlink at install time closes this
-// at the root, before anything is ever copied into the live plugins tree.
+// `rules/creds.md -> ~/.aws/credentials`, or `skills`/`rules` itself as a
+// symlinked directory; once enabled, readFileCapped (or the readdir-based
+// listSkillFolders/safeReaddir scans in manifest.ts) follows the link at load
+// time -- a read-side escape of the plugin directory's path-jail. Called from
+// BOTH prepareInstall (protects the install PREVIEW parse, which surfaces
+// skill/rule text to the renderer before the user has confirmed anything) and
+// confirmInstall (protects the copy into the live plugins tree), so no
+// symlink is ever followed at either stage.
 function assertNoSymlinks(dir: string): void {
   for (const entry of readdirSync(dir)) {
     const p = join(dir, entry)
@@ -284,9 +304,14 @@ export function confirmInstall(stagePath: string): void {
   // could point confirmInstall at an arbitrary directory containing any
   // plugin.json with a valid kebab-case name and have its entire contents
   // copied wholesale into the live plugins tree.
+  // realpath-based containment (isPathWithinRoot, fsCapped.ts). stageRoot()
+  // always exists by the time confirmInstall runs (prepareInstall/
+  // cloneAndStage mkdirSync it before staging), so the exact-realpath check
+  // is safe -- matches cloneAndStage's own subpath jail earlier in this
+  // file.
   const rs = resolve(stagePath)
   const sr = resolve(stageRoot())
-  if (rs !== sr && !rs.startsWith(sr + sep))
+  if (!isPathWithinRoot(rs, sr))
     throw new Error('stagePath must be a previously prepared install stage.')
   assertNoSymlinks(stagePath)
   const manifest = parsePluginDir(stagePath, 'global')
@@ -295,13 +320,11 @@ export function confirmInstall(stagePath: string): void {
     throw new Error('Plugin name must be kebab-case (traversal rejected).')
   const root = resolve(pluginsDir('global', null))
   const dest = resolve(root, manifest.name)
-  // (Same dead-self-comparison fix as prepareInstall above: `dest` was built
-  // from `join(root, manifest.name)` and then compared against
-  // `join(root, manifest.name)` again, which can never be false. The
-  // COMMAND_NAME_PATTERN check just above already rejects traversal
-  // characters in manifest.name, but resolve() + containment is kept as the
-  // real, structural guard.)
-  if (!(dest === root || dest.startsWith(root + sep)))
+  // isPathWithinRootAllowingMissing (not the exact-realpath isPathWithinRoot
+  // above): `root` (~/.bearcode/agents/plugins) may not exist yet on a
+  // machine's very first plugin install, and isPathWithinRoot's
+  // realpathSync would throw ENOENT and reject that legitimate install.
+  if (!isPathWithinRootAllowingMissing(dest, root))
     throw new Error('Install path escapes the plugins directory.')
   if (existsSync(dest)) rmSync(dest, { recursive: true, force: true })
   mkdirSync(root, { recursive: true })

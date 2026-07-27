@@ -48,6 +48,11 @@
 .sb-name-btn[aria-expanded='true'] svg {
   transform: rotate(180deg);
 }
+@media (prefers-reduced-motion: reduce) {
+  .sb-name-btn svg {
+    transition: none;
+  }
+}
 .acct-menu {
   min-width: 200px;
 }

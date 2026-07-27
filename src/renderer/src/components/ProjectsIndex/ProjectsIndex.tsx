@@ -49,6 +49,7 @@ export function ProjectsIndex(): React.JSX.Element {
   const folderSettings = useAppStore((s) => s.folderSettings)
   const convoOrder = useAppStore((s) => s.convoOrder)
   const conversations = useAppStore((s) => s.conversations)
+  const view = useAppStore((s) => s.view)
   const openProjectPage = useAppStore((s) => s.openProjectPage)
   const openProjectSettings = useAppStore((s) => s.openProjectSettings)
   const openTerminalView = useAppStore((s) => s.openTerminalView)
@@ -152,10 +153,11 @@ export function ProjectsIndex(): React.JSX.Element {
           sorted.map(({ fp, count }) => {
             const Icon = projectIcon(fp.icon)
             const label = fp.name ?? fp.path.split('/').pop() ?? fp.path
+            const selected = view.kind === 'project' && view.path === fp.path
             return (
               <div
                 key={fp.path}
-                className="pidx-row"
+                className={'pidx-row' + (selected ? ' selected' : '')}
                 role="button"
                 tabIndex={0}
                 onClick={() => openProjectPage(fp.path)}
@@ -179,58 +181,60 @@ export function ProjectsIndex(): React.JSX.Element {
                 <span className="cnt">
                   {count} conversation{count === 1 ? '' : 's'}
                 </span>
-                <Hint label="Project settings">
-                  <button
-                    type="button"
-                    className="row-act"
-                    aria-label="Project settings"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      openProjectSettings(fp.path)
-                    }}
-                  >
-                    <IconSettings size={13} />
-                  </button>
-                </Hint>
-                <Hint label="Open terminal">
-                  <button
-                    type="button"
-                    className="row-act"
-                    aria-label="Open terminal"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      openTerminalView(fp.path)
-                    }}
-                  >
-                    <IconTerminal size={13} />
-                  </button>
-                </Hint>
-                <Hint label="New conversation">
-                  <button
-                    type="button"
-                    className="row-act"
-                    aria-label="New conversation"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      void newConversationInProject(fp.path)
-                    }}
-                  >
-                    <IconPlus size={13} />
-                  </button>
-                </Hint>
-                <Hint label={fp.pinned ? 'Unpin project' : 'Pin project'}>
-                  <button
-                    type="button"
-                    className={'row-act' + (fp.pinned ? ' active' : '')}
-                    aria-label={fp.pinned ? 'Unpin project' : 'Pin project'}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      void toggleProjectPinned(fp.path)
-                    }}
-                  >
-                    <IconPin size={13} />
-                  </button>
-                </Hint>
+                <span className="pidx-rowact">
+                  <Hint label="Project settings">
+                    <button
+                      type="button"
+                      className="row-act"
+                      aria-label="Project settings"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openProjectSettings(fp.path)
+                      }}
+                    >
+                      <IconSettings size={13} />
+                    </button>
+                  </Hint>
+                  <Hint label="Open terminal">
+                    <button
+                      type="button"
+                      className="row-act"
+                      aria-label="Open terminal"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openTerminalView(fp.path)
+                      }}
+                    >
+                      <IconTerminal size={13} />
+                    </button>
+                  </Hint>
+                  <Hint label="New conversation">
+                    <button
+                      type="button"
+                      className="row-act"
+                      aria-label="New conversation"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void newConversationInProject(fp.path)
+                      }}
+                    >
+                      <IconPlus size={13} />
+                    </button>
+                  </Hint>
+                  <Hint label={fp.pinned ? 'Unpin project' : 'Pin project'}>
+                    <button
+                      type="button"
+                      className={'row-act' + (fp.pinned ? ' active' : '')}
+                      aria-label={fp.pinned ? 'Unpin project' : 'Pin project'}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void toggleProjectPinned(fp.path)
+                      }}
+                    >
+                      <IconPin size={13} />
+                    </button>
+                  </Hint>
+                </span>
               </div>
             )
           })

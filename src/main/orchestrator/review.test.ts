@@ -256,4 +256,36 @@ describe('runReview', () => {
     expect(emitted(s).some((e) => e.type === 'error')).toBe(false)
     expect(emitted(s).some((e) => e.type === 'review_summary')).toBe(true)
   })
+
+  it('reads via the realpath-resolved absolute path, not a fresh join(projectPath, rel) (TOCTOU close)', async () => {
+    // Simulates projectPath itself resolving through a symlink (the MINOR 5
+    // scenario review.ts already documents for `relative()`) so that a
+    // fresh `join(projectPath, rel)` at read time would diverge from the
+    // realpath'd location resolveScopeFiles already computed. Before the
+    // fix, resolveScopeToBlock re-joined projectPath + rel and would have
+    // read '/project/linked.ts' here; after the fix it must read the exact
+    // resolved '/real/project/linked.ts'.
+    const { realpathSync, readFileSync } = await import('fs')
+    vi.mocked(realpathSync).mockImplementation(((p: string) =>
+      p === '/project' ? '/real/project' : p) as never)
+    vi.mocked(readFileSync).mockClear()
+    const { makeModel } = await import('./models')
+    vi.mocked(makeModel).mockImplementation(
+      panelModels(
+        { 'anthropic/claude-fable-5': [], 'openai/gpt-5.6-sol': [], 'xai/grok-4.5': [] },
+        []
+      ) as never
+    )
+    const s = sink()
+    const res = await runReview(
+      'c1', 'x', 'code', 'linked.ts', s as never, new AbortController().signal, URSA_REVIEW_PANEL
+    )
+    expect(res).toEqual({ paused: false })
+    expect(readFileSync).toHaveBeenCalledWith('/real/project/linked.ts', 'utf8')
+    expect(readFileSync).not.toHaveBeenCalledWith('/project/linked.ts', 'utf8')
+    // Restore identity so later tests in this file are unaffected (this
+    // mock's default `realpathSync: vi.fn((p) => p)` is shared file-wide
+    // and vitest.config.ts has no restoreMocks/clearMocks configured).
+    vi.mocked(realpathSync).mockImplementation(((p: string) => p) as never)
+  })
 })

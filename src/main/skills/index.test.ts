@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { writeSkillFile, deleteSkillFolder } from './index'
@@ -51,5 +51,34 @@ describe('deleteSkillFolder', () => {
   })
   it('rejects a traversal name', () => {
     expect(() => deleteSkillFolder('../../etc', 'project', proj)).toThrow()
+  })
+})
+
+describe('jailedSkillFolder symlink escape (project scope)', () => {
+  it('writeSkillFile rejects when .agents/skills is a symlink to outside the project', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'bc-skill-outside-'))
+    try {
+      mkdirSync(join(proj, '.agents'), { recursive: true })
+      symlinkSync(outside, join(proj, '.agents', 'skills'))
+      expect(() =>
+        writeSkillFile({ name: 'pwned', description: 'x', body: 'b', scope: 'project' }, proj)
+      ).toThrow()
+      expect(existsSync(join(outside, 'pwned'))).toBe(false)
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
+  })
+  it('deleteSkillFolder rejects when .agents/skills is a symlink to outside the project', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'bc-skill-outside-'))
+    try {
+      mkdirSync(join(outside, 'victim'), { recursive: true })
+      writeFileSync(join(outside, 'victim', 'canary.txt'), 'do not delete me')
+      mkdirSync(join(proj, '.agents'), { recursive: true })
+      symlinkSync(outside, join(proj, '.agents', 'skills'))
+      expect(() => deleteSkillFolder('victim', 'project', proj)).toThrow()
+      expect(existsSync(join(outside, 'victim', 'canary.txt'))).toBe(true)
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
   })
 })

@@ -7,10 +7,10 @@
 // Pure Node builtins only, no new deps. Malformed or missing content never
 // throws (design 11 / Global Constraints): callers always get back an
 // AgentsContent, at worst empty.
-import { existsSync, readdirSync, statSync } from 'fs'
+import { existsSync, readdirSync, realpathSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { isAbsolute, join, resolve, sep } from 'path'
-import { readFileCapped } from '../fsCapped'
+import { isPathWithinRoot, listDirJailed, readFileCapped, realpathExistingPrefix } from '../fsCapped'
 import { enumeratePluginIngredients } from '../plugins'
 import { capMap } from './lruCap'
 import { parseRuleFile } from './parseRule'
@@ -104,17 +104,20 @@ function globalSkillsDir(): string {
 
 // Generalized lister (Task 1: was listRuleFiles, now shared by rules and
 // workflows -- both are flat directories of *.md files).
-function listMdFiles(dir: string): string[] {
-  if (!existsSync(dir)) return []
-  try {
-    return readdirSync(dir)
-      .filter((f) => f.endsWith('.md'))
-      .map((f) => join(dir, f))
-  } catch {
-    // Unreadable directory (permissions, race with deletion, etc.) is treated
-    // like a missing one -- never throw out of the loader.
-    return []
-  }
+//
+// `root`, when passed, is a symlink-containment jail (mirrors
+// configImport/scan.ts's listMdFilesRel, security follow-up on that fix):
+// only PROJECT-scoped callers pass it, since a project's `.agents/rules` (or
+// `.agents/workflows`) directory -- or a file inside it -- can be a symlink
+// committed by an untrusted repo, pointing outside the project. GLOBAL
+// callers never pass `root` and keep the legacy allow-everything behavior
+// (a dotfiles-managed `~/.bearcode/agents/rules/foo.md` symlink must keep
+// working -- the user's own home-directory config has no untrusted boundary
+// to jail against).
+function listMdFiles(dir: string, root?: string): string[] {
+  return listDirJailed(dir, { root, filter: (d) => d.name.endsWith('.md') }).map((d) =>
+    join(dir, d.name)
+  )
 }
 
 function mdNameFromPath(path: string): string {
@@ -160,7 +163,11 @@ function loadOneRule(
   // Bounded primary read: a rule file that is a non-regular file (would
   // block or never end) is dropped like an unreadable one, and an oversized
   // one is truncated at the cap with a warning instead of being read whole.
-  const read = readFileCapped(path, MAX_RULE_BYTES)
+  // `root` is passed only for PROJECT-source rules (an untrusted repo's own
+  // `.agents/rules/*.md` could be a symlink escaping the project); global
+  // rules keep the legacy allow-symlinks behavior (dotfiles-managed home dir).
+  const root = source === 'project' && projectPath ? projectPath : undefined
+  const read = readFileCapped(path, MAX_RULE_BYTES, root)
   if (!read) return null
   const fileWarnings: string[] = read.truncated
     ? [`Rule file exceeds ${MAX_RULE_BYTES / 1024}KB and was truncated`]
@@ -216,7 +223,9 @@ function loadOneWorkflow(
   // Bounded primary read: a workflow file that is a non-regular file (would
   // block or never end) is dropped like an unreadable one, and an oversized
   // one is truncated at the cap with a warning instead of being read whole.
-  const read = readFileCapped(path, MAX_WORKFLOW_BYTES)
+  // `root` only for PROJECT-source workflows, same rationale as loadOneRule.
+  const root = source === 'project' && projectPath ? projectPath : undefined
+  const read = readFileCapped(path, MAX_WORKFLOW_BYTES, root)
   if (!read) return null
   const fileWarnings: string[] = read.truncated
     ? [`Workflow file exceeds ${MAX_WORKFLOW_BYTES / 1024}KB and was truncated`]
@@ -235,8 +244,19 @@ function loadOneWorkflow(
 // A skill is a FOLDER containing SKILL.md (agentskills.io, design 4.1) -- not
 // a flat *.md like rules/workflows. Lists <dir>/<skill>/SKILL.md for every
 // subdirectory that actually has a SKILL.md; missing/unreadable dir -> [].
-export function listSkillFolders(dir: string): { name: string; path: string }[] {
+//
+// `root` is the same opt-in symlink-containment jail as listMdFiles above:
+// only project-scoped callers pass it (plugins/manifest.ts's own call, which
+// scans plugin-owned directories rather than a project's `.agents/skills`,
+// intentionally never passes it, unaffected by this change). A symlinked
+// entry never satisfies Dirent.isDirectory() (readdirSync's dirents are
+// lstat-based, so a symlink -- even one pointing at a real directory -- is
+// isSymbolicLink()/not isDirectory()), which already excludes a symlinked
+// skill folder itself; the `root` check additionally catches `dir` (the
+// skills directory) being a symlink to outside the project.
+export function listSkillFolders(dir: string, root?: string): { name: string; path: string }[] {
   if (!existsSync(dir)) return []
+  if (root && !isPathWithinRoot(dir, root)) return []
   try {
     return readdirSync(dir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
@@ -267,7 +287,9 @@ function loadOneSkill(
   const cached = skillCache.get(key)
   if (cached && cached.mtimeMs === mtimeMs) return cached.skill
 
-  const read = readFileCapped(path, MAX_SKILL_BYTES)
+  // `root` only for PROJECT-source skills, same rationale as loadOneRule.
+  const root = source === 'project' && projectPath ? projectPath : undefined
+  const read = readFileCapped(path, MAX_SKILL_BYTES, root)
   if (!read) return null
   const parsed = parseSkillFolder(name, read.text, source)
   const skill: Skill = read.truncated
@@ -300,7 +322,8 @@ export function loadAgentsContent(
   const pendingOutside = new Set<string>()
   const ing = enumeratePluginIngredients(projectPath, { trusted })
   const projectRulesDir = trusted && projectPath ? join(projectPath, '.agents', 'rules') : null
-  const projectRuleFiles = projectRulesDir ? listMdFiles(projectRulesDir) : []
+  const projectRuleFiles =
+    projectRulesDir && projectPath ? listMdFiles(projectRulesDir, projectPath) : []
   const globalRuleFiles = listMdFiles(globalRulesDir())
 
   const rulesByName = new Map<string, Rule>()
@@ -326,7 +349,16 @@ export function loadAgentsContent(
   for (const { pluginName, path } of sortIngredients(ing.ruleFiles, projectPath)) {
     const name = mdNameFromPath(path)
     if (rulesByName.has(name)) continue
-    const raw = readFileCapped(path, MAX_REF_BYTES)
+    // Project-scope plugin ingredient paths always live under
+    // `<projectPath>/.agents/plugins/...` (enumeratePluginIngredients builds
+    // them via pluginsDir('project', projectPath) in plugins/index.ts) --
+    // this lexical prefix check (same one sortIngredients above already
+    // uses) only decides which reads get root-jailed; the real security
+    // boundary is isPathWithinRoot inside readFileCapped. Global-scope
+    // plugin paths never start with projectPath, so they correctly get no
+    // root (legacy allow-symlinks, same as global rules/workflows/skills).
+    const root = projectPath && path.startsWith(projectPath + sep) ? projectPath : undefined
+    const raw = readFileCapped(path, MAX_REF_BYTES, root)
     if (!raw) continue
     const rule = parseRuleFile(name, raw.text, 'global')
     if (!rule.error) rulesByName.set(name, { ...rule, plugin: pluginName })
@@ -334,7 +366,8 @@ export function loadAgentsContent(
 
   const projectWorkflowsDir =
     trusted && projectPath ? join(projectPath, '.agents', 'workflows') : null
-  const projectWorkflowFiles = projectWorkflowsDir ? listMdFiles(projectWorkflowsDir) : []
+  const projectWorkflowFiles =
+    projectWorkflowsDir && projectPath ? listMdFiles(projectWorkflowsDir, projectPath) : []
   const globalWorkflowFiles = listMdFiles(globalWorkflowsDir())
 
   const workflowsByName = new Map<string, Workflow>()
@@ -353,7 +386,8 @@ export function loadAgentsContent(
   }
 
   const projectSkillsDir = trusted && projectPath ? join(projectPath, '.agents', 'skills') : null
-  const projectSkillFolders = projectSkillsDir ? listSkillFolders(projectSkillsDir) : []
+  const projectSkillFolders =
+    projectSkillsDir && projectPath ? listSkillFolders(projectSkillsDir, projectPath) : []
   const globalSkillFolders = listSkillFolders(globalSkillsDir())
 
   const skillsByName = new Map<string, Skill>()
@@ -373,7 +407,9 @@ export function loadAgentsContent(
   // are resolved deterministically by sortIngredients.
   for (const { pluginName, path } of sortIngredients(ing.skillFolders, projectPath)) {
     const folderName = path.split(sep).pop()!
-    const raw = readFileCapped(join(path, 'SKILL.md'), MAX_REF_BYTES)
+    // Same project-scope-plugin lexical check as the rule fold-in above.
+    const root = projectPath && path.startsWith(projectPath + sep) ? projectPath : undefined
+    const raw = readFileCapped(join(path, 'SKILL.md'), MAX_REF_BYTES, root)
     if (!raw) continue
     const s = parseSkillFolder(folderName, raw.text, 'global')
     if (s.error) continue
@@ -401,16 +437,28 @@ export function loadAgentsContent(
 // not an exact token grammar for rule-body refs).
 //
 // Resolution order (design 2, security-authoritative in design 10):
-//   1. Absolute path (starts with "/"): read directly, READ-ONLY, allowed to
-//      point anywhere on disk (documented Antigravity-parity behavior).
+//   1. Absolute path (starts with "/"): allowed to point anywhere on disk
+//      (documented Antigravity-parity behavior) -- an IN-workspace absolute
+//      ref (see isInsideWorkspaceAllowingMissing below) always reads
+//      READ-ONLY same as a relative ref; an OUT-of-workspace absolute ref is
+//      instead gated by OutsidePolicy (see resolveRefPath's own comment).
+//      UPDATED (round2 plan 002 follow-up): a MISSING absolute ref that
+//      would be in-workspace if it existed is still classified as in-
+//      workspace (not routed into the OutsidePolicy consent gate) -- see
+//      isInsideWorkspaceAllowingMissing.
 //   2. Otherwise: resolve relative to the workspace root (projectPath) and
-//      verify containment with a path-separator boundary check (see
-//      isInsideWorkspace below) before reading -- this is the same
-//      resolve-then-verify-prefix idiom as fsBackend.ts's jailPath, reused
-//      here per the design's explicit instruction. A plain resolve+prefix
-//      check (no realpath/symlink resolution) is sufficient because this is
-//      read-only TEXT INCLUSION into a prompt, never executed and never
-//      written back (design 10).
+//      verify containment (see isInsideWorkspace below) before reading.
+//      UPDATED (round2 plan 002): containment is now realpath-based
+//      (isInsideWorkspace delegates to isPathWithinRoot), not a plain
+//      resolve+prefix string check. Design 10's original rationale -- "a
+//      lexical check is sufficient because this is read-only TEXT INCLUSION,
+//      never executed and never written back" -- addressed code-execution
+//      risk, not read-disclosure risk: a symlinked intermediate directory
+//      (e.g. a committed `vendor` -> ~/.ssh) is lexically "inside" the
+//      workspace even though its real target is not, so its content would
+//      still get inlined into the LLM's context (transcripts/logs) without
+//      ever reaching the OutsidePolicy consent gate. See
+//      planning/round2-plans/002-atref-resolver-realpath-containment.md.
 //
 // Unresolvable refs (file missing, escapes the workspace, or a repeat within
 // the current resolution chain -- see cycle detection below) are left as the
@@ -515,7 +563,18 @@ function resolveRefsInner(
     // Bounded, non-regular-rejecting read: a missing file, a directory, a
     // FIFO, a device node, or any read error all degrade to the literal
     // token + warning, and at most MAX_REF_BYTES are ever read.
-    const read = readFileCapped(resolved, MAX_REF_BYTES)
+    //
+    // `root` is passed ONLY when this resolved path is actually inside the
+    // project (by realpath, via isInsideWorkspace/isPathWithinRoot above) --
+    // an absolute ref legitimately outside the workspace and allowed by
+    // OutsidePolicy keeps the existing no-root, symlinks-followed read
+    // (unchanged behavior, still capped). For an in-workspace resolution,
+    // passing root gives readFileCapped's own leaf-symlink rejection as
+    // additional defense-in-depth beyond the isInsideWorkspace check that
+    // already ran inside resolveRefPath.
+    const root =
+      projectPath && isInsideWorkspace(resolve(projectPath), resolved) ? projectPath : undefined
+    const read = readFileCapped(resolved, MAX_REF_BYTES, root)
     if (!read) {
       result += token
       warnings.push(`Could not resolve rule reference: @${refPath}`)
@@ -545,8 +604,15 @@ function resolveRefsInner(
 
 // Resolve one `@<path>` token to an absolute filesystem path, or null if it
 // cannot be resolved (missing projectPath for a relative ref, or a relative
-// ref that escapes the workspace). Existence is NOT checked here -- callers
-// attempt the read and treat a failure the same as an unresolvable path.
+// ref that escapes the workspace). Existence is NOT checked here for the
+// purpose of deciding readability -- callers attempt the read and treat a
+// failure the same as an unresolvable path. It IS consulted, however, for the
+// absolute-ref "is this inside the workspace" classification just below
+// (round2 plan 002 follow-up fix): a MISSING absolute ref still needs to be
+// recognized as in-workspace when it genuinely would be, via
+// isInsideWorkspaceAllowingMissing, so it fails cleanly as "could not
+// resolve" instead of being misrouted into the OutsidePolicy consent flow --
+// see that function's own comment for why.
 //
 // Outside-of-folder policy (Task 3, audit C-1): an ABSOLUTE ref that points
 // outside the workspace is now gated by `outside` (only ever passed for
@@ -561,8 +627,14 @@ function resolveRefPath(
   if (isAbsolute(refPath)) {
     const abs = resolve(refPath)
     // Inside the workspace? treat like a relative in-folder ref (always ok).
+    // Missing-but-would-be-in-project paths count as inside here (see
+    // isInsideWorkspaceAllowingMissing) so a typo'd/deleted in-project ref
+    // fails cleanly below (the read attempt returns null) instead of
+    // triggering an outside-folder consent prompt -- the actual read a few
+    // lines into resolveRefsInner still applies its own realpath-based
+    // symlink defense, so this only changes the pre-read classification.
     const root = projectPath ? resolve(projectPath) : null
-    if (root && isInsideWorkspace(root, abs)) return { path: abs, pending: null }
+    if (root && isInsideWorkspaceAllowingMissing(root, abs)) return { path: abs, pending: null }
     // Out-of-folder absolute ref: apply policy. No policy = legacy allow (global).
     if (!outside || outside.policy === 'allow') return { path: abs, pending: null }
     if (outside.policy === 'deny') return { path: null, pending: null }
@@ -579,15 +651,62 @@ function resolveRefPath(
     : { path: null, pending: null }
 }
 
-// Boundary-safe containment check (mirrors fsBackend.ts's jailPath idiom,
-// reused here per the design's instruction): compares against `root + sep`
-// rather than a naive startsWith(root), so a sibling directory that merely
-// shares root as a string prefix (e.g. root "/work/proj" and candidate
-// "/work/proj-evil/secret") is correctly rejected instead of misclassified
-// as inside the workspace.
+// Boundary-safe containment check. Uses isPathWithinRoot (fsCapped.ts),
+// which realpathSync()s BOTH sides before comparing -- this is what closes
+// the "symlinked intermediate directory" gap: a project can commit `vendor`
+// as a symlink (a valid git tree entry) pointing anywhere on disk, and a ref
+// like `@vendor/x` is lexically "inside" the workspace as a plain string
+// comparison even though it resolves somewhere else entirely. See
+// planning/round2-plans/002-atref-resolver-realpath-containment.md for the
+// full rationale, including the documented prior design decision this
+// revisits (originally a plain resolve+prefix check was judged sufficient
+// because ref inclusion is read-only text, never executed -- that reasoning
+// covers code-execution risk but not read-disclosure risk, which this
+// codebase's later config-import and agentsDir loader fixes treat as
+// independently in-scope).
 function isInsideWorkspace(root: string, candidate: string): boolean {
-  return candidate === root || candidate.startsWith(root + sep)
+  return isPathWithinRoot(candidate, root)
 }
+
+// Same containment check as isInsideWorkspace, but a candidate that does not
+// exist on disk gets a second chance instead of being unconditionally
+// classified as outside (round2 plan 002 follow-up fix).
+//
+// isPathWithinRoot/isInsideWorkspace realpathSync()s the candidate, which
+// THROWS on a missing path (ENOENT) -- and the catch there treats any thrown
+// error the same as "confirmed outside root". That collapses two very
+// different cases into one: a path that genuinely resolves outside the
+// workspace (reject, correct), and a path that would be inside the workspace
+// if it existed -- e.g. a typo'd or since-deleted `@/<project>/docs/x.md`
+// where `<project>` IS the open project (also being rejected as "outside" is
+// wrong: it used to fail cleanly with "could not resolve", not with a
+// misleading outside-folder consent prompt).
+//
+// Only a MISSING candidate gets the second chance, and only via the longest
+// EXISTING prefix (realpathExistingPrefix just below): every existing
+// ancestor directory is realpath'd (so a symlinked intermediate directory --
+// e.g. a committed `vendor` -> ~/.ssh -- still resolves to its real,
+// possibly-outside-the-workspace target) and the not-yet-existing suffix is
+// re-appended lexically on top of that real prefix before the containment
+// check runs. A candidate that DOES exist keeps the exact isInsideWorkspace
+// verdict (no second chance) -- this function never weakens the
+// existing-path symlink-escape defense plan 002 closed.
+function isInsideWorkspaceAllowingMissing(root: string, candidate: string): boolean {
+  if (isInsideWorkspace(root, candidate)) return true
+  if (existsSync(candidate)) return false
+  let realRoot: string
+  try {
+    realRoot = realpathSync(root)
+  } catch {
+    return false
+  }
+  const realCandidatePrefix = realpathExistingPrefix(candidate)
+  return realCandidatePrefix === realRoot || realCandidatePrefix.startsWith(realRoot + sep)
+}
+
+// realpathExistingPrefix now lives in fsCapped.ts (round3 plan 003) --
+// fsCapped.ts has zero dependents in the tools.ts/fsBackend.ts/agentsDir
+// cycle this file used to duplicate the helper to avoid.
 
 // Deterministic ordering for plugin-sourced ingredients (skills/rules) before
 // folding them into the merged map: project-scope plugins before global-scope

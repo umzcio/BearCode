@@ -116,11 +116,7 @@ class TerminalManager {
     const session = this.sessions.get(id)
     if (!session) return
     if (!session.exited) {
-      try {
-        session.pty.kill()
-      } catch {
-        // Already dead.
-      }
+      this.killSession(session.pty.pid)
     }
     this.sessions.delete(id)
   }
@@ -136,14 +132,32 @@ class TerminalManager {
   killAll(): void {
     for (const session of this.sessions.values()) {
       if (!session.exited) {
-        try {
-          session.pty.kill()
-        } catch {
-          // Already dead.
-        }
+        this.killSession(session.pty.pid)
       }
     }
     this.sessions.clear()
+  }
+
+  // Sends SIGHUP to the shell's own process group first (process.kill with a negative
+  // pid targets the group, not the single process) so any process that never left the
+  // shell's own group (e.g. a future non-interactive/non-job-control shell mode) dies
+  // with it. Job-controlled background jobs (`cmd &`) get their own separate pgid and
+  // are unaffected by this either way -- they're already reaped by bash/zsh's own
+  // SIGHUP-to-jobs handling before the shell exits (see the plan's "Recon finding").
+  // Falls back to a plain single-PID kill if the group form throws (e.g. a pty backend
+  // where the child was never made its own group leader). The pty wrapper's own kill
+  // method is NOT used here -- node-pty's UnixTerminal.kill() swallows its own errors
+  // internally (unixTerminal.js), which would make the fallback undetectable.
+  private killSession(pid: number): void {
+    try {
+      process.kill(-pid, 'SIGHUP')
+    } catch {
+      try {
+        process.kill(pid, 'SIGHUP')
+      } catch {
+        // Already dead.
+      }
+    }
   }
 
   private toView(s: TerminalSession): TerminalSessionView {

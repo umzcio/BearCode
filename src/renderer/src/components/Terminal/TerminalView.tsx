@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../state/store'
 import { useShallow } from 'zustand/react/shallow'
 import { TerminalPane } from './TerminalPane'
 import { IconPlus, IconClose, IconTerminal } from '../icons'
 import { ErrorCard } from '../ui/ErrorCard'
 import { EmptyState } from '../ui/EmptyState'
+import { Hint } from '../Hint'
+import { prefersReducedMotion } from '../../lib/prefersReducedMotion'
 import './TerminalView.css'
 
 function toErrorMessage(err: unknown): string {
@@ -35,6 +37,62 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
   // because this path already had tabs).
   const [error, setError] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
+
+  // Matches --dur-fast in styles/tokens.css. Tab close is deferred by this
+  // long so the fade/scale-out transition below can finish playing before
+  // the tab actually leaves `tabs` (and the strip reflows around it) --
+  // useAnimatedUnmount's mounted-until-transition-ends idea, hand-adapted
+  // for a per-item list instead of a single boolean (see plan 005's
+  // "Does useAnimatedUnmount fit this?" for why the hook itself doesn't
+  // apply to a keyed list).
+  const TAB_CLOSE_MS = 150
+  const [closingIds, setClosingIds] = useState<Set<string>>(() => new Set())
+
+  // Tracks each tab's pending close timer (keyed by tab id, since multiple
+  // tabs can be mid-close at once -- unlike useAnimatedUnmount's single
+  // boolean/timer, this is a per-item list). Cleared on unmount below so a
+  // stale timer never fires setState after this component is gone, matching
+  // useAnimatedUnmount.ts's own useEffect-cleanup convention.
+  const closeTimersRef = useRef<Map<string, ReturnType<typeof window.setTimeout>>>(new Map())
+
+  useEffect(() => {
+    const timers = closeTimersRef.current
+    return () => {
+      // Flush, don't cancel: a pending timer here means the user closed a
+      // tab and then navigated away before the 150ms fade finished. Clearing
+      // the JS timeout without also firing the deferred closeTerminalTab
+      // would silently keep that pty/session alive -- the tab would just
+      // reappear next time this path's Terminal view is opened, looking like
+      // the close never happened.
+      timers.forEach((id, tabId) => {
+        window.clearTimeout(id)
+        void closeTerminalTab(path, tabId)
+      })
+      timers.clear()
+    }
+  }, [path, closeTerminalTab])
+
+  const handleCloseTab = (tabId: string): void => {
+    // Guard the whole body, not just the setClosingIds update -- otherwise a
+    // double-click within TAB_CLOSE_MS schedules closeTerminalTab twice.
+    if (closingIds.has(tabId)) return
+    if (prefersReducedMotion()) {
+      void closeTerminalTab(path, tabId)
+      return
+    }
+    setClosingIds((prev) => new Set(prev).add(tabId))
+    const timerId = window.setTimeout(() => {
+      closeTimersRef.current.delete(tabId)
+      setClosingIds((prev) => {
+        if (!prev.has(tabId)) return prev
+        const next = new Set(prev)
+        next.delete(tabId)
+        return next
+      })
+      void closeTerminalTab(path, tabId)
+    }, TAB_CLOSE_MS)
+    closeTimersRef.current.set(tabId, timerId)
+  }
 
   // Hydrate from any sessions the main process already has for this path
   // (e.g. this project's Terminal view was open earlier this app session,
@@ -105,27 +163,40 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
     <div className="terminal-view">
       <div className="terminal-tabstrip">
         {tabs.map((tab) => (
-          <button
+          <div
             key={tab.id}
             className={
               'terminal-tab' + (tab.id === activeId ? ' active' : '') + (tab.exited ? ' exited' : '')
             }
+            data-state={closingIds.has(tab.id) ? 'closing' : 'open'}
+            role="button"
+            tabIndex={0}
             onClick={() => setActiveTerminalTab(path, tab.id)}
+            onKeyDown={(e) => {
+              // Ignore keys originating on the nested close button (mirrors
+              // ProjectsIndex.tsx's .pidx-row / ProjectPage.tsx's .pp-row
+              // row-vs-action convention).
+              if (e.target !== e.currentTarget) return
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                setActiveTerminalTab(path, tab.id)
+              }
+            }}
           >
             <IconTerminal size={13} />
             <span>{tab.exited ? `${tab.title} (exited)` : tab.title}</span>
-            <span
+            <button
+              type="button"
               className="terminal-tab-close"
-              role="button"
               aria-label="Close terminal tab"
               onClick={(e) => {
                 e.stopPropagation()
-                void closeTerminalTab(path, tab.id)
+                handleCloseTab(tab.id)
               }}
             >
               <IconClose size={11} />
-            </span>
-          </button>
+            </button>
+          </div>
         ))}
         <button
           className="terminal-tab-new"
@@ -138,6 +209,12 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
         >
           <IconPlus size={13} />
         </button>
+        <Hint
+          label="Commands typed here run in a real, unsandboxed shell — unlike agent-run commands, they are not restricted by BearCode's sandbox."
+          side="bottom"
+        >
+          <span className="terminal-sandbox-notice">Unsandboxed</span>
+        </Hint>
       </div>
       {error ? <ErrorCard>{error}</ErrorCard> : null}
       <div className="terminal-panes">

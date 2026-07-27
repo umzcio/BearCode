@@ -921,6 +921,49 @@ describe('folder = project: settings store actions', () => {
     expect(useAppStore.getState().folderSettings).toHaveLength(1)
     expect(useAppStore.getState().folderSettings[0].path).toBe('/repo/x')
   })
+
+  it('toggleProjectPinned patches folderSettings synchronously so two rapid calls net out correctly', async () => {
+    useAppStore.setState({
+      folderSettings: [folderProject('/proj', { pinned: false })] as never
+    })
+    // Hold both IPC round-trips open so we can assert on the optimistic state
+    // before either resolves -- this is the rapid-double-click race the fix
+    // targets: without the synchronous patch, both calls would read the same
+    // stale `pinned: false` snapshot and flip it the same direction.
+    let resolveUpdate1: (value: unknown) => void = () => {}
+    let resolveUpdate2: (value: unknown) => void = () => {}
+    const updateMock = window.bearcode.projects.update as unknown as ReturnType<typeof vi.fn>
+    updateMock
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveUpdate1 = resolve)))
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveUpdate2 = resolve)))
+    ;(window.bearcode.projects.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      folderProject('/proj', { pinned: false })
+    ])
+
+    const store = useAppStore.getState()
+    const p1 = store.toggleProjectPinned('/proj')
+    // Assert synchronously (no await yet): the optimistic patch already flipped
+    // pinned to true before the first IPC call has resolved.
+    expect(
+      useAppStore.getState().folderSettings.find((f) => f.path === '/proj')?.pinned
+    ).toBe(true)
+
+    const p2 = store.toggleProjectPinned('/proj')
+    // The second call reads the just-patched value (true), so it flips back to
+    // false instead of racing on the same stale snapshot.
+    expect(
+      useAppStore.getState().folderSettings.find((f) => f.path === '/proj')?.pinned
+    ).toBe(false)
+
+    resolveUpdate1(folderProject('/proj', { pinned: true }))
+    resolveUpdate2(folderProject('/proj', { pinned: false }))
+    await Promise.all([p1, p2])
+
+    // Final, reconciled state: toggled twice nets back to the original value.
+    expect(
+      useAppStore.getState().folderSettings.find((f) => f.path === '/proj')?.pinned
+    ).toBe(false)
+  })
 })
 
 describe('pin/archive + newConversationInProject store actions', () => {
@@ -994,6 +1037,14 @@ describe('pin/archive + newConversationInProject store actions', () => {
 
     expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
     expect(useAppStore.getState().auxSelection).toBeNull()
+  })
+
+  it('newConversationInProject shows a toast instead of throwing when conversations.create rejects', async () => {
+    useAppStore.setState({ conversations: {}, view: { kind: 'home' }, folderSettings: [], toast: null })
+    vi.mocked(window.bearcode.conversations.create).mockRejectedValueOnce(new Error('disk full'))
+    await expect(useAppStore.getState().newConversationInProject('/repo/x')).resolves.toBeUndefined()
+    expect(useAppStore.getState().toast?.message).toBe('disk full')
+    expect(useAppStore.getState().view).toEqual({ kind: 'home' })
   })
 })
 

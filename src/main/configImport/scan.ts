@@ -1,5 +1,6 @@
-import { existsSync, readdirSync } from 'fs'
+import { existsSync, lstatSync } from 'fs'
 import { join } from 'path'
+import { listDirJailed } from '../fsCapped'
 import type { ImportedConfigRow } from '../db'
 import type { DetectedSource, ImportTool } from './types'
 
@@ -21,28 +22,20 @@ function listMdFilesRel(
   exts: string[] = ['.md']
 ): string[] {
   const dir = join(projectPath, dirRel)
-  if (!existsSync(dir)) return []
-  try {
-    return readdirSync(dir)
-      .filter((f) => exts.some((e) => f.endsWith(e)))
-      .map((f) => join(dirRel, f))
-  } catch {
-    return []
-  }
+  return listDirJailed(dir, {
+    root: projectPath,
+    filter: (d) => exts.some((e) => d.name.endsWith(e))
+  }).map((d) => join(dirRel, d.name))
 }
 
 const RULE_DIR_EXTS = ['.md', '.mdc']
 
 function listSkillDirsRel(projectPath: string, dirRel: string): string[] {
   const dir = join(projectPath, dirRel)
-  if (!existsSync(dir)) return []
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && existsSync(join(dir, d.name, 'SKILL.md')))
-      .map((d) => join(dirRel, d.name))
-  } catch {
-    return []
-  }
+  return listDirJailed(dir, {
+    root: projectPath,
+    filter: (d, dir) => d.isDirectory() && existsSync(join(dir, d.name, 'SKILL.md'))
+  }).map((d) => join(dirRel, d.name))
 }
 
 // Cheap existence-only scan (no parsing) for external agent-tool config,
@@ -51,7 +44,14 @@ export function scanImportableConfig(projectPath: string): DetectedSource[] {
   const found: DetectedSource[] = []
 
   for (const { rel, tool } of INSTRUCTION_FILES) {
-    if (existsSync(join(projectPath, rel))) {
+    const abs = join(projectPath, rel)
+    let isSymlink = false
+    try {
+      isSymlink = lstatSync(abs).isSymbolicLink()
+    } catch {
+      // doesn't exist — fall through, existsSync below will also be false
+    }
+    if (!isSymlink && existsSync(abs)) {
       found.push({ sourcePath: rel, kind: 'rule', tool })
     }
   }

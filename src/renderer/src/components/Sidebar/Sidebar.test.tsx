@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { HERMES_MODEL_REF } from '@shared/types'
 import type { Convo } from '../../state/store'
 import { useAppStore } from '../../state/store'
@@ -41,6 +41,7 @@ function mount(opts: {
   settings?: Record<string, unknown>
   newHermesConversation?: ReturnType<typeof vi.fn>
   folderSettings?: Record<string, unknown>[]
+  view?: { kind: string; path?: string | null; id?: string }
 }): HTMLElement {
   const conversations: Record<string, Convo> = {}
   for (const [id, partial] of Object.entries(opts.conversations ?? {})) {
@@ -49,7 +50,7 @@ function mount(opts: {
   ;(window as unknown as { bearcode: unknown }).bearcode = {}
   useAppStore.setState({
     sidebarCollapsed: false,
-    view: { kind: 'home' },
+    view: opts.view ?? { kind: 'home' },
     convoOrder: Object.keys(conversations),
     conversations,
     folderSettings: (opts.folderSettings ?? []) as never,
@@ -221,6 +222,84 @@ describe('Projects/Pinned/Recents (Conversations segment)', () => {
     expect(useAppStore.getState().openConvo).toHaveBeenCalledWith('r1')
   })
 
+  // Regression test for the dead "Worktree" Subtitles option (plan 007):
+  // Sidebar.tsx now reads `settings.sidebarSubtitle` and renders the first
+  // worktree's branch as a second line, in both the Pinned and Recents
+  // blocks, gated on the convo actually being in worktree mode.
+  it('renders the worktree branch as a subtitle when sidebarSubtitle is "worktree"', () => {
+    mount({
+      conversations: {
+        p1: {
+          title: 'Pinned convo',
+          projectPath: null,
+          updatedAt: 5,
+          pinned: true,
+          environment: 'worktree',
+          worktrees: [
+            { repoPath: '/r', worktreePath: '/r-wt', branch: 'feature-x', baseBranch: 'main' }
+          ]
+        },
+        r1: {
+          title: 'Recent convo',
+          projectPath: null,
+          updatedAt: 3,
+          pinned: false,
+          environment: 'worktree',
+          worktrees: [
+            { repoPath: '/r', worktreePath: '/r-wt', branch: 'feature-x', baseBranch: 'main' }
+          ]
+        }
+      },
+      settings: { sidebarSubtitle: 'worktree' }
+    })
+    expect(screen.getAllByText('feature-x')).toHaveLength(2)
+  })
+
+  it('does not render a worktree subtitle when sidebarSubtitle is "none" (default)', () => {
+    mount({
+      conversations: {
+        r1: {
+          title: 'Recent convo',
+          projectPath: null,
+          updatedAt: 3,
+          pinned: false,
+          environment: 'worktree',
+          worktrees: [
+            { repoPath: '/r', worktreePath: '/r-wt', branch: 'feature-x', baseBranch: 'main' }
+          ]
+        }
+      }
+    })
+    expect(screen.queryByText('feature-x')).not.toBeInTheDocument()
+  })
+
+  // Guards against a regression that drops the `environment === 'worktree'`
+  // half of the render guard: if only `sidebarSubtitle === 'worktree'` were
+  // checked, every conversation (including plain local ones, BASE_CONVO's
+  // default) would grow a subtitle the moment the Display Option was turned
+  // on -- even ones with no worktree at all.
+  it('does not render a worktree subtitle for a local (non-worktree) conversation, even when sidebarSubtitle is "worktree"', () => {
+    mount({
+      conversations: {
+        r1: {
+          title: 'Recent convo',
+          projectPath: null,
+          updatedAt: 3,
+          pinned: false,
+          // environment defaults to 'local' via BASE_CONVO, but a
+          // `worktrees` entry is present anyway -- if the render guard ever
+          // dropped its `environment === 'worktree'` check, this would be
+          // enough data for the subtitle to render regardless.
+          worktrees: [
+            { repoPath: '/r', worktreePath: '/r-wt', branch: 'feature-x', baseBranch: 'main' }
+          ]
+        }
+      },
+      settings: { sidebarSubtitle: 'worktree' }
+    })
+    expect(screen.queryByText('feature-x')).not.toBeInTheDocument()
+  })
+
   // Regression test for the chip-color bug (final review #4), now exercised
   // through the "Pinned Projects" section instead of the retired flat list:
   // checks both the resolved custom name renders (not the raw folder
@@ -342,5 +421,91 @@ describe('Pinned Projects section', () => {
     fireEvent.click(screen.getByLabelText('New conversation'))
     expect(useAppStore.getState().newConversationInProject).toHaveBeenCalledWith('/proj-a')
     expect(useAppStore.getState().openProjectPage).not.toHaveBeenCalled()
+  })
+
+  // Regression test for plan 008: the currently-open project's row must get
+  // the same `.selected` treatment conversation rows already have (see
+  // "Conversation row actions" tests' `openConvo` assertions for the sibling
+  // behavior this mirrors).
+  it('highlights the row matching the current project view and not other pinned rows', () => {
+    mount({
+      conversations: {},
+      folderSettings: [
+        { path: '/proj-a', color: null, icon: null, name: 'Alpha', pinned: true },
+        { path: '/proj-b', color: null, icon: null, name: 'Beta', pinned: true }
+      ],
+      view: { kind: 'project', path: '/proj-a' }
+    })
+    const alphaRow = screen.getByText('Alpha').closest('.sb-flatrow')
+    const betaRow = screen.getByText('Beta').closest('.sb-flatrow')
+    expect(alphaRow).not.toBeNull()
+    expect(betaRow).not.toBeNull()
+    expect(alphaRow!.className).toContain('selected')
+    expect(betaRow!.className).not.toContain('selected')
+  })
+})
+
+// Coverage for plan 002 (improve-animations): the FLIP collapse effect must
+// resolve --ease-drawer/--dur-drawer from :root at animation time instead of
+// hand-typing them, and must NOT fall back to a hardcoded value if the tokens
+// fail to resolve -- it should log via console.error and snap instantly.
+describe('FLIP collapse animation resolves motion tokens (plan 002)', () => {
+  beforeEach(() => {
+    // jsdom has neither matchMedia nor real layout, but does provide
+    // requestAnimationFrame; the effect's reduced-motion early-return
+    // requires matchMedia to exist at all.
+    ;(window as unknown as { matchMedia: unknown }).matchMedia = vi
+      .fn()
+      .mockReturnValue({ matches: false })
+  })
+
+  afterEach(() => {
+    document.documentElement.style.removeProperty('--ease-drawer')
+    document.documentElement.style.removeProperty('--dur-drawer')
+  })
+
+  it('builds the transition string from --ease-drawer/--dur-drawer when both resolve', async () => {
+    document.documentElement.style.setProperty('--ease-drawer', 'cubic-bezier(0.32, 0.72, 0, 1)')
+    document.documentElement.style.setProperty('--dur-drawer', '340ms')
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const container = mount({ conversations: {} })
+    const sidebarEl = container.querySelector('.sidebar') as HTMLElement
+    expect(sidebarEl).not.toBeNull()
+
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: true } as never)
+    })
+    // The transition is applied inside a requestAnimationFrame callback.
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    expect(sidebarEl.style.transition).toBe('transform 340ms cubic-bezier(0.32, 0.72, 0, 1)')
+    expect(errorSpy).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
+  it('escape hatch: skips the animation and logs an error instead of using a hardcoded fallback when the tokens do not resolve', async () => {
+    // Deliberately leave --ease-drawer/--dur-drawer unset on :root.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const container = mount({ conversations: {} })
+    const sidebarEl = container.querySelector('.sidebar') as HTMLElement
+    expect(sidebarEl).not.toBeNull()
+
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: true } as never)
+    })
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(errorSpy.mock.calls[0][0]).toMatch(/could not resolve --ease-drawer\/--dur-drawer/)
+    // No animation is played and no hardcoded cubic-bezier/ms string is used.
+    expect(sidebarEl.style.transition).toBe('')
+    expect(sidebarEl.style.transform).toBe('translate3d(0, 0, 0)')
+    errorSpy.mockRestore()
   })
 })

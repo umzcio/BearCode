@@ -664,7 +664,7 @@
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
-  transition: background 140ms ease;
+  transition: background var(--dur-press) ease;
   -webkit-app-region: no-drag;
 }
 .toggle.on {
@@ -686,7 +686,7 @@
   height: 16px;
   border-radius: 50%;
   background: #fff;
-  transition: transform 140ms ease;
+  transition: transform var(--dur-press) var(--ease-out);
 }
 .toggle.on .toggle-knob {
   transform: translateX(16px);
@@ -1282,6 +1282,20 @@
 .hermes-field .set-input {
   width: 100%;
   min-width: 0;
+}
+.hermes-mode-fields {
+  transition: opacity var(--dur-fast) var(--ease-out);
+  opacity: 1;
+}
+@starting-style {
+  .hermes-mode-fields {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hermes-mode-fields {
+    transition: none;
+  }
 }
 .hermes-test-row {
   display: flex;

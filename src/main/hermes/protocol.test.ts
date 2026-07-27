@@ -5,6 +5,11 @@ import {
   decodeBinaryFrame,
   encodeBinaryFrame,
   encodeClientEvent,
+  HERMES_MAX_CHOICE_LENGTH,
+  HERMES_MAX_CHOICES,
+  HERMES_MAX_FILE_BYTES,
+  HERMES_MAX_LABEL_LENGTH,
+  HERMES_MAX_TEXT_LENGTH,
   parseServerEvent,
   ProtocolViolation,
   SequenceGuard
@@ -66,6 +71,68 @@ describe('Hermes protocol V1', () => {
 
   it('rejects a non-boolean binary final flag', () => {
     expect(() => encodeBinaryFrame({ direction: 'upload', attachmentId: binary.attachmentId, chunkIndex: 0, final: 'yes' as unknown as boolean, payload: Buffer.alloc(0) })).toThrow(ProtocolViolation)
+  })
+
+  it('rejects an assistant.delta text field longer than HERMES_MAX_TEXT_LENGTH', () => {
+    const event = structuredClone(
+      events.serverEvents.find((candidate: { type: string }) => candidate.type === 'assistant.delta')
+    ) as { payload: { text: string } }
+    event.payload.text = 'x'.repeat(HERMES_MAX_TEXT_LENGTH + 1)
+    expect(() => parseServerEvent(JSON.stringify(event))).toThrow(ProtocolViolation)
+  })
+
+  it('rejects a clarification.requested choices array longer than HERMES_MAX_CHOICES', () => {
+    const event = structuredClone(
+      events.serverEvents.find((candidate: { type: string }) => candidate.type === 'clarification.requested')
+    ) as { payload: { choices: string[] } }
+    event.payload.choices = Array.from({ length: HERMES_MAX_CHOICES + 1 }, (_, i) => `choice ${i}`)
+    expect(() => parseServerEvent(JSON.stringify(event))).toThrow(ProtocolViolation)
+  })
+
+  it('rejects a clarification.requested choice entry longer than HERMES_MAX_CHOICE_LENGTH', () => {
+    const event = structuredClone(
+      events.serverEvents.find((candidate: { type: string }) => candidate.type === 'clarification.requested')
+    ) as { payload: { choices: string[] } }
+    event.payload.choices = ['x'.repeat(HERMES_MAX_CHOICE_LENGTH + 1)]
+    expect(() => parseServerEvent(JSON.stringify(event))).toThrow(ProtocolViolation)
+  })
+
+  it('rejects an approval.requested command or description longer than HERMES_MAX_LABEL_LENGTH', () => {
+    const commandEvent = structuredClone(
+      events.serverEvents.find((candidate: { type: string }) => candidate.type === 'approval.requested')
+    ) as { payload: { command: string; description: string } }
+    commandEvent.payload.command = 'x'.repeat(HERMES_MAX_LABEL_LENGTH + 1)
+    expect(() => parseServerEvent(JSON.stringify(commandEvent))).toThrow(ProtocolViolation)
+
+    const descriptionEvent = structuredClone(
+      events.serverEvents.find((candidate: { type: string }) => candidate.type === 'approval.requested')
+    ) as { payload: { command: string; description: string } }
+    descriptionEvent.payload.description = 'x'.repeat(HERMES_MAX_LABEL_LENGTH + 1)
+    expect(() => parseServerEvent(JSON.stringify(descriptionEvent))).toThrow(ProtocolViolation)
+  })
+
+  it('rejects an attachment.download.begin name, mime, kind, or sizeBytes over their caps', () => {
+    const base = structuredClone(
+      events.serverEvents.find(
+        (candidate: { type: string }) => candidate.type === 'attachment.download.begin'
+      )
+    ) as { payload: { attachment: { name: string; mime: string; kind: string; sizeBytes: number } } }
+
+    const overLength = structuredClone(base)
+    overLength.payload.attachment.name = 'x'.repeat(HERMES_MAX_LABEL_LENGTH + 1)
+    expect(() => parseServerEvent(JSON.stringify(overLength))).toThrow(ProtocolViolation)
+
+    const overMime = structuredClone(base)
+    overMime.payload.attachment.mime = 'x'.repeat(HERMES_MAX_LABEL_LENGTH + 1)
+    expect(() => parseServerEvent(JSON.stringify(overMime))).toThrow(ProtocolViolation)
+
+    const overKind = structuredClone(base)
+    overKind.payload.attachment.kind = 'x'.repeat(HERMES_MAX_LABEL_LENGTH + 1)
+    expect(() => parseServerEvent(JSON.stringify(overKind))).toThrow(ProtocolViolation)
+
+    const overSize = structuredClone(base)
+    overSize.payload.attachment.sizeBytes = HERMES_MAX_FILE_BYTES + 1
+    expect(() => parseServerEvent(JSON.stringify(overSize))).toThrow(ProtocolViolation)
   })
 
   it('requires contiguous server sequences after turn acceptance', () => {

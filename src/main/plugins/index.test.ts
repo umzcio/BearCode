@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'fs'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, symlinkSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -27,6 +27,52 @@ describe('plugin discovery + state', () => {
     plugin(join(proj, '.agents', 'plugins'), 'projpack')
     expect(listPlugins(proj, { trusted: false }).some((e) => e.name === 'projpack')).toBe(false)
     expect(listPlugins(proj, { trusted: true }).some((e) => e.name === 'projpack')).toBe(true)
+  })
+
+  it('discovery rejects a symlinked rules directory inside a project plugin', async () => {
+    const { listPlugins, pluginsDir } = await import('./index')
+    const proj = mkdtempSync(join(tmpdir(), 'bc-proj-'))
+    const outside = mkdtempSync(join(tmpdir(), 'bc-outside-'))
+    try {
+      const dir = join(pluginsDir('project', proj), 'sneaky')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'plugin.json'), '{}')
+      writeFileSync(
+        join(outside, 'secret.md'),
+        '---\nactivation: always\ndescription: leak\n---\nSECRET'
+      )
+      symlinkSync(outside, join(dir, 'rules'))
+
+      const entries = listPlugins(proj, { trusted: true })
+      const sneaky = entries.find((e) => e.dirName === 'sneaky')
+
+      expect(sneaky?.rules).toEqual([])
+    } finally {
+      rmSync(proj, { recursive: true, force: true })
+      rmSync(outside, { recursive: true, force: true })
+    }
+  })
+
+  it('discovery rejects a symlinked .agents/plugins directory itself', async () => {
+    const { listPlugins } = await import('./index')
+    const proj = mkdtempSync(join(tmpdir(), 'bc-proj-'))
+    const outside = mkdtempSync(join(tmpdir(), 'bc-outside-'))
+    try {
+      plugin(outside, 'leaked')
+      mkdirSync(join(proj, '.agents'), { recursive: true })
+      symlinkSync(outside, join(proj, '.agents', 'plugins'))
+
+      // Scope the assertion to project-sourced entries only -- this machine's
+      // real global plugins dir (~/.bearcode/agents/plugins, not stubbed in
+      // this test file) may already contain unrelated installed plugins.
+      const projectEntries = listPlugins(proj, { trusted: true }).filter((e) =>
+        e.source?.startsWith('project:')
+      )
+      expect(projectEntries).toEqual([])
+    } finally {
+      rmSync(proj, { recursive: true, force: true })
+      rmSync(outside, { recursive: true, force: true })
+    }
   })
 
   it('plugins default to disabled; setPluginEnabled flips them', async () => {
@@ -92,5 +138,24 @@ describe('plugin discovery + state', () => {
     // enabled state.
     plugin(pluginsDir('project', proj), 'reinstalled')
     expect(isPluginEnabled('project', 'reinstalled')).toBe(false)
+  })
+})
+
+describe('jailedPluginFolder symlink escape (project scope)', () => {
+  it('uninstallPlugin rejects when .agents/plugins is a symlink to outside the project', async () => {
+    const { uninstallPlugin } = await import('./index')
+    const proj = mkdtempSync(join(tmpdir(), 'bc-proj-'))
+    const outside = mkdtempSync(join(tmpdir(), 'bc-outside-'))
+    try {
+      mkdirSync(join(outside, 'victim'), { recursive: true })
+      writeFileSync(join(outside, 'victim', 'canary.txt'), 'do not delete me')
+      mkdirSync(join(proj, '.agents'), { recursive: true })
+      symlinkSync(outside, join(proj, '.agents', 'plugins'))
+      expect(() => uninstallPlugin('project', 'victim', proj)).toThrow()
+      expect(existsSync(join(outside, 'victim', 'canary.txt'))).toBe(true)
+    } finally {
+      rmSync(proj, { recursive: true, force: true })
+      rmSync(outside, { recursive: true, force: true })
+    }
   })
 })

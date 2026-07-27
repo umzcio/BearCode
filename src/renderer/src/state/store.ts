@@ -1415,7 +1415,17 @@ export const useAppStore = create<AppState>((set, get) => {
     },
     toggleProjectPinned: async (path) => {
       const current = get().folderSettings.find((f) => f.path === path)?.pinned ?? false
-      await get().updateProject(path, { pinned: !current })
+      const next = !current
+      // Patch in-memory state immediately (mirrors setPinned's conversation-pin
+      // shape) so rapid double-clicks each read the just-toggled value instead of
+      // racing on the same stale snapshot while the IPC round-trip is in flight.
+      // No rollback on failure, matching updateProject's existing convention: its
+      // catch already surfaces a toast and leaves stored state as-is rather than
+      // reverting it.
+      set((s) => ({
+        folderSettings: s.folderSettings.map((f) => (f.path === path ? { ...f, pinned: next } : f))
+      }))
+      await get().updateProject(path, { pinned: next })
     },
     setAsNewProjectDefault: async (patch) => {
       await get().saveSettings({ newProjectDefaults: patch })
@@ -1443,74 +1453,82 @@ export const useAppStore = create<AppState>((set, get) => {
       void window.bearcode.conversations.rename(id, title).catch(() => {})
     },
     newConversationInProject: async (path) => {
-      // Folder = project: the conversation is created directly in the folder;
-      // its projectPath IS the project link (no separate assignment step).
-      const meta = await window.bearcode.conversations.create(path)
-      // create() seeds a new folder's settings row from newProjectDefaults
-      // main-side; refresh so a freshly-seeded row is visible before we resolve.
-      await get().refreshProjectSettings()
-      // F9 inheritance: a new conversation in a folder starts on that folder's
-      // per-folder defaults (model/effort/permission mode), each falling back to
-      // the global default when the folder leaves it unset. Effort + mode persist
-      // per-conversation via IPC; model is the store's active selection (same as
-      // selectModel). thinking stays global.
-      const folder = get().folderSettings.find((f) => f.path === path) ?? null
-      const settings = get().settings
-      const d = resolveProjectDefaults(folder, {
-        defaultModelRef: settings?.defaultModelRef ?? null,
-        defaultEffort: settings?.defaultEffort ?? 'adaptive',
-        defaultPermissionMode: settings?.defaultPermissionMode ?? 'accept-edits'
-      })
-      await window.bearcode.conversations.setMode(meta.id, d.permissionMode)
-      await window.bearcode.conversations.setEffort(meta.id, d.effort)
-      // Ursa Mode always starts at 'code' for a NEW conversation -- carrying the
-      // previously open conversation's mode here would let a fresh "+"
-      // conversation silently auto-start a paid Deep Research pipeline or a
-      // ~7-call Council the user picked for a DIFFERENT conversation (final
-      // review finding). Matches sendFromHome's reset-to-code behavior.
-      const ursaMode: UrsaMode = 'code'
-      await window.bearcode.conversations.setUrsaMode(meta.id, ursaMode)
-      // F3: honor the composer's env pick on the sidebar "+" path too, locking
-      // it before the first run (worktree provisioning is main-side; a non-git
-      // folder degrades to local). A failure toasts and stays local.
-      let newEnv: 'local' | 'worktree' = 'local'
-      if (get().composerEnvironment === 'worktree') {
-        try {
-          const updated = await window.bearcode.conversations.setEnvironment(meta.id, 'worktree')
-          newEnv = updated.environment
-        } catch (e) {
-          get().showToast(e instanceof Error ? e.message : 'Could not create worktree')
+      try {
+        // Folder = project: the conversation is created directly in the folder;
+        // its projectPath IS the project link (no separate assignment step).
+        const meta = await window.bearcode.conversations.create(path)
+        // create() seeds a new folder's settings row from newProjectDefaults
+        // main-side; refresh so a freshly-seeded row is visible before we resolve.
+        await get().refreshProjectSettings()
+        // F9 inheritance: a new conversation in a folder starts on that folder's
+        // per-folder defaults (model/effort/permission mode), each falling back to
+        // the global default when the folder leaves it unset. Effort + mode persist
+        // per-conversation via IPC; model is the store's active selection (same as
+        // selectModel). thinking stays global.
+        const folder = get().folderSettings.find((f) => f.path === path) ?? null
+        const settings = get().settings
+        const d = resolveProjectDefaults(folder, {
+          defaultModelRef: settings?.defaultModelRef ?? null,
+          defaultEffort: settings?.defaultEffort ?? 'adaptive',
+          defaultPermissionMode: settings?.defaultPermissionMode ?? 'accept-edits'
+        })
+        await window.bearcode.conversations.setMode(meta.id, d.permissionMode)
+        await window.bearcode.conversations.setEffort(meta.id, d.effort)
+        // Ursa Mode always starts at 'code' for a NEW conversation -- carrying the
+        // previously open conversation's mode here would let a fresh "+"
+        // conversation silently auto-start a paid Deep Research pipeline or a
+        // ~7-call Council the user picked for a DIFFERENT conversation (final
+        // review finding). Matches sendFromHome's reset-to-code behavior.
+        const ursaMode: UrsaMode = 'code'
+        await window.bearcode.conversations.setUrsaMode(meta.id, ursaMode)
+        // F3: honor the composer's env pick on the sidebar "+" path too, locking
+        // it before the first run (worktree provisioning is main-side; a non-git
+        // folder degrades to local). A failure toasts and stays local.
+        let newEnv: 'local' | 'worktree' = 'local'
+        if (get().composerEnvironment === 'worktree') {
+          try {
+            const updated = await window.bearcode.conversations.setEnvironment(meta.id, 'worktree')
+            newEnv = updated.environment
+          } catch (e) {
+            get().showToast(e instanceof Error ? e.message : 'Could not create worktree')
+          }
         }
-      }
-      // Only adopt the folder's default model if it is still usable (key
-      // configured + present in the effective list). A since-removed key or an
-      // F7-disabled model falls back to the current selection, mirroring the
-      // refConfigured guard in openConvo/ensureDefaultModel — never silently
-      // start a run on an unconfigured model.
-      const modelRef = refConfigured(get().providers, d.modelRef) ? d.modelRef : get().modelRef
-      const convo = {
-        ...fromMeta(meta),
-        loaded: true,
-        permissionMode: d.permissionMode,
-        effort: d.effort,
-        ursaMode,
-        environment: newEnv,
-        modelRef
-      }
-      set((s) => {
-        const conversations = { ...s.conversations, [meta.id]: convo }
-        return {
-          conversations,
-          convoOrder: orderByRecency(conversations),
-          view: { kind: 'conversation', id: meta.id },
-          auxSelection: null,
-          // Reflect the inherited defaults in the composer for the new session.
-          modelRef,
+        // Only adopt the folder's default model if it is still usable (key
+        // configured + present in the effective list). A since-removed key or an
+        // F7-disabled model falls back to the current selection, mirroring the
+        // refConfigured guard in openConvo/ensureDefaultModel — never silently
+        // start a run on an unconfigured model.
+        const modelRef = refConfigured(get().providers, d.modelRef) ? d.modelRef : get().modelRef
+        const convo = {
+          ...fromMeta(meta),
+          loaded: true,
           permissionMode: d.permissionMode,
           effort: d.effort,
-          ursaMode
+          ursaMode,
+          environment: newEnv,
+          modelRef
         }
-      })
+        set((s) => {
+          const conversations = { ...s.conversations, [meta.id]: convo }
+          return {
+            conversations,
+            convoOrder: orderByRecency(conversations),
+            view: { kind: 'conversation', id: meta.id },
+            auxSelection: null,
+            // Reflect the inherited defaults in the composer for the new session.
+            modelRef,
+            permissionMode: d.permissionMode,
+            effort: d.effort,
+            ursaMode
+          }
+        })
+      } catch (e) {
+        // Any of the IPC calls above (create/refreshProjectSettings/setMode/
+        // setEffort/setUrsaMode) can reject; all 3 call sites (Sidebar,
+        // ProjectsIndex, ProjectPage) invoke this fire-and-forget with no
+        // .catch(), so an unhandled failure here previously vanished silently.
+        get().showToast(describeError(e))
+      }
     },
 
     newHermesConversation: async () => {

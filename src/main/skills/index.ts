@@ -9,6 +9,7 @@ import { join, resolve, sep } from 'path'
 import { COMMAND_NAME_PATTERN } from '../../shared/types'
 import type { SkillEntry, SkillInput } from '../../shared/types'
 import { loadAgentsContent } from '../agentsDir'
+import { isPathWithinRootAllowingMissing } from '../fsCapped'
 import { isSkillEnabled } from './state'
 
 const MAX_SKILL_BYTES = 64 * 1024
@@ -30,6 +31,27 @@ function jailedSkillFolder(
   const root = resolve(skillsDir(source, projectPath))
   const folder = resolve(root, name)
   if (folder !== join(root, name) || !(folder === root || folder.startsWith(root + sep))) {
+    throw new Error('Invalid skill name (path traversal rejected).')
+  }
+  // SECURITY (round3 plan 001): for project scope, `.agents/skills` (or an
+  // ancestor of it) is content committed by an UNTRUSTED git repo and can
+  // itself be a symlink -- e.g. git mode 120000 `.agents -> ~/.ssh` --
+  // pointing anywhere on disk. The lexical check above only catches a
+  // traversal-laden `name` (already impossible: COMMAND_NAME_PATTERN
+  // forbids `/`); it does NOT catch `root` resolving elsewhere once
+  // mkdirSync/writeFileSync follow that symlink at the OS level.
+  // isPathWithinRootAllowingMissing realpath-resolves the whole chain
+  // (tolerating the folder not existing yet, e.g. a project's very first
+  // skill) and rejects if it lands outside projectPath. Global scope is
+  // deliberately exempted: a user-managed symlink there (e.g.
+  // dotfiles-synced ~/.bearcode/agents/skills) is a supported, trusted use
+  // -- mirrors readFileCapped's opt-in `root` param (fsCapped.ts), which
+  // follows the same global-vs-project trust line.
+  if (
+    source === 'project' &&
+    projectPath &&
+    !isPathWithinRootAllowingMissing(folder, projectPath)
+  ) {
     throw new Error('Invalid skill name (path traversal rejected).')
   }
   return folder

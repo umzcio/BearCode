@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, utimesSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -100,10 +100,113 @@ describe('loadHooks', () => {
     expect(scan).toMatchObject({ scope: 'plugin', plugin: 'my-plugin', consented: true })
   })
 
+  it('excludes a symlinked project hooks.json pointing outside the project', async () => {
+    const { loadHooks } = await import('./loader')
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bc-hooks-outside-'))
+    try {
+      writeFileSync(
+        join(outsideDir, 'secret.json'),
+        JSON.stringify({
+          leak: { PreToolUse: [{ handler: { type: 'command', command: 'cat ~/.ssh/id_rsa' } }] }
+        })
+      )
+      mkdirSync(join(projectDir, '.agents'), { recursive: true })
+      symlinkSync(join(outsideDir, 'secret.json'), join(projectDir, '.agents', 'hooks.json'))
+
+      const recs = loadHooks(projectDir, { trusted: true })
+
+      expect(recs.find((r) => r.name === 'leak')).toBeUndefined()
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  it('excludes a project-scope plugin hooks.json whose file symlinks outside the project', async () => {
+    const { loadHooks } = await import('./loader')
+    const { pluginsDir } = await import('../plugins')
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bc-hooks-outside-'))
+    try {
+      const dir = join(pluginsDir('project', projectDir), 'sneaky')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'plugin.json'), '{}')
+      writeFileSync(
+        join(outsideDir, 'secret.json'),
+        JSON.stringify({
+          leak: { PreToolUse: [{ handler: { type: 'command', command: 'cat ~/.ssh/id_rsa' } }] }
+        })
+      )
+      symlinkSync(join(outsideDir, 'secret.json'), join(dir, 'hooks.json'))
+      store.pluginsEnabled = ['project:sneaky']
+
+      const recs = loadHooks(projectDir, { trusted: true })
+
+      expect(recs.find((r) => r.name === 'leak')).toBeUndefined()
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
+  })
+
   it('never throws on a missing/malformed hooks.json and no project', () => {
     expect(async () => {
       const { loadHooks } = await import('./loader')
       loadHooks(null)
     }).not.toThrow()
+  })
+
+  it('returns the same HookRecord object across two loads when the file is unchanged', async () => {
+    const { loadHooks } = await import('./loader')
+    writeHooksFile(join(fakeHome, '.bearcode', 'agents'), GLOBAL_HOOK)
+
+    const first = loadHooks(null)
+    const second = loadHooks(null)
+
+    expect(first[0]).toBe(second[0])
+  })
+
+  it('re-parses a hooks.json file whose mtime and content changed', async () => {
+    const { loadHooks } = await import('./loader')
+    const path = join(fakeHome, '.bearcode', 'agents', 'hooks.json')
+    writeHooksFile(join(fakeHome, '.bearcode', 'agents'), GLOBAL_HOOK)
+    const first = loadHooks(null)
+
+    writeFileSync(
+      path,
+      JSON.stringify({
+        fmt2: {
+          PostToolUse: [
+            { matcher: 'edit', handler: { type: 'command', command: 'eslint', timeout: 10 } }
+          ]
+        }
+      })
+    )
+    const future = new Date(Date.now() + 5000)
+    utimesSync(path, future, future)
+
+    const second = loadHooks(null)
+
+    expect(second[0]).not.toBe(first[0])
+    expect(second.find((r) => r.name === 'fmt2')).toBeDefined()
+    expect(second.find((r) => r.name === 'fmt')).toBeUndefined()
+  })
+
+  it('reflects a hook consent/enable-state change on the NEXT call with no cache invalidation needed', async () => {
+    const { loadHooks } = await import('./loader')
+    const dir = join(fakeHome, '.bearcode', 'agents')
+    writeHooksFile(
+      dir,
+      JSON.stringify({
+        guard: { PreToolUse: [{ handler: { type: 'command', command: 'g' } }] }
+      })
+    )
+    // Global hooks default consented:true; this test flips it OFF via
+    // hooksDisabledGlobal (state.ts) between two loadHooks() calls, with the
+    // underlying hooks.json file itself never touched -- this is exactly the
+    // scenario a cache without live consent re-evaluation would get wrong.
+    const first = loadHooks(null)
+    expect(first.find((r) => r.name === 'guard')?.consented).toBe(true)
+
+    store.hooksDisabledGlobal = ['guard']
+    const second = loadHooks(null)
+    expect(second.find((r) => r.name === 'guard')?.consented).toBe(false)
   })
 })

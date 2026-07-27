@@ -760,7 +760,7 @@ export type Event =
       requestId: string
       question: string
       choices: string[]
-      state: 'pending' | 'answered'
+      state: 'pending' | 'answered' | 'expired'
       response?: string
     }
   | {
@@ -819,7 +819,7 @@ export type Event =
       // for models that don't report citations.
       citations?: SourceCitation[]
     }
-  | { type: 'error'; id: string; message: string; recoverable: boolean }
+  | { type: 'error'; id: string; message: string; recoverable: boolean; retryable?: boolean }
   // Ursa Phase 2 (pipeline mode): a step divider emitted BEFORE each step of an
   // approved multi-role pipeline drives, so the transcript shows which role/model
   // is running which subtask ("Step 2/3 · reviewer · Claude Sonnet 5"). Purely
@@ -1449,6 +1449,7 @@ export interface ImportSummary {
   workflowsImported: number
   skillsImported: number
   mcpServersImported: number
+  skipped: string[]
 }
 export type UpdateCheck =
   | { state: 'up-to-date' }

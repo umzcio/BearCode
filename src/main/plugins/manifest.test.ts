@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'fs'
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, utimesSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { parsePluginDir } from './manifest'
@@ -57,5 +57,113 @@ describe('parsePluginDir', () => {
     expect(m.name).toBe('broken')
     expect(m.skills).toEqual([])
     expect(m.hookCount).toBe(0)
+  })
+
+  it('returns the same manifest object shape (skills/rules) across two parses when nothing changed', () => {
+    const dir = scaffold()
+    const first = parsePluginDir(dir, 'global')!
+    const second = parsePluginDir(dir, 'global')!
+    expect(first.skills[0]).toBe(second.skills[0])
+    expect(first.rules[0]).toBe(second.rules[0])
+  })
+
+  it('re-parses a SKILL.md whose mtime and content changed', () => {
+    const dir = scaffold()
+    const skillPath = join(dir, 'skills', 'hello', 'SKILL.md')
+    const first = parsePluginDir(dir, 'global')!
+
+    writeFileSync(skillPath, '---\nname: hello\ndescription: Updated\n---\nbody')
+    const future = new Date(Date.now() + 5000)
+    utimesSync(skillPath, future, future)
+
+    const second = parsePluginDir(dir, 'global')!
+    expect(second.skills[0]).not.toBe(first.skills[0])
+    expect(second.skills[0].description).toBe('Updated')
+  })
+
+  it('picks up a newly added skill folder on the next parse with no invalidation needed', () => {
+    const dir = scaffold()
+    const first = parsePluginDir(dir, 'global')!
+    expect(first.skills).toHaveLength(1)
+
+    mkdirSync(join(dir, 'skills', 'second'), { recursive: true })
+    writeFileSync(
+      join(dir, 'skills', 'second', 'SKILL.md'),
+      '---\nname: second\ndescription: New\n---\nbody'
+    )
+
+    const second = parsePluginDir(dir, 'global')!
+    expect(second.skills).toHaveLength(2)
+    expect(second.skills.map((s) => s.name).sort()).toEqual(['hello', 'second'])
+  })
+})
+
+describe('parsePluginDir symlink containment (root supplied)', () => {
+  it('excludes a symlinked rules directory pointing outside the project root', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'bc-plug-proj-'))
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bc-plug-outside-'))
+    try {
+      const pluginDir = join(projectRoot, '.agents', 'plugins', 'demo')
+      mkdirSync(pluginDir, { recursive: true })
+      writeFileSync(join(pluginDir, 'plugin.json'), JSON.stringify({ description: 'demo' }))
+      writeFileSync(
+        join(outsideDir, 'secret.md'),
+        '---\nactivation: always\ndescription: leak\n---\nSECRET RULE CONTENT'
+      )
+      symlinkSync(outsideDir, join(pluginDir, 'rules'))
+
+      const m = parsePluginDir(pluginDir, 'project', projectRoot)!
+
+      expect(m.rules).toEqual([])
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true })
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  it('excludes a plugin SKILL.md whose leaf symlinks outside the project root', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'bc-plug-proj-'))
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bc-plug-outside-'))
+    try {
+      const pluginDir = join(projectRoot, '.agents', 'plugins', 'demo')
+      const evilSkillDir = join(pluginDir, 'skills', 'evil')
+      mkdirSync(evilSkillDir, { recursive: true })
+      writeFileSync(join(pluginDir, 'plugin.json'), '{}')
+      const outsideSkillMd = join(outsideDir, 'SKILL.md')
+      writeFileSync(
+        outsideSkillMd,
+        '---\nname: evil\ndescription: leak\n---\nSECRET SKILL CONTENT'
+      )
+      symlinkSync(outsideSkillMd, join(evilSkillDir, 'SKILL.md'))
+
+      const m = parsePluginDir(pluginDir, 'project', projectRoot)!
+
+      expect(m.skills).toEqual([])
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true })
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  it('with no root supplied (global scope), still follows symlinks (backward-compat)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'bc-plug-'))
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bc-plug-outside-'))
+    try {
+      const pluginDir = join(root, 'demo')
+      mkdirSync(join(pluginDir, 'rules'), { recursive: true })
+      writeFileSync(join(pluginDir, 'plugin.json'), '{}')
+      writeFileSync(
+        join(outsideDir, 'legit.md'),
+        '---\nactivation: always\ndescription: fine\n---\nbody'
+      )
+      symlinkSync(join(outsideDir, 'legit.md'), join(pluginDir, 'rules', 'legit.md'))
+
+      const m = parsePluginDir(pluginDir, 'global')! // no root argument
+
+      expect(m.rules).toEqual([{ name: 'legit', activation: 'always' }])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
   })
 })

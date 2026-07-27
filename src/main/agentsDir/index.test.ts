@@ -6,6 +6,7 @@ import {
   mkdirSync,
   openSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync
 } from 'fs'
@@ -398,6 +399,56 @@ describe('loadAgentsContent', () => {
   })
 })
 
+// Security follow-up on the config-import symlink-containment fix
+// (fsCapped.ts's isPathWithinRoot / readFileCapped's opt-in `root`, and
+// configImport/scan.ts's listMdFilesRel/listSkillDirsRel): the SAME gap
+// exists for project-level `.agents/rules` content -- an untrusted repo could
+// commit a symlink at `.agents/rules/<name>.md` (or make `.agents/rules`
+// itself a symlink) pointing outside the project, silently leaking an
+// external file's content into agent context. Trust gating alone
+// (`trusted && projectPath`) does not close this: a symlink WITHIN an
+// already-trusted project can still escape the project directory. Global
+// rules (`~/.bearcode/agents/rules`) intentionally keep the legacy
+// allow-symlinks behavior (dotfiles-managed configs), so are not covered here.
+describe('loadAgentsContent project-rule symlink containment', () => {
+  it('excludes a symlinked rule file pointing outside the project instead of leaking its content', () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bearcode-agentsdir-rule-outside-'))
+    try {
+      const outsideFile = join(outsideDir, 'secret.md')
+      writeFileSync(outsideFile, 'SECRET EXTERNAL RULE CONTENT')
+      mkdirSync(projectRulesDir(), { recursive: true })
+      symlinkSync(outsideFile, join(projectRulesDir(), 'evil.md'))
+      writeRule(projectRulesDir(), 'normal', 'a normal rule body')
+
+      const content = loadAgentsContent(projectDir, { trusted: true })
+
+      expect(content.rules.some((r) => r.body.includes('SECRET EXTERNAL RULE CONTENT'))).toBe(
+        false
+      )
+      expect(content.rules.find((r) => r.name === 'evil')).toBeUndefined()
+      // No regression: a sibling normal (non-symlinked) rule still loads.
+      expect(content.rules.find((r) => r.name === 'normal')?.body).toContain('a normal rule body')
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  it('excludes everything under a symlinked .agents/rules directory pointing outside the project', () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bearcode-agentsdir-rulesdir-outside-'))
+    try {
+      writeRule(outsideDir, 'leaked', 'LEAKED RULES DIRECTORY CONTENT')
+      mkdirSync(join(projectDir, '.agents'), { recursive: true })
+      symlinkSync(outsideDir, join(projectDir, '.agents', 'rules'))
+
+      const content = loadAgentsContent(projectDir, { trusted: true })
+
+      expect(content.rules).toEqual([])
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('loadAgentsContent workflows', () => {
   it('reads both project and global workflow directories', () => {
     writeWorkflow(projectWorkflowsDir(), 'release-check', '1. Build\n2. Test')
@@ -492,6 +543,48 @@ describe('loadAgentsContent workflows', () => {
   })
 })
 
+// Same symlink-containment gap as project rules above, for
+// `.agents/workflows`.
+describe('loadAgentsContent project-workflow symlink containment', () => {
+  it('excludes a symlinked workflow file pointing outside the project instead of leaking its content', () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bearcode-agentsdir-workflow-outside-'))
+    try {
+      const outsideFile = join(outsideDir, 'secret.md')
+      writeFileSync(outsideFile, '1. LEAKED WORKFLOW STEP')
+      mkdirSync(projectWorkflowsDir(), { recursive: true })
+      symlinkSync(outsideFile, join(projectWorkflowsDir(), 'evil.md'))
+      writeWorkflow(projectWorkflowsDir(), 'normal', '1. a normal step')
+
+      const content = loadAgentsContent(projectDir, { trusted: true })
+
+      expect(content.workflows.find((w) => w.name === 'evil')).toBeUndefined()
+      expect(
+        content.workflows.some((w) => w.steps.some((s) => s.includes('LEAKED WORKFLOW STEP')))
+      ).toBe(false)
+      expect(content.workflows.find((w) => w.name === 'normal')?.steps).toEqual([
+        'a normal step'
+      ])
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  it('excludes everything under a symlinked .agents/workflows directory pointing outside the project', () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bearcode-agentsdir-workflowsdir-outside-'))
+    try {
+      writeWorkflow(outsideDir, 'leaked', '1. leaked step')
+      mkdirSync(join(projectDir, '.agents'), { recursive: true })
+      symlinkSync(outsideDir, join(projectDir, '.agents', 'workflows'))
+
+      const content = loadAgentsContent(projectDir, { trusted: true })
+
+      expect(content.workflows).toEqual([])
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('loadAgentsContent skills', () => {
   it('loads project skills from .agents/skills/<name>/SKILL.md', () => {
     writeSkill(projectSkillsDir(), 'alpha', '---\ndescription: Alpha does A.\n---\nbody a')
@@ -575,6 +668,55 @@ describe('loadAgentsContent skills', () => {
     expect(skill).toBeDefined()
     expect(skill?.body.length).toBeLessThanOrEqual(64 * 1024)
     expect(skill?.warnings?.some((w) => /truncated/i.test(w))).toBe(true)
+  })
+})
+
+// Same symlink-containment gap as project rules/workflows above, for
+// `.agents/skills`. A symlinked skill SUBFOLDER is already excluded even
+// pre-fix (readdirSync's Dirent.isDirectory() is lstat-based, so a symlinked
+// entry never satisfies it, regardless of what it points at) -- the two gaps
+// this closes are (1) a real-looking skill folder whose SKILL.md leaf is
+// itself a symlink escaping the project, and (2) `.agents/skills` itself
+// being a symlink to outside the project (readdirSync transparently follows
+// an intermediate symlinked directory and lists ITS real subfolders as
+// ordinary directories).
+describe('loadAgentsContent project-skill symlink containment', () => {
+  it('excludes a skill whose SKILL.md leaf symlinks outside the project instead of leaking its content', () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bearcode-agentsdir-skill-outside-'))
+    try {
+      const outsideSkillMd = join(outsideDir, 'SKILL.md')
+      writeFileSync(outsideSkillMd, '---\ndescription: leaked\n---\nSECRET EXTERNAL SKILL CONTENT')
+      const evilSkillDir = join(projectSkillsDir(), 'evil')
+      mkdirSync(evilSkillDir, { recursive: true })
+      symlinkSync(outsideSkillMd, join(evilSkillDir, 'SKILL.md'))
+      writeSkill(projectSkillsDir(), 'normal', '---\ndescription: Normal skill.\n---\nnormal body')
+
+      const content = loadAgentsContent(projectDir, { trusted: true })
+
+      expect(content.skills.find((s) => s.name === 'evil')).toBeUndefined()
+      expect(
+        content.skills.some((s) => s.body?.includes('SECRET EXTERNAL SKILL CONTENT'))
+      ).toBe(false)
+      // No regression: a sibling normal (non-symlinked) skill still loads.
+      expect(content.skills.find((s) => s.name === 'normal')?.description).toBe('Normal skill.')
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  it('excludes everything under a symlinked .agents/skills directory pointing outside the project', () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), 'bearcode-agentsdir-skillsdir-outside-'))
+    try {
+      writeSkill(outsideDir, 'leaked', '---\ndescription: leaked\n---\nleaked body')
+      mkdirSync(join(projectDir, '.agents'), { recursive: true })
+      symlinkSync(outsideDir, join(projectDir, '.agents', 'skills'))
+
+      const content = loadAgentsContent(projectDir, { trusted: true })
+
+      expect(content.skills).toEqual([])
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
   })
 })
 

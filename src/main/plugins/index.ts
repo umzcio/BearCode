@@ -2,11 +2,12 @@
 // project (<proj>/.agents/plugins) for plugin.json-marked dirs. Project
 // plugins are TRUST-GATED (secure default: untrusted unless opts.trusted) —
 // same rule as loadMemory/loadAgentsContent. All destructive ops path-jailed.
-import { existsSync, readdirSync, rmSync } from 'fs'
+import { existsSync, rmSync } from 'fs'
 import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import { COMMAND_NAME_PATTERN } from '../../shared/types'
 import type { PluginEntry } from '../../shared/types'
+import { isPathWithinRootAllowingMissing, listDirJailed } from '../fsCapped'
 import { parsePluginDir } from './manifest'
 import { isPluginEnabled, setPluginEnabled } from './state'
 
@@ -27,6 +28,19 @@ function jailedPluginFolder(
   const folder = resolve(root, name)
   if (folder !== join(root, name) || !(folder === root || folder.startsWith(root + sep)))
     throw new Error('Invalid plugin name (path traversal rejected).')
+  // SECURITY (round3 plan 001): the highest-severity instance of this fix --
+  // jailedPluginFolder feeds uninstallPlugin's recursive rmSync. For project
+  // scope, `.agents/plugins` is untrusted git-repo content and can be a
+  // symlink; global scope is exempted (dotfiles-managed symlinks there are a
+  // supported use). See skills/index.ts's jailedSkillFolder for the full
+  // rationale (identical pattern, mirrored here).
+  if (
+    scope === 'project' &&
+    projectPath &&
+    !isPathWithinRootAllowingMissing(folder, projectPath)
+  ) {
+    throw new Error('Invalid plugin name (path traversal rejected).')
+  }
   return folder
 }
 
@@ -37,14 +51,9 @@ function scanScope(scope: 'global' | 'project', projectPath: string | null): Plu
   } catch {
     return []
   }
-  if (!existsSync(dir)) return []
+  const root = scope === 'project' && projectPath ? projectPath : undefined
+  const names = listDirJailed(dir, { root }).map((d) => d.name)
   const out: PluginEntry[] = []
-  let names: string[]
-  try {
-    names = readdirSync(dir)
-  } catch {
-    return []
-  }
   for (const n of names) {
     // A hand-created folder whose dirName isn't kebab-case (e.g. `My_Plugin`)
     // would otherwise be listed here and rendered with an enable toggle /
@@ -53,7 +62,7 @@ function scanScope(scope: 'global' | 'project', projectPath: string | null): Plu
     // unhandled rejection. Skip it at discovery time so the UI never offers
     // an action the IPC layer will reject.
     if (!COMMAND_NAME_PATTERN.test(n)) continue
-    const m = parsePluginDir(join(dir, n), scope)
+    const m = parsePluginDir(join(dir, n), scope, root)
     if (!m) continue
     // Identity is the real on-disk directory name `n`, not the (possibly
     // attacker/author-controlled) manifest-declared m.name -- two folders

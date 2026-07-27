@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, symlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
@@ -101,5 +101,19 @@ describe('promoteMemory', () => {
       promoteMemory({ scope: 'project', index: 0, target: 'skill', name: 'no-desc' }, proj)
     ).toThrow()
     expect(loadMemory(proj, { trusted: true }).project.map((e) => e.text)).toEqual(['x'])
+  })
+})
+
+describe('jailedMemoryFile symlink escape (project scope)', () => {
+  it('writeMemory rejects when .agents/memory is a symlink to outside the project', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'bc-mem-outside-'))
+    try {
+      mkdirSync(join(proj, '.agents'), { recursive: true })
+      symlinkSync(outside, join(proj, '.agents', 'memory'))
+      expect(() => writeMemory('project', ['fact'], proj)).toThrow()
+      expect(existsSync(join(outside, 'memory.md'))).toBe(false)
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
   })
 })
