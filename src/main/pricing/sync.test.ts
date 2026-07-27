@@ -11,7 +11,8 @@ const fixture = {
     max_input_tokens: 200000,
     max_output_tokens: 32000,
     supports_function_calling: true,
-    supports_vision: true
+    supports_vision: true,
+    supports_pdf_input: true
   },
   'gpt-5.1': {
     input_cost_per_token: 0.000002,
@@ -46,7 +47,9 @@ describe('parseLiteLLM', () => {
         vision: true,
         responseSchema: false,
         reasoning: false,
-        webSearch: false
+        webSearch: false,
+        codeExecution: false,
+        pdfInput: true
       }
     })
     expect(metadata['openai/gpt-5.1']?.capabilities).toEqual({
@@ -54,7 +57,9 @@ describe('parseLiteLLM', () => {
       vision: false,
       responseSchema: true,
       reasoning: true,
-      webSearch: false
+      webSearch: false,
+      codeExecution: false,
+      pdfInput: false
     })
   })
 
@@ -72,5 +77,19 @@ describe('parseLiteLLM', () => {
     const { prices, metadata } = parseLiteLLM(fixture, refs)
     expect(Object.keys(prices)).not.toContain('sample_spec')
     expect(Object.keys(metadata)).not.toContain('sample_spec')
+  })
+
+  it('captures supports_pdf_input as pdfInput, and defaults codeExecution to false (no LiteLLM equivalent)', () => {
+    const { metadata } = parseLiteLLM(
+      {
+        'claude-opus-4-8': {
+          mode: 'chat',
+          supports_pdf_input: true
+        }
+      },
+      ['anthropic/claude-opus-4-8']
+    )
+    expect(metadata['anthropic/claude-opus-4-8']?.capabilities.pdfInput).toBe(true)
+    expect(metadata['anthropic/claude-opus-4-8']?.capabilities.codeExecution).toBe(false)
   })
 })

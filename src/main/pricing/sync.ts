@@ -21,6 +21,7 @@ interface LiteLLMEntry {
   supports_response_schema?: boolean
   supports_reasoning?: boolean
   supports_web_search?: boolean
+  supports_pdf_input?: boolean
   [key: string]: unknown
 }
 
@@ -41,7 +42,9 @@ function metadataFromEntry(entry: LiteLLMEntry): ModelMetadata {
       vision: entry.supports_vision ?? false,
       responseSchema: entry.supports_response_schema ?? false,
       reasoning: entry.supports_reasoning ?? false,
-      webSearch: entry.supports_web_search ?? false
+      webSearch: entry.supports_web_search ?? false,
+      codeExecution: false,
+      pdfInput: entry.supports_pdf_input ?? false
     }
   }
 }

@@ -28,6 +28,14 @@ export interface ModelMetadata {
     responseSchema: boolean
     reasoning: boolean
     webSearch: boolean
+    // Verified live (2026-07-26): LiteLLM has no equivalent flag for this --
+    // its closest concept, supports_computer_use, is Anthropic's separate
+    // browser/screen-control tool, not the code-execution tool. This field
+    // is therefore only ever knowable for Anthropic models, and only when
+    // Anthropic's live model discovery has succeeded this session (see
+    // src/main/providers/liveDiscovery.ts) -- every other case reads false.
+    codeExecution: boolean
+    pdfInput: boolean
   }
 }
 export type ModelMetadataMap = Record<string, ModelMetadata>

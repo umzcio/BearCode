@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ManageableProvider, ProviderModels } from '@shared/types'
-import { buildModelRows, formatTokens, modelStatus } from './modelRows'
+import { buildModelRows, formatTokens, modelStatus, CAPABILITY_LABEL } from './modelRows'
 
 const providers: ProviderModels[] = [
   {
@@ -79,7 +79,9 @@ describe('buildModelRows', () => {
             vision: false,
             responseSchema: false,
             reasoning: false,
-            webSearch: false
+            webSearch: false,
+            codeExecution: false,
+            pdfInput: false
           }
         }
       },
@@ -113,5 +115,12 @@ describe('buildModelRows', () => {
     expect(rows[0].catalog).toBeNull()
     expect(rows[0].favorite).toBe(false)
     expect(rows[0].priceSource).toBeNull()
+  })
+})
+
+describe('CAPABILITY_LABEL', () => {
+  it('has a human label for codeExecution and pdfInput', () => {
+    expect(CAPABILITY_LABEL.codeExecution).toBe('Code execution')
+    expect(CAPABILITY_LABEL.pdfInput).toBe('PDF input')
   })
 })

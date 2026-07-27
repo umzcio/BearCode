@@ -36,7 +36,14 @@ export const MODE_LABEL: Record<ModelMode, string> = {
   other: 'Other'
 }
 
-export type CapabilityKey = 'functionCalling' | 'vision' | 'responseSchema' | 'reasoning' | 'webSearch'
+export type CapabilityKey =
+  | 'functionCalling'
+  | 'vision'
+  | 'responseSchema'
+  | 'reasoning'
+  | 'webSearch'
+  | 'codeExecution'
+  | 'pdfInput'
 
 // Shared human-readable labels for capability keys and model status, single
 // source of truth for the table's chips/filter, the detail modal's capability
@@ -47,7 +54,9 @@ export const CAPABILITY_LABEL: Record<CapabilityKey, string> = {
   vision: 'Vision',
   responseSchema: 'Structured output',
   reasoning: 'Reasoning',
-  webSearch: 'Web search'
+  webSearch: 'Web search',
+  codeExecution: 'Code execution',
+  pdfInput: 'PDF input'
 }
 
 export const STATUS_LABEL: Record<ModelStatus, string> = {
