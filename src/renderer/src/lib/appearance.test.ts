@@ -28,6 +28,7 @@ afterEach(() => {
   root.style.removeProperty('--window-controls-left')
   root.style.removeProperty('--window-controls-top')
   root.style.removeProperty('--window-controls-scale')
+  root.style.removeProperty('--window-controls-hit-width')
   root.style.removeProperty('--collapsed-topbar-content-left')
 })
 
@@ -42,6 +43,9 @@ describe('applyAppearance window chrome geometry', () => {
       expect(parseFloat(style.getPropertyValue('--window-controls-left')) * zoom).toBeCloseTo(100)
       expect(parseFloat(style.getPropertyValue('--window-controls-top')) * zoom).toBeCloseTo(16)
       expect(parseFloat(style.getPropertyValue('--window-controls-scale')) * zoom).toBeCloseTo(1)
+      expect(
+        parseFloat(style.getPropertyValue('--window-controls-hit-width')) * zoom
+      ).toBeCloseTo(164)
       expect(
         parseFloat(style.getPropertyValue('--collapsed-topbar-content-left')) * zoom
       ).toBeCloseTo(134)

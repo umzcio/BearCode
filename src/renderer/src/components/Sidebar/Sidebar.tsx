@@ -234,7 +234,9 @@ export function Sidebar({
         marginLeft: collapsed ? -(sidebarWidth + 1) : undefined
       }}
     >
-      <div className="sidebar-chrome-spacer" aria-hidden="true" />
+      <div className="sidebar-chrome-spacer" aria-hidden="true">
+        <div className="window-controls-hit-area" />
+      </div>
 
       {hermesEnabled ? (
         <div className="seg-toggle">

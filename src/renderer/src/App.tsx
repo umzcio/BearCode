@@ -128,6 +128,7 @@ function App(): React.JSX.Element {
       ) : null}
       <div className={'main' + (collapsed ? ' sidebar-collapsed' : '')}>
         <div className="topbar">
+          <div className="window-controls-hit-area" aria-hidden="true" />
           {convo ? (
             <div className="breadcrumb">
               <span className="crumb">{convo.projectLabel}</span>

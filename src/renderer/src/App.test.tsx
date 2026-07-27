@@ -60,6 +60,17 @@ afterEach(() => {
 })
 
 describe('App window chrome ownership', () => {
+  it('keeps a no-drag hit area inside each draggable row behind the fixed controls', () => {
+    const { container } = render(<App />)
+    const sidebarDragRow = container.querySelector('.sidebar-chrome-spacer')
+    const topbarDragRow = container.querySelector('.topbar')
+
+    expect(sidebarDragRow).not.toBeNull()
+    expect(topbarDragRow).not.toBeNull()
+    expect(sidebarDragRow!.querySelector('.window-controls-hit-area')).not.toBeNull()
+    expect(topbarDragRow!.querySelector('.window-controls-hit-area')).not.toBeNull()
+  })
+
   it('keeps one application-wide Toggle Sidebar owner and preserves its node across collapse', () => {
     render(<App />)
     const expandedToggles = screen.getAllByRole('button', { name: 'Toggle sidebar' })

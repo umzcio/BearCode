@@ -36,6 +36,7 @@
 .topbar {
   display: flex;
   align-items: center;
+  position: relative;
   padding: 14px 18px;
   gap: 10px;
   z-index: 5;
@@ -48,6 +49,17 @@
      reads as if it starts flush at the top edge. Keep this boundary visible
      whether or not the fixed window controls have adjacent content. */
   border-bottom: 1px solid var(--border-soft);
+}
+
+/* Electron resolves draggable regions before normal DOM pointer dispatch.
+   The fixed controls overlap two different drag rows as the sidebar moves, so
+   each row needs its own descendant no-drag cutout behind those controls. */
+.window-controls-hit-area {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--window-controls-hit-width);
+  pointer-events: none;
+  -webkit-app-region: no-drag;
 }
 /* When the sidebar is hidden, reserve horizontal space for the fixed toggle
    before an optional breadcrumb. appearance.ts compensates this value for root

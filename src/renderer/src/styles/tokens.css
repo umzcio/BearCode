@@ -19,6 +19,7 @@
   --window-controls-left: 100px;
   --window-controls-top: 16px;
   --window-controls-scale: 1;
+  --window-controls-hit-width: 164px;
   --collapsed-topbar-content-left: 134px;
 
   /* --- dark palette (default) --- */

@@ -24,6 +24,7 @@
 /* Preserve the former chrome row's exact occupied height while the fixed
    WindowChromeControls layer sits above the FLIP-transformed sidebar. */
 .sidebar-chrome-spacer {
+  position: relative;
   height: 42px;
   flex-shrink: 0;
   -webkit-app-region: drag;
