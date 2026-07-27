@@ -10,7 +10,7 @@
 import { existsSync, readdirSync, realpathSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { isAbsolute, join, resolve, sep } from 'path'
-import { isPathWithinRoot, readFileCapped, realpathExistingPrefix } from '../fsCapped'
+import { isPathWithinRoot, listDirJailed, readFileCapped, realpathExistingPrefix } from '../fsCapped'
 import { enumeratePluginIngredients } from '../plugins'
 import { capMap } from './lruCap'
 import { parseRuleFile } from './parseRule'
@@ -115,20 +115,9 @@ function globalSkillsDir(): string {
 // working -- the user's own home-directory config has no untrusted boundary
 // to jail against).
 function listMdFiles(dir: string, root?: string): string[] {
-  if (!existsSync(dir)) return []
-  // Intermediate-directory guard: `dir` itself (e.g. `.agents/rules`) could be
-  // a symlink to somewhere outside `root`. readdirSync transparently follows
-  // it, so only a realpath-based containment check on `dir` catches it.
-  if (root && !isPathWithinRoot(dir, root)) return []
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((d) => d.name.endsWith('.md') && !(root && d.isSymbolicLink()))
-      .map((d) => join(dir, d.name))
-  } catch {
-    // Unreadable directory (permissions, race with deletion, etc.) is treated
-    // like a missing one -- never throw out of the loader.
-    return []
-  }
+  return listDirJailed(dir, { root, filter: (d) => d.name.endsWith('.md') }).map((d) =>
+    join(dir, d.name)
+  )
 }
 
 function mdNameFromPath(path: string): string {

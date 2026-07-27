@@ -13,7 +13,17 @@
 // Returns null on any error (missing, unreadable, non-regular): callers
 // never throw on a bad target. `truncated` reports whether the file held
 // more bytes than `cap`.
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from 'fs'
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readdirSync,
+  readSync,
+  realpathSync
+} from 'fs'
+import type { Dirent } from 'fs'
 import { basename, dirname, sep } from 'path'
 
 // Resolves symlinks in EVERY path component (not just the leaf) via
@@ -149,5 +159,65 @@ export function readFileCapped(
     return null
   } finally {
     closeSync(fd)
+  }
+}
+
+export interface ListDirJailedOptions {
+  // Symlink-containment jail, mirrored from readFileCapped/isPathWithinRoot
+  // above: when provided, (a) `dir` itself is realpath-containment-checked
+  // against `root` before it is ever listed (catches an INTERMEDIATE
+  // symlinked directory, not just a symlinked leaf entry), and (b) every
+  // symlinked ENTRY inside `dir` is filtered out of the result. When
+  // omitted, legacy allow-everything behavior applies -- a trusted,
+  // user-managed location (e.g. the global ~/.bearcode/agents tree) where
+  // symlinks are expected to work (dotfiles management).
+  root?: string
+  // Extra per-entry filter, applied AFTER the symlink filter. Receives the
+  // raw Dirent and the (already existence/root-checked) directory path, so a
+  // caller that needs to stat something inside the entry (e.g. "does this
+  // subdirectory contain a SKILL.md") can do so without a second readdir.
+  filter?: (entry: Dirent, dir: string) => boolean
+}
+
+// Shared, jailed directory listing (round3 plan 011) -- consolidates four
+// near-identical hand-rolled copies: agentsDir/index.ts's listMdFiles,
+// configImport/scan.ts's listMdFilesRel + listSkillDirsRel, plugins/index.ts's
+// scanScope, and plugins/manifest.ts's safeReaddir. A missing directory, an
+// unreadable directory, or a `dir` that fails the root-containment check all
+// return [] -- this never throws. Returns raw Dirent[] so each caller decides
+// its own output shape (an absolute path, a path relative to some other root,
+// or a bare name) via its own .map() -- this function does not know or care
+// which of those a given caller wants.
+export function listDirJailed(dir: string, opts?: ListDirJailedOptions): Dirent[] {
+  const root = opts?.root
+  if (root && !isPathWithinRoot(dir, root)) return []
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((d) => !(root && d.isSymbolicLink()))
+      .filter((d) => (opts?.filter ? opts.filter(d, dir) : true))
+  } catch {
+    return []
+  }
+}
+
+// Shared bounded JSON read (round3 plan 011): readFileCapped + JSON.parse + a
+// "parsed value is an object" guard, returning null on any failure (missing
+// file, oversized/non-regular, malformed JSON, or a non-object top-level
+// value). Consolidates plugins/manifest.ts's readJson and
+// plugins/marketplace.ts's readManifest, which had this exact shape
+// (verified equivalent -- the only differences were caller-supplied cap size
+// and filename, both already parameters here).
+export function readJsonCapped(
+  path: string,
+  cap: number,
+  root?: string
+): Record<string, unknown> | null {
+  const r = readFileCapped(path, cap, root)
+  if (!r) return null
+  try {
+    const v = JSON.parse(r.text)
+    return v && typeof v === 'object' ? (v as Record<string, unknown>) : null
+  } catch {
+    return null
   }
 }

@@ -7,7 +7,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, rmSync } from 'f
 import { homedir } from 'os'
 import { join, resolve } from 'path'
 import { git } from '../worktree/git'
-import { readFileCapped, isPathWithinRoot, isPathWithinRootAllowingMissing } from '../fsCapped'
+import { isPathWithinRoot, isPathWithinRootAllowingMissing, readJsonCapped } from '../fsCapped'
 import { getSettings, setSettings } from '../settings'
 import { parsePluginDir } from './manifest'
 import { pluginsDir } from './index'
@@ -152,23 +152,14 @@ export async function removeMarketplace(url: string): Promise<void> {
 function readManifest(dir: string): { name?: string; plugins?: unknown } | null {
   // Containment: `dir` is the marketplace's own clone root (cacheDir(url)),
   // and marketplace.json is fully attacker-controlled content from a REMOTE,
-  // UNTRUSTED repo (this fires for every FEATURED/added marketplace whenever
-  // Browse Plugins loads). Without `root`, readFileCapped follows a symlinked
-  // marketplace.json straight through to wherever it points -- e.g. the repo
-  // ships `marketplace.json -> ~/.ssh/id_rsa` and its contents get parsed and
-  // trusted as the catalog. Passing `dir` as `root` makes readFileCapped
-  // reject a symlinked leaf outright (see fsCapped.ts) and realpath-check
-  // containment, matching the isPathWithinRoot checks already used elsewhere
-  // in this file (cloneAndStage's subpath jail, prepareInstall's marketplace
-  // subpath jail).
-  const r = readFileCapped(join(dir, 'marketplace.json'), CAP, dir)
-  if (!r) return null
-  try {
-    const v = JSON.parse(r.text)
-    return v && typeof v === 'object' ? v : null
-  } catch {
-    return null
-  }
+  // UNTRUSTED repo -- passing `dir` as readJsonCapped's `root` makes it
+  // reject a symlinked leaf outright and realpath-check containment (see
+  // fsCapped.ts), matching the isPathWithinRoot checks already used
+  // elsewhere in this file (cloneAndStage's subpath jail, prepareInstall's
+  // marketplace subpath jail).
+  return readJsonCapped(join(dir, 'marketplace.json'), CAP, dir) as
+    | { name?: string; plugins?: unknown }
+    | null
 }
 
 export async function listCatalog(): Promise<MarketplacePlugin[]> {

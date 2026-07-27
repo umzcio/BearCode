@@ -2,12 +2,12 @@
 // project (<proj>/.agents/plugins) for plugin.json-marked dirs. Project
 // plugins are TRUST-GATED (secure default: untrusted unless opts.trusted) —
 // same rule as loadMemory/loadAgentsContent. All destructive ops path-jailed.
-import { existsSync, readdirSync, rmSync } from 'fs'
+import { existsSync, rmSync } from 'fs'
 import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import { COMMAND_NAME_PATTERN } from '../../shared/types'
 import type { PluginEntry } from '../../shared/types'
-import { isPathWithinRoot, isPathWithinRootAllowingMissing } from '../fsCapped'
+import { isPathWithinRootAllowingMissing, listDirJailed } from '../fsCapped'
 import { parsePluginDir } from './manifest'
 import { isPluginEnabled, setPluginEnabled } from './state'
 
@@ -51,18 +51,9 @@ function scanScope(scope: 'global' | 'project', projectPath: string | null): Plu
   } catch {
     return []
   }
-  if (!existsSync(dir)) return []
   const root = scope === 'project' && projectPath ? projectPath : undefined
-  if (root && !isPathWithinRoot(dir, root)) return []
+  const names = listDirJailed(dir, { root }).map((d) => d.name)
   const out: PluginEntry[] = []
-  let names: string[]
-  try {
-    names = readdirSync(dir, { withFileTypes: true })
-      .filter((d) => !(root && d.isSymbolicLink()))
-      .map((d) => d.name)
-  } catch {
-    return []
-  }
   for (const n of names) {
     // A hand-created folder whose dirName isn't kebab-case (e.g. `My_Plugin`)
     // would otherwise be listed here and rendered with an enable toggle /

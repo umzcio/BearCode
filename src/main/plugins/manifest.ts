@@ -4,11 +4,11 @@
 // parsers so a plugin's skills/rules are described exactly as the loaders see
 // them. No script or hook is ever executed here.
 import { basename, join } from 'path'
-import { readFileCapped, isPathWithinRoot } from '../fsCapped'
+import { readFileCapped, listDirJailed, readJsonCapped } from '../fsCapped'
 import { listSkillFolders } from '../agentsDir'
 import { parseSkillFolder } from '../agentsDir/parseSkill'
 import { parseRuleFile } from '../agentsDir/parseRule'
-import { existsSync, readdirSync } from 'fs'
+import { existsSync } from 'fs'
 import type {
   PluginManifest,
   PluginServerSummary,
@@ -18,17 +18,6 @@ import type {
 
 const CAP = 64 * 1024
 
-function readJson(path: string, root?: string): Record<string, unknown> | null {
-  const r = readFileCapped(path, CAP, root)
-  if (!r) return null
-  try {
-    const v = JSON.parse(r.text)
-    return v && typeof v === 'object' ? (v as Record<string, unknown>) : null
-  } catch {
-    return null
-  }
-}
-
 export function parsePluginDir(
   dir: string,
   scope: 'global' | 'project',
@@ -36,7 +25,7 @@ export function parsePluginDir(
 ): PluginManifest | null {
   const markerPath = join(dir, 'plugin.json')
   if (!existsSync(markerPath)) return null
-  const marker = readJson(markerPath, root) // may be null when malformed — still a plugin (marker existed)
+  const marker = readJsonCapped(markerPath, CAP, root) // may be null when malformed — still a plugin (marker existed)
   const name =
     typeof marker?.name === 'string' && marker.name.trim()
       ? String(marker.name).trim()
@@ -73,14 +62,14 @@ export function parsePluginDir(
 
   const servers =
     parseServers(join(dir, 'mcp.json'), root) ?? parseServers(join(dir, 'mcp_config.json'), root) ?? []
-  const hooks = readJson(join(dir, 'hooks.json'), root)
+  const hooks = readJsonCapped(join(dir, 'hooks.json'), CAP, root)
   const hookCount = hooks ? Object.keys(hooks).length : 0
 
   return { name, description, version, scope, skills, rules, servers, hookCount }
 }
 
 function parseServers(path: string, root?: string): PluginServerSummary[] | null {
-  const j = readJson(path, root)
+  const j = readJsonCapped(path, CAP, root)
   const raw = j?.mcpServers
   if (!raw || typeof raw !== 'object') return null
   const out: PluginServerSummary[] = []
@@ -109,12 +98,5 @@ function safeSkillFolders(dir: string, root?: string): { name: string; path: str
   }
 }
 function safeReaddir(dir: string, root?: string): string[] {
-  try {
-    if (root && !isPathWithinRoot(dir, root)) return []
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((d) => !(root && d.isSymbolicLink()))
-      .map((d) => d.name)
-  } catch {
-    return []
-  }
+  return listDirJailed(dir, { root }).map((d) => d.name)
 }
