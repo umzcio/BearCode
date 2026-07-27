@@ -335,14 +335,30 @@ const MANAGEABLE_PROVIDER_IDS: ProviderId[] = [
   'xai'
 ]
 
+// Whether a model id is a live-discovery-only entry for this provider: not in
+// the shipped STATIC_MODELS array, and not a user's custom model (custom
+// always wins on id collision — see mergeModels' own comment). Used to decide
+// which opt policy (opt-in enabledLiveModels vs. opt-out disabledModels)
+// governs a given ref. Keep this the ONLY place that computes liveOnly so
+// listManageableModels (the Models page) and listAllModels/allKnownModelRefs
+// (the picker + pricing sync) can never resolve a different answer for the
+// same ref.
+export function isLiveOnly(provider: ProviderId, modelId: string, custom: CustomModel[]): boolean {
+  if (custom.some((c) => c.provider === provider && c.id === modelId)) return false
+  return !(STATIC_MODELS[provider] ?? []).some((m) => m.id === modelId)
+}
+
 // Every "providerId/modelId" ref in the EFFECTIVE set (curated + custom minus
-// disabled) for the first-party + OpenRouter providers. Feeds the LiteLLM
-// pricing sync. Ollama is dynamic/local and free, so it is intentionally
-// excluded.
+// disabled, PLUS the enabledLiveModels opt-in filter for live-only entries)
+// for the first-party + OpenRouter providers. Feeds the LiteLLM pricing sync.
+// Ollama is dynamic/local and free, so it is intentionally excluded.
 export function allKnownModelRefs(): string[] {
-  const { customModels = [], disabledModels = [] } = getSettings()
+  const { customModels = [], disabledModels = [], enabledLiveModels = [] } = getSettings()
+  const enabledLiveSet = new Set(enabledLiveModels)
   return MANAGEABLE_PROVIDER_IDS.flatMap((id) =>
-    mergeModels(id, knownModels(id), customModels, disabledModels).map((m) => `${id}/${m.id}`)
+    mergeModels(id, knownModels(id), customModels, disabledModels)
+      .filter((m) => !isLiveOnly(id, m.id, customModels) || enabledLiveSet.has(`${id}/${m.id}`))
+      .map((m) => `${id}/${m.id}`)
   )
 }
 
@@ -362,11 +378,10 @@ export async function listManageableModels(): Promise<ManageableProvider[]> {
   return MANAGEABLE_PROVIDER_IDS.map((id) => {
     const entry = getProvider(id)
     const models = knownModels(id)
-    const staticIds = new Set((STATIC_MODELS[id] ?? []).map((sm) => sm.id))
     const byId = new Map<string, ManageableModel>()
     for (const m of models) {
       const ref = `${id}/${m.id}`
-      const liveOnly = !staticIds.has(m.id)
+      const liveOnly = isLiveOnly(id, m.id, customModels)
       const liveCapabilities = liveCapabilitiesFor(ref)
       byId.set(m.id, {
         id: m.id,
@@ -590,13 +605,18 @@ export function supportsNativePdf(provider: ProviderId): boolean {
 
 export async function listAllModels(): Promise<ProviderModels[]> {
   const status = keyStatus()
-  const { customModels = [], disabledModels = [] } = getSettings()
+  const { customModels = [], disabledModels = [], enabledLiveModels = [] } = getSettings()
+  const enabledLiveSet = new Set(enabledLiveModels)
   return Promise.all(
     REGISTRY.map(async (entry) => {
       const { models, reachable, note } = await entry.listModels()
       // Return the effective set: curated/dynamic + custom, minus opted-out refs
-      // (F7). Every picker/meter/pricing consumer reads this, staying consistent.
-      const merged = mergeModels(entry.id, models, customModels, disabledModels)
+      // (F7), further filtered so a live-only model only appears once the user
+      // has opted it in via enabledLiveModels. Every picker/meter/pricing
+      // consumer reads this, staying consistent with listManageableModels.
+      const merged = mergeModels(entry.id, models, customModels, disabledModels).filter(
+        (m) => !isLiveOnly(entry.id, m.id, customModels) || enabledLiveSet.has(`${entry.id}/${m.id}`)
+      )
       return {
         id: entry.id,
         displayName: entry.displayName,
