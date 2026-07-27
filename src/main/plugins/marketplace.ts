@@ -5,9 +5,9 @@
 import { createHash } from 'crypto'
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, rmSync } from 'fs'
 import { homedir } from 'os'
-import { join, resolve, sep } from 'path'
+import { join, resolve } from 'path'
 import { git } from '../worktree/git'
-import { readFileCapped, isPathWithinRoot } from '../fsCapped'
+import { readFileCapped, isPathWithinRoot, isPathWithinRootAllowingMissing } from '../fsCapped'
 import { getSettings, setSettings } from '../settings'
 import { parsePluginDir } from './manifest'
 import { pluginsDir } from './index'
@@ -313,9 +313,14 @@ export function confirmInstall(stagePath: string): void {
   // could point confirmInstall at an arbitrary directory containing any
   // plugin.json with a valid kebab-case name and have its entire contents
   // copied wholesale into the live plugins tree.
+  // realpath-based containment (isPathWithinRoot, fsCapped.ts). stageRoot()
+  // always exists by the time confirmInstall runs (prepareInstall/
+  // cloneAndStage mkdirSync it before staging), so the exact-realpath check
+  // is safe -- matches cloneAndStage's own subpath jail earlier in this
+  // file.
   const rs = resolve(stagePath)
   const sr = resolve(stageRoot())
-  if (rs !== sr && !rs.startsWith(sr + sep))
+  if (!isPathWithinRoot(rs, sr))
     throw new Error('stagePath must be a previously prepared install stage.')
   assertNoSymlinks(stagePath)
   const manifest = parsePluginDir(stagePath, 'global')
@@ -324,13 +329,11 @@ export function confirmInstall(stagePath: string): void {
     throw new Error('Plugin name must be kebab-case (traversal rejected).')
   const root = resolve(pluginsDir('global', null))
   const dest = resolve(root, manifest.name)
-  // (Same dead-self-comparison fix as prepareInstall above: `dest` was built
-  // from `join(root, manifest.name)` and then compared against
-  // `join(root, manifest.name)` again, which can never be false. The
-  // COMMAND_NAME_PATTERN check just above already rejects traversal
-  // characters in manifest.name, but resolve() + containment is kept as the
-  // real, structural guard.)
-  if (!(dest === root || dest.startsWith(root + sep)))
+  // isPathWithinRootAllowingMissing (not the exact-realpath isPathWithinRoot
+  // above): `root` (~/.bearcode/agents/plugins) may not exist yet on a
+  // machine's very first plugin install, and isPathWithinRoot's
+  // realpathSync would throw ENOENT and reject that legitimate install.
+  if (!isPathWithinRootAllowingMissing(dest, root))
     throw new Error('Install path escapes the plugins directory.')
   if (existsSync(dest)) rmSync(dest, { recursive: true, force: true })
   mkdirSync(root, { recursive: true })

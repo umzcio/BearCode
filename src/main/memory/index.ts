@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from 'fs'
 import { join, resolve, sep } from 'path'
 import type { MemoryList, MemoryPromoteInput, MemoryScopeName } from '../../shared/types'
 import { memoryDir, loadMemory, serializeMemoryBullets } from '../agentsDir/memory'
+import { isPathWithinRootAllowingMissing } from '../fsCapped'
 import { writeRuleFile } from '../rules'
 import { writeSkillFile } from '../skills'
 
@@ -24,6 +25,17 @@ function jailedMemoryFile(scope: MemoryScopeName, projectPath: string | null): s
   const root = resolve(memoryDir(scope, projectPath))
   const file = resolve(root, 'memory.md')
   if (file !== join(root, 'memory.md') || !file.startsWith(root + sep)) {
+    throw new Error('Invalid memory path (path traversal rejected).')
+  }
+  // SECURITY (round3 plan 001): same fix as skills/index.ts's
+  // jailedSkillFolder -- for project scope, `.agents/memory` is untrusted
+  // git-repo content and can be a symlink; global scope is exempted. See
+  // that file's comment for the full rationale.
+  if (
+    scope === 'project' &&
+    projectPath &&
+    !isPathWithinRootAllowingMissing(file, projectPath)
+  ) {
     throw new Error('Invalid memory path (path traversal rejected).')
   }
   return file

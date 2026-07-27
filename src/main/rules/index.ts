@@ -10,6 +10,7 @@ import { COMMAND_NAME_PATTERN } from '../../shared/types'
 import type { RuleEntry } from '../../shared/types'
 import { loadAgentsContent } from '../agentsDir'
 import type { RuleActivation } from '../agentsDir/types'
+import { isPathWithinRootAllowingMissing } from '../fsCapped'
 
 const MAX_RULE_BYTES = 64 * 1024
 
@@ -30,6 +31,18 @@ function jailedRuleFile(
   const root = resolve(rulesDir(scope, projectPath))
   const file = resolve(root, `${name}.md`)
   if (file !== join(root, `${name}.md`) || !file.startsWith(root + sep)) {
+    throw new Error('Invalid rule name (path traversal rejected).')
+  }
+  // SECURITY (round3 plan 001): same fix as skills/index.ts's
+  // jailedSkillFolder -- for project scope, `.agents/rules` is untrusted
+  // git-repo content and can be a symlink; global scope is exempted
+  // (dotfiles-managed symlinks there are a supported use). See that file's
+  // comment for the full rationale.
+  if (
+    scope === 'project' &&
+    projectPath &&
+    !isPathWithinRootAllowingMissing(file, projectPath)
+  ) {
     throw new Error('Invalid rule name (path traversal rejected).')
   }
   return file

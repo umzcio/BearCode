@@ -64,6 +64,30 @@ export function realpathExistingPrefix(p: string): string {
   return probe + suffix
 }
 
+// Same containment guarantee as isPathWithinRoot (realpath-resolves the
+// WHOLE symlink chain on both sides before comparing) but tolerant of either
+// side not existing on disk yet -- e.g. checking a brand-new
+// `<projectPath>/.agents/skills/<name>` folder against `projectPath` before
+// that folder (or even `.agents/skills` itself) has ever been created.
+// Both `root` and `candidatePath` are run through realpathExistingPrefix, so
+// a symlinked ANCESTOR at any depth (existing or not) is still resolved to
+// its real location; only the not-yet-existing leaf suffix is compared
+// lexically, which is safe because a path segment that doesn't exist cannot
+// itself be a symlink. Returns false (never throws) when resolution fails
+// for any reason -- "cannot prove it's inside root" is treated the same as
+// "confirmed outside root": reject. Round3 plan 001 (write-jail hardening):
+// shared by skills/rules/memory/plugins' jailed*File/Folder helpers and
+// plugins/marketplace.ts's confirmInstall.
+export function isPathWithinRootAllowingMissing(candidatePath: string, root: string): boolean {
+  try {
+    const realRoot = realpathExistingPrefix(root)
+    const realCandidate = realpathExistingPrefix(candidatePath)
+    return realCandidate === realRoot || realCandidate.startsWith(realRoot + sep)
+  } catch {
+    return false
+  }
+}
+
 export function readFileCapped(
   path: string,
   cap: number,

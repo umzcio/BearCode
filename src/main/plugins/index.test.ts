@@ -140,3 +140,22 @@ describe('plugin discovery + state', () => {
     expect(isPluginEnabled('project', 'reinstalled')).toBe(false)
   })
 })
+
+describe('jailedPluginFolder symlink escape (project scope)', () => {
+  it('uninstallPlugin rejects when .agents/plugins is a symlink to outside the project', async () => {
+    const { uninstallPlugin } = await import('./index')
+    const proj = mkdtempSync(join(tmpdir(), 'bc-proj-'))
+    const outside = mkdtempSync(join(tmpdir(), 'bc-outside-'))
+    try {
+      mkdirSync(join(outside, 'victim'), { recursive: true })
+      writeFileSync(join(outside, 'victim', 'canary.txt'), 'do not delete me')
+      mkdirSync(join(proj, '.agents'), { recursive: true })
+      symlinkSync(outside, join(proj, '.agents', 'plugins'))
+      expect(() => uninstallPlugin('project', 'victim', proj)).toThrow()
+      expect(existsSync(join(outside, 'victim', 'canary.txt'))).toBe(true)
+    } finally {
+      rmSync(proj, { recursive: true, force: true })
+      rmSync(outside, { recursive: true, force: true })
+    }
+  })
+})

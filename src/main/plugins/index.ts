@@ -7,7 +7,7 @@ import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import { COMMAND_NAME_PATTERN } from '../../shared/types'
 import type { PluginEntry } from '../../shared/types'
-import { isPathWithinRoot } from '../fsCapped'
+import { isPathWithinRoot, isPathWithinRootAllowingMissing } from '../fsCapped'
 import { parsePluginDir } from './manifest'
 import { isPluginEnabled, setPluginEnabled } from './state'
 
@@ -28,6 +28,19 @@ function jailedPluginFolder(
   const folder = resolve(root, name)
   if (folder !== join(root, name) || !(folder === root || folder.startsWith(root + sep)))
     throw new Error('Invalid plugin name (path traversal rejected).')
+  // SECURITY (round3 plan 001): the highest-severity instance of this fix --
+  // jailedPluginFolder feeds uninstallPlugin's recursive rmSync. For project
+  // scope, `.agents/plugins` is untrusted git-repo content and can be a
+  // symlink; global scope is exempted (dotfiles-managed symlinks there are a
+  // supported use). See skills/index.ts's jailedSkillFolder for the full
+  // rationale (identical pattern, mirrored here).
+  if (
+    scope === 'project' &&
+    projectPath &&
+    !isPathWithinRootAllowingMissing(folder, projectPath)
+  ) {
+    throw new Error('Invalid plugin name (path traversal rejected).')
+  }
   return folder
 }
 
