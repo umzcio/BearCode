@@ -14,7 +14,7 @@
   white-space: nowrap;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   pointer-events: none;
-  animation: hint-in 0.12s ease-out;
+  animation: hint-in var(--dur-fast) var(--ease-out);
 }
 .hint-bubble.right {
   transform: translateY(-50%);

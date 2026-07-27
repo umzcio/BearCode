@@ -2,6 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import './Hint.css'
 
+const INITIAL_HINT_DELAY_MS = 450
+const HINT_WARM_WINDOW_MS = 800
+let hintWarmUntil = 0
+
+// Test-only reset to prevent shared module state leaking between test cases.
+export function resetHintWarmStateForTests(): void {
+  hintWarmUntil = 0
+}
+
 interface HintProps {
   label: string
   keys?: string
@@ -27,31 +36,58 @@ export function Hint({
   const [pos, setPos] = useState<HintPos | null>(null)
   const wrapRef = useRef<HTMLSpanElement>(null)
   const timer = useRef<number | undefined>(undefined)
+  const disabledRef = useRef(disabled)
+  const visibleRef = useRef(false)
 
-  useEffect(() => () => window.clearTimeout(timer.current), [])
+  disabledRef.current = disabled
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(timer.current)
+      if (visibleRef.current) hintWarmUntil = Date.now() + HINT_WARM_WINDOW_MS
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (disabled) {
+      window.clearTimeout(timer.current)
+      if (visibleRef.current) hintWarmUntil = Date.now() + HINT_WARM_WINDOW_MS
+      visibleRef.current = false
+      setPos(null)
+    }
+  }, [disabled])
+
+  const reveal = (): void => {
+    if (disabledRef.current) return
+    const rect = wrapRef.current?.firstElementChild?.getBoundingClientRect()
+    if (!rect) return
+    // The app sets CSS `zoom` on <html> for font size (appearance.ts). A
+    // position:fixed bubble is re-scaled by that zoom, while getBoundingClientRect
+    // already returns zoom-scaled coords -- so a raw rect lands the bubble at
+    // position*zoom^2. Divide by the zoom factor so it sits exactly under the
+    // trigger regardless of font-size setting (mirrors Select.tsx).
+    const zoom = Number(document.documentElement.style.zoom) || 1
+    if (side === 'right')
+      setPos({ x: rect.right / zoom + 10, y: rect.top / zoom + rect.height / zoom / 2 })
+    else if (side === 'top')
+      setPos({ x: rect.left / zoom + rect.width / zoom / 2, y: rect.top / zoom - 8 })
+    else setPos({ x: rect.left / zoom + rect.width / zoom / 2, y: rect.bottom / zoom + 8 })
+    visibleRef.current = true
+    hintWarmUntil = Date.now() + HINT_WARM_WINDOW_MS
+  }
 
   const show = (): void => {
     if (disabled) return
     window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => {
-      const rect = wrapRef.current?.firstElementChild?.getBoundingClientRect()
-      if (!rect) return
-      // The app sets CSS `zoom` on <html> for font size (appearance.ts). A
-      // position:fixed bubble is re-scaled by that zoom, while getBoundingClientRect
-      // already returns zoom-scaled coords -- so a raw rect lands the bubble at
-      // position*zoom^2. Divide by the zoom factor so it sits exactly under the
-      // trigger regardless of font-size setting (mirrors Select.tsx).
-      const zoom = Number(document.documentElement.style.zoom) || 1
-      if (side === 'right')
-        setPos({ x: rect.right / zoom + 10, y: rect.top / zoom + rect.height / zoom / 2 })
-      else if (side === 'top')
-        setPos({ x: rect.left / zoom + rect.width / zoom / 2, y: rect.top / zoom - 8 })
-      else setPos({ x: rect.left / zoom + rect.width / zoom / 2, y: rect.bottom / zoom + 8 })
-    }, 450)
+    if (Date.now() < hintWarmUntil) reveal()
+    else timer.current = window.setTimeout(reveal, INITIAL_HINT_DELAY_MS)
   }
 
   const hide = (): void => {
     window.clearTimeout(timer.current)
+    if (visibleRef.current) hintWarmUntil = Date.now() + HINT_WARM_WINDOW_MS
+    visibleRef.current = false
     setPos(null)
   }
 
