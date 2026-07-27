@@ -9,6 +9,15 @@ const openSettings = vi.fn()
 
 beforeEach(() => {
   vi.stubGlobal('bearcode', { settings: { set: settingsSet } })
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({
+      matches: query === '(hover: hover) and (pointer: fine)',
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    }))
+  )
   useAppStore.setState({
     settings: { profileName: 'Zach', theme: 'dark' } as never,
     openSettings
@@ -16,7 +25,10 @@ beforeEach(() => {
   settingsSet.mockClear()
   openSettings.mockClear()
 })
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 describe('SidebarFooterMenu', () => {
   it('shows the profile name, falling back to "You" when unset', () => {
@@ -96,7 +108,7 @@ describe('SidebarFooterMenu', () => {
     expect(toggle.getAttribute('aria-checked')).toBe('true')
   })
 
-  it('shows the Dark Mode tooltip on hover -- it must not be permanently disabled by the popover\'s own open state', () => {
+  it("shows the Dark Mode tooltip on hover -- it must not be permanently disabled by the popover's own open state", () => {
     vi.useFakeTimers()
     try {
       render(<SidebarFooterMenu />)

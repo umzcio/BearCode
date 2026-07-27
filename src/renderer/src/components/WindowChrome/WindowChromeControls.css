@@ -1,0 +1,20 @@
+.window-chrome-controls {
+  position: fixed;
+  top: var(--window-controls-top);
+  left: var(--window-controls-left);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  transform: scale(var(--window-controls-scale));
+  transform-origin: top left;
+  -webkit-app-region: no-drag;
+}
+
+.window-chrome-controls .chrome-btn {
+  transition: none;
+}
+
+.window-chrome-controls .chrome-btn:active {
+  transform: none;
+}

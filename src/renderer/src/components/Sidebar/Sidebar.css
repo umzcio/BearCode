@@ -1,6 +1,6 @@
 .sidebar {
-  width: 300px;
-  min-width: 300px;
+  width: 280px;
+  min-width: 280px;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-soft);
   display: flex;
@@ -13,7 +13,7 @@
      Reduced-motion is handled in the effect (it skips the transform entirely). */
 }
 .sidebar.collapsed {
-  margin-left: -301px;
+  margin-left: -281px;
 }
 @media (prefers-reduced-motion: reduce) {
   .sidebar {
@@ -21,19 +21,13 @@
   }
 }
 
-/* Native macOS traffic lights sit over this row, pinned to the same line
-   by trafficLightPosition in src/main/index.ts. padding-left uses the
-   shared --traffic-light-inset token (tokens.css) so this can't drift out
-   of sync with App.css's collapsed-topbar fallback again. */
-.chrome {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 4px 16px var(--traffic-light-inset);
+/* Preserve the former chrome row's exact occupied height while the fixed
+   WindowChromeControls layer sits above the FLIP-transformed sidebar. */
+.sidebar-chrome-spacer {
+  position: relative;
+  height: 42px;
+  flex-shrink: 0;
   -webkit-app-region: drag;
-}
-.chrome .chrome-btn {
-  -webkit-app-region: no-drag;
 }
 
 .nav-item {
@@ -97,10 +91,18 @@
   font-family: inherit;
   transition:
     background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press-release) var(--ease-out);
 }
 .seg-toggle button:hover {
   color: var(--text-mid);
+}
+.seg-toggle button:active {
+  transform: scale(0.97);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
 }
 .seg-toggle button.active {
   background: var(--bg-raised);
@@ -224,6 +226,13 @@
   .sb-rowact {
     transition: none;
   }
+  .seg-toggle button:active {
+    transform: none;
+  }
+}
+
+:root[data-motion='reduced'] .seg-toggle button:active {
+  transform: none;
 }
 
 /* The Projects/Pinned/Recents body (or the Hermes segment's own flat list)

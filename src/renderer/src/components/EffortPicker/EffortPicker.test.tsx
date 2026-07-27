@@ -53,20 +53,22 @@ describe('EffortPicker', () => {
     useAppStore.setState({ modelRef: 'openai/gpt-5.6-sol' })
     render(<EffortPicker />)
     fireEvent.click(screen.getByText('Adaptive'))
-    fireEvent.click(screen.getByText('High'))
+    fireEvent.click(screen.getByRole('option', { name: /Thinking/ }))
+    expect(useAppStore.getState().thinking).toBe(true)
+    fireEvent.click(screen.getByRole('option', { name: 'High' }))
     expect(useAppStore.getState().effort).toBe('high')
-    expect(screen.queryByText('Thinking')).toBeNull()
+    expect(screen.queryByRole('listbox')).toBeNull()
   })
   it('closes when Settings opens', () => {
     render(<EffortPicker />)
     fireEvent.click(screen.getByText('Adaptive'))
-    expect(screen.getByText('High')).toBeTruthy()
+    expect(screen.getByRole('listbox')).toBeTruthy()
     // useAppStore.setState alone doesn't synchronously flush the resulting
     // re-render under React 19 + RTL's automatic batching outside act() --
     // wrap it so the assertion below observes the post-close DOM.
     act(() => {
       useAppStore.setState({ settingsOpen: true })
     })
-    expect(screen.queryByText('High')).toBeNull()
+    expect(screen.queryByRole('listbox')).toBeNull()
   })
 })

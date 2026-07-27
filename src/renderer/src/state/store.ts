@@ -385,8 +385,8 @@ interface AppState {
   removeCustomModel(provider: ProviderId, id: string): Promise<void>
   toggleSidebar(): void
   setSidebarCollapsed(collapsed: boolean): void
-  setSidebarWidth(w: number): void
-  setAuxPaneWidth(w: number): void
+  setSidebarWidth(w: number, options?: { persist?: boolean }): void
+  setAuxPaneWidth(w: number, options?: { persist?: boolean }): void
   toggleModelMenu(): void
   goHome(): void
   openHistory(): void
@@ -680,7 +680,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   return {
     sidebarCollapsed: false,
-    sidebarWidth: readStoredWidth('bearcode.sidebarWidth', 300, SIDEBAR_MIN, SIDEBAR_MAX),
+    sidebarWidth: readStoredWidth('bearcode.sidebarWidth', 280, SIDEBAR_MIN, SIDEBAR_MAX),
     auxPaneWidth: readStoredWidth('bearcode.auxPaneWidth', 560, AUX_MIN, AUX_MAX),
     modelMenuTick: 0,
     projectMenuTick: 0,
@@ -904,14 +904,14 @@ export const useAppStore = create<AppState>((set, get) => {
 
     toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
     setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
-    setSidebarWidth: (w) => {
+    setSidebarWidth: (w, options) => {
       const c = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(w)))
-      writeStoredWidth('bearcode.sidebarWidth', c)
+      if (options?.persist !== false) writeStoredWidth('bearcode.sidebarWidth', c)
       set({ sidebarWidth: c })
     },
-    setAuxPaneWidth: (w) => {
+    setAuxPaneWidth: (w, options) => {
       const c = Math.min(AUX_MAX, Math.max(AUX_MIN, Math.round(w)))
-      writeStoredWidth('bearcode.auxPaneWidth', c)
+      if (options?.persist !== false) writeStoredWidth('bearcode.auxPaneWidth', c)
       set({ auxPaneWidth: c })
     },
     toggleModelMenu: () => set((s) => ({ modelMenuTick: s.modelMenuTick + 1 })),

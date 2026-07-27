@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
-import { Sidebar } from './components/Sidebar/Sidebar'
+import { useEffect, useRef } from 'react'
+import { WindowChromeControls } from './components/WindowChrome/WindowChromeControls'
+import { Sidebar, type SidebarMotionControl } from './components/Sidebar/Sidebar'
 import { Home } from './components/Home'
 import { HistoryView } from './components/History/HistoryView'
 import { TerminalView } from './components/Terminal/TerminalView'
@@ -12,8 +13,6 @@ import { ResizeHandle } from './components/ResizeHandle'
 import { SettingsModal } from './components/Settings/SettingsModal'
 import { ProjectSettingsModal } from './components/ProjectSettings/ProjectSettingsModal'
 import { ConflictResolver } from './components/Worktree/ConflictResolver'
-import { Hint } from './components/Hint'
-import { IconPanel } from './components/icons'
 import { TrustBanner } from './components/TrustBanner'
 import { ImportConfigBanner } from './components/ImportConfigBanner'
 import { ImportConfigReviewModal } from './components/ImportConfigReviewModal'
@@ -34,7 +33,6 @@ function App(): React.JSX.Element {
       return c ? { id: c.id, projectLabel: c.projectLabel, title: c.title } : null
     })
   )
-  const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const auxSelection = useAppStore((s) => s.auxSelection)
   const setSidebarWidth = useAppStore((s) => s.setSidebarWidth)
   const setAuxPaneWidth = useAppStore((s) => s.setAuxPaneWidth)
@@ -42,6 +40,7 @@ function App(): React.JSX.Element {
   const dismissToast = useAppStore((s) => s.dismissToast)
   const init = useAppStore((s) => s.init)
   const cmdHeld = useCmdHeld()
+  const sidebarMotionControl = useRef<SidebarMotionControl>({ skipNextAnimation: false })
 
   useEffect(() => {
     init()
@@ -67,19 +66,29 @@ function App(): React.JSX.Element {
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  // Global shortcuts: Cmd+N new conversation, Cmd+B sidebar, Cmd+, settings,
-  // Cmd+/ model menu, Cmd+. mode menu, Cmd+L focus the composer.
+  // Global shortcuts: Cmd+1 Projects, Cmd+2 Models, Cmd+N new conversation,
+  // Cmd+B sidebar, Cmd+, settings, Cmd+/ model menu, Cmd+. mode menu, and
+  // Cmd+L focus the composer.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
       const s = useAppStore.getState()
       switch (e.key) {
+        case '1':
+          e.preventDefault()
+          s.openProjectsIndex()
+          break
+        case '2':
+          e.preventDefault()
+          s.openModelsPage()
+          break
         case 'n':
           e.preventDefault()
           s.goHome()
           break
         case 'b':
           e.preventDefault()
+          sidebarMotionControl.current.skipNextAnimation = true
           s.toggleSidebar()
           break
         case ',':
@@ -116,19 +125,19 @@ function App(): React.JSX.Element {
 
   return (
     <div className={'app' + (cmdHeld ? ' cmd-held' : '')}>
-      <Sidebar />
+      <WindowChromeControls />
+      <Sidebar motionControl={sidebarMotionControl.current} />
       {!collapsed ? (
-        <ResizeHandle onDrag={(dx) => setSidebarWidth(useAppStore.getState().sidebarWidth + dx)} />
+        <ResizeHandle
+          onDrag={(dx) =>
+            setSidebarWidth(useAppStore.getState().sidebarWidth + dx, { persist: false })
+          }
+          onDragEnd={() => setSidebarWidth(useAppStore.getState().sidebarWidth)}
+        />
       ) : null}
       <div className={'main' + (collapsed ? ' sidebar-collapsed' : '')}>
         <div className="topbar">
-          {collapsed ? (
-            <Hint label="Toggle Sidebar" keys="⌘B" side="bottom">
-              <button className="chrome-btn" onClick={toggleSidebar} aria-label="Toggle sidebar">
-                <IconPanel />
-              </button>
-            </Hint>
-          ) : null}
+          <div className="window-controls-hit-area" aria-hidden="true" />
           {convo ? (
             <div className="breadcrumb">
               <span className="crumb">{convo.projectLabel}</span>
@@ -167,7 +176,12 @@ function App(): React.JSX.Element {
         <ConflictResolver />
       </div>
       {auxSelection ? (
-        <ResizeHandle onDrag={(dx) => setAuxPaneWidth(useAppStore.getState().auxPaneWidth - dx)} />
+        <ResizeHandle
+          onDrag={(dx) =>
+            setAuxPaneWidth(useAppStore.getState().auxPaneWidth - dx, { persist: false })
+          }
+          onDragEnd={() => setAuxPaneWidth(useAppStore.getState().auxPaneWidth)}
+        />
       ) : null}
       <AuxiliaryPane />
       {toast ? (

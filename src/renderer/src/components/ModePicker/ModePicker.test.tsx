@@ -120,37 +120,37 @@ describe('ModePicker', () => {
 
   it('picking a mode by number while the Bypass confirm is open clears the confirm state', () => {
     render(<ModePicker />)
-    fireEvent.click(screen.getByText('Accept edits')) // open menu
-    fireEvent.click(screen.getByText('Bypass permissions')) // open the confirm panel
+    fireEvent.click(screen.getByRole('button', { name: 'Accept edits' })) // open menu
+    fireEvent.click(screen.getByRole('option', { name: /Bypass permissions/ })) // open confirm
     fireEvent.keyDown(document.body, { key: '2' }) // pick Accept edits via numeric shortcut
     expect(useAppStore.getState().permissionMode).toBe('accept-edits')
     // Reopen the menu — the confirm panel must NOT still be showing.
-    fireEvent.click(screen.getByText('Accept edits'))
-    expect(screen.getByText('Bypass permissions')).toBeTruthy() // mode list is shown
-    expect(screen.queryByText(/Disables ALL command and edit safety checks/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Accept edits' }))
+    expect(screen.getByRole('option', { name: /Bypass permissions/ })).toBeTruthy()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
   })
 
   it('closing the menu via the pill toggle while confirming Bypass clears the confirm state', () => {
     render(<ModePicker />)
-    fireEvent.click(screen.getByText('Accept edits')) // open menu
-    fireEvent.click(screen.getByText('Bypass permissions')) // open the confirm panel
-    fireEvent.click(screen.getByText('Accept edits')) // pill toggle closes the menu (no mode change)
+    fireEvent.click(screen.getByRole('button', { name: 'Accept edits' })) // open menu
+    fireEvent.click(screen.getByRole('option', { name: /Bypass permissions/ })) // open confirm
+    fireEvent.click(screen.getByRole('button', { name: 'Accept edits' })) // close (no mode change)
     expect(useAppStore.getState().permissionMode).toBe('accept-edits')
-    fireEvent.click(screen.getByText('Accept edits')) // reopen
-    expect(screen.getByText('Bypass permissions')).toBeTruthy() // mode list, not the confirm
-    expect(screen.queryByText(/Disables ALL command and edit safety checks/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Accept edits' })) // reopen
+    expect(screen.getByRole('option', { name: /Bypass permissions/ })).toBeTruthy()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
   })
 
   it('closes when Settings opens', () => {
     render(<ModePicker />)
-    fireEvent.click(screen.getByText('Accept edits'))
-    expect(screen.getByText('Ask permissions')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Accept edits' }))
+    expect(screen.getByRole('listbox')).toBeTruthy()
     // useAppStore.setState alone doesn't synchronously flush the resulting
     // re-render under React 19 + RTL's automatic batching outside act() --
     // wrap it so the assertion below observes the post-close DOM.
     act(() => {
       useAppStore.setState({ settingsOpen: true })
     })
-    expect(screen.queryByText('Ask permissions')).toBeNull()
+    expect(screen.queryByRole('listbox')).toBeNull()
   })
 })

@@ -14,9 +14,10 @@ interface InternalState {
 // Returns whether to render, and the state to drive CSS ([data-state]).
 export function useAnimatedUnmount(
   open: boolean,
-  opts?: { durationMs?: number }
+  opts?: { durationMs?: number; immediate?: boolean }
 ): { mounted: boolean; state: 'open' | 'closing' } {
   const durationMs = opts?.durationMs ?? DEFAULT_DURATION_MS
+  const immediate = opts?.immediate ?? false
   const [s, setS] = useState<InternalState>(() => ({ open, mounted: open, phase: 'open' }))
 
   // Adjust state during render when `open` flips -- the React-endorsed
@@ -32,8 +33,8 @@ export function useAnimatedUnmount(
       // toggle -- see prefersReducedMotion.ts), skip the exit transition and
       // unmount now instead of waiting for a CSS transition that tokens.css
       // has already collapsed to ~0 under the in-app toggle.
-      const reduce = prefersReducedMotion()
-      setS({ open, mounted: !reduce, phase: 'closing' })
+      const skipExit = immediate || prefersReducedMotion()
+      setS({ open, mounted: !skipExit, phase: 'closing' })
     }
   }
 

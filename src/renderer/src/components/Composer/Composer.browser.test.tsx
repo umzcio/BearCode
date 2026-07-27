@@ -45,8 +45,8 @@ describe('Composer + menu Browser (F4 Task 10)', () => {
     fireEvent.click(screen.getByText('Browser'))
     // The chip renders /browser…
     expect(screen.getByText('/browser')).toBeTruthy()
-    // …and the menu closed (its Browser entry is gone).
-    expect(screen.queryByText('Media')).toBeNull()
+    // …and the retained closing menu is no longer accessible.
+    expect(screen.queryByRole('listbox', { name: 'Add context' })).toBeNull()
   })
 
   it('the Browser entry is no longer marked coming soon', () => {

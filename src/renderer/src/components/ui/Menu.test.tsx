@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { act, render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { Menu, type MenuGroup } from './Menu'
 
 afterEach(cleanup)
@@ -42,6 +42,27 @@ function Harness({
   )
 }
 
+function ClosingHarness(): React.JSX.Element {
+  const anchorRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(true)
+  const [selectionCount, setSelectionCount] = useState(0)
+  return (
+    <div>
+      <button ref={anchorRef}>Anchor</button>
+      <span>Selections: {selectionCount}</span>
+      <Menu
+        anchorRef={anchorRef}
+        open={open}
+        onClose={() => setOpen(false)}
+        groups={groups}
+        value="a"
+        onSelect={() => setSelectionCount((count) => count + 1)}
+        ariaLabel="Closing menu"
+      />
+    </div>
+  )
+}
+
 describe('Menu keyboard nav', () => {
   // Regression guard for the first-open dead-keyboard-nav bug: Menu focuses
   // its listbox in a useLayoutEffect on open, and Popover must not be
@@ -76,6 +97,37 @@ describe('Menu keyboard nav', () => {
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Enter' })
     expect(onSelect).toHaveBeenCalledWith('a')
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('moves focus out of retained closing content and blocks repeated Enter or Space selection', () => {
+    vi.useFakeTimers()
+    try {
+      render(<ClosingHarness />)
+      const listbox = screen.getByRole('listbox', { name: 'Closing menu' })
+
+      fireEvent.keyDown(listbox, { key: 'Enter' })
+
+      expect(screen.getByText('Selections: 1')).toBeInTheDocument()
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Anchor' }))
+      const retainedListbox = document.querySelector('[aria-label="Closing menu"]') as HTMLElement
+      expect(retainedListbox.closest('.popover')).toHaveAttribute('data-state', 'closing')
+
+      fireEvent.keyDown(retainedListbox, { key: 'Enter' })
+      fireEvent.keyDown(retainedListbox, { key: ' ' })
+      expect(screen.getByText('Selections: 1')).toBeInTheDocument()
+      expect(screen.queryByText('Selections: 2')).toBeNull()
+
+      act(() => {
+        vi.advanceTimersByTime(149)
+      })
+      expect(document.querySelector('[aria-label="Closing menu"]')).not.toBeNull()
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(document.querySelector('[aria-label="Closing menu"]')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('Escape closes without selecting', () => {

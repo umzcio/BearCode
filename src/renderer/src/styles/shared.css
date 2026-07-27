@@ -461,3 +461,10 @@ code.tok {
     transform: none;
   }
 }
+
+:root[data-motion='reduced'] .pill-btn:active,
+:root[data-motion='reduced'] .chrome-btn:active,
+:root[data-motion='reduced'] .icon-btn:active,
+:root[data-motion='reduced'] .menu-item:active {
+  transform: none;
+}

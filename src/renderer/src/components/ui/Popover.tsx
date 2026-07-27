@@ -1,12 +1,15 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { zoomedRect } from '../../lib/anchorRect'
+import { useAnimatedUnmount } from '../../lib/useAnimatedUnmount'
 import {
   computePopoverPosition,
   type Placement,
   type PopoverPos
 } from '../../lib/usePopoverPosition'
 import './Popover.css'
+
+const POPOVER_EXIT_MS = 150
 
 export interface PopoverProps {
   // `| null` because `useRef<HTMLElement>(null)` types as
@@ -37,6 +40,11 @@ export function Popover({
   children
 }: PopoverProps): React.JSX.Element | null {
   const popRef = useRef<HTMLDivElement>(null)
+  const immediateCloseRef = useRef(false)
+  const { mounted, state } = useAnimatedUnmount(open, {
+    durationMs: POPOVER_EXIT_MS,
+    immediate: immediateCloseRef.current
+  })
   // `pos` doubles as the "have we measured yet" flag: while null, the
   // wrapper renders at (0, 0) with no minWidth. It is NOT hidden via
   // `visibility`/`display` while unmeasured -- Chromium refuses
@@ -51,10 +59,22 @@ export function Popover({
   const [pos, setPos] = useState<(PopoverPos & { minWidth?: number }) | null>(null)
 
   useLayoutEffect(() => {
+    if (open) immediateCloseRef.current = false
+  }, [open])
+
+  useLayoutEffect(() => {
+    if (state !== 'closing' || !mounted) return
+    const active = document.activeElement
+    if (active && popRef.current?.contains(active)) {
+      anchorRef.current?.focus({ preventScroll: true })
+    }
+  }, [state, mounted, anchorRef])
+
+  useLayoutEffect(() => {
     // No reset-to-null on close: the component already renders nothing
-    // while `!open` (see below), so there's nothing to visually reset --
-    // and leaving the last-known `pos` around means a quick reopen has a
-    // reasonable position to paint even before this effect recomputes it.
+    // after the retained exit completes, so there's nothing to visually
+    // reset -- and leaving the last-known `pos` around means a quick reopen
+    // has a reasonable position to paint even before this effect recomputes it.
     if (!open) return undefined
     const anchorEl = anchorRef.current
     const popEl = popRef.current
@@ -85,10 +105,21 @@ export function Popover({
 
     // Esc dismisses -- capture-phase + stopPropagation so it doesn't bubble
     // to ancestor handlers (e.g. Settings' own Esc-to-close).
+    const evacuateFocus = (): void => {
+      const active = document.activeElement
+      if (active && popRef.current?.contains(active)) {
+        anchorRef.current?.focus({ preventScroll: true })
+      }
+    }
+    const requestClose = (immediate: boolean): void => {
+      immediateCloseRef.current = immediate
+      if (immediate) evacuateFocus()
+      onClose()
+    }
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         e.stopPropagation()
-        onClose()
+        requestClose(true)
       }
     }
     // Click-outside: pointerdown outside both the anchor and the popover.
@@ -96,14 +127,14 @@ export function Popover({
       const t = e.target as Node
       if (anchorRef.current?.contains(t)) return
       if (popRef.current?.contains(t)) return
-      onClose()
+      requestClose(false)
     }
     // A fixed-positioned popover detaches from its anchor on scroll/resize
     // (e.g. a scrollable settings card scrolling underneath it), so close it
     // rather than let it float in the wrong place -- matching Select /
     // ConvoRowMenu. Ignore scrolls that originate from within the popover
     // itself (a long option list scrolling shouldn't close it).
-    const onResize = (): void => onClose()
+    const onResize = (): void => requestClose(true)
     const onScroll = (e: Event): void => {
       const t = e.target as Node
       if (popRef.current?.contains(t)) return
@@ -111,7 +142,7 @@ export function Popover({
       // the composer textarea auto-scrolling while typing) -- the anchor
       // doesn't move, so there's nothing to detach from.
       if (anchorRef.current?.contains(t)) return
-      onClose()
+      requestClose(true)
     }
 
     document.addEventListener('keydown', onKey, true)
@@ -126,12 +157,15 @@ export function Popover({
     }
   }, [open, onClose, anchorRef])
 
-  if (!open) return null
+  if (!mounted) return null
 
   return createPortal(
     <div
       ref={popRef}
       className={'popover' + (className ? ` ${className}` : '')}
+      data-state={state}
+      aria-hidden={state === 'closing' || undefined}
+      inert={state === 'closing' || undefined}
       style={
         {
           position: 'fixed',

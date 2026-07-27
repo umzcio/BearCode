@@ -105,6 +105,7 @@ export function Menu({
   }
 
   const commit = (i: number): void => {
+    if (!open) return
     const item = flat[i]
     if (!item || item.disabled) return
     onSelect(item.value)

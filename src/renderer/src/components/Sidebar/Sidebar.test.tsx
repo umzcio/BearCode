@@ -50,6 +50,7 @@ function mount(opts: {
   ;(window as unknown as { bearcode: unknown }).bearcode = {}
   useAppStore.setState({
     sidebarCollapsed: false,
+    sidebarWidth: 300,
     view: opts.view ?? { kind: 'home' },
     convoOrder: Object.keys(conversations),
     conversations,
@@ -84,7 +85,12 @@ describe('Hermes section', () => {
   it('lists only conversations with the Hermes sentinel modelRef, newest first', () => {
     const container = mount({
       conversations: {
-        p1: { modelRef: 'anthropic/claude', title: 'Project chat', updatedAt: 1, projectPath: '/x' },
+        p1: {
+          modelRef: 'anthropic/claude',
+          title: 'Project chat',
+          updatedAt: 1,
+          projectPath: '/x'
+        },
         h1: { modelRef: HERMES_MODEL_REF, title: 'ZRResearch', updatedAt: 200, projectPath: null },
         h2: { modelRef: HERMES_MODEL_REF, title: 'random stuff', updatedAt: 100, projectPath: null }
       },
@@ -185,6 +191,18 @@ describe('Hermes section', () => {
 })
 
 describe('Projects/Pinned/Recents (Conversations segment)', () => {
+  it('advertises the Projects and Models navigation shortcuts in their focus hints', () => {
+    mount({ conversations: {} })
+
+    const projects = screen.getByRole('button', { name: 'Projects' })
+    fireEvent.focus(projects)
+    expect(document.querySelector('.hint-surface')).toHaveTextContent('Projects⌘1')
+
+    fireEvent.blur(projects)
+    fireEvent.focus(screen.getByRole('button', { name: 'Models' }))
+    expect(document.querySelector('.hint-surface')).toHaveTextContent('Models⌘2')
+  })
+
   it('renders a single "Projects" nav link (not one row per folder) that opens the Projects index', () => {
     mount({
       conversations: {
@@ -445,11 +463,12 @@ describe('Pinned Projects section', () => {
   })
 })
 
-// Coverage for plan 002 (improve-animations): the FLIP collapse effect must
-// resolve --ease-drawer/--dur-drawer from :root at animation time instead of
-// hand-typing them, and must NOT fall back to a hardcoded value if the tokens
-// fail to resolve -- it should log via console.error and snap instantly.
-describe('FLIP collapse animation resolves motion tokens (plan 002)', () => {
+// Coverage for plan 002 (token resolution) and plan 011 (interruptible FLIP
+// lifecycle). The DOMMatrixReadOnly double supplies jsdom's missing browser
+// primitive; assertions stay on the real Sidebar element's visual state.
+describe('FLIP collapse animation lifecycle', () => {
+  let currentComputedTranslateX = 0
+
   beforeEach(() => {
     // jsdom has neither matchMedia nor real layout, but does provide
     // requestAnimationFrame; the effect's reduced-motion early-return
@@ -457,11 +476,19 @@ describe('FLIP collapse animation resolves motion tokens (plan 002)', () => {
     ;(window as unknown as { matchMedia: unknown }).matchMedia = vi
       .fn()
       .mockReturnValue({ matches: false })
+    vi.stubGlobal(
+      'DOMMatrixReadOnly',
+      class {
+        readonly m41 = currentComputedTranslateX
+      }
+    )
+    currentComputedTranslateX = 0
   })
 
   afterEach(() => {
     document.documentElement.style.removeProperty('--ease-drawer')
     document.documentElement.style.removeProperty('--dur-drawer')
+    vi.unstubAllGlobals()
   })
 
   it('builds the transition string from --ease-drawer/--dur-drawer when both resolve', async () => {
@@ -505,7 +532,178 @@ describe('FLIP collapse animation resolves motion tokens (plan 002)', () => {
     expect(errorSpy.mock.calls[0][0]).toMatch(/could not resolve --ease-drawer\/--dur-drawer/)
     // No animation is played and no hardcoded cubic-bezier/ms string is used.
     expect(sidebarEl.style.transition).toBe('')
-    expect(sidebarEl.style.transform).toBe('translate3d(0, 0, 0)')
+    expect(sidebarEl.style.transform).toBe('')
+    expect(sidebarEl.style.willChange).toBe('')
     errorSpy.mockRestore()
+  })
+
+  it('reverses from the current computed position instead of jumping to the full inverse', async () => {
+    document.documentElement.style.setProperty('--ease-drawer', 'cubic-bezier(0.32, 0.72, 0, 1)')
+    document.documentElement.style.setProperty('--dur-drawer', '340ms')
+
+    const container = mount({ conversations: {} })
+    const sidebarEl = container.querySelector('.sidebar') as HTMLElement
+
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: true } as never)
+    })
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    // At half of a 301px collapse the computed transform is +150.5px. Moving
+    // back to the expanded layout must preserve that visual position as
+    // -150.5px relative to the new zero-margin layout.
+    currentComputedTranslateX = 150.5
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: false } as never)
+    })
+
+    expect(sidebarEl.style.transform).toBe('translate3d(-150.5px, 0, 0)')
+  })
+
+  it('clears motion styles when reversal before the first frame has zero distance', async () => {
+    document.documentElement.style.setProperty('--ease-drawer', 'cubic-bezier(0.32, 0.72, 0, 1)')
+    document.documentElement.style.setProperty('--dur-drawer', '340ms')
+
+    const container = mount({ conversations: {} })
+    const sidebarEl = container.querySelector('.sidebar') as HTMLElement
+
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: true } as never)
+    })
+
+    // Reverse before the collapse RAF. The full +301px inverse exactly offsets
+    // the collapsed margin, so the incoming expanded layout has no distance to
+    // animate and will never emit transitionend.
+    currentComputedTranslateX = 301
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: false } as never)
+    })
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    expect(sidebarEl.style.willChange).toBe('')
+    expect(sidebarEl.style.transition).toBe('')
+    expect(sidebarEl.style.transform).toBe('')
+  })
+
+  it('keeps the active transition lifecycle attached across sidebar width updates', async () => {
+    document.documentElement.style.setProperty('--ease-drawer', 'cubic-bezier(0.32, 0.72, 0, 1)')
+    document.documentElement.style.setProperty('--dur-drawer', '340ms')
+
+    const container = mount({ conversations: {} })
+    const sidebarEl = container.querySelector('.sidebar') as HTMLElement
+
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: true } as never)
+    })
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    act(() => {
+      useAppStore.setState({ sidebarWidth: 360 } as never)
+    })
+
+    expect(sidebarEl.style.willChange).toBe('transform')
+    expect(sidebarEl.style.transition).toBe('transform 340ms cubic-bezier(0.32, 0.72, 0, 1)')
+    expect(sidebarEl.style.transform).toBe('translate3d(0, 0, 0)')
+
+    const transitionEnd = new Event('transitionend')
+    Object.defineProperty(transitionEnd, 'propertyName', { value: 'transform' })
+    act(() => {
+      sidebarEl.dispatchEvent(transitionEnd)
+    })
+
+    expect(sidebarEl.style.willChange).toBe('')
+    expect(sidebarEl.style.transition).toBe('')
+    expect(sidebarEl.style.transform).toBe('')
+  })
+
+  it('clears every temporary inline motion property when the transform completes', async () => {
+    document.documentElement.style.setProperty('--ease-drawer', 'cubic-bezier(0.32, 0.72, 0, 1)')
+    document.documentElement.style.setProperty('--dur-drawer', '340ms')
+
+    const container = mount({ conversations: {} })
+    const sidebarEl = container.querySelector('.sidebar') as HTMLElement
+
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: true } as never)
+    })
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    const transitionEnd = new Event('transitionend')
+    Object.defineProperty(transitionEnd, 'propertyName', { value: 'transform' })
+    act(() => {
+      sidebarEl.dispatchEvent(transitionEnd)
+    })
+
+    expect(sidebarEl.style.willChange).toBe('')
+    expect(sidebarEl.style.transition).toBe('')
+    expect(sidebarEl.style.transform).toBe('')
+  })
+
+  it("ignores a child's bubbled transform transitionend until the sidebar's own transform completes", async () => {
+    document.documentElement.style.setProperty('--ease-drawer', 'cubic-bezier(0.32, 0.72, 0, 1)')
+    document.documentElement.style.setProperty('--dur-drawer', '340ms')
+
+    const container = mount({ conversations: {} })
+    const sidebarEl = container.querySelector('.sidebar') as HTMLElement
+    const child = container.querySelector('.sidebar-chrome-spacer') as HTMLElement
+
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: true } as never)
+    })
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    const childTransitionEnd = new Event('transitionend', { bubbles: true })
+    Object.defineProperty(childTransitionEnd, 'propertyName', { value: 'transform' })
+    act(() => {
+      child.dispatchEvent(childTransitionEnd)
+    })
+
+    expect(sidebarEl.style.willChange).toBe('transform')
+    expect(sidebarEl.style.transition).toBe('transform 340ms cubic-bezier(0.32, 0.72, 0, 1)')
+    expect(sidebarEl.style.transform).toBe('translate3d(0, 0, 0)')
+
+    const sidebarTransitionEnd = new Event('transitionend')
+    Object.defineProperty(sidebarTransitionEnd, 'propertyName', { value: 'transform' })
+    act(() => {
+      sidebarEl.dispatchEvent(sidebarTransitionEnd)
+    })
+
+    expect(sidebarEl.style.willChange).toBe('')
+    expect(sidebarEl.style.transition).toBe('')
+    expect(sidebarEl.style.transform).toBe('')
+  })
+
+  it('clears an interrupted animation when reduced motion becomes active', async () => {
+    document.documentElement.style.setProperty('--ease-drawer', 'cubic-bezier(0.32, 0.72, 0, 1)')
+    document.documentElement.style.setProperty('--dur-drawer', '340ms')
+
+    const container = mount({ conversations: {} })
+    const sidebarEl = container.querySelector('.sidebar') as HTMLElement
+
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: true } as never)
+    })
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    vi.mocked(window.matchMedia).mockReturnValue({ matches: true } as MediaQueryList)
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: false } as never)
+    })
+
+    expect(sidebarEl.style.willChange).toBe('')
+    expect(sidebarEl.style.transition).toBe('')
+    expect(sidebarEl.style.transform).toBe('')
   })
 })

@@ -29,6 +29,10 @@ const CUSTOM_VARS = [
 ]
 
 const ZOOM: Record<Appearance['fontSize'], number> = { small: 0.9, medium: 1, large: 1.1 }
+const WINDOW_CONTROLS_LEFT_PX = 87
+const WINDOW_CONTROLS_TOP_PX = 16
+const WINDOW_CONTROLS_HIT_WIDTH_PX = 164
+const COLLAPSED_TOPBAR_CONTENT_LEFT_PX = 134
 
 // sRGB relative luminance of a #rrggbb color (0 dark .. 1 light).
 function luminance(hex: string): number {
@@ -86,7 +90,19 @@ export function applyAppearance(a: Appearance): void {
   root.setAttribute('data-width', a.conversationWidth)
   root.setAttribute('data-chat-font', a.chatFont)
   root.setAttribute('data-motion', a.reduceMotion ? 'reduced' : 'system')
-  root.style.setProperty('zoom', String(ZOOM[a.fontSize] ?? 1))
+  const zoom = ZOOM[a.fontSize] ?? 1
+  root.style.setProperty('zoom', String(zoom))
+  root.style.setProperty('--window-controls-left', `${WINDOW_CONTROLS_LEFT_PX / zoom}px`)
+  root.style.setProperty('--window-controls-top', `${WINDOW_CONTROLS_TOP_PX / zoom}px`)
+  root.style.setProperty('--window-controls-scale', String(1 / zoom))
+  root.style.setProperty(
+    '--window-controls-hit-width',
+    `${WINDOW_CONTROLS_HIT_WIDTH_PX / zoom}px`
+  )
+  root.style.setProperty(
+    '--collapsed-topbar-content-left',
+    `${COLLAPSED_TOPBAR_CONTENT_LEFT_PX / zoom}px`
+  )
   if (a.theme === 'custom') applyCustom(root, a.customColors)
   else clearCustomVars(root)
   // Notify Monaco (lazy-loaded) to re-theme its editors to match.
