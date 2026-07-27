@@ -24,7 +24,7 @@ vi.mock('../keys', () => ({
 }))
 
 vi.mock('../settings', () => ({
-  getSettings: () => ({ customModels: [], disabledModels: [], modelMetadata: {} })
+  getSettings: () => ({ customModels: [], disabledModels: [], enabledLiveModels: [], modelMetadata: {} })
 }))
 
 describe('registry live discovery orchestration', () => {
@@ -122,5 +122,31 @@ describe('registry live discovery orchestration', () => {
     const { knownModels, listManageableModels, ANTHROPIC_MODELS } = await import('./registry')
     await expect(listManageableModels()).resolves.toBeDefined()
     expect(knownModels('anthropic')).toEqual(ANTHROPIC_MODELS)
+  })
+
+  it('a live-only model defaults to disabled; opting in via enabledLiveModels enables it', async () => {
+    getKey.mockReturnValue('sk-test')
+    fetchAnthropicModels.mockResolvedValue({
+      models: [{ id: 'claude-new-model', label: 'Claude New Model' }],
+      capabilities: {}
+    })
+    fetchGoogleModels.mockResolvedValue(null)
+    fetchOpenAIModels.mockResolvedValue(null)
+    const { listManageableModels } = await import('./registry')
+    const providers = await listManageableModels()
+    const anthropic = providers.find((p) => p.id === 'anthropic')!
+    const row = anthropic.models.find((m) => m.id === 'claude-new-model')!
+    expect(row.liveOnly).toBe(true)
+    expect(row.enabled).toBe(false)
+  })
+
+  it('a curated model is liveOnly: false and stays enabled by default', async () => {
+    getKey.mockReturnValue(undefined)
+    const { listManageableModels } = await import('./registry')
+    const providers = await listManageableModels()
+    const anthropic = providers.find((p) => p.id === 'anthropic')!
+    const opus = anthropic.models.find((m) => m.id === 'claude-opus-4-8')!
+    expect(opus.liveOnly).toBe(false)
+    expect(opus.enabled).toBe(true)
   })
 })

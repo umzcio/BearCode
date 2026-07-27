@@ -356,21 +356,25 @@ export async function listManageableModels(): Promise<ManageableProvider[]> {
   await Promise.all(
     (['anthropic', 'google', 'openai'] as ProviderId[]).map((id) => ensureLiveDiscovery(id))
   )
-  const { customModels = [], disabledModels = [] } = getSettings()
+  const { customModels = [], disabledModels = [], enabledLiveModels = [] } = getSettings()
   const disabledSet = new Set(disabledModels)
+  const enabledLiveSet = new Set(enabledLiveModels)
   return MANAGEABLE_PROVIDER_IDS.map((id) => {
     const entry = getProvider(id)
     const models = knownModels(id)
+    const staticIds = new Set((STATIC_MODELS[id] ?? []).map((sm) => sm.id))
     const byId = new Map<string, ManageableModel>()
     for (const m of models) {
       const ref = `${id}/${m.id}`
+      const liveOnly = !staticIds.has(m.id)
       const liveCapabilities = liveCapabilitiesFor(ref)
       byId.set(m.id, {
         id: m.id,
         label: m.label,
         contextWindow: m.contextWindow,
         custom: false,
-        enabled: !disabledSet.has(ref),
+        liveOnly,
+        enabled: liveOnly ? enabledLiveSet.has(ref) : !disabledSet.has(ref),
         ...(liveCapabilities ? { liveCapabilities } : {})
       })
     }
@@ -381,6 +385,7 @@ export async function listManageableModels(): Promise<ManageableProvider[]> {
           label: c.label,
           contextWindow: c.contextWindow,
           custom: true,
+          liveOnly: false,
           enabled: !disabledSet.has(`${id}/${c.id}`)
         })
       }

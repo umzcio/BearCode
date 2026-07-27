@@ -979,6 +979,11 @@ export interface ManageableModel {
   contextWindow?: number
   custom: boolean // user-added (removable) vs curated (toggle-only)
   enabled: boolean // false when its ref is in disabledModels
+  // True only when this model exists in a provider's live-discovered list but
+  // NOT in that provider's curated STATIC_MODELS array (registry.ts). Never
+  // true for custom models. Drives the opt-in-vs-opt-out enabled default in
+  // listManageableModels().
+  liveOnly: boolean
   // Live-discovered capability data (Anthropic/Google only, this session) --
   // NOT persisted to AppSettings; overlaid on top of LiteLLM's persisted
   // modelMetadata by buildModelRows (Task 7). Absent for every model until a
@@ -1261,6 +1266,11 @@ export interface AppSettings {
   // Model refs the user starred in the Models page. Optional & additive:
   // settings persisted before this feature coerce to [].
   favoriteModels?: string[]
+  // Opt-IN allowlist for models that exist only because live discovery found
+  // them (registry.ts's liveOnly flag) -- parallel to disabledModels, which
+  // stays an opt-OUT list for curated/custom models. Optional & additive:
+  // settings persisted before this feature coerce to [].
+  enabledLiveModels?: string[]
   // Voice input STT backend (E5). Optional & additive: settings persisted before
   // this feature load unchanged (coerced to 'openai', the guaranteed default).
   sttBackend?: SttBackend
