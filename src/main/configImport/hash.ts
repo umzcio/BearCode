@@ -42,3 +42,30 @@ export function hashSourceContent(projectPath: string, sourcePath: string): stri
   const read = readFileCapped(target, MAX_IMPORT_BYTES, projectPath)
   return read ? hashOf(read.text) : null
 }
+
+export interface SourceRead {
+  text: string
+  truncated: boolean
+  hash: string
+}
+
+// Reads a detected source's raw content and hashes it in ONE read, using the
+// same target-resolution hashSourceContent uses (a directory source, e.g. a
+// skill, resolves to its SKILL.md). Returns null under the same conditions
+// hashSourceContent already returned null for (missing, unreadable,
+// oversized-and-rejected). Callers derive BOTH the persisted hash and the
+// translated body from this single read instead of two independent
+// readFileCapped calls -- closes a TOCTOU where the source file could change
+// between a "read for body" and a separate "read for hash".
+export function readAndHashSource(projectPath: string, sourcePath: string): SourceRead | null {
+  const abs = join(projectPath, sourcePath)
+  let target = abs
+  try {
+    if (statSync(abs).isDirectory()) target = join(abs, 'SKILL.md')
+  } catch {
+    return null
+  }
+  const read = readFileCapped(target, MAX_IMPORT_BYTES, projectPath)
+  if (!read) return null
+  return { text: read.text, truncated: read.truncated, hash: hashOf(read.text) }
+}
