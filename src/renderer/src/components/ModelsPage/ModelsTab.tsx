@@ -54,7 +54,7 @@ export function ModelsTab(): React.JSX.Element {
     'all'
   )
   const [statusFilter, setStatusFilter] = useState<'all' | ModelStatus>('all')
-  const [enabledOnly, setEnabledOnly] = useState(false)
+  const [enabledOnly, setEnabledOnly] = useState(true)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<'10' | '25' | '50'>('25')
   const [openRef, setOpenRef] = useState<string | null>(null)

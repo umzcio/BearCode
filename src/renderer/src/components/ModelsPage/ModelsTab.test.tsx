@@ -59,9 +59,18 @@ function seed(overrides: Record<string, unknown> = {}): void {
 }
 
 describe('ModelsTab', () => {
-  it('renders one row per manageable model across every provider', () => {
+  it('defaults to "show enabled only", hiding the disabled row', () => {
     seed()
     render(<ModelsTab />)
+    expect(screen.queryByText('Claude Haiku 4.5')).toBeNull()
+    expect(screen.getByText('Claude Opus 4.8')).toBeTruthy()
+    expect(screen.getByText('GPT-5.6 Sol')).toBeTruthy()
+  })
+
+  it('renders one row per manageable model across every provider once "show enabled only" is off', () => {
+    seed()
+    render(<ModelsTab />)
+    fireEvent.click(screen.getByRole('switch', { name: /show enabled only/i }))
     expect(screen.getByText('Claude Opus 4.8')).toBeTruthy()
     expect(screen.getByText('Claude Haiku 4.5')).toBeTruthy()
     expect(screen.getByText('GPT-5.6 Sol')).toBeTruthy()
@@ -78,16 +87,20 @@ describe('ModelsTab', () => {
   it('filters by search text against the vendor name too, not just the model label', () => {
     seed()
     render(<ModelsTab />)
+    fireEvent.click(screen.getByRole('switch', { name: /show enabled only/i }))
     fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'anthropic' } })
     expect(screen.getByText('Claude Opus 4.8')).toBeTruthy()
     expect(screen.getByText('Claude Haiku 4.5')).toBeTruthy()
     expect(screen.queryByText('GPT-5.6 Sol')).toBeNull()
   })
 
-  it('"show enabled only" hides the disabled row', () => {
+  it('"show enabled only" toggles the disabled row back into view and out again', () => {
     seed()
     render(<ModelsTab />)
-    fireEvent.click(screen.getByRole('switch', { name: /show enabled only/i }))
+    const toggle = screen.getByRole('switch', { name: /show enabled only/i })
+    fireEvent.click(toggle)
+    expect(screen.getByText('Claude Haiku 4.5')).toBeTruthy()
+    fireEvent.click(toggle)
     expect(screen.queryByText('Claude Haiku 4.5')).toBeNull()
     expect(screen.getByText('Claude Opus 4.8')).toBeTruthy()
   })
@@ -106,6 +119,7 @@ describe('ModelsTab', () => {
     const setModelEnabled = vi.fn().mockResolvedValue(undefined)
     seed({ setModelEnabled })
     render(<ModelsTab />)
+    fireEvent.click(screen.getByRole('switch', { name: /show enabled only/i }))
     const row = screen.getByText('Claude Haiku 4.5').closest('.mt-row') as HTMLElement
     fireEvent.click(within(row).getByRole('switch'))
     expect(setModelEnabled).toHaveBeenCalledWith('anthropic/claude-haiku-4-5', true)
@@ -159,6 +173,7 @@ describe('ModelsTab', () => {
     // Claude rows) should stay unchanged.
     seed({ settings: { modelPricing: {}, modelMetadata: {}, favoriteModels: ['openai/gpt-5.6-sol'] } })
     render(<ModelsTab />)
+    fireEvent.click(screen.getByRole('switch', { name: /show enabled only/i }))
     const names = Array.from(document.querySelectorAll('.mt-model-name')).map((el) => el.textContent)
     expect(names).toEqual(['GPT-5.6 Sol', 'Claude Opus 4.8', 'Claude Haiku 4.5'])
   })
@@ -167,6 +182,7 @@ describe('ModelsTab', () => {
     const setModelEnabled = vi.fn().mockResolvedValue(undefined)
     seed({ setModelEnabled })
     render(<ModelsTab />)
+    fireEvent.click(screen.getByRole('switch', { name: /show enabled only/i }))
     fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'claude' } })
     fireEvent.click(screen.getByText('Bulk actions'))
     fireEvent.click(screen.getByText('Disable all filtered'))
