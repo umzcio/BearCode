@@ -195,6 +195,10 @@ afterEach(() => {
 })
 
 describe('pane width persistence', () => {
+  it('starts a new profile with a 280px sidebar', () => {
+    expect(useAppStore.getState().sidebarWidth).toBe(280)
+  })
+
   it('publishes transient widths without storage writes, then persists each released width once', () => {
     const setItem = vi.fn()
     vi.stubGlobal('localStorage', { setItem })

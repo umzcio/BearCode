@@ -680,7 +680,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   return {
     sidebarCollapsed: false,
-    sidebarWidth: readStoredWidth('bearcode.sidebarWidth', 300, SIDEBAR_MIN, SIDEBAR_MAX),
+    sidebarWidth: readStoredWidth('bearcode.sidebarWidth', 280, SIDEBAR_MIN, SIDEBAR_MAX),
     auxPaneWidth: readStoredWidth('bearcode.auxPaneWidth', 560, AUX_MIN, AUX_MAX),
     modelMenuTick: 0,
     projectMenuTick: 0,

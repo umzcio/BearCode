@@ -1,6 +1,6 @@
 .sidebar {
-  width: 300px;
-  min-width: 300px;
+  width: 280px;
+  min-width: 280px;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-soft);
   display: flex;
@@ -13,7 +13,7 @@
      Reduced-motion is handled in the effect (it skips the transform entirely). */
 }
 .sidebar.collapsed {
-  margin-left: -301px;
+  margin-left: -281px;
 }
 @media (prefers-reduced-motion: reduce) {
   .sidebar {
