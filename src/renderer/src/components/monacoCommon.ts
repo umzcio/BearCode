@@ -1,7 +1,7 @@
 // Shared Monaco setup: theme, worker env, and the line-comment affordance
 // used by both the diff view and the plain code view.
 import * as monaco from 'monaco-editor'
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import editorWorker from 'monaco-editor/editor/editor.worker.js?worker'
 
 self.MonacoEnvironment = {
   getWorker: () => new editorWorker()
