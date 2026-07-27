@@ -1268,11 +1268,18 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     syncPricing: async () => {
-      // Main fetches + persists the prices; re-fetch settings so the freshly
-      // synced modelPricing/modelPricingSyncedAt land in the store.
+      // Main fetches + persists the prices (and clears its live-discovery
+      // cache -- see registry.ts's clearLiveDiscoveryCache); re-fetch
+      // settings so the freshly synced modelPricing/modelMetadata land in
+      // the store, then refresh providers/manageableModels so any
+      // newly-discovered live models actually appear -- clearing a
+      // main-process-only cache does nothing to already-fetched renderer
+      // state on its own.
       const result = await window.bearcode.pricing.sync()
       const settings = await window.bearcode.settings.get()
       set({ settings })
+      await get().refreshProviders()
+      await get().refreshManageableModels()
       return result
     },
 
