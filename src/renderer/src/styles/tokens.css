@@ -16,7 +16,7 @@
   /* Renderer window-chrome geometry. appearance.ts divides these layout
      coordinates by root zoom and inversely scales the fixed control layer so
      it stays physically anchored beside Electron's unscaled traffic lights. */
-  --window-controls-left: 100px;
+  --window-controls-left: 96px;
   --window-controls-top: 16px;
   --window-controls-scale: 1;
   --window-controls-hit-width: 164px;
