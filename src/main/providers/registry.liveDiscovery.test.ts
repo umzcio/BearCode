@@ -23,8 +23,14 @@ vi.mock('../keys', () => ({
   })
 }))
 
+const getSettingsImpl = vi.fn(() => ({
+  customModels: [],
+  disabledModels: [],
+  enabledLiveModels: [] as string[],
+  modelMetadata: {}
+}))
 vi.mock('../settings', () => ({
-  getSettings: () => ({ customModels: [], disabledModels: [], enabledLiveModels: [], modelMetadata: {} })
+  getSettings: () => getSettingsImpl()
 }))
 
 describe('registry live discovery orchestration', () => {
@@ -34,6 +40,12 @@ describe('registry live discovery orchestration', () => {
     fetchGoogleModels.mockReset()
     fetchOpenAIModels.mockReset()
     getKey.mockReset()
+    getSettingsImpl.mockReturnValue({
+      customModels: [],
+      disabledModels: [],
+      enabledLiveModels: [],
+      modelMetadata: {}
+    })
   })
 
   it('falls back to the static array when no key is configured (never calls fetch)', async () => {
@@ -124,7 +136,7 @@ describe('registry live discovery orchestration', () => {
     expect(knownModels('anthropic')).toEqual(ANTHROPIC_MODELS)
   })
 
-  it('a live-only model defaults to disabled; opting in via enabledLiveModels enables it', async () => {
+  it('a live-only model defaults to disabled', async () => {
     getKey.mockReturnValue('sk-test')
     fetchAnthropicModels.mockResolvedValue({
       models: [{ id: 'claude-new-model', label: 'Claude New Model' }],
@@ -138,6 +150,28 @@ describe('registry live discovery orchestration', () => {
     const row = anthropic.models.find((m) => m.id === 'claude-new-model')!
     expect(row.liveOnly).toBe(true)
     expect(row.enabled).toBe(false)
+  })
+
+  it('opting in via enabledLiveModels enables a live-only model', async () => {
+    getKey.mockReturnValue('sk-test')
+    fetchAnthropicModels.mockResolvedValue({
+      models: [{ id: 'claude-new-model', label: 'Claude New Model' }],
+      capabilities: {}
+    })
+    fetchGoogleModels.mockResolvedValue(null)
+    fetchOpenAIModels.mockResolvedValue(null)
+    getSettingsImpl.mockReturnValue({
+      customModels: [],
+      disabledModels: [],
+      enabledLiveModels: ['anthropic/claude-new-model'],
+      modelMetadata: {}
+    })
+    const { listManageableModels } = await import('./registry')
+    const providers = await listManageableModels()
+    const anthropic = providers.find((p) => p.id === 'anthropic')!
+    const row = anthropic.models.find((m) => m.id === 'claude-new-model')!
+    expect(row.liveOnly).toBe(true)
+    expect(row.enabled).toBe(true)
   })
 
   it('a curated model is liveOnly: false and stays enabled by default', async () => {
