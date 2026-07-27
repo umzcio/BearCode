@@ -1305,3 +1305,102 @@ describe('pricing/models store actions', () => {
     expect(result).toEqual(pricingSyncResult)
   })
 })
+
+describe('setModelEnabled — liveOnly models opt-in via enabledLiveModels', () => {
+  const modelsList = { list: vi.fn(() => Promise.resolve([])) }
+  const modelsManageable = { manageable: vi.fn(() => Promise.resolve([])) }
+  const settingsSet = vi.fn()
+
+  beforeEach(() => {
+    vi.stubGlobal('window', {
+      bearcode: {
+        models: { list: modelsList.list, manageable: modelsManageable.manageable },
+        settings: { set: settingsSet },
+        permissions,
+        conversations,
+        run,
+        commands,
+        artifacts,
+        mentions,
+        attachments,
+        projects,
+        shell
+      } as unknown as BearcodeApi
+    })
+    modelsList.list.mockClear()
+    modelsManageable.manageable.mockClear()
+    settingsSet.mockReset()
+  })
+
+  it('writes to enabledLiveModels (not disabledModels) for a liveOnly model', async () => {
+    useAppStore.setState({
+      settings: { disabledModels: [], enabledLiveModels: [] } as never,
+      manageableModels: [
+        {
+          id: 'anthropic',
+          displayName: 'Anthropic',
+          color: '#d97757',
+          models: [
+            {
+              id: 'claude-new-model',
+              label: 'Claude New Model',
+              custom: false,
+              enabled: false,
+              liveOnly: true
+            }
+          ]
+        }
+      ] as never
+    })
+    settingsSet.mockResolvedValue({
+      disabledModels: [],
+      enabledLiveModels: ['anthropic/claude-new-model']
+    })
+
+    await useAppStore.getState().setModelEnabled('anthropic/claude-new-model', true)
+
+    expect(settingsSet).toHaveBeenCalledWith({ enabledLiveModels: ['anthropic/claude-new-model'] })
+    expect(useAppStore.getState().settings?.enabledLiveModels).toEqual([
+      'anthropic/claude-new-model'
+    ])
+    expect(useAppStore.getState().settings?.disabledModels).toEqual([])
+    // disabledModels-triggered refreshProviders only fires for a disabledModels/
+    // customModels/ollamaBaseUrl patch (saveSettings), so an enabledLiveModels-only
+    // patch must not touch the provider picker list.
+    expect(modelsList.list).not.toHaveBeenCalled()
+  })
+
+  it('unchanged: a non-liveOnly model still patches disabledModels, never enabledLiveModels', async () => {
+    useAppStore.setState({
+      settings: { disabledModels: [], enabledLiveModels: ['anthropic/some-other-live'] } as never,
+      manageableModels: [
+        {
+          id: 'anthropic',
+          displayName: 'Anthropic',
+          color: '#d97757',
+          models: [
+            {
+              id: 'claude-opus-4-8',
+              label: 'Opus',
+              custom: false,
+              enabled: true,
+              liveOnly: false
+            }
+          ]
+        }
+      ] as never
+    })
+    settingsSet.mockResolvedValue({
+      disabledModels: ['anthropic/claude-opus-4-8'],
+      enabledLiveModels: ['anthropic/some-other-live']
+    })
+
+    await useAppStore.getState().setModelEnabled('anthropic/claude-opus-4-8', false)
+
+    expect(settingsSet).toHaveBeenCalledWith({ disabledModels: ['anthropic/claude-opus-4-8'] })
+    expect(useAppStore.getState().settings?.disabledModels).toEqual(['anthropic/claude-opus-4-8'])
+    expect(useAppStore.getState().settings?.enabledLiveModels).toEqual([
+      'anthropic/some-other-live'
+    ])
+  })
+})

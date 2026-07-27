@@ -814,14 +814,35 @@ export const useAppStore = create<AppState>((set, get) => {
     setModelEnabled: async (ref, enabled) => {
       const s = get().settings
       if (!s) return
-      const cur = s.disabledModels ?? []
-      const disabledModels = enabled ? cur.filter((r) => r !== ref) : [...new Set([...cur, ref])]
+      const [providerId, ...rest] = ref.split('/')
+      const modelId = rest.join('/')
+      const model = get()
+        .manageableModels.find((p) => p.id === providerId)
+        ?.models.find((m) => m.id === modelId)
+      // liveOnly models (discovered, not curated) are opt-IN: absence from
+      // enabledLiveModels means disabled. Everything else is opt-OUT via
+      // disabledModels, unchanged from before liveOnly existed.
       // Disabling the persisted default model clears it, so a hidden model is
       // never re-selected for new conversations (ensureDefaultModel).
-      const patch =
-        !enabled && s.defaultModelRef === ref
-          ? { disabledModels, defaultModelRef: null }
-          : { disabledModels }
+      const patch = model?.liveOnly
+        ? (() => {
+            const cur = s.enabledLiveModels ?? []
+            const enabledLiveModels = enabled
+              ? [...new Set([...cur, ref])]
+              : cur.filter((r) => r !== ref)
+            return !enabled && s.defaultModelRef === ref
+              ? { enabledLiveModels, defaultModelRef: null }
+              : { enabledLiveModels }
+          })()
+        : (() => {
+            const cur = s.disabledModels ?? []
+            const disabledModels = enabled
+              ? cur.filter((r) => r !== ref)
+              : [...new Set([...cur, ref])]
+            return !enabled && s.defaultModelRef === ref
+              ? { disabledModels, defaultModelRef: null }
+              : { disabledModels }
+          })()
       // Optimistic synchronous update: rapid consecutive toggles then read the
       // updated array (no lost-update race), and the switch flips immediately
       // rather than after the (Ollama-fetching) provider refresh completes.
