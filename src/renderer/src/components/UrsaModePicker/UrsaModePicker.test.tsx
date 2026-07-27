@@ -65,13 +65,13 @@ describe('UrsaModePicker', () => {
   it('closes when Settings opens', () => {
     render(<UrsaModePicker />)
     fireEvent.click(screen.getByText('Code'))
-    expect(screen.getByText('Council')).toBeTruthy()
+    expect(screen.getByRole('listbox')).toBeTruthy()
     // useAppStore.setState alone doesn't synchronously flush the resulting
     // re-render under React 19 + RTL's automatic batching outside act() --
     // wrap it so the assertion below observes the post-close DOM.
     act(() => {
       useAppStore.setState({ settingsOpen: true })
     })
-    expect(screen.queryByText('Council')).toBeNull()
+    expect(screen.queryByRole('listbox')).toBeNull()
   })
 })

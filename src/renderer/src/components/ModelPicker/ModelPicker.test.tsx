@@ -207,13 +207,13 @@ describe('ModelPicker — closes on Settings open', () => {
     })
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button'))
-    expect(screen.getByText('Claude Sonnet 5')).toBeTruthy()
+    expect(screen.getByRole('listbox')).toBeTruthy()
     // useAppStore.setState alone doesn't synchronously flush the resulting
     // re-render under React 19 + RTL's automatic batching outside act() --
     // wrap it so the assertion below observes the post-close DOM.
     act(() => {
       useAppStore.setState({ settingsOpen: true })
     })
-    expect(screen.queryByText('Claude Sonnet 5')).toBeNull()
+    expect(screen.queryByRole('listbox')).toBeNull()
   })
 })

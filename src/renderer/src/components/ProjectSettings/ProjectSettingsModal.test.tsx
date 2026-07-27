@@ -130,12 +130,12 @@ describe('ProjectSettingsModal (folder = project, left-nav shell)', () => {
   it('default effort (Defaults tab): High writes it; Inherit writes null', () => {
     render(<ProjectSettingsModal />)
     goTo('Defaults')
-    fireEvent.click(screen.getByLabelText('Project default effort'))
+    fireEvent.click(screen.getByRole('button', { name: 'Project default effort' }))
     fireEvent.click(
       screen.getAllByRole('option').find((o) => o.textContent?.includes('High')) as HTMLElement
     )
     expect(updateSpy).toHaveBeenCalledWith('/Users/zach/Campus', { defaultEffort: 'high' })
-    fireEvent.click(screen.getByLabelText('Project default effort'))
+    fireEvent.click(screen.getByRole('button', { name: 'Project default effort' }))
     fireEvent.click(
       screen.getAllByRole('option').find((o) => o.textContent?.includes('Inherit')) as HTMLElement
     )
