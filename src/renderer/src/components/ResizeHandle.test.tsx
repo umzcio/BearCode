@@ -108,4 +108,39 @@ describe('ResizeHandle', () => {
     expect(document.body.style.userSelect).toBe('')
     expect(onDrag).not.toHaveBeenCalled()
   })
+
+  it('cleans up a replaced drag so unmount abandons both drags', () => {
+    const onDrag = vi.fn()
+    const addSpy = vi.spyOn(window, 'addEventListener')
+    const removeSpy = vi.spyOn(window, 'removeEventListener')
+    const { unmount } = render(<ResizeHandle onDrag={onDrag} />)
+    const handle = screen.getByRole('separator')
+
+    fireEvent.mouseDown(handle, { clientX: 20 })
+    fireEvent.mouseMove(window, { clientX: 25 })
+    fireEvent.mouseDown(handle, { clientX: 100 })
+    fireEvent.mouseMove(window, { clientX: 105 })
+
+    const moves = addSpy.mock.calls
+      .filter(([type]) => type === 'mousemove')
+      .map(([, listener]) => listener)
+    const ups = addSpy.mock.calls
+      .filter(([type]) => type === 'mouseup')
+      .map(([, listener]) => listener)
+
+    unmount()
+    fireEvent.mouseMove(window, { clientX: 110 })
+    for (const [id, callback] of frames) {
+      frames.delete(id)
+      callback(16)
+    }
+
+    expect(moves).toHaveLength(2)
+    expect(ups).toHaveLength(2)
+    for (const move of moves) expect(removeSpy).toHaveBeenCalledWith('mousemove', move)
+    for (const up of ups) expect(removeSpy).toHaveBeenCalledWith('mouseup', up)
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(1)
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(2)
+    expect(onDrag).not.toHaveBeenCalled()
+  })
 })

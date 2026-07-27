@@ -23,6 +23,7 @@ export function ResizeHandle({ onDrag, onDragEnd }: ResizeHandleProps): React.JS
 
   const onMouseDown = (e: React.MouseEvent): void => {
     e.preventDefault()
+    activeCleanup.current?.()
     lastX.current = e.clientX
     let pendingDx = 0
     let frame: number | null = null
