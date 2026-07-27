@@ -1254,3 +1254,54 @@ describe('modelDisplay — Ursus sentinel', () => {
     expect(result.color).toBe('#6ec3fa')
   })
 })
+
+describe('pricing/models store actions', () => {
+  beforeEach(() => {
+    // Setup pricing mocks for this test suite
+    vi.stubGlobal('window', {
+      bearcode: {
+        pricing: { sync: vi.fn(() => Promise.resolve({})) },
+        settings: { get: vi.fn(() => Promise.resolve({})) },
+        permissions,
+        conversations,
+        run,
+        commands,
+        artifacts,
+        mentions,
+        attachments,
+        projects,
+        shell
+      } as unknown as BearcodeApi
+    })
+  })
+
+  it('syncPricing calls refreshProviders and refreshManageableModels after fetching settings', async () => {
+    const pricingSyncResult = { syncedCount: 1, metadataCount: 1, unmatched: [], syncedAt: Date.now() }
+    ;(window.bearcode.pricing.sync as any).mockResolvedValue(pricingSyncResult)
+    ;(window.bearcode.settings.get as any).mockResolvedValue({
+      modelPricing: { 'anthropic/claude-opus-4-8': { inputCostPer1kTokens: 0.015 } },
+      modelMetadata: {},
+      favoriteModels: [],
+      modelPricingSyncedAt: Date.now()
+    })
+
+    // Setup spy/mock functions for the refresh actions
+    const refreshProviders = vi.fn().mockResolvedValue(undefined)
+    const refreshManageableModels = vi.fn().mockResolvedValue(undefined)
+    useAppStore.setState({ refreshProviders, refreshManageableModels } as never)
+
+    // Call the real syncPricing action
+    const result = await useAppStore.getState().syncPricing()
+
+    // Verify the IPC calls were made
+    expect(window.bearcode.pricing.sync).toHaveBeenCalled()
+    expect(window.bearcode.settings.get).toHaveBeenCalled()
+
+    // Verify the refresh functions were called by the real action
+    expect(refreshProviders).toHaveBeenCalled()
+    expect(refreshManageableModels).toHaveBeenCalled()
+
+    // Verify the result is returned
+    expect(result).toEqual(pricingSyncResult)
+  })
+})

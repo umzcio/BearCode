@@ -1,13 +1,8 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { useAppStore } from '../../state/store'
 import { ModelsPage } from './ModelsPage'
-
-beforeEach(() => {
-  // Reset all global stubs before each test
-  vi.unstubAllGlobals()
-})
 
 afterEach(cleanup)
 
@@ -77,25 +72,5 @@ describe('ModelsPage', () => {
     fireEvent.click(screen.getByText('Sync metadata'))
     await waitFor(() => expect(screen.getByText('offline')).toBeTruthy())
     expect(document.querySelector('.ui-error-card')).toBeTruthy()
-  })
-
-  it('refreshes providers and manageableModels after a successful metadata sync', async () => {
-    const refreshProviders = vi.fn().mockResolvedValue(undefined)
-    const refreshManageableModels = vi.fn().mockResolvedValue(undefined)
-    // Mock syncPricing to simulate the real action's behavior: call refreshProviders and refreshManageableModels
-    const syncPricing = vi.fn(async () => {
-      await refreshProviders()
-      await refreshManageableModels()
-      return { syncedCount: 1, metadataCount: 1, unmatched: [], syncedAt: Date.now() }
-    })
-    seed()
-    useAppStore.setState({ syncPricing, refreshProviders, refreshManageableModels } as never)
-    render(<ModelsPage />)
-    fireEvent.click(screen.getByText('Sync metadata'))
-    // Wait for the action to complete and both refresh functions to be called
-    await waitFor(() => {
-      expect(refreshProviders).toHaveBeenCalled()
-      expect(refreshManageableModels).toHaveBeenCalled()
-    })
   })
 })
