@@ -444,11 +444,18 @@ export function clearLiveDiscoveryCache(): void {
   liveCapabilityCache.clear()
 }
 
-// Merge a live-discovered list with the static curated array by id. For
-// Anthropic/Google, live wins outright on collision (their APIs return a
-// real display name). For OpenAI specifically, prefer the STATIC entry's
-// label on collision -- OpenAI's list endpoint has no display-name field at
-// all, so a raw id ("gpt-5.6-sol") is worse UX than a name we already have.
+// Merge a live-discovered list with the static curated array by id, PER
+// FIELD -- never wholesale-replace a static entry with a live one. Several
+// live sources omit fields the curated array carries (OpenAI's endpoint has
+// no contextWindow at all; Anthropic/Google omit it whenever their payload's
+// context field is 0/absent), so spreading `existing` first and `m` second
+// means a field live doesn't provide falls through to the static value,
+// while any field live DOES provide (id/label/a real contextWindow) still
+// wins. For Anthropic/Google, live's label wins outright on collision (their
+// APIs return a real display name). For OpenAI specifically, prefer the
+// STATIC entry's label on collision -- OpenAI's list endpoint has no
+// display-name field at all, so a raw id ("gpt-5.6-sol") is worse UX than a
+// name we already have.
 function mergeLiveWithStatic(
   live: ModelInfo[],
   staticModels: ModelInfo[],
@@ -460,6 +467,7 @@ function mergeLiveWithStatic(
   for (const m of live) {
     const existing = staticById.get(m.id)
     byId.set(m.id, {
+      ...existing,
       ...m,
       label: opts.preferStaticLabel && existing ? existing.label : m.label
     })

@@ -61,13 +61,21 @@ export async function fetchAnthropicModels(apiKey: string): Promise<LiveDiscover
         })
         if (entry.capabilities) {
           const c = entry.capabilities
-          capabilities[entry.id] = {
-            vision: c.image_input?.supported ?? false,
-            responseSchema: c.structured_outputs?.supported ?? false,
-            reasoning: c.thinking?.supported ?? false,
-            codeExecution: c.code_execution?.supported ?? false,
-            pdfInput: c.pdf_input?.supported ?? false
-          }
+          // Only set a field when its sub-object was actually present in the
+          // response -- "Anthropic didn't mention this field" must stay
+          // absent (undefined), never harden into a manufactured `false`.
+          // A present `false` here would win the per-field merge in
+          // modelRows.ts's mergeMetadata (`live?.vision ?? base?...`) and
+          // shadow a real `true` from LiteLLM's synced metadata.
+          const patch: Partial<ModelMetadata['capabilities']> = {}
+          if (c.image_input?.supported !== undefined) patch.vision = c.image_input.supported
+          if (c.structured_outputs?.supported !== undefined)
+            patch.responseSchema = c.structured_outputs.supported
+          if (c.thinking?.supported !== undefined) patch.reasoning = c.thinking.supported
+          if (c.code_execution?.supported !== undefined)
+            patch.codeExecution = c.code_execution.supported
+          if (c.pdf_input?.supported !== undefined) patch.pdfInput = c.pdf_input.supported
+          capabilities[entry.id] = patch
         }
       }
       if (!body.has_more) break
@@ -84,6 +92,12 @@ interface GoogleModelEntry {
   displayName?: string
   inputTokenLimit?: number
   thinking?: boolean
+  // The standard signal for "this model can do chat/text generation" on
+  // Gemini's API. models.list also returns embedding models, Imagen, Veo,
+  // TTS/image variants, Gemma, etc. -- entries missing this field entirely
+  // are excluded too (fail toward excluding an unknown-shaped entry, not
+  // including it).
+  supportedGenerationMethods?: string[]
 }
 interface GoogleModelsResponse {
   models?: GoogleModelEntry[]
@@ -108,6 +122,7 @@ export async function fetchGoogleModels(apiKey: string): Promise<LiveDiscoveryRe
       if (!res.ok) return null
       const body = (await res.json()) as GoogleModelsResponse
       for (const entry of body.models ?? []) {
+        if (!entry.supportedGenerationMethods?.includes('generateContent')) continue
         const id = entry.name.replace(/^models\//, '')
         models.push({
           id,

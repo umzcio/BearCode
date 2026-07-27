@@ -59,6 +59,25 @@ describe('registry live discovery orchestration', () => {
     expect(liveCapabilitiesFor('anthropic/claude-opus-4-8')).toEqual({ vision: true })
   })
 
+  it('keeps the static curated contextWindow when a live OpenAI entry omits one entirely', async () => {
+    getKey.mockReturnValue('sk-test')
+    fetchAnthropicModels.mockResolvedValue(null)
+    fetchGoogleModels.mockResolvedValue(null)
+    fetchOpenAIModels.mockResolvedValue({
+      models: [{ id: 'gpt-5.6-sol', label: 'gpt-5.6-sol' }],
+      capabilities: {}
+    })
+    const { knownModels, contextWindowFor, listManageableModels, OPENAI_MODELS } = await import(
+      './registry'
+    )
+    await listManageableModels()
+    const merged = knownModels('openai').find((m) => m.id === 'gpt-5.6-sol')
+    const staticEntry = OPENAI_MODELS.find((m) => m.id === 'gpt-5.6-sol')
+    expect(merged?.contextWindow).toBe(staticEntry?.contextWindow)
+    expect(merged?.contextWindow).not.toBeUndefined()
+    expect(contextWindowFor('openai/gpt-5.6-sol')).toBe(staticEntry?.contextWindow)
+  })
+
   it('prefers the static curated label for OpenAI on id collision (no display name live)', async () => {
     getKey.mockReturnValue('sk-test')
     fetchAnthropicModels.mockResolvedValue(null)

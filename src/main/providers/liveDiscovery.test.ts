@@ -48,6 +48,22 @@ describe('fetchAnthropicModels', () => {
     })
   })
 
+  it('omits capability fields the response is silent on, rather than defaulting them to false', async () => {
+    mockFetchOnce({
+      data: [
+        {
+          id: 'claude-haiku-4-5',
+          display_name: 'Claude Haiku 4.5',
+          capabilities: { image_input: { supported: true } }
+        }
+      ],
+      has_more: false,
+      last_id: 'claude-haiku-4-5'
+    })
+    const result = await fetchAnthropicModels('sk-test')
+    expect(result?.capabilities['claude-haiku-4-5']).toEqual({ vision: true })
+  })
+
   it('treats a 0 max_input_tokens as unknown, not a real context window', async () => {
     mockFetchOnce({
       data: [{ id: 'x', display_name: 'X', max_input_tokens: 0 }],
@@ -103,7 +119,8 @@ describe('fetchGoogleModels', () => {
           name: 'models/gemini-3.1-pro-preview',
           displayName: 'Gemini 3.1 Pro',
           inputTokenLimit: 1_000_000,
-          thinking: true
+          thinking: true,
+          supportedGenerationMethods: ['generateContent']
         }
       ]
     })
@@ -115,9 +132,37 @@ describe('fetchGoogleModels', () => {
   })
 
   it('falls back to the stripped id as label when displayName is absent', async () => {
-    mockFetchOnce({ models: [{ name: 'models/some-new-model' }] })
+    mockFetchOnce({
+      models: [{ name: 'models/some-new-model', supportedGenerationMethods: ['generateContent'] }]
+    })
     const result = await fetchGoogleModels('key-test')
     expect(result?.models[0]).toEqual({ id: 'some-new-model', label: 'some-new-model' })
+  })
+
+  it('keeps a generateContent-capable entry', async () => {
+    mockFetchOnce({
+      models: [
+        { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent', 'countTokens'] }
+      ]
+    })
+    const result = await fetchGoogleModels('key-test')
+    expect(result?.models.map((m) => m.id)).toEqual(['gemini-2.5-flash'])
+  })
+
+  it('filters out an embedding-only entry', async () => {
+    mockFetchOnce({
+      models: [
+        { name: 'models/text-embedding-004', supportedGenerationMethods: ['embedContent'] }
+      ]
+    })
+    const result = await fetchGoogleModels('key-test')
+    expect(result?.models).toEqual([])
+  })
+
+  it('filters out an entry with no supportedGenerationMethods field at all', async () => {
+    mockFetchOnce({ models: [{ name: 'models/some-unknown-shape' }] })
+    const result = await fetchGoogleModels('key-test')
+    expect(result?.models).toEqual([])
   })
 
   it('follows nextPageToken pagination', async () => {
@@ -128,10 +173,19 @@ describe('fetchGoogleModels', () => {
         return Promise.resolve({
           ok: true,
           json: () =>
-            Promise.resolve({ models: [{ name: 'models/a' }], nextPageToken: 'page2' })
+            Promise.resolve({
+              models: [{ name: 'models/a', supportedGenerationMethods: ['generateContent'] }],
+              nextPageToken: 'page2'
+            })
         })
       }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ models: [{ name: 'models/b' }] }) })
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            models: [{ name: 'models/b', supportedGenerationMethods: ['generateContent'] }]
+          })
+      })
     }) as unknown as typeof fetch
     const result = await fetchGoogleModels('key-test')
     expect(result?.models.map((m) => m.id)).toEqual(['a', 'b'])
