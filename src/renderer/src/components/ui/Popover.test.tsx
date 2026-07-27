@@ -1,10 +1,41 @@
 // @vitest-environment jsdom
+// @ts-expect-error -- Vitest executes this stylesheet harness in Node; the web tsconfig omits Node types.
+import { readFileSync } from 'node:fs'
 import { useRef } from 'react'
-import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { Popover } from './Popover'
 
-afterEach(cleanup)
+const popoverStyles = readFileSync('src/renderer/src/components/ui/Popover.css', 'utf8')
+
+function stubMatchMedia(reduce: boolean): void {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)' ? reduce : false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    }))
+  )
+}
+
+beforeEach(() => {
+  vi.useFakeTimers()
+  stubMatchMedia(false)
+  const style = document.createElement('style')
+  style.dataset.testStyles = 'popover'
+  style.textContent = popoverStyles
+  document.head.append(style)
+})
+
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+  document.documentElement.removeAttribute('data-motion')
+  document.querySelector('style[data-test-styles="popover"]')?.remove()
+})
 
 function Harness({ open, onClose }: { open: boolean; onClose: () => void }): React.JSX.Element {
   const anchorRef = useRef<HTMLButtonElement>(null)
@@ -50,5 +81,80 @@ describe('Popover', () => {
     render(<Harness open={true} onClose={onClose} />)
     fireEvent.pointerDown(screen.getByText('Popover content'))
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('retains an open popover as closing, then unmounts it after 150ms', () => {
+    const { rerender } = render(<Harness open={true} onClose={vi.fn()} />)
+
+    rerender(<Harness open={false} onClose={vi.fn()} />)
+    expect(
+      screen.getByText('Popover content').closest('.popover')?.getAttribute('data-state')
+    ).toBe('closing')
+
+    act(() => {
+      vi.advanceTimersByTime(149)
+    })
+    expect(screen.queryByText('Popover content')).toBeTruthy()
+
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+    expect(screen.queryByText('Popover content')).toBeNull()
+  })
+
+  it('makes the retained closing wrapper aria-hidden and pointer-inert', () => {
+    const { rerender } = render(<Harness open={true} onClose={vi.fn()} />)
+
+    rerender(<Harness open={false} onClose={vi.fn()} />)
+    const wrapper = screen.getByText('Popover content').closest('.popover')
+
+    expect(wrapper?.getAttribute('aria-hidden')).toBe('true')
+    expect(getComputedStyle(wrapper as Element).pointerEvents).toBe('none')
+  })
+
+  it('reopens the same closing DOM node and cancels its pending unmount', () => {
+    const onClose = vi.fn()
+    const { rerender } = render(<Harness open={true} onClose={onClose} />)
+    const originalWrapper = screen.getByText('Popover content').closest('.popover')
+
+    rerender(<Harness open={false} onClose={onClose} />)
+    act(() => {
+      vi.advanceTimersByTime(100)
+    })
+    rerender(<Harness open={true} onClose={onClose} />)
+
+    const reopenedWrapper = screen.getByText('Popover content').closest('.popover')
+    expect(reopenedWrapper).toBe(originalWrapper)
+    expect(reopenedWrapper?.getAttribute('data-state')).toBe('open')
+    expect(reopenedWrapper?.hasAttribute('aria-hidden')).toBe(false)
+
+    act(() => {
+      vi.advanceTimersByTime(150)
+    })
+    expect(screen.queryByText('Popover content')).toBeTruthy()
+  })
+
+  it('uses the open lifecycle state, then unmounts immediately under OS reduced motion', () => {
+    stubMatchMedia(true)
+    const { rerender } = render(<Harness open={true} onClose={vi.fn()} />)
+    expect(
+      screen.getByText('Popover content').closest('.popover')?.getAttribute('data-state')
+    ).toBe('open')
+
+    rerender(<Harness open={false} onClose={vi.fn()} />)
+
+    expect(screen.queryByText('Popover content')).toBeNull()
+  })
+
+  it('uses the open lifecycle state, then unmounts immediately under in-app reduced motion', () => {
+    document.documentElement.setAttribute('data-motion', 'reduced')
+    const { rerender } = render(<Harness open={true} onClose={vi.fn()} />)
+    expect(
+      screen.getByText('Popover content').closest('.popover')?.getAttribute('data-state')
+    ).toBe('open')
+
+    rerender(<Harness open={false} onClose={vi.fn()} />)
+
+    expect(screen.queryByText('Popover content')).toBeNull()
   })
 })

@@ -9,6 +9,12 @@
   opacity: 1;
   transform: scale(1);
 }
+.popover[data-state='closing'] {
+  opacity: 0;
+  transform: scale(0.96);
+  transition-duration: var(--dur-fast);
+  pointer-events: none;
+}
 @starting-style {
   .popover {
     opacity: 0;
