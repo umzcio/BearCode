@@ -1,13 +1,13 @@
 import { useAppStore } from '../../state/store'
-import { buildModelRows } from '../../lib/modelRows'
+import { buildModelRows, type ModelRow } from '../../lib/modelRows'
 import { EmptyState } from '../ui/EmptyState'
 import { ProviderIcon } from '../ProviderIcon'
 import './CatalogTab.css'
 
-// Discovery view: every currently-DISABLED model, one card each, so enabling a
-// model is a browse-and-click action rather than hunting it down in the
-// Models tab's table. Populated from the same buildModelRows join as every
-// other Models-page surface, filtered to enabled === false.
+// Discovery view: every currently-DISABLED model, grouped by vendor as a
+// compact row-list (not cards -- once live-only models default to disabled,
+// this list is routinely dozens of models long, and a card grid doesn't
+// scale; rows match the density the Models tab's table already uses).
 export function CatalogTab(): React.JSX.Element {
   const manageableModels = useAppStore((s) => s.manageableModels)
   const providers = useAppStore((s) => s.providers)
@@ -27,19 +27,36 @@ export function CatalogTab(): React.JSX.Element {
     )
   }
 
+  const groups = new Map<string, ModelRow[]>()
+  for (const row of disabled) {
+    const list = groups.get(row.providerDisplayName) ?? []
+    list.push(row)
+    groups.set(row.providerDisplayName, list)
+  }
+
   return (
     <div className="catalog-tab">
-      {disabled.map((row) => (
-        <div className="ct-card" key={row.ref}>
-          <div className="ct-card-head">
-            <ProviderIcon provider={row.providerId} size={18} />
-            <div className="ct-card-name">{row.label}</div>
-          </div>
-          <div className="ct-card-vendor">{row.providerDisplayName}</div>
-          {row.catalog?.description ? <div className="ct-card-desc">{row.catalog.description}</div> : null}
-          <button type="button" className="ct-enable" onClick={() => void setModelEnabled(row.ref, true)}>
-            Enable
-          </button>
+      {[...groups.entries()].map(([vendor, rows]) => (
+        <div className="ct-group" key={vendor}>
+          <div className="ct-group-head">{vendor}</div>
+          {rows.map((row) => (
+            <div className="ct-row" key={row.ref}>
+              <ProviderIcon provider={row.providerId} size={16} />
+              <div className="ct-row-text">
+                <span className="ct-row-name">{row.label}</span>
+                {row.catalog?.description ? (
+                  <span className="ct-row-desc">{row.catalog.description}</span>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="ct-enable"
+                onClick={() => void setModelEnabled(row.ref, true)}
+              >
+                Enable
+              </button>
+            </div>
+          ))}
         </div>
       ))}
     </div>
