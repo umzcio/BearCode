@@ -12,7 +12,11 @@ vi.mock('./components/Terminal/TerminalView', () => ({
 }))
 
 beforeEach(() => {
-  vi.stubGlobal('bearcode', {})
+  vi.stubGlobal('bearcode', {
+    models: {
+      manageable: vi.fn().mockResolvedValue([])
+    }
+  })
   vi.stubGlobal('innerWidth', 1200)
   vi.stubGlobal(
     'matchMedia',
@@ -60,6 +64,17 @@ afterEach(() => {
 })
 
 describe('App window chrome ownership', () => {
+  it.each([
+    ['projects', '1'],
+    ['models', '2']
+  ])('opens the %s sidebar destination with Command-%s', (destination, key) => {
+    render(<App />)
+
+    fireEvent.keyDown(window, { key, metaKey: true })
+
+    expect(useAppStore.getState().view).toEqual({ kind: destination })
+  })
+
   it('keeps a no-drag hit area inside each draggable row behind the fixed controls', () => {
     const { container } = render(<App />)
     const sidebarDragRow = container.querySelector('.sidebar-chrome-spacer')

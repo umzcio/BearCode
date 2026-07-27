@@ -66,13 +66,22 @@ function App(): React.JSX.Element {
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  // Global shortcuts: Cmd+N new conversation, Cmd+B sidebar, Cmd+, settings,
-  // Cmd+/ model menu, Cmd+. mode menu, Cmd+L focus the composer.
+  // Global shortcuts: Cmd+1 Projects, Cmd+2 Models, Cmd+N new conversation,
+  // Cmd+B sidebar, Cmd+, settings, Cmd+/ model menu, Cmd+. mode menu, and
+  // Cmd+L focus the composer.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
       const s = useAppStore.getState()
       switch (e.key) {
+        case '1':
+          e.preventDefault()
+          s.openProjectsIndex()
+          break
+        case '2':
+          e.preventDefault()
+          s.openModelsPage()
+          break
         case 'n':
           e.preventDefault()
           s.goHome()

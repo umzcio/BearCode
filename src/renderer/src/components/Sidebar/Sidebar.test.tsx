@@ -191,6 +191,18 @@ describe('Hermes section', () => {
 })
 
 describe('Projects/Pinned/Recents (Conversations segment)', () => {
+  it('advertises the Projects and Models navigation shortcuts in their focus hints', () => {
+    mount({ conversations: {} })
+
+    const projects = screen.getByRole('button', { name: 'Projects' })
+    fireEvent.focus(projects)
+    expect(document.querySelector('.hint-surface')).toHaveTextContent('Projects⌘1')
+
+    fireEvent.blur(projects)
+    fireEvent.focus(screen.getByRole('button', { name: 'Models' }))
+    expect(document.querySelector('.hint-surface')).toHaveTextContent('Models⌘2')
+  })
+
   it('renders a single "Projects" nav link (not one row per folder) that opens the Projects index', () => {
     mount({
       conversations: {

@@ -275,23 +275,27 @@ export function Sidebar({
       </Hint>
 
       {mode === 'hermes' && hermesEnabled ? null : (
-        <button
-          className={'nav-item' + (view.kind === 'projects' ? ' selected' : '')}
-          onClick={openProjectsIndex}
-        >
-          <IconFolder />
-          Projects
-        </button>
+        <Hint label="Projects" keys="⌘1" side="right">
+          <button
+            className={'nav-item' + (view.kind === 'projects' ? ' selected' : '')}
+            onClick={openProjectsIndex}
+          >
+            <IconFolder />
+            Projects
+          </button>
+        </Hint>
       )}
 
       {mode === 'hermes' && hermesEnabled ? null : (
-        <button
-          className={'nav-item' + (view.kind === 'models' ? ' selected' : '')}
-          onClick={openModelsPage}
-        >
-          <IconGrid />
-          Models
-        </button>
+        <Hint label="Models" keys="⌘2" side="right">
+          <button
+            className={'nav-item' + (view.kind === 'models' ? ' selected' : '')}
+            onClick={openModelsPage}
+          >
+            <IconGrid />
+            Models
+          </button>
+        </Hint>
       )}
 
       <div className="sb-scroll">
