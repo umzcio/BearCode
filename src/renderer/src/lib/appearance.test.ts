@@ -40,7 +40,7 @@ describe('applyAppearance window chrome geometry', () => {
 
       const style = document.documentElement.style
       expect(style.zoom).toBe(String(zoom))
-      expect(parseFloat(style.getPropertyValue('--window-controls-left')) * zoom).toBeCloseTo(96)
+      expect(parseFloat(style.getPropertyValue('--window-controls-left')) * zoom).toBeCloseTo(87)
       expect(parseFloat(style.getPropertyValue('--window-controls-top')) * zoom).toBeCloseTo(16)
       expect(parseFloat(style.getPropertyValue('--window-controls-scale')) * zoom).toBeCloseTo(1)
       expect(

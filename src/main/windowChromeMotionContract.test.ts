@@ -16,6 +16,12 @@ function ruleBody(source: string, selector: string): string {
 }
 
 describe('persistent window chrome motion contract', () => {
+  it('keeps the sidebar and search controls tightly adjacent', () => {
+    const controls = ruleBody(chromeCss, '.window-chrome-controls')
+
+    expect(controls).toContain('gap: 0;')
+  })
+
   it('locally exempts fixed chrome buttons from transition and active scaling', () => {
     const button = ruleBody(chromeCss, '.window-chrome-controls .chrome-btn')
     const active = ruleBody(chromeCss, '.window-chrome-controls .chrome-btn:active')

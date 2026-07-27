@@ -29,7 +29,7 @@ const CUSTOM_VARS = [
 ]
 
 const ZOOM: Record<Appearance['fontSize'], number> = { small: 0.9, medium: 1, large: 1.1 }
-const WINDOW_CONTROLS_LEFT_PX = 96
+const WINDOW_CONTROLS_LEFT_PX = 87
 const WINDOW_CONTROLS_TOP_PX = 16
 const WINDOW_CONTROLS_HIT_WIDTH_PX = 164
 const COLLAPSED_TOPBAR_CONTENT_LEFT_PX = 134
