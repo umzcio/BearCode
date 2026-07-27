@@ -21,7 +21,9 @@
    their trigger. Shared by every panel class rendered inside .modal-overlay
    (settings-panel, smithery-panel, conflict-panel -- see ConflictResolver.css). */
 .settings-panel,
-.smithery-panel {
+.smithery-panel,
+.model-detail-panel,
+.add-model-panel {
   transition:
     opacity var(--dur-modal) var(--ease-out),
     transform var(--dur-modal) var(--ease-out);
@@ -30,7 +32,9 @@
 }
 @starting-style {
   .settings-panel,
-  .smithery-panel {
+  .smithery-panel,
+  .model-detail-panel,
+  .add-model-panel {
     opacity: 0;
     transform: scale(0.96);
   }
@@ -40,12 +44,16 @@
     transition: opacity var(--dur-fast) ease;
   }
   .settings-panel,
-  .smithery-panel {
+  .smithery-panel,
+  .model-detail-panel,
+  .add-model-panel {
     transition: opacity var(--dur-fast) ease;
   }
   @starting-style {
     .settings-panel,
-    .smithery-panel {
+    .smithery-panel,
+    .model-detail-panel,
+    .add-model-panel {
       transform: none;
     }
   }
@@ -60,13 +68,17 @@
   pointer-events: none;
 }
 .settings-panel[data-state='closing'],
-.smithery-panel[data-state='closing'] {
+.smithery-panel[data-state='closing'],
+.model-detail-panel[data-state='closing'],
+.add-model-panel[data-state='closing'] {
   opacity: 0;
   transform: scale(0.96);
 }
 @media (prefers-reduced-motion: reduce) {
   .settings-panel[data-state='closing'],
-  .smithery-panel[data-state='closing'] {
+  .smithery-panel[data-state='closing'],
+  .model-detail-panel[data-state='closing'],
+  .add-model-panel[data-state='closing'] {
     transform: none;
   }
 }
@@ -623,79 +635,6 @@
   border-radius: 4px;
 }
 
-/* --- Model Pricing table (Models page, T6) --- */
-.pricing-intro {
-  font-size: 12.5px;
-  color: var(--text-dim);
-  margin-bottom: 12px;
-}
-.pricing-error {
-  margin-top: 10px;
-}
-.pricing-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12.5px;
-}
-.pricing-table th {
-  text-align: left;
-  font-weight: 500;
-  color: var(--text-dim);
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--border);
-}
-.pricing-table th:not(:first-child),
-.pricing-table td:not(:first-child) {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.pricing-table td {
-  padding: 6px 8px;
-  color: var(--text);
-  border-bottom: 1px solid var(--border);
-}
-.pricing-table tr:last-child td {
-  border-bottom: none;
-}
-.pricing-model {
-  color: var(--text);
-}
-.price-src {
-  font-size: 11px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-}
-.price-src.synced {
-  color: var(--green);
-  border-color: color-mix(in srgb, var(--green) 45%, transparent);
-}
-.price-src.none {
-  border: none;
-}
-.pricing-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 14px;
-}
-.pricing-actions .pill-btn {
-  border: 1px solid var(--border);
-}
-.pricing-result {
-  font-size: 12.5px;
-  color: var(--text-dim);
-}
-.pricing-result.err {
-  color: var(--red, #e05252);
-}
-.pricing-synced {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
 /* --- Feedback page (T6) --- */
 .feedback-body {
   display: flex;
@@ -756,75 +695,6 @@
   .toggle-knob {
     transition: none;
   }
-}
-
-/* ---------- Models management (F7) ---------- */
-.model-provider-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.model-manage-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 2px;
-}
-.model-manage-row:not(:last-child) {
-  border-bottom: 1px solid var(--border-soft, var(--border));
-}
-.model-manage-label {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.model-manage-name {
-  color: var(--text);
-  font-size: 13.5px;
-}
-.model-ctx {
-  color: var(--text-dim);
-  font-size: 12px;
-}
-.model-manage-controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.add-model-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.add-model-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.add-model-field label {
-  font-size: 12px;
-  color: var(--text-dim);
-}
-.add-model-hint {
-  font-size: 12px;
-  color: var(--amber, #e0b568);
-  margin-bottom: 8px;
-}
-.model-remove-btn {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 7px;
-  cursor: pointer;
-}
-.model-remove-btn:hover {
-  color: var(--red, #e5484d);
-  border-color: var(--red, #e5484d);
 }
 
 /* ---------- Browser tab (F4) ---------- */

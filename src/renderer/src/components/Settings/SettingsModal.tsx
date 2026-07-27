@@ -7,7 +7,6 @@ import {
   IconShield,
   IconPalette,
   IconPlug,
-  IconGrid,
   IconScroll,
   IconLines,
   IconBlocks,
@@ -27,7 +26,6 @@ import { UrsaPage } from './pages/UrsaPage'
 import { UrsusPage } from './pages/UrsusPage'
 import { HermesPage } from './pages/HermesPage'
 import { ProvidersPage } from './pages/ProvidersPage'
-import { ModelsPage } from './pages/ModelsPage'
 import { VoicePage } from './pages/VoicePage'
 import { PermissionsPage } from './pages/PermissionsPage'
 import { BrowserPage } from './pages/BrowserPage'
@@ -66,7 +64,6 @@ const NAV_ICONS: Record<string, (props: { size?: number }) => React.JSX.Element>
   IconShield,
   IconPalette,
   IconPlug,
-  IconGrid,
   IconScroll,
   IconLines,
   IconBlocks,
@@ -336,8 +333,6 @@ function SettingsPanel({
               </div>
             </>
           ) : null}
-
-          {page === 'models' ? <ModelsPage /> : null}
 
           {page === 'voice' ? <VoicePage /> : null}
 

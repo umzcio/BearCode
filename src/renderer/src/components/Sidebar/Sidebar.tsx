@@ -40,7 +40,15 @@ function toConvoLike(c: Convo): ConvoLike {
 import { DisplayOptions } from './DisplayOptions'
 import { SidebarFooterMenu } from './SidebarFooterMenu'
 import { ConvoRow } from './ConvoRow'
-import { IconFolder, IconPanel, IconPlus, IconSearch, IconSettings, IconTerminal } from '../icons'
+import {
+  IconFolder,
+  IconGrid,
+  IconPanel,
+  IconPlus,
+  IconSearch,
+  IconSettings,
+  IconTerminal
+} from '../icons'
 import { projectIcon } from '../ProjectSettings/projectIcons'
 import './Sidebar.css'
 
@@ -70,6 +78,7 @@ export function Sidebar(): React.JSX.Element {
   const openTerminalView = useAppStore((s) => s.openTerminalView)
   const newConversationInProject = useAppStore((s) => s.newConversationInProject)
   const openProjectsIndex = useAppStore((s) => s.openProjectsIndex)
+  const openModelsPage = useAppStore((s) => s.openModelsPage)
   const goHome = useAppStore((s) => s.goHome)
   const setPinned = useAppStore((s) => s.setPinned)
   const setArchived = useAppStore((s) => s.setArchived)
@@ -250,6 +259,16 @@ export function Sidebar(): React.JSX.Element {
         >
           <IconFolder />
           Projects
+        </button>
+      )}
+
+      {mode === 'hermes' && hermesEnabled ? null : (
+        <button
+          className={'nav-item' + (view.kind === 'models' ? ' selected' : '')}
+          onClick={openModelsPage}
+        >
+          <IconGrid />
+          Models
         </button>
       )}
 

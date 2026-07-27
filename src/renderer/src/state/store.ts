@@ -87,6 +87,7 @@ type View =
   | { kind: 'terminal'; path: string }
   | { kind: 'project'; path: string | null }
   | { kind: 'projects' }
+  | { kind: 'models' }
 
 export type TerminalTabMeta = {
   id: string
@@ -392,6 +393,7 @@ interface AppState {
   openTerminalView(path: string): void
   openProjectPage(path: string | null): void
   openProjectsIndex(): void
+  openModelsPage(): void
   createTerminalTab(path: string): Promise<void>
   closeTerminalTab(path: string, id: string): Promise<void>
   setActiveTerminalTab(path: string, id: string): void
@@ -451,7 +453,12 @@ interface AppState {
     sidebarSubtitle?: AppSettings['sidebarSubtitle']
   }): Promise<void>
   setAppearance(patch: Partial<AppSettings>): Promise<void>
-  syncPricing(): Promise<{ syncedCount: number; unmatched: string[]; syncedAt: number }>
+  syncPricing(): Promise<{
+    syncedCount: number
+    metadataCount: number
+    unmatched: string[]
+    syncedAt: number
+  }>
   setPermissionMode(mode: PermissionMode): void
   setEffort(effort: EffortLevel): void
   setThinking(thinking: boolean): void
@@ -807,14 +814,46 @@ export const useAppStore = create<AppState>((set, get) => {
     setModelEnabled: async (ref, enabled) => {
       const s = get().settings
       if (!s) return
-      const cur = s.disabledModels ?? []
-      const disabledModels = enabled ? cur.filter((r) => r !== ref) : [...new Set([...cur, ref])]
+      const [providerId, ...rest] = ref.split('/')
+      const modelId = rest.join('/')
+      const model = get()
+        .manageableModels.find((p) => p.id === providerId)
+        ?.models.find((m) => m.id === modelId)
+      if (!model) return
+      // liveOnly models (discovered, not curated) are opt-IN: absence from
+      // enabledLiveModels means disabled. Everything else is opt-OUT via
+      // disabledModels, unchanged from before liveOnly existed.
       // Disabling the persisted default model clears it, so a hidden model is
       // never re-selected for new conversations (ensureDefaultModel).
-      const patch =
-        !enabled && s.defaultModelRef === ref
-          ? { disabledModels, defaultModelRef: null }
-          : { disabledModels }
+      const patch = model?.liveOnly
+        ? (() => {
+            const cur = s.enabledLiveModels ?? []
+            const enabledLiveModels = enabled
+              ? [...new Set([...cur, ref])]
+              : cur.filter((r) => r !== ref)
+            // Enabling a liveOnly model also proactively removes any stale
+            // disabledModels entry for the same ref: if this ref was disabled
+            // before liveOnly existed (or by any other path), that entry is
+            // currently harmless while liveOnly stays true, but would silently
+            // re-disable the model the moment it becomes a curated (non-live)
+            // entry and liveOnly flips to false.
+            const base = enabled
+              ? {
+                  enabledLiveModels,
+                  disabledModels: (s.disabledModels ?? []).filter((r) => r !== ref)
+                }
+              : { enabledLiveModels }
+            return !enabled && s.defaultModelRef === ref ? { ...base, defaultModelRef: null } : base
+          })()
+        : (() => {
+            const cur = s.disabledModels ?? []
+            const disabledModels = enabled
+              ? cur.filter((r) => r !== ref)
+              : [...new Set([...cur, ref])]
+            return !enabled && s.defaultModelRef === ref
+              ? { disabledModels, defaultModelRef: null }
+              : { disabledModels }
+          })()
       // Optimistic synchronous update: rapid consecutive toggles then read the
       // updated array (no lost-update race), and the switch flips immediately
       // rather than after the (Ollama-fetching) provider refresh completes.
@@ -915,6 +954,9 @@ export const useAppStore = create<AppState>((set, get) => {
     },
     openProjectsIndex: () => {
       set({ view: { kind: 'projects' }, auxSelection: null, reviewFocusPath: null })
+    },
+    openModelsPage: () => {
+      set({ view: { kind: 'models' }, auxSelection: null, reviewFocusPath: null })
     },
     createTerminalTab: async (path: string) => {
       const view = await window.bearcode.terminal.create(path)
@@ -1258,11 +1300,18 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     syncPricing: async () => {
-      // Main fetches + persists the prices; re-fetch settings so the freshly
-      // synced modelPricing/modelPricingSyncedAt land in the store.
+      // Main fetches + persists the prices (and clears its live-discovery
+      // cache -- see registry.ts's clearLiveDiscoveryCache); re-fetch
+      // settings so the freshly synced modelPricing/modelMetadata land in
+      // the store, then refresh providers/manageableModels so any
+      // newly-discovered live models actually appear -- clearing a
+      // main-process-only cache does nothing to already-fetched renderer
+      // state on its own.
       const result = await window.bearcode.pricing.sync()
       const settings = await window.bearcode.settings.get()
       set({ settings })
+      await get().refreshProviders()
+      await get().refreshManageableModels()
       return result
     },
 
@@ -1638,7 +1687,8 @@ export const useAppStore = create<AppState>((set, get) => {
       if (
         patch.ollamaBaseUrl !== undefined ||
         patch.disabledModels !== undefined ||
-        patch.customModels !== undefined
+        patch.customModels !== undefined ||
+        patch.enabledLiveModels !== undefined
       )
         await get().refreshProviders()
     },

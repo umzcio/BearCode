@@ -2,7 +2,7 @@
 // Change deliberately and update all three layers together.
 
 import type { ThemeMode, CustomColors, FontSize, ConversationWidth, ChatFont } from './appearance'
-import type { PricingMap } from './pricing'
+import type { ModelMetadata, ModelMetadataMap, PricingMap } from './pricing'
 
 // Command-name grammar (D2 design 5.1/6.2), shared so the parse-time check
 // (a workflow's filename, src/main/agentsDir/parseWorkflow.ts) and the
@@ -979,6 +979,16 @@ export interface ManageableModel {
   contextWindow?: number
   custom: boolean // user-added (removable) vs curated (toggle-only)
   enabled: boolean // false when its ref is in disabledModels
+  // True only when this model exists in a provider's live-discovered list but
+  // NOT in that provider's curated STATIC_MODELS array (registry.ts). Never
+  // true for custom models. Drives the opt-in-vs-opt-out enabled default in
+  // listManageableModels().
+  liveOnly: boolean
+  // Live-discovered capability data (Anthropic/Google only, this session) --
+  // NOT persisted to AppSettings; overlaid on top of LiteLLM's persisted
+  // modelMetadata by buildModelRows (Task 7). Absent for every model until a
+  // provider's live discovery succeeds at least once this process lifetime.
+  liveCapabilities?: Partial<ModelMetadata['capabilities']>
 }
 
 export interface ManageableProvider {
@@ -1246,6 +1256,21 @@ export interface AppSettings {
   // before this feature load unchanged (coerced to {} / 0).
   modelPricing?: PricingMap
   modelPricingSyncedAt?: number
+  // Model capability/shape metadata (mode, context limits, supports_* flags)
+  // from LiteLLM's catalog, synced by the same action as modelPricing above
+  // (one fetch, two derived maps -- see src/main/pricing/sync.ts). Optional &
+  // additive: settings persisted before this feature coerce to {}. Absent for
+  // any ref LiteLLM doesn't catalog (custom models, Ollama) -- the UI must
+  // render that as "unknown," never as every capability being false.
+  modelMetadata?: ModelMetadataMap
+  // Model refs the user starred in the Models page. Optional & additive:
+  // settings persisted before this feature coerce to [].
+  favoriteModels?: string[]
+  // Opt-IN allowlist for models that exist only because live discovery found
+  // them (registry.ts's liveOnly flag) -- parallel to disabledModels, which
+  // stays an opt-OUT list for curated/custom models. Optional & additive:
+  // settings persisted before this feature coerce to [].
+  enabledLiveModels?: string[]
   // Voice input STT backend (E5). Optional & additive: settings persisted before
   // this feature load unchanged (coerced to 'openai', the guaranteed default).
   sttBackend?: SttBackend
@@ -1585,7 +1610,12 @@ export interface BearcodeApi {
     set(patch: Partial<AppSettings>): Promise<SettingsInfo>
   }
   pricing: {
-    sync(): Promise<{ syncedCount: number; unmatched: string[]; syncedAt: number }>
+    sync(): Promise<{
+      syncedCount: number
+      metadataCount: number
+      unmatched: string[]
+      syncedAt: number
+    }>
   }
   conversations: {
     list(): Promise<ConversationMeta[]>

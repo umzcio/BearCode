@@ -175,6 +175,9 @@ export const IconPin = icon(
     <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
   </>
 )
+export const IconStar = icon(
+  <polygon points="12 3 14.9 9.1 21.6 9.8 16.6 14.3 17.9 21 12 17.6 6.1 21 7.4 14.3 2.4 9.8 9.1 9.1" />
+)
 export const IconArchive = icon(
   <>
     <rect x="3" y="4" width="18" height="4" rx="1" />

@@ -87,7 +87,7 @@ import { mcpManager } from './mcp/manager'
 import { smitherySearch, fetchSmitheryConfig } from './mcp/registry'
 import { addUserRule, deleteUserRule, listRulesInfo, setBuiltinDisabled } from './permissions'
 import { setSettings, settingsInfo } from './settings'
-import { allKnownModelRefs, listAllModels, listManageableModels } from './providers/registry'
+import { allKnownModelRefs, clearLiveDiscoveryCache, listAllModels, listManageableModels } from './providers/registry'
 import { syncPricing } from './pricing/sync'
 import { filePathFor, getDiff, revertFile } from './diffs'
 import { transcribe } from './voice/transcribe'
@@ -734,15 +734,23 @@ export function registerIpc(): void {
     return settingsInfo()
   })
 
-  // User-initiated pricing sync (Settings "Sync prices" button). Runs in main
-  // only -- keeps the LiteLLM fetch off the renderer/CSP surface. Persists the
-  // resolved prices + a syncedAt stamp; throws propagate to the UI.
+  // User-initiated metadata+pricing sync (Models page "Sync metadata" button,
+  // and the Pricing tab's own "Sync prices" button -- same action, different
+  // copy for context). Runs in main only -- keeps the LiteLLM fetch off the
+  // renderer/CSP surface. Persists resolved prices + capability metadata + a
+  // shared syncedAt stamp; throws propagate to the UI.
   ipcMain.handle('bearcode:pricing:sync', async () => {
     const refs = allKnownModelRefs()
-    const { prices, unmatched } = await syncPricing(refs)
+    const { prices, metadata, unmatched } = await syncPricing(refs)
     const syncedAt = Date.now()
-    setSettings({ modelPricing: prices, modelPricingSyncedAt: syncedAt })
-    return { syncedCount: Object.keys(prices).length, unmatched, syncedAt }
+    setSettings({ modelPricing: prices, modelMetadata: metadata, modelPricingSyncedAt: syncedAt })
+    clearLiveDiscoveryCache()
+    return {
+      syncedCount: Object.keys(prices).length,
+      metadataCount: Object.keys(metadata).length,
+      unmatched,
+      syncedAt
+    }
   })
 
   ipcMain.handle('bearcode:conversations:list', () => db.listConversations())

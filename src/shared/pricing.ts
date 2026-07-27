@@ -10,6 +10,36 @@ export interface ModelPrice {
 }
 export type PricingMap = Record<string, ModelPrice>
 
+// A model's capability/shape metadata as reported by LiteLLM's catalog
+// (model_prices_and_context_window.json). Populated by the SAME sync action
+// that populates PricingMap -- one fetch, two derived maps (see
+// src/main/pricing/sync.ts). Absent for a ref LiteLLM doesn't catalog
+// (custom models, Ollama) -- callers must render that as "unknown," not as
+// every capability being false.
+export type ModelMode = 'chat' | 'embedding' | 'image_generation' | 'other'
+
+export interface ModelMetadata {
+  mode: ModelMode
+  maxInputTokens?: number
+  maxOutputTokens?: number
+  capabilities: {
+    functionCalling: boolean
+    vision: boolean
+    responseSchema: boolean
+    reasoning: boolean
+    webSearch: boolean
+    // Verified live (2026-07-26): LiteLLM has no equivalent flag for this --
+    // its closest concept, supports_computer_use, is Anthropic's separate
+    // browser/screen-control tool, not the code-execution tool. This field
+    // is therefore only ever knowable for Anthropic models, and only when
+    // Anthropic's live model discovery has succeeded this session (see
+    // src/main/providers/liveDiscovery.ts) -- every other case reads false.
+    codeExecution: boolean
+    pdfInput: boolean
+  }
+}
+export type ModelMetadataMap = Record<string, ModelMetadata>
+
 // Seeded from published Anthropic rates (2026-07). OpenAI/Google/OpenRouter are
 // intentionally left to Sync rather than shipping numbers that may be wrong.
 export const BUNDLED_PRICES: PricingMap = {

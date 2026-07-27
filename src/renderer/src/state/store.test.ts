@@ -1305,3 +1305,217 @@ describe('modelDisplay — Ursus sentinel', () => {
     expect(result.color).toBe('#6ec3fa')
   })
 })
+
+describe('pricing/models store actions', () => {
+  beforeEach(() => {
+    // Setup pricing mocks for this test suite
+    vi.stubGlobal('window', {
+      bearcode: {
+        pricing: { sync: vi.fn(() => Promise.resolve({})) },
+        settings: { get: vi.fn(() => Promise.resolve({})) },
+        permissions,
+        conversations,
+        run,
+        commands,
+        artifacts,
+        mentions,
+        attachments,
+        projects,
+        shell
+      } as unknown as BearcodeApi
+    })
+  })
+
+  it('syncPricing calls refreshProviders and refreshManageableModels after fetching settings', async () => {
+    const pricingSyncResult = { syncedCount: 1, metadataCount: 1, unmatched: [], syncedAt: Date.now() }
+    ;(window.bearcode.pricing.sync as any).mockResolvedValue(pricingSyncResult)
+    ;(window.bearcode.settings.get as any).mockResolvedValue({
+      modelPricing: { 'anthropic/claude-opus-4-8': { inputCostPer1kTokens: 0.015 } },
+      modelMetadata: {},
+      favoriteModels: [],
+      modelPricingSyncedAt: Date.now()
+    })
+
+    // Setup spy/mock functions for the refresh actions. Capture the real
+    // implementations first and restore them afterward — useAppStore is a
+    // module-level singleton, so replacing these via setState would otherwise
+    // leak a permanent no-op refreshProviders/refreshManageableModels into
+    // every later describe block in this file.
+    const realRefreshProviders = useAppStore.getState().refreshProviders
+    const realRefreshManageableModels = useAppStore.getState().refreshManageableModels
+    const refreshProviders = vi.fn().mockResolvedValue(undefined)
+    const refreshManageableModels = vi.fn().mockResolvedValue(undefined)
+    useAppStore.setState({ refreshProviders, refreshManageableModels } as never)
+
+    try {
+      // Call the real syncPricing action
+      const result = await useAppStore.getState().syncPricing()
+
+      // Verify the IPC calls were made
+      expect(window.bearcode.pricing.sync).toHaveBeenCalled()
+      expect(window.bearcode.settings.get).toHaveBeenCalled()
+
+      // Verify the refresh functions were called by the real action
+      expect(refreshProviders).toHaveBeenCalled()
+      expect(refreshManageableModels).toHaveBeenCalled()
+
+      // Verify the result is returned
+      expect(result).toEqual(pricingSyncResult)
+    } finally {
+      useAppStore.setState({
+        refreshProviders: realRefreshProviders,
+        refreshManageableModels: realRefreshManageableModels
+      } as never)
+    }
+  })
+})
+
+describe('setModelEnabled — liveOnly models opt-in via enabledLiveModels', () => {
+  const modelsList = { list: vi.fn(() => Promise.resolve([])) }
+  const modelsManageable = { manageable: vi.fn(() => Promise.resolve([])) }
+  const settingsSet = vi.fn()
+
+  beforeEach(() => {
+    vi.stubGlobal('window', {
+      bearcode: {
+        models: { list: modelsList.list, manageable: modelsManageable.manageable },
+        settings: { set: settingsSet },
+        permissions,
+        conversations,
+        run,
+        commands,
+        artifacts,
+        mentions,
+        attachments,
+        projects,
+        shell
+      } as unknown as BearcodeApi
+    })
+    modelsList.list.mockClear()
+    modelsManageable.manageable.mockClear()
+    settingsSet.mockReset()
+  })
+
+  it('writes to enabledLiveModels (not disabledModels) for a liveOnly model', async () => {
+    useAppStore.setState({
+      settings: { disabledModels: [], enabledLiveModels: [] } as never,
+      manageableModels: [
+        {
+          id: 'anthropic',
+          displayName: 'Anthropic',
+          color: '#d97757',
+          models: [
+            {
+              id: 'claude-new-model',
+              label: 'Claude New Model',
+              custom: false,
+              enabled: false,
+              liveOnly: true
+            }
+          ]
+        }
+      ] as never
+    })
+    settingsSet.mockResolvedValue({
+      disabledModels: [],
+      enabledLiveModels: ['anthropic/claude-new-model']
+    })
+
+    await useAppStore.getState().setModelEnabled('anthropic/claude-new-model', true)
+
+    expect(settingsSet).toHaveBeenCalledWith({
+      enabledLiveModels: ['anthropic/claude-new-model'],
+      disabledModels: []
+    })
+    expect(useAppStore.getState().settings?.enabledLiveModels).toEqual([
+      'anthropic/claude-new-model'
+    ])
+    expect(useAppStore.getState().settings?.disabledModels).toEqual([])
+    expect(modelsList.list).toHaveBeenCalled()
+  })
+
+  it('unchanged: a non-liveOnly model still patches disabledModels, never enabledLiveModels', async () => {
+    useAppStore.setState({
+      settings: { disabledModels: [], enabledLiveModels: ['anthropic/some-other-live'] } as never,
+      manageableModels: [
+        {
+          id: 'anthropic',
+          displayName: 'Anthropic',
+          color: '#d97757',
+          models: [
+            {
+              id: 'claude-opus-4-8',
+              label: 'Opus',
+              custom: false,
+              enabled: true,
+              liveOnly: false
+            }
+          ]
+        }
+      ] as never
+    })
+    settingsSet.mockResolvedValue({
+      disabledModels: ['anthropic/claude-opus-4-8'],
+      enabledLiveModels: ['anthropic/some-other-live']
+    })
+
+    await useAppStore.getState().setModelEnabled('anthropic/claude-opus-4-8', false)
+
+    expect(settingsSet).toHaveBeenCalledWith({ disabledModels: ['anthropic/claude-opus-4-8'] })
+    expect(useAppStore.getState().settings?.disabledModels).toEqual(['anthropic/claude-opus-4-8'])
+    expect(useAppStore.getState().settings?.enabledLiveModels).toEqual([
+      'anthropic/some-other-live'
+    ])
+  })
+
+  it('removes a stale disabledModels entry when re-enabling a liveOnly model', async () => {
+    useAppStore.setState({
+      settings: {
+        disabledModels: ['anthropic/claude-new-model'],
+        enabledLiveModels: []
+      } as never,
+      manageableModels: [
+        {
+          id: 'anthropic',
+          displayName: 'Anthropic',
+          color: '#d97757',
+          models: [
+            {
+              id: 'claude-new-model',
+              label: 'Claude New Model',
+              custom: false,
+              enabled: false,
+              liveOnly: true
+            }
+          ]
+        }
+      ] as never
+    })
+    settingsSet.mockResolvedValue({
+      disabledModels: [],
+      enabledLiveModels: ['anthropic/claude-new-model']
+    })
+
+    await useAppStore.getState().setModelEnabled('anthropic/claude-new-model', true)
+
+    expect(settingsSet).toHaveBeenCalledWith({
+      enabledLiveModels: ['anthropic/claude-new-model'],
+      disabledModels: []
+    })
+    expect(useAppStore.getState().settings?.disabledModels).toEqual([])
+    expect(useAppStore.getState().settings?.enabledLiveModels).toEqual([
+      'anthropic/claude-new-model'
+    ])
+  })
+
+  it('bails out with no patch when the ref is not found in manageableModels', async () => {
+    useAppStore.setState({
+      settings: { disabledModels: [], enabledLiveModels: [] } as never,
+      manageableModels: [] as never
+    })
+
+    await useAppStore.getState().setModelEnabled('anthropic/does-not-exist', true)
+
+    expect(settingsSet).not.toHaveBeenCalled()
+  })
+})

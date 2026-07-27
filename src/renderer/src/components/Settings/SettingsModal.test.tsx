@@ -116,11 +116,6 @@ describe('SettingsModal Providers split', () => {
     expect(screen.getByPlaceholderText('http://localhost:11434')).toBeTruthy()
   })
 
-  it('Models page no longer shows the API-key inputs', () => {
-    render(<SettingsModal />)
-    fireEvent.click(screen.getByText('Models'))
-    expect(screen.queryByPlaceholderText('sk-ant-…')).toBeNull()
-  })
 })
 
 describe('SettingsModal shell — grouped nav, routing, feedback', () => {
@@ -136,7 +131,6 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
       'Permissions',
       'Appearance',
       'Providers',
-      'Models',
       'Skills',
       'Connectors',
       'Memory',
@@ -172,12 +166,10 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
     expect(option.closest('.app-select')).toBeNull()
   })
 
-  it('routes: Providers shows a key input, Models does not', () => {
+  it('routes to Providers and shows a key input', () => {
     render(<SettingsModal />)
     fireEvent.click(screen.getByText('Providers'))
     expect(screen.getByPlaceholderText('sk-ant-…')).toBeTruthy()
-    fireEvent.click(screen.getByText('Models'))
-    expect(screen.queryByPlaceholderText('sk-ant-…')).toBeNull()
   })
 
   it('opens directly on the Providers page when openSettings targets it (missing-key flow)', () => {
@@ -229,7 +221,6 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
       'Permissions',
       'Appearance',
       'Providers',
-      'Models',
       'Skills',
       'Connectors',
       'Memory',
@@ -292,70 +283,5 @@ describe('SettingsModal Voice input', () => {
       .find((o) => o.textContent?.includes('Local (offline)'))
     fireEvent.click(local as HTMLElement)
     expect(setSpy).toHaveBeenCalledWith({ sttBackend: 'local' })
-  })
-})
-
-describe('SettingsModal Model Pricing', () => {
-  const providers = [
-    {
-      id: 'anthropic',
-      displayName: 'Anthropic',
-      color: '#c96',
-      requiresKey: true,
-      keyConfigured: true,
-      reachable: true,
-      models: [{ id: 'claude-opus-4-8', label: 'Opus 4.8' }]
-    },
-    {
-      id: 'ollama',
-      displayName: 'Ollama',
-      color: '#888',
-      requiresKey: false,
-      keyConfigured: false,
-      reachable: true,
-      models: [{ id: 'llama3', label: 'Llama 3' }]
-    }
-  ]
-
-  it('renders a priced row per model with source, and Sync updates the result line', async () => {
-    const syncResult = { syncedCount: 2, unmatched: ['openai/gpt-x'], syncedAt: 1_700_000_000_000 }
-    const syncSpy = vi.fn(() => Promise.resolve(syncResult))
-    const getSpy = vi.fn(() =>
-      Promise.resolve({ ...settings, modelPricingSyncedAt: syncResult.syncedAt } as never)
-    )
-    ;(window as unknown as { bearcode: unknown }).bearcode = {
-      settings: { set: setSpy, get: getSpy },
-      permissions: { list: vi.fn(() => Promise.resolve({ userRules: [], builtins: [] })) },
-      pricing: { sync: syncSpy },
-      models: {
-        list: vi.fn(() => Promise.resolve([])),
-        manageable: vi.fn(() => Promise.resolve([]))
-      }
-    }
-    useAppStore.setState({
-      settingsOpen: true,
-      settings: settings as never,
-      providers: providers as never,
-      conversations: {}
-    })
-
-    render(<SettingsModal />)
-    fireEvent.click(screen.getByText('Models'))
-
-    expect(screen.getByText('Model Pricing')).toBeTruthy()
-    // Bundled-priced model shows a price + the "default" source tag.
-    expect(screen.getByText('Anthropic: Opus 4.8')).toBeTruthy()
-    expect(screen.getByText('$5')).toBeTruthy()
-    expect(screen.getByText('$25')).toBeTruthy()
-    // Unpriced (Ollama) model still appears.
-    expect(screen.getByText('Ollama: Llama 3')).toBeTruthy()
-    // No sync yet → bundled defaults notice.
-    expect(screen.getByText(/bundled defaults/i)).toBeTruthy()
-
-    const btn = screen.getByRole('button', { name: /sync prices/i })
-    fireEvent.click(btn)
-    expect(syncSpy).toHaveBeenCalled()
-    await screen.findByText(/2 synced/)
-    expect(screen.getByText(/1 unmatched/)).toBeTruthy()
   })
 })

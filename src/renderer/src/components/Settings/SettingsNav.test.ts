@@ -9,7 +9,6 @@ describe('SETTINGS_NAV', () => {
       'permissions',
       'appearance',
       'providers',
-      'models',
       'voice',
       'ursa',
       'ursus',

@@ -26,6 +26,21 @@ describe('migrateSettings: disabledModels', () => {
   })
 })
 
+describe('migrateSettings: enabledLiveModels', () => {
+  it('defaults missing to []', () => {
+    expect(migrateSettings({}).enabledLiveModels).toEqual([])
+  })
+  it('keeps a string[] and drops non-strings', () => {
+    expect(
+      migrateSettings({ enabledLiveModels: ['anthropic/claude-new-model', 3, null] })
+        .enabledLiveModels
+    ).toEqual(['anthropic/claude-new-model'])
+  })
+  it('collapses a non-array to []', () => {
+    expect(migrateSettings({ enabledLiveModels: 'nope' }).enabledLiveModels).toEqual([])
+  })
+})
+
 describe('migrateSettings: customModels', () => {
   it('defaults missing to []', () => {
     expect(migrateSettings({}).customModels).toEqual([])
@@ -67,5 +82,9 @@ describe('setSettings validation', () => {
   it('coerces a non-array disabledModels on write to []', () => {
     const out = setSettings({ disabledModels: 'nope' as never })
     expect(out.disabledModels).toEqual([])
+  })
+  it('coerces a non-array enabledLiveModels on write to []', () => {
+    const out = setSettings({ enabledLiveModels: 'nope' as never })
+    expect(out.enabledLiveModels).toEqual([])
   })
 })
