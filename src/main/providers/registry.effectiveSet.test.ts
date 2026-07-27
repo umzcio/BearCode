@@ -104,3 +104,61 @@ describe('listManageableModels vs listAllModels/allKnownModelRefs agree on enabl
     expect(refs).toContain('anthropic/claude-new-model')
   })
 })
+
+// Regression for the Critical found by round-2 review: listAllModels()'s
+// isLiveOnly post-filter applies across the FULL REGISTRY array, which
+// includes 'ollama' -- a provider with no STATIC_MODELS entry and deliberately
+// excluded from MANAGEABLE_PROVIDER_IDS ("fully dynamic/local, manages its own
+// catalog"). Every real Ollama model id therefore resolved as isLiveOnly ===
+// true, and since nothing can ever populate enabledLiveSet for an
+// 'ollama/...' ref (listManageableModels never iterates Ollama either), real
+// locally-pulled Ollama models silently vanished from listAllModels()'s
+// result -- i.e. from the model picker and context-window meter.
+describe('listAllModels leaves Ollama unaffected by the enabledLiveModels opt-in filter', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    fetchAnthropicModels.mockReset()
+    fetchGoogleModels.mockReset()
+    fetchOpenAIModels.mockReset()
+    getKey.mockReset()
+    getKey.mockReturnValue(undefined) // no key for any first-party provider -> static fallback, no network
+    getSettingsImpl.mockReturnValue({
+      customModels: [],
+      disabledModels: [],
+      enabledLiveModels: [],
+      modelMetadata: {},
+      ollamaBaseUrl: 'http://localhost:11434'
+    })
+  })
+
+  it('a real locally-pulled Ollama model survives listAllModels() untouched', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.endsWith('/api/tags')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ models: [{ name: 'llama3' }] })
+          })
+        }
+        if (url.endsWith('/api/show')) {
+          // Simulate the existing catch-and-continue behavior: a failed
+          // /api/show lookup still leaves the model in the list, just
+          // without a contextWindow.
+          return Promise.reject(new Error('not found'))
+        }
+        return Promise.reject(new Error(`unexpected fetch: ${url}`))
+      })
+    )
+
+    const { listAllModels } = await import('./registry')
+    const all = await listAllModels()
+    const ollama = all.find((p) => p.id === 'ollama')!
+    expect(ollama.reachable).toBe(true)
+    const llama = ollama.models.find((m) => m.id === 'llama3')
+    expect(llama).toBeDefined()
+    expect(llama?.contextWindow).toBeUndefined()
+
+    vi.unstubAllGlobals()
+  })
+})

@@ -614,8 +614,19 @@ export async function listAllModels(): Promise<ProviderModels[]> {
       // (F7), further filtered so a live-only model only appears once the user
       // has opted it in via enabledLiveModels. Every picker/meter/pricing
       // consumer reads this, staying consistent with listManageableModels.
+      // The opt-in filter only applies to MANAGEABLE_PROVIDER_IDS (the
+      // providers with a STATIC_MODELS entry) -- Ollama has no STATIC_MODELS
+      // key and is deliberately excluded from that set (fully dynamic/local,
+      // manages its own catalog), so every id isLiveOnly() would resolve as
+      // "live-only, not opted in" and there is no UI path to ever opt an
+      // Ollama ref in (listManageableModels never iterates it either). Without
+      // this guard, real locally-pulled Ollama models would silently vanish
+      // from the picker/context meter.
       const merged = mergeModels(entry.id, models, customModels, disabledModels).filter(
-        (m) => !isLiveOnly(entry.id, m.id, customModels) || enabledLiveSet.has(`${entry.id}/${m.id}`)
+        (m) =>
+          !MANAGEABLE_PROVIDER_IDS.includes(entry.id) ||
+          !isLiveOnly(entry.id, m.id, customModels) ||
+          enabledLiveSet.has(`${entry.id}/${m.id}`)
       )
       return {
         id: entry.id,
