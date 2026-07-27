@@ -33,6 +33,19 @@ Custom (user-added) models are unaffected (unchanged today: enabled when added).
   row's `liveOnly` flag from the current `manageableModels` state and writes to whichever list
   applies. No UI call site changes — they all already just call `setModelEnabled(ref, enabled)`.
 
+## Catalog layout (addendum — a live screenshot during review showed a real live-discovered
+model, "Claude Opus 4.7", already appearing via Anthropic's live API not yet in BearCode's curated
+list, confirming the feature works)
+
+Once live-only models default to disabled, Catalog stops being "a handful of curated models to
+browse" and becomes "dozens of live-discovered models across every provider" — the current
+2-column card grid (icon + name + vendor + description + Enable button per card) doesn't scale to
+that volume. Switch `CatalogTab` from a card grid to a **compact row-list, grouped by vendor**:
+one line per model (icon, name, truncated one-line description, Enable button) under a section
+header per vendor (Anthropic / Google / OpenAI / ...), matching the density conventions the Models
+tab's table already establishes elsewhere in this app. Cards suited a short curated browse list;
+rows suit a long, scannable one.
+
 ## Out of Scope
 
 - Any "new model" visual badge/indicator beyond the existing disabled state — Catalog already
