@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, useLayoutEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { HERMES_MODEL_REF } from '@shared/types'
 import { useAppStore, type Convo } from '../../state/store'
+import { prefersReducedMotion } from '../../lib/prefersReducedMotion'
 import bearMark from '../../assets/bear.svg'
 import { Hint } from '../Hint'
 import { EmptyState } from '../ui/EmptyState'
@@ -143,7 +144,7 @@ export function Sidebar(): React.JSX.Element {
     prevCollapsed.current = collapsed
     const el = sidebarRef.current
     if (!el) return
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (prefersReducedMotion()) return
     const dist = sidebarWidth + 1
     // Collapsing: box shifted left by `dist`, so invert with +dist. Expanding: inverse.
     // Promote to a GPU layer NOW (will-change) so the layer already exists on the
