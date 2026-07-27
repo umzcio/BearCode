@@ -5,39 +5,13 @@ import { describe, expect, it } from 'vitest'
 
 const mainDir = dirname(fileURLToPath(import.meta.url))
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+type CssRule = {
+  selectors: string[]
+  declarations: string
 }
 
-function ruleDeclarations(stylesheet: string, selector: string): string {
-  const match = stylesheet.match(new RegExp(`${escapeRegExp(selector)}\\s*\\{([^{}]*)\\}`))
-  if (!match) throw new Error(`Expected CSS rule for ${selector}`)
-  return match[1]
-}
-
-function atRuleBlockContaining(stylesheet: string, atRule: string, selector: string): string {
-  let atRuleStart = stylesheet.indexOf(atRule)
-  while (atRuleStart !== -1) {
-    const openBrace = stylesheet.indexOf('{', atRuleStart)
-    let depth = 1
-    let cursor = openBrace + 1
-
-    while (depth > 0 && cursor < stylesheet.length) {
-      if (stylesheet[cursor] === '{') depth++
-      if (stylesheet[cursor] === '}') depth--
-      cursor++
-    }
-
-    const block = stylesheet.slice(openBrace + 1, cursor - 1)
-    if (block.includes(selector)) return block
-    atRuleStart = stylesheet.indexOf(atRule, cursor)
-  }
-
-  throw new Error(`Expected ${atRule} block containing ${selector}`)
-}
-
-function ruleSelectorsWithDeclaration(stylesheet: string, declaration: string): string[] {
-  const selectors: string[] = []
+function cssRules(stylesheet: string, recursive = true): CssRule[] {
+  const rules: CssRule[] = []
   let ruleStart = 0
 
   while (ruleStart < stylesheet.length) {
@@ -58,15 +32,79 @@ function ruleSelectorsWithDeclaration(stylesheet: string, declaration: string): 
       .trim()
     const declarations = stylesheet.slice(openBrace + 1, cursor - 1)
     if (selectorList.startsWith('@')) {
-      selectors.push(...ruleSelectorsWithDeclaration(declarations, declaration))
-    } else if (declarations.includes(declaration)) {
-      selectors.push(...selectorList.split(',').map((selector) => selector.trim()))
+      if (recursive) rules.push(...cssRules(declarations))
+    } else {
+      rules.push({
+        selectors: selectorList.split(',').map((selector) => selector.trim()),
+        declarations
+      })
     }
 
     ruleStart = cursor
   }
 
-  return selectors
+  return rules
+}
+
+function exactRuleDeclarations(stylesheet: string, selector: string): string[] {
+  return cssRules(stylesheet, false)
+    .filter((rule) => rule.selectors.length === 1 && rule.selectors[0] === selector)
+    .map((rule) => rule.declarations)
+}
+
+function ruleDeclarations(stylesheet: string, selector: string): string {
+  const declarations = exactRuleDeclarations(stylesheet, selector)
+  if (declarations.length !== 1) {
+    throw new Error(`Expected exactly one CSS rule for ${selector}, found ${declarations.length}`)
+  }
+  return declarations[0]
+}
+
+function atRuleDeclarations(stylesheet: string, atRule: string, selector: string): string[] {
+  const declarations: string[] = []
+  let ruleStart = 0
+
+  while (ruleStart < stylesheet.length) {
+    const openBrace = stylesheet.indexOf('{', ruleStart)
+    if (openBrace === -1) break
+
+    let depth = 1
+    let cursor = openBrace + 1
+    while (depth > 0 && cursor < stylesheet.length) {
+      if (stylesheet[cursor] === '{') depth++
+      if (stylesheet[cursor] === '}') depth--
+      cursor++
+    }
+    const selectorList = stylesheet
+      .slice(ruleStart, openBrace)
+      .slice(stylesheet.slice(ruleStart, openBrace).lastIndexOf('*/') + 2)
+      .trim()
+    if (selectorList.startsWith(atRule)) {
+      declarations.push(
+        ...exactRuleDeclarations(stylesheet.slice(openBrace + 1, cursor - 1), selector)
+      )
+    }
+
+    ruleStart = cursor
+  }
+
+  return declarations
+}
+
+function atRuleDeclaration(stylesheet: string, atRule: string, selector: string): string {
+  const declarations = atRuleDeclarations(stylesheet, atRule, selector)
+  if (declarations.length !== 1) {
+    throw new Error(
+      `Expected exactly one ${atRule} CSS rule for ${selector}, found ${declarations.length}`
+    )
+  }
+  return declarations[0]
+}
+
+function ruleSelectorsWithDeclaration(stylesheet: string, declaration: string): string[] {
+  return cssRules(stylesheet)
+    .filter((rule) => rule.declarations.includes(declaration))
+    .flatMap((rule) => rule.selectors)
 }
 
 const pressableStylesheets = [
@@ -111,14 +149,11 @@ describe('sidebar button press feedback', () => {
   it('removes sidebar button press transforms for OS and in-app reduced motion', () => {
     for (const { css, selector } of pressableStylesheets) {
       const activeSelector = `${selector}:active`
-      const osReducedMotion = atRuleBlockContaining(
-        css,
-        '@media (prefers-reduced-motion: reduce)',
-        activeSelector
-      )
       const inAppReducedMotionSelector = `:root[data-motion='reduced'] ${activeSelector}`
 
-      expect(ruleDeclarations(osReducedMotion, activeSelector)).toContain('transform: none;')
+      expect(
+        atRuleDeclaration(css, '@media (prefers-reduced-motion: reduce)', activeSelector)
+      ).toContain('transform: none;')
       expect(ruleDeclarations(css, inAppReducedMotionSelector)).toContain('transform: none;')
     }
   })
