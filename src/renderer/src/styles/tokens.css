@@ -13,17 +13,13 @@
   /* Chat text font + conversation column width, overridden by data-* below. */
   --chat-font: var(--sans);
   --conversation-max: 820px;
-  /* Horizontal clearance for the native macOS traffic-light dots, which
-     Electron draws at `trafficLightPosition: { x: 20, y: 22 }` in
-     src/main/index.ts. Any row that can render flush against the window's
-     top-left corner (the sidebar's own `.chrome` toggle row, and the
-     topbar's collapsed-sidebar fallback toggle in App.css) must use this
-     single value as its `padding-left` so the two can never drift apart
-     again (they previously did: 78px vs 84px, the 78px one visibly hugging
-     the green dot). 88px = dot cluster right edge (~x:74) + a real gap,
-     not just "clears the dots." Bump this, not a local literal, if the
-     traffic-light position ever changes. */
-  --traffic-light-inset: 88px;
+  /* Renderer window-chrome geometry. appearance.ts divides these layout
+     coordinates by root zoom and inversely scales the fixed control layer so
+     it stays physically anchored beside Electron's unscaled traffic lights. */
+  --window-controls-left: 100px;
+  --window-controls-top: 16px;
+  --window-controls-scale: 1;
+  --collapsed-topbar-content-left: 134px;
 
   /* --- dark palette (default) --- */
   --bg: #131313;

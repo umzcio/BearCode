@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { WindowChromeControls } from './components/WindowChrome/WindowChromeControls'
 import { Sidebar } from './components/Sidebar/Sidebar'
 import { Home } from './components/Home'
 import { HistoryView } from './components/History/HistoryView'
@@ -12,8 +13,6 @@ import { ResizeHandle } from './components/ResizeHandle'
 import { SettingsModal } from './components/Settings/SettingsModal'
 import { ProjectSettingsModal } from './components/ProjectSettings/ProjectSettingsModal'
 import { ConflictResolver } from './components/Worktree/ConflictResolver'
-import { Hint } from './components/Hint'
-import { IconPanel } from './components/icons'
 import { TrustBanner } from './components/TrustBanner'
 import { ImportConfigBanner } from './components/ImportConfigBanner'
 import { ImportConfigReviewModal } from './components/ImportConfigReviewModal'
@@ -34,7 +33,6 @@ function App(): React.JSX.Element {
       return c ? { id: c.id, projectLabel: c.projectLabel, title: c.title } : null
     })
   )
-  const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const auxSelection = useAppStore((s) => s.auxSelection)
   const setSidebarWidth = useAppStore((s) => s.setSidebarWidth)
   const setAuxPaneWidth = useAppStore((s) => s.setAuxPaneWidth)
@@ -116,6 +114,7 @@ function App(): React.JSX.Element {
 
   return (
     <div className={'app' + (cmdHeld ? ' cmd-held' : '')}>
+      <WindowChromeControls />
       <Sidebar />
       {!collapsed ? (
         <ResizeHandle
@@ -127,13 +126,6 @@ function App(): React.JSX.Element {
       ) : null}
       <div className={'main' + (collapsed ? ' sidebar-collapsed' : '')}>
         <div className="topbar">
-          {collapsed ? (
-            <Hint label="Toggle Sidebar" keys="⌘B" side="bottom">
-              <button className="chrome-btn" onClick={toggleSidebar} aria-label="Toggle sidebar">
-                <IconPanel />
-              </button>
-            </Hint>
-          ) : null}
           {convo ? (
             <div className="breadcrumb">
               <span className="crumb">{convo.projectLabel}</span>

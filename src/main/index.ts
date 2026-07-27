@@ -68,8 +68,8 @@ function createWindow(): void {
     autoHideMenuBar: true,
     backgroundColor: '#131313',
     titleBarStyle: 'hidden',
-    // Keep the native traffic lights on the same line as the sidebar
-    // chrome row (toggle + history arrows).
+    // Keep the native traffic lights aligned with the fixed renderer window
+    // controls; renderer appearance zoom compensation preserves their gap.
     trafficLightPosition: { x: 20, y: 22 },
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {

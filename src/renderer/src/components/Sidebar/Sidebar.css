@@ -21,19 +21,12 @@
   }
 }
 
-/* Native macOS traffic lights sit over this row, pinned to the same line
-   by trafficLightPosition in src/main/index.ts. padding-left uses the
-   shared --traffic-light-inset token (tokens.css) so this can't drift out
-   of sync with App.css's collapsed-topbar fallback again. */
-.chrome {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 4px 16px var(--traffic-light-inset);
+/* Preserve the former chrome row's exact occupied height while the fixed
+   WindowChromeControls layer sits above the FLIP-transformed sidebar. */
+.sidebar-chrome-spacer {
+  height: 42px;
+  flex-shrink: 0;
   -webkit-app-region: drag;
-}
-.chrome .chrome-btn {
-  -webkit-app-region: no-drag;
 }
 
 .nav-item {

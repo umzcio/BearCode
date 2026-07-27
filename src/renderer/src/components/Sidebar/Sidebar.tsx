@@ -49,9 +49,7 @@ import { ConvoRow } from './ConvoRow'
 import {
   IconFolder,
   IconGrid,
-  IconPanel,
   IconPlus,
-  IconSearch,
   IconSettings,
   IconTerminal
 } from '../icons'
@@ -75,8 +73,6 @@ export function Sidebar(): React.JSX.Element {
       return out
     })
   )
-  const toggleSidebar = useAppStore((s) => s.toggleSidebar)
-  const openHistory = useAppStore((s) => s.openHistory)
   const openConvo = useAppStore((s) => s.openConvo)
   const folderSettings = useAppStore((s) => s.folderSettings)
   const openProjectPage = useAppStore((s) => s.openProjectPage)
@@ -231,18 +227,7 @@ export function Sidebar(): React.JSX.Element {
         marginLeft: collapsed ? -(sidebarWidth + 1) : undefined
       }}
     >
-      <div className="chrome">
-        <Hint label="Toggle Sidebar" keys="⌘B" side="bottom">
-          <button className="chrome-btn" onClick={toggleSidebar} aria-label="Toggle sidebar">
-            <IconPanel />
-          </button>
-        </Hint>
-        <Hint label="History" side="bottom">
-          <button className="chrome-btn" onClick={openHistory} aria-label="History">
-            <IconSearch />
-          </button>
-        </Hint>
-      </div>
+      <div className="sidebar-chrome-spacer" aria-hidden="true" />
 
       {hermesEnabled ? (
         <div className="seg-toggle">
