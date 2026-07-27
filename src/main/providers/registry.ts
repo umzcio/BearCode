@@ -11,9 +11,10 @@ import type {
   ProviderId,
   ProviderModels
 } from '../../shared/types'
-import { keyStatus } from '../keys'
+import { getKey, keyStatus } from '../keys'
 import { getSettings } from '../settings'
 import type { ModelMetadata } from '../../shared/pricing'
+import { fetchAnthropicModels, fetchGoogleModels, fetchOpenAIModels } from './liveDiscovery'
 
 interface ProviderRegistryEntry {
   id: ProviderId
@@ -443,6 +444,56 @@ export function clearLiveDiscoveryCache(): void {
   liveCapabilityCache.clear()
 }
 
+// Merge a live-discovered list with the static curated array by id. For
+// Anthropic/Google, live wins outright on collision (their APIs return a
+// real display name). For OpenAI specifically, prefer the STATIC entry's
+// label on collision -- OpenAI's list endpoint has no display-name field at
+// all, so a raw id ("gpt-5.6-sol") is worse UX than a name we already have.
+function mergeLiveWithStatic(
+  live: ModelInfo[],
+  staticModels: ModelInfo[],
+  opts: { preferStaticLabel: boolean }
+): ModelInfo[] {
+  const staticById = new Map(staticModels.map((m) => [m.id, m]))
+  const byId = new Map<string, ModelInfo>()
+  for (const m of staticModels) byId.set(m.id, m)
+  for (const m of live) {
+    const existing = staticById.get(m.id)
+    byId.set(m.id, {
+      ...m,
+      label: opts.preferStaticLabel && existing ? existing.label : m.label
+    })
+  }
+  return [...byId.values()]
+}
+
+// OpenAI's list has no mode/type field, so filter via the LiteLLM catalog
+// this feature already syncs (mode === 'chat'). Bootstrap fallback only for
+// the case LiteLLM hasn't been synced yet (nothing to cross-reference) --
+// a known-imperfect substring blacklist, superseded automatically the first
+// time the user hits "Sync metadata".
+const OPENAI_NON_CHAT_SUBSTRINGS = [
+  'embedding',
+  'whisper',
+  'tts',
+  'dall-e',
+  'moderation',
+  'davinci-002',
+  'babbage-002',
+  'realtime',
+  'audio',
+  'image',
+  'video',
+  'computer-use',
+  'codex'
+]
+
+function isKnownOpenAIChatModel(id: string, metadata: Record<string, { mode?: string }> | undefined): boolean {
+  const ref = `openai/${id}`
+  if (metadata?.[ref]) return metadata[ref].mode === 'chat'
+  return !OPENAI_NON_CHAT_SUBSTRINGS.some((s) => id.includes(s))
+}
+
 // Idempotent per-provider live-discovery trigger. Whichever of
 // listAllModels() (via REGISTRY[i].listModels()) or listManageableModels()
 // runs first pays the network cost and warms the caches above for the
@@ -450,12 +501,30 @@ export function clearLiveDiscoveryCache(): void {
 // guard is cache presence, not a separate "already tried" flag -- see
 // clearLiveDiscoveryCache's comment for why a failed/no-key attempt is
 // allowed to retry on the next call rather than being cached as a
-// permanent negative result). This stub intentionally does nothing yet --
-// Task 6 replaces the body with real per-provider fetchers from
-// liveDiscovery.ts. Behavior today is identical to before this task:
-// knownModels() falls back to STATIC_MODELS for every provider.
-async function ensureLiveDiscovery(_provider: ProviderId): Promise<void> {
-  // no-op until Task 6
+// permanent negative result). No key configured -> bail out immediately
+// with no fetch attempt at all, leaving knownModels() on the STATIC_MODELS
+// fallback for that provider.
+async function ensureLiveDiscovery(provider: ProviderId): Promise<void> {
+  if (liveModelCache.has(provider)) return
+  const apiKey = getKey(provider)
+  if (!apiKey) return
+
+  let result: Awaited<ReturnType<typeof fetchAnthropicModels>> = null
+  if (provider === 'anthropic') result = await fetchAnthropicModels(apiKey)
+  else if (provider === 'google') result = await fetchGoogleModels(apiKey)
+  else if (provider === 'openai') {
+    const metadata = getSettings().modelMetadata
+    result = await fetchOpenAIModels(apiKey, (id) => isKnownOpenAIChatModel(id, metadata))
+  }
+  if (!result) return
+
+  const merged = mergeLiveWithStatic(result.models, STATIC_MODELS[provider] ?? [], {
+    preferStaticLabel: provider === 'openai'
+  })
+  liveModelCache.set(provider, merged)
+  for (const [id, caps] of Object.entries(result.capabilities)) {
+    liveCapabilityCache.set(`${provider}/${id}`, caps)
+  }
 }
 
 // The model's real context window (tokens) for a "provider/modelId" ref, or
