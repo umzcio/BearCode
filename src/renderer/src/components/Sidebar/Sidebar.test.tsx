@@ -545,6 +545,33 @@ describe('FLIP collapse animation lifecycle', () => {
     expect(sidebarEl.style.transform).toBe('translate3d(-150.5px, 0, 0)')
   })
 
+  it('clears motion styles when reversal before the first frame has zero distance', async () => {
+    document.documentElement.style.setProperty('--ease-drawer', 'cubic-bezier(0.32, 0.72, 0, 1)')
+    document.documentElement.style.setProperty('--dur-drawer', '340ms')
+
+    const container = mount({ conversations: {} })
+    const sidebarEl = container.querySelector('.sidebar') as HTMLElement
+
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: true } as never)
+    })
+
+    // Reverse before the collapse RAF. The full +301px inverse exactly offsets
+    // the collapsed margin, so the incoming expanded layout has no distance to
+    // animate and will never emit transitionend.
+    currentComputedTranslateX = 301
+    act(() => {
+      useAppStore.setState({ sidebarCollapsed: false } as never)
+    })
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    expect(sidebarEl.style.willChange).toBe('')
+    expect(sidebarEl.style.transition).toBe('')
+    expect(sidebarEl.style.transform).toBe('')
+  })
+
   it('keeps the active transition lifecycle attached across sidebar width updates', async () => {
     document.documentElement.style.setProperty('--ease-drawer', 'cubic-bezier(0.32, 0.72, 0, 1)')
     document.documentElement.style.setProperty('--dur-drawer', '340ms')

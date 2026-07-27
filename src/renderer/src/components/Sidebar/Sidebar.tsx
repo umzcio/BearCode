@@ -178,6 +178,10 @@ export function Sidebar(): React.JSX.Element {
     const oldMargin = wasCollapsed ? -dist : 0
     const newMargin = collapsed ? -dist : 0
     const startX = oldMargin + currentTranslateX - newMargin
+    if (startX === 0) {
+      clearMotionStyles()
+      return
+    }
     // Invert the new layout back to the current visual position, including
     // when this direction change interrupts an in-flight transform.
     // Promote to a GPU layer NOW (will-change) so the layer already exists on the
