@@ -904,6 +904,67 @@ describe('runHermesNative terminal behavior', () => {
     ).toBe(true)
   })
 
+  it('flips an orphaned running tool call (no approval ever requested) to failed with a synthetic result when the turn rejects without a wire event', async () => {
+    const { promise, sink, turn } = begin()
+    turn.options.onEvent(
+      serverEvent('tool.started', { toolCallId: ids.tool, name: 'terminal', label: 'Run' })
+    )
+    // No approval.requested -- this tool call goes straight to 'running' and
+    // is never added to pendingApprovals, so the pre-existing approval sweep
+    // in terminateInteractions cannot see it.
+
+    turn.fail(new Error('heartbeat timed out'))
+    await expect(promise).resolves.toEqual({ paused: false, failed: true })
+
+    const toolCallEvents = emitted(sink).filter(
+      (event) => event.type === 'hermes_tool_call'
+    ) as Array<{ status: string }>
+    expect(toolCallEvents.at(-1)?.status).toBe('failed')
+
+    const resultEvents = vi.mocked(appendEvent).mock.calls
+      .map(([, event]) => event)
+      .filter((event) => event.type === 'hermes_tool_result')
+    expect(resultEvents).toContainEqual(
+      expect.objectContaining({ callId: ids.tool, status: 'failed' })
+    )
+  })
+
+  it('flips a tool call that WAS approved but never completed to failed with a synthetic result when the turn rejects without a wire event', async () => {
+    const { promise, sink, turn } = begin()
+    turn.options.onEvent(
+      serverEvent('tool.started', { toolCallId: ids.tool, name: 'terminal', label: 'Run' })
+    )
+    turn.options.onEvent(
+      serverEvent('approval.requested', {
+        requestId: ids.request,
+        toolCallId: ids.tool,
+        command: 'npm test',
+        description: 'Run tests',
+        allowSession: true,
+        allowPermanent: false,
+        smartDenied: false
+      }, 2)
+    )
+    expect(resolveHermesApproval(ids.conversation, ids.request, 'once')).toBe(true)
+    // Approved: status flips to 'running', removed from pendingApprovals -- the
+    // pre-existing approval sweep no longer sees this requestId either.
+
+    turn.fail(new Error('heartbeat timed out'))
+    await expect(promise).resolves.toEqual({ paused: false, failed: true })
+
+    const toolCallEvents = emitted(sink).filter(
+      (event) => event.type === 'hermes_tool_call'
+    ) as Array<{ status: string }>
+    expect(toolCallEvents.at(-1)?.status).toBe('failed')
+
+    const resultEvents = vi.mocked(appendEvent).mock.calls
+      .map(([, event]) => event)
+      .filter((event) => event.type === 'hermes_tool_result')
+    expect(resultEvents).toContainEqual(
+      expect.objectContaining({ callId: ids.tool, status: 'failed' })
+    )
+  })
+
   it('flips a still-pending approval to a terminal status when cancelHermesNative runs', async () => {
     const { promise, sink, turn } = begin()
     turn.options.onEvent(

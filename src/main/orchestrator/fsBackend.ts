@@ -14,7 +14,7 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'fs'
-import { basename, dirname, isAbsolute, relative, resolve, sep } from 'path'
+import { isAbsolute, relative, resolve, sep } from 'path'
 import { interrupt, isGraphInterrupt } from '@langchain/langgraph'
 import { rgPath } from '@vscode/ripgrep'
 import type {
@@ -29,6 +29,7 @@ import type {
 } from 'deepagents'
 import type { FileDiffFile } from '../../shared/types'
 import { stageFile } from '../diffs'
+import { realpathExistingPrefix } from '../fsCapped'
 import { evaluateEditForConversation, resolveConversationMode } from '../permissions'
 import { getSettings } from '../settings'
 import { takeDeniedEditReplayPin, takeDeniedHookReplayPin } from './tools'
@@ -43,27 +44,7 @@ const execFileAsync = promisify(execFile)
 // some system prompts use to describe the workspace root as "/" -- if an
 // absolute path doesn't already fall under the real root, it is treated as
 // root-relative rather than a literal OS path.
-// Resolve the longest EXISTING prefix of a path through realpath, re-
-// appending the not-yet-existing suffix untouched -- so a path to a file
-// that is about to be created still normalizes its existing ancestors
-// (and any symlinks among them) to their canonical location.
-function realpathExistingPrefix(p: string): string {
-  let probe = p
-  let suffix = ''
-  for (;;) {
-    try {
-      probe = realpathSync(probe)
-      break
-    } catch {
-      suffix = sep + basename(probe) + suffix
-      const parent = dirname(probe)
-      if (parent === probe) break
-      probe = parent
-    }
-  }
-  return probe + suffix
-}
-
+//
 // Resolve a model-supplied path to its real absolute location AND report
 // whether that location falls outside the workspace root -- WITHOUT throwing on
 // the outside case. This is the shared resolution core; jailPath() wraps it with

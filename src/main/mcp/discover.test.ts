@@ -13,44 +13,67 @@ const fakeFiles = new Map<string, string>()
 // literal path start with root" check the code always effectively had here.
 const fakeRealpathOverrides = new Map<string, string>()
 vi.mock('os', () => ({ homedir: vi.fn(() => '/fake-home') }))
-vi.mock('fs', () => ({
-  statSync: vi.fn((path: string) => {
-    const contents = fakeFiles.get(path)
-    if (contents === undefined) {
-      const err = new Error('ENOENT') as NodeJS.ErrnoException
-      err.code = 'ENOENT'
-      throw err
-    }
-    return { isFile: () => true, size: Buffer.byteLength(contents, 'utf8') }
-  }),
-  // readFileCapped now lstats before statting (symlink-safe config-import
-  // scan hardening) -- these fake files are never symlinks.
-  lstatSync: vi.fn((path: string) => {
-    const contents = fakeFiles.get(path)
-    if (contents === undefined) {
-      const err = new Error('ENOENT') as NodeJS.ErrnoException
-      err.code = 'ENOENT'
-      throw err
-    }
-    return { isSymbolicLink: () => false }
-  }),
-  openSync: vi.fn((path: string) => path),
-  readSync: vi.fn((fd: string, buf: Buffer, offset: number, length: number) => {
-    const contents = fakeFiles.get(fd) ?? ''
-    const src = Buffer.from(contents, 'utf8')
-    const toCopy = Math.min(length, src.length - offset)
-    if (toCopy <= 0) return 0
-    src.copy(buf, offset, offset, offset + toCopy)
-    return toCopy
-  }),
-  closeSync: vi.fn(),
-  existsSync: vi.fn((path: string) => fakeFiles.has(path)),
-  mkdirSync: vi.fn(),
-  writeFileSync: vi.fn(() => {
-    throw new Error('discoverLocalServers must never write')
-  }),
-  realpathSync: vi.fn((path: string) => fakeRealpathOverrides.get(path) ?? path)
-}))
+vi.mock('fs', async () => {
+  // Pull the REAL `constants` (O_RDONLY/O_NOFOLLOW/etc) from the actual `fs`
+  // module rather than hand-rolling numeric values -- readFileCapped
+  // (fsCapped.ts, round3 plan 004) now references constants.O_RDONLY /
+  // constants.O_NOFOLLOW unconditionally, so this mock must provide the real
+  // ones for those bitwise flag checks to behave correctly.
+  const actual = await vi.importActual<typeof import('fs')>('fs')
+  return {
+    constants: actual.constants,
+    statSync: vi.fn((path: string) => {
+      const contents = fakeFiles.get(path)
+      if (contents === undefined) {
+        const err = new Error('ENOENT') as NodeJS.ErrnoException
+        err.code = 'ENOENT'
+        throw err
+      }
+      return { isFile: () => true, size: Buffer.byteLength(contents, 'utf8') }
+    }),
+    // readFileCapped now lstats before statting (symlink-safe config-import
+    // scan hardening) -- these fake files are never symlinks.
+    lstatSync: vi.fn((path: string) => {
+      const contents = fakeFiles.get(path)
+      if (contents === undefined) {
+        const err = new Error('ENOENT') as NodeJS.ErrnoException
+        err.code = 'ENOENT'
+        throw err
+      }
+      return { isSymbolicLink: () => false }
+    }),
+    openSync: vi.fn((path: string) => path),
+    // readFileCapped (round3 plan 004) now fstats the OPEN DESCRIPTOR instead
+    // of statSync-ing the pathname -- in this mock, `fd` is just the literal
+    // path string returned by the openSync mock above, so this looks up the
+    // same fakeFiles map keyed by that "fd". Must return the same shape
+    // readFileCapped reads off it: `.isFile()` and `.size`.
+    fstatSync: vi.fn((fd: string) => {
+      const contents = fakeFiles.get(fd)
+      if (contents === undefined) {
+        const err = new Error('ENOENT') as NodeJS.ErrnoException
+        err.code = 'ENOENT'
+        throw err
+      }
+      return { isFile: () => true, size: Buffer.byteLength(contents, 'utf8') }
+    }),
+    readSync: vi.fn((fd: string, buf: Buffer, offset: number, length: number) => {
+      const contents = fakeFiles.get(fd) ?? ''
+      const src = Buffer.from(contents, 'utf8')
+      const toCopy = Math.min(length, src.length - offset)
+      if (toCopy <= 0) return 0
+      src.copy(buf, offset, offset, offset + toCopy)
+      return toCopy
+    }),
+    closeSync: vi.fn(),
+    existsSync: vi.fn((path: string) => fakeFiles.has(path)),
+    mkdirSync: vi.fn(),
+    writeFileSync: vi.fn(() => {
+      throw new Error('discoverLocalServers must never write')
+    }),
+    realpathSync: vi.fn((path: string) => fakeRealpathOverrides.get(path) ?? path)
+  }
+})
 
 vi.mock('../settings', () => ({
   getSettings: vi.fn(() => ({})),

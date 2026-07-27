@@ -644,11 +644,14 @@ export function registerIpc(): void {
       ) {
         throw new Error('Invalid Hermes approval decision')
       }
-      resolveHermesApproval(
+      const resolved = resolveHermesApproval(
         conversationId as string,
         requestId as string,
         decision as ApprovalDecision
       )
+      if (!resolved) {
+        throw new Error('This interaction has already been resolved or the turn has ended.')
+      }
     }
   )
   ipcMain.handle(
@@ -663,7 +666,14 @@ export function registerIpc(): void {
       if (typeof response !== 'string') {
         throw new Error('Hermes clarification response must be a string')
       }
-      resolveHermesClarification(conversationId as string, requestId as string, response)
+      const resolved = resolveHermesClarification(
+        conversationId as string,
+        requestId as string,
+        response
+      )
+      if (!resolved) {
+        throw new Error('This interaction has already been resolved or the turn has ended.')
+      }
     }
   )
 

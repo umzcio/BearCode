@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'fs'
+import { execSync } from 'child_process'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { readFileCapped, isPathWithinRoot } from './fsCapped'
@@ -105,6 +106,75 @@ describe('readFileCapped', () => {
     symlinkSync(realOutsideDir, symlinkedDir)
     const candidatePath = join(symlinkedDir, 'evil.md')
     expect(readFileCapped(candidatePath, 1024)).toEqual({ text: 'evil content', truncated: false })
+  })
+
+  it('opens with O_NOFOLLOW when a root is supplied, and fstat-checks the descriptor (not the pathname)', () => {
+    const filePath = join(dir, 'CLAUDE.md')
+    writeFileSync(filePath, 'hello world')
+    // No race constructible in a synchronous single-process test (see plan
+    // 004's "Add new tests" step) -- this instead verifies readFileCapped
+    // still reads correctly through the new open+fstat-on-descriptor path
+    // when `root` gates it to O_NOFOLLOW, i.e. the mechanism itself is wired
+    // up without breaking the ordinary (non-attack) case.
+    expect(readFileCapped(filePath, 1024, dir)).toEqual({ text: 'hello world', truncated: false })
+  })
+
+  it('a symlink swapped onto the leaf AFTER an unrelated prior read is still rejected on the next call, given a root', () => {
+    // Not a true single-call race (impossible to construct synchronously --
+    // see plan 004), but confirms the check-then-open sequence is re-run
+    // fully, and rejects correctly, on every call -- a stale "already
+    // verified" assumption from a previous call is never carried forward.
+    const realFile = join(dir, 'CLAUDE.md')
+    writeFileSync(realFile, 'first read, legitimate')
+    expect(readFileCapped(realFile, 1024, dir)).toEqual({
+      text: 'first read, legitimate',
+      truncated: false
+    })
+    rmSync(realFile)
+    const outsideFile = join(outsideDir, 'swapped.md')
+    writeFileSync(outsideFile, 'swapped in after the fact')
+    symlinkSync(outsideFile, realFile)
+    expect(readFileCapped(realFile, 1024, dir)).toBeNull()
+  })
+
+  // The exact O_RDONLY | O_NOFOLLOW flag value passed to openSync (gated on
+  // `root`) is verified by code inspection (fsCapped.ts's readFileCapped),
+  // not by a runtime spy: this codebase's fs imports are static ESM named
+  // imports, and Vitest cannot spy on them ("Cannot redefine property:
+  // openSync" / "Module namespace is not configurable in ESM") -- confirmed
+  // by attempting `vi.spyOn(fs, 'openSync')` here, which throws rather than
+  // intercepting the call.
+
+  // Regression test (round3 whole-branch review): the O_NOFOLLOW hardening
+  // above switched the isFile() check from a pre-open statSync(path) to a
+  // post-open fstatSync(fd), which reintroduced a real hang risk -- opening a
+  // FIFO with no writer via a bare O_RDONLY blocks the synchronous main
+  // process INDEFINITELY. openSync must always include O_NONBLOCK (regardless
+  // of whether `root` is passed) so the open itself returns immediately with
+  // a "not ready" fd instead of blocking; the existing fstatSync(fd).isFile()
+  // check then correctly rejects it as non-regular. This uses a REAL FIFO
+  // (via the `mkfifo` binary -- Node's fs module has no direct mkfifo) with no
+  // writer ever attached, so a regression here would hang this test (and the
+  // whole `vitest run` process) rather than merely failing it -- that's the
+  // exact failure mode this test exists to catch.
+  it('returns null promptly (does not hang) for a FIFO with no writer', () => {
+    const fifoPath = join(dir, 'a-fifo')
+    execSync(`mkfifo "${fifoPath}"`)
+    const start = Date.now()
+    const result = readFileCapped(fifoPath, 1024)
+    const elapsedMs = Date.now() - start
+    expect(result).toBeNull()
+    expect(elapsedMs).toBeLessThan(2000)
+  })
+
+  it('returns null promptly (does not hang) for a FIFO with no writer, given a root', () => {
+    const fifoPath = join(dir, 'a-fifo-rooted')
+    execSync(`mkfifo "${fifoPath}"`)
+    const start = Date.now()
+    const result = readFileCapped(fifoPath, 1024, dir)
+    const elapsedMs = Date.now() - start
+    expect(result).toBeNull()
+    expect(elapsedMs).toBeLessThan(2000)
   })
 })
 

@@ -228,9 +228,25 @@ function globToRegExp(pattern: string): RegExp {
 // resolve INSIDE the workspace once symlinks are followed -- defense in
 // depth against a symlink under an otherwise-legitimate scope pointing
 // outside the project (listFilesRecursive's statSync follows symlinks when
-// deciding whether to walk into a directory).
-function withinWorkspace(projectPath: string, rels: string[]): string[] {
-  return rels.filter((rel) => !resolveInWorkspace(projectPath, rel).outside)
+// deciding whether to walk into a directory). Returns the already-resolved
+// ABSOLUTE path alongside each surviving relative path (round3 plan 002):
+// resolveScopeToBlock reads from this `abs` field directly instead of
+// re-joining `projectPath` + `rel` at read time, which closes a TOCTOU gap
+// where a symlink swapped in between this containment check and the later
+// read could smuggle outside-workspace content into a prompt sent to a
+// remote third-party LLM API.
+interface ScopeFile {
+  rel: string
+  abs: string
+}
+
+function withinWorkspace(projectPath: string, rels: string[]): ScopeFile[] {
+  const out: ScopeFile[] = []
+  for (const rel of rels) {
+    const { real, outside } = resolveInWorkspace(projectPath, rel)
+    if (!outside) out.push({ rel, abs: real })
+  }
+  return out
 }
 
 // Resolve `scope` to the ordered list of file paths (relative to
@@ -247,7 +263,7 @@ function withinWorkspace(projectPath: string, rels: string[]): string[] {
 // Ad-hoc `resolve(projectPath, scope)` would let an absolute path or a
 // "../../" sequence escape the project, and the resolved file gets read and
 // embedded in prompts sent to third-party LLM APIs.
-function resolveScopeFiles(projectPath: string, scope: string, conversationId: string): string[] {
+function resolveScopeFiles(projectPath: string, scope: string, conversationId: string): ScopeFile[] {
   if (scope === 'what was just built') {
     const seen = new Set<string>()
     const files: string[] = []
@@ -281,7 +297,7 @@ function resolveScopeFiles(projectPath: string, scope: string, conversationId: s
     const matcher = globToRegExp(scope)
     const all: string[] = []
     listFilesRecursive(projectPath, projectPath, all)
-    return withinWorkspace(projectPath, all).filter((rel) => matcher.test(rel))
+    return withinWorkspace(projectPath, all).filter((f) => matcher.test(f.rel))
   }
   const { real: target, outside } = resolveInWorkspace(projectPath, scope)
   if (outside || !existsSync(target)) return []
@@ -293,7 +309,7 @@ function resolveScopeFiles(projectPath: string, scope: string, conversationId: s
   // re-checks every path through resolveInWorkspace below), but worth
   // getting right since these paths are what the UI shows the user.
   const realRoot = realpathSync(projectPath)
-  if (statSync(target).isFile()) return [relative(realRoot, target)]
+  if (statSync(target).isFile()) return [{ rel: relative(realRoot, target), abs: target }]
   const out: string[] = []
   listFilesRecursive(target, realRoot, out)
   return withinWorkspace(projectPath, out)
@@ -323,10 +339,13 @@ function resolveScopeToBlock(
   let block = ''
   let included = 0
   let sawReadable = false
-  for (const rel of files) {
+  for (const { rel, abs } of files) {
     let contents: string
     try {
-      contents = readFileSync(join(projectPath, rel), 'utf8')
+      // Read from the ALREADY-RESOLVED absolute path resolveScopeFiles
+      // computed above, never a fresh join(projectPath, rel) -- round3 plan
+      // 002 TOCTOU fix (see withinWorkspace's comment).
+      contents = readFileSync(abs, 'utf8')
     } catch {
       continue
     }

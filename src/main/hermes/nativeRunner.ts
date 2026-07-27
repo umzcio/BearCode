@@ -85,7 +85,10 @@ function toolStatus(status: string): 'completed' | 'failed' {
 //      event)
 // Idempotent by construction: the status/state guards make repeat calls for
 // an already-terminated turn a no-op, so calling it unconditionally in
-// `finally` on top of the eager call-sites above is safe.
+// `finally` on top of the eager call-sites above is safe. Also sweeps
+// active.toolCalls directly for any entry still 'running' -- covers a tool
+// call that never needed approval, or one that was approved and is still
+// executing when the turn ends.
 function terminateInteractions(conversationId: string, active: ActiveNativeTurn): void {
   for (const requestId of active.pendingApprovals) {
     const toolCallId = active.approvalToolCallIds.get(requestId)
@@ -109,6 +112,33 @@ function terminateInteractions(conversationId: string, active: ActiveNativeTurn)
       active.clarifications.set(requestId, event)
       emitAndReplace(conversationId, active.sink, event)
     }
+  }
+  // A tool call that never required approval (plain tool.started/progress)
+  // or one that WAS approved via resolveHermesApproval (flipped to
+  // 'running', removed from pendingApprovals) is invisible to the two
+  // sweeps above. Runs AFTER them so any entry they already flipped to
+  // 'failed' is naturally skipped here (idempotent: only entries still
+  // 'running' are touched) -- without this, a tool call left running when
+  // the turn ends abnormally renders "Running" forever with no way for the
+  // user to tell it actually stopped (main-process cancelZombieRuns does
+  // not rescue this either -- see nativeRunner.test.ts / this plan's
+  // "Current state" for why).
+  for (const [toolCallId, previous] of active.toolCalls) {
+    if (previous.status !== 'running') continue
+    const event: Extract<Event, { type: 'hermes_tool_call' }> = {
+      ...previous,
+      status: 'failed'
+    }
+    active.toolCalls.set(toolCallId, event)
+    emitAndReplace(conversationId, active.sink, event)
+    const toolStartedAt = active.toolStartedAt.get(toolCallId)
+    emitAndAppend(conversationId, active.sink, {
+      type: 'hermes_tool_result',
+      id: randomUUID(),
+      callId: toolCallId,
+      status: 'failed',
+      durationMs: toolStartedAt === undefined ? 0 : Math.max(0, Date.now() - toolStartedAt)
+    })
   }
   active.pendingApprovals.clear()
   active.pendingClarifications.clear()

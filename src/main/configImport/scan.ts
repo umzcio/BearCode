@@ -1,6 +1,6 @@
-import { existsSync, lstatSync, readdirSync } from 'fs'
+import { existsSync, lstatSync } from 'fs'
 import { join } from 'path'
-import { isPathWithinRoot } from '../fsCapped'
+import { listDirJailed } from '../fsCapped'
 import type { ImportedConfigRow } from '../db'
 import type { DetectedSource, ImportTool } from './types'
 
@@ -22,38 +22,20 @@ function listMdFilesRel(
   exts: string[] = ['.md']
 ): string[] {
   const dir = join(projectPath, dirRel)
-  if (!existsSync(dir)) return []
-  // Security: `dirRel` (e.g. `.cursor/rules`) can itself be a symlink
-  // committed into a malicious repo, pointing outside the project. A
-  // leaf-only `isSymbolicLink()` check (below, per-entry) never sees that --
-  // readdirSync transparently follows an intermediate symlinked directory,
-  // so a real (non-symlink) file inside the EXTERNAL target would otherwise
-  // pass every check. realpath-based containment catches every path
-  // component, not just the leaf.
-  if (!isPathWithinRoot(dir, projectPath)) return []
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((d) => !d.isSymbolicLink() && exts.some((e) => d.name.endsWith(e)))
-      .map((d) => join(dirRel, d.name))
-  } catch {
-    return []
-  }
+  return listDirJailed(dir, {
+    root: projectPath,
+    filter: (d) => exts.some((e) => d.name.endsWith(e))
+  }).map((d) => join(dirRel, d.name))
 }
 
 const RULE_DIR_EXTS = ['.md', '.mdc']
 
 function listSkillDirsRel(projectPath: string, dirRel: string): string[] {
   const dir = join(projectPath, dirRel)
-  if (!existsSync(dir)) return []
-  // Same intermediate-directory-symlink guard as listMdFilesRel above.
-  if (!isPathWithinRoot(dir, projectPath)) return []
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && existsSync(join(dir, d.name, 'SKILL.md')))
-      .map((d) => join(dirRel, d.name))
-  } catch {
-    return []
-  }
+  return listDirJailed(dir, {
+    root: projectPath,
+    filter: (d, dir) => d.isDirectory() && existsSync(join(dir, d.name, 'SKILL.md'))
+  }).map((d) => join(dirRel, d.name))
 }
 
 // Cheap existence-only scan (no parsing) for external agent-tool config,

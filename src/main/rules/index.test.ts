@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, symlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { writeRuleFile, renderRuleMd } from './index'
@@ -35,5 +35,19 @@ describe('writeRuleFile (path-jailed)', () => {
   })
   it('renderRuleMd omits a description line for always rules', () => {
     expect(renderRuleMd('body', 'always')).not.toContain('description:')
+  })
+})
+
+describe('jailedRuleFile symlink escape (project scope)', () => {
+  it('writeRuleFile rejects when .agents/rules is a symlink to outside the project', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'bc-rule-outside-'))
+    try {
+      mkdirSync(join(proj, '.agents'), { recursive: true })
+      symlinkSync(outside, join(proj, '.agents', 'rules'))
+      expect(() => writeRuleFile('pwned', 'body', 'always', 'project', proj)).toThrow()
+      expect(existsSync(join(outside, 'pwned.md'))).toBe(false)
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
   })
 })

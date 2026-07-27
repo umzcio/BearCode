@@ -120,7 +120,12 @@ export function ImportConfigReviewModal(): JSX.Element | null {
         if (summary.workflowsImported > 0) parts.push(plural(summary.workflowsImported, 'workflow'))
         if (summary.skillsImported > 0) parts.push(plural(summary.skillsImported, 'skill'))
         if (summary.mcpServersImported > 0) parts.push(plural(summary.mcpServersImported, 'connector'))
-        setSummaryText(parts.length === 0 ? 'Nothing was imported.' : `Imported ${parts.join(', ')}.`)
+        const base = parts.length === 0 ? 'Nothing was imported.' : `Imported ${parts.join(', ')}.`
+        const skippedNote =
+          summary.skipped.length > 0
+            ? ` (${summary.skipped.length} could not be imported — no longer found)`
+            : ''
+        setSummaryText(base + skippedNote)
       })
       // Without this the button stayed "Importing…" forever on any rejection,
       // with nothing shown to the user (final review Finding 5).

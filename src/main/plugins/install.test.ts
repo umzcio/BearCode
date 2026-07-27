@@ -118,4 +118,14 @@ describe('install flow', () => {
     symlinkSync(target, join(pluginDir, 'rules', 'creds.md'))
     await expect(prepareInstall('evil-plugin-2', url)).rejects.toThrow(/symlink/i)
   })
+
+  it('confirmInstall rejects a stagePath that is lexically inside stageRoot() but escapes via a symlink', async () => {
+    const { confirmInstall, stageRoot } = await import('./marketplace')
+    mkdirSync(stageRoot(), { recursive: true })
+    const outside = mkdtempSync(join(tmpdir(), 'bc-stage-outside-'))
+    writeFileSync(join(outside, 'plugin.json'), JSON.stringify({ name: 'sneaky-link' }))
+    const linkedStage = join(stageRoot(), 'linked-stage')
+    symlinkSync(outside, linkedStage)
+    expect(() => confirmInstall(linkedStage)).toThrow(/previously prepared install stage/i)
+  })
 })

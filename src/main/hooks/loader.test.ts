@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, utimesSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -151,5 +151,62 @@ describe('loadHooks', () => {
       const { loadHooks } = await import('./loader')
       loadHooks(null)
     }).not.toThrow()
+  })
+
+  it('returns the same HookRecord object across two loads when the file is unchanged', async () => {
+    const { loadHooks } = await import('./loader')
+    writeHooksFile(join(fakeHome, '.bearcode', 'agents'), GLOBAL_HOOK)
+
+    const first = loadHooks(null)
+    const second = loadHooks(null)
+
+    expect(first[0]).toBe(second[0])
+  })
+
+  it('re-parses a hooks.json file whose mtime and content changed', async () => {
+    const { loadHooks } = await import('./loader')
+    const path = join(fakeHome, '.bearcode', 'agents', 'hooks.json')
+    writeHooksFile(join(fakeHome, '.bearcode', 'agents'), GLOBAL_HOOK)
+    const first = loadHooks(null)
+
+    writeFileSync(
+      path,
+      JSON.stringify({
+        fmt2: {
+          PostToolUse: [
+            { matcher: 'edit', handler: { type: 'command', command: 'eslint', timeout: 10 } }
+          ]
+        }
+      })
+    )
+    const future = new Date(Date.now() + 5000)
+    utimesSync(path, future, future)
+
+    const second = loadHooks(null)
+
+    expect(second[0]).not.toBe(first[0])
+    expect(second.find((r) => r.name === 'fmt2')).toBeDefined()
+    expect(second.find((r) => r.name === 'fmt')).toBeUndefined()
+  })
+
+  it('reflects a hook consent/enable-state change on the NEXT call with no cache invalidation needed', async () => {
+    const { loadHooks } = await import('./loader')
+    const dir = join(fakeHome, '.bearcode', 'agents')
+    writeHooksFile(
+      dir,
+      JSON.stringify({
+        guard: { PreToolUse: [{ handler: { type: 'command', command: 'g' } }] }
+      })
+    )
+    // Global hooks default consented:true; this test flips it OFF via
+    // hooksDisabledGlobal (state.ts) between two loadHooks() calls, with the
+    // underlying hooks.json file itself never touched -- this is exactly the
+    // scenario a cache without live consent re-evaluation would get wrong.
+    const first = loadHooks(null)
+    expect(first.find((r) => r.name === 'guard')?.consented).toBe(true)
+
+    store.hooksDisabledGlobal = ['guard']
+    const second = loadHooks(null)
+    expect(second.find((r) => r.name === 'guard')?.consented).toBe(false)
   })
 })

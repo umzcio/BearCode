@@ -1424,6 +1424,7 @@ export interface ImportSummary {
   workflowsImported: number
   skillsImported: number
   mcpServersImported: number
+  skipped: string[]
 }
 export type UpdateCheck =
   | { state: 'up-to-date' }

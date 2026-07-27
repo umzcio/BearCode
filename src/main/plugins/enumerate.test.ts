@@ -63,4 +63,32 @@ describe('enumeratePluginIngredients', () => {
     expect(enumeratePluginIngredients(proj, { trusted: true }).skillFolders.length).toBe(1)
     expect(enumeratePluginIngredients(proj, { trusted: true }).hookFiles.length).toBe(1)
   })
+
+  it('returns the same skill/rule objects across repeated calls (simulated multi-tool-call turn)', async () => {
+    const { enumeratePluginIngredients, pluginsDir } = await import('./index')
+    fullPlugin(pluginsDir('global', null), 'stable-plugin')
+    store.pluginsEnabled = ['global:stable-plugin']
+
+    const first = enumeratePluginIngredients(null, { trusted: false })
+    const second = enumeratePluginIngredients(null, { trusted: false })
+    const third = enumeratePluginIngredients(null, { trusted: false })
+
+    expect(first.skillFolders[0].path).toBe(second.skillFolders[0].path)
+    expect(second.skillFolders).toEqual(third.skillFolders)
+    expect(second.ruleFiles).toEqual(third.ruleFiles)
+  })
+
+  it('reflects a plugin enable/disable toggle on the NEXT call with the underlying files unchanged', async () => {
+    const { enumeratePluginIngredients, pluginsDir } = await import('./index')
+    fullPlugin(pluginsDir('global', null), 'togglepack')
+
+    store.pluginsEnabled = []
+    expect(enumeratePluginIngredients(null, { trusted: false }).skillFolders).toEqual([])
+
+    store.pluginsEnabled = ['global:togglepack']
+    expect(enumeratePluginIngredients(null, { trusted: false }).skillFolders).toHaveLength(1)
+
+    store.pluginsEnabled = []
+    expect(enumeratePluginIngredients(null, { trusted: false }).skillFolders).toEqual([])
+  })
 })

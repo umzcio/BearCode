@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'fs'
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, utimesSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { parsePluginDir } from './manifest'
@@ -57,6 +57,44 @@ describe('parsePluginDir', () => {
     expect(m.name).toBe('broken')
     expect(m.skills).toEqual([])
     expect(m.hookCount).toBe(0)
+  })
+
+  it('returns the same manifest object shape (skills/rules) across two parses when nothing changed', () => {
+    const dir = scaffold()
+    const first = parsePluginDir(dir, 'global')!
+    const second = parsePluginDir(dir, 'global')!
+    expect(first.skills[0]).toBe(second.skills[0])
+    expect(first.rules[0]).toBe(second.rules[0])
+  })
+
+  it('re-parses a SKILL.md whose mtime and content changed', () => {
+    const dir = scaffold()
+    const skillPath = join(dir, 'skills', 'hello', 'SKILL.md')
+    const first = parsePluginDir(dir, 'global')!
+
+    writeFileSync(skillPath, '---\nname: hello\ndescription: Updated\n---\nbody')
+    const future = new Date(Date.now() + 5000)
+    utimesSync(skillPath, future, future)
+
+    const second = parsePluginDir(dir, 'global')!
+    expect(second.skills[0]).not.toBe(first.skills[0])
+    expect(second.skills[0].description).toBe('Updated')
+  })
+
+  it('picks up a newly added skill folder on the next parse with no invalidation needed', () => {
+    const dir = scaffold()
+    const first = parsePluginDir(dir, 'global')!
+    expect(first.skills).toHaveLength(1)
+
+    mkdirSync(join(dir, 'skills', 'second'), { recursive: true })
+    writeFileSync(
+      join(dir, 'skills', 'second', 'SKILL.md'),
+      '---\nname: second\ndescription: New\n---\nbody'
+    )
+
+    const second = parsePluginDir(dir, 'global')!
+    expect(second.skills).toHaveLength(2)
+    expect(second.skills.map((s) => s.name).sort()).toEqual(['hello', 'second'])
   })
 })
 

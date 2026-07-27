@@ -9,7 +9,7 @@ import {
   recordPendingOutsidePath
 } from '../db'
 import { scanImportableConfig } from './scan'
-import { hashSourceContent, MAX_IMPORT_BYTES } from './hash'
+import { hashSourceContent, readAndHashSource, MAX_IMPORT_BYTES } from './hash'
 import { buildRuleCandidate } from './translateRules'
 import { buildWorkflowCandidate } from './translateWorkflows'
 import type { ImportedConfigRow } from '../db'
@@ -46,7 +46,11 @@ function importedDirFor(
   }
 }
 
-function candidateBody(projectPath: string, sourcePath: string): string | null {
+function candidateBody(
+  projectPath: string,
+  sourcePath: string,
+  preRead?: { text: string; truncated: boolean }
+): string | null {
   const source = scanImportableConfig(projectPath).find((d) => d.sourcePath === sourcePath)
   if (!source) return null
   if (source.kind === 'rule') {
@@ -54,12 +58,12 @@ function candidateBody(projectPath: string, sourcePath: string): string | null {
     // importer) use, and record anything dropped-pending so it surfaces in
     // OutsideAccessCard (final review Finding 1). Re-translating on update is
     // just as irreversible as the first import.
-    const candidate = buildRuleCandidate(projectPath, source, getOutsidePolicy(projectPath))
+    const candidate = buildRuleCandidate(projectPath, source, getOutsidePolicy(projectPath), preRead)
     if (!candidate) return null
     for (const abs of candidate.pendingOutside) recordPendingOutsidePath(projectPath, abs)
     return candidate.body
   }
-  if (source.kind === 'workflow') return buildWorkflowCandidate(projectPath, source)?.body ?? null
+  if (source.kind === 'workflow') return buildWorkflowCandidate(projectPath, source, preRead)?.body ?? null
   return null // skills are diffed as whole folders — out of scope for the text-diff check
 }
 
@@ -70,11 +74,13 @@ export function checkSourceForUpdate(projectPath: string, sourcePath: string): U
 
   // Capped, non-regular-rejecting, directory-safe (Finding 5): a skill row's
   // sourcePath is a FOLDER, which the old readFileSync(abs) threw EISDIR on.
-  const currentHash = hashSourceContent(projectPath, sourcePath)
-  if (currentHash === null) return { state: 'source-missing' }
-  if (row?.sourceHash === currentHash) return { state: 'up-to-date' }
+  // Single read shared with candidateBody below (closes a TOCTOU where the
+  // source could change between a separate hash-read and body-read).
+  const read = readAndHashSource(projectPath, sourcePath)
+  if (read === null) return { state: 'source-missing' }
+  if (row?.sourceHash === read.hash) return { state: 'up-to-date' }
 
-  const newBody = candidateBody(projectPath, sourcePath)
+  const newBody = candidateBody(projectPath, sourcePath, read)
   if (!row?.importedAsType || !row.importedAsName) return { state: 'up-to-date' }
   // candidateBody() only ever computes a real body for 'rule'/'workflow' sources
   // -- it always returns null for 'skill'/'mcp' by design (skills are diffed as
@@ -105,10 +111,11 @@ export function checkSourceForUpdate(projectPath: string, sourcePath: string): U
 export function applySourceUpdate(projectPath: string, sourcePath: string): void {
   const row = getImportedConfig(projectPath, sourcePath)
   if (!row?.importedAsType || !row.importedAsName) return
-  const newBody = candidateBody(projectPath, sourcePath)
+  const read = readAndHashSource(projectPath, sourcePath)
+  if (read === null) return
+  const newBody = candidateBody(projectPath, sourcePath, read)
   if (newBody === null) return
-  const sourceHash = hashSourceContent(projectPath, sourcePath)
-  if (sourceHash === null) return
+  const sourceHash = read.hash
   const dir = importedDirFor(projectPath, row.importedAsType)
   if (dir === null) return
   const target = join(dir, `${row.importedAsName}.md`)

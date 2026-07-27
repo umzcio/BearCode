@@ -1038,6 +1038,14 @@ describe('pin/archive + newConversationInProject store actions', () => {
     expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
     expect(useAppStore.getState().auxSelection).toBeNull()
   })
+
+  it('newConversationInProject shows a toast instead of throwing when conversations.create rejects', async () => {
+    useAppStore.setState({ conversations: {}, view: { kind: 'home' }, folderSettings: [], toast: null })
+    vi.mocked(window.bearcode.conversations.create).mockRejectedValueOnce(new Error('disk full'))
+    await expect(useAppStore.getState().newConversationInProject('/repo/x')).resolves.toBeUndefined()
+    expect(useAppStore.getState().toast?.message).toBe('disk full')
+    expect(useAppStore.getState().view).toEqual({ kind: 'home' })
+  })
 })
 
 describe('F1 history: openHistory + openConvo focusEventId (jump-to-match)', () => {

@@ -26,6 +26,7 @@ import { Hint } from './Hint'
 import { messageTimestamp } from '../lib/time'
 import { attachmentBadge } from '../lib/attachmentBadge'
 import { groupTurnsIncremental, type TranscriptState } from '../lib/transcript'
+import { prefersReducedMotion } from '../lib/prefersReducedMotion'
 import './ConversationView.css'
 
 // A transcript attachment pill (Task 7). A reloaded transcript only carries
@@ -210,7 +211,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
     el.classList.add('event-focus-highlight')
     // Respect reduce-motion: skip the timed fade (the CSS also drops the
     // animation), leaving a static highlight until focus moves away.
-    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    const reduce = prefersReducedMotion()
     const timer = reduce
       ? undefined
       : window.setTimeout(() => el.classList.remove('event-focus-highlight'), 1600)

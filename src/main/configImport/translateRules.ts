@@ -44,10 +44,11 @@ function nameFromSourcePath(sourcePath: string): string {
 export function buildRuleCandidate(
   projectPath: string,
   source: DetectedSource,
-  outside?: OutsidePolicy
+  outside?: OutsidePolicy,
+  preRead?: { text: string; truncated: boolean }
 ): RuleCandidate | null {
   const abs = join(projectPath, source.sourcePath)
-  const read = readFileCapped(abs, MAX_IMPORT_BYTES, projectPath)
+  const read = preRead ?? readFileCapped(abs, MAX_IMPORT_BYTES, projectPath)
   if (!read || read.text.trim() === '') return null
 
   const { body, warnings, pendingOutside } = resolveRuleRefs(read.text, projectPath, {

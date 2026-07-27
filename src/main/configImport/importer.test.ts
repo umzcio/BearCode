@@ -102,7 +102,8 @@ describe('applyImportSelection', () => {
       rulesImported: 1,
       workflowsImported: 0,
       skillsImported: 0,
-      mcpServersImported: 0
+      mcpServersImported: 0,
+      skipped: []
     })
     const written = readFileSync(join(dir, '.agents', 'rules', 'claude.md'), 'utf8')
     expect(written).toBe('Always use tabs.')
@@ -211,6 +212,7 @@ describe('applyImportSelection', () => {
       mcpServers: []
     })
     expect(summary.rulesImported).toBe(0)
+    expect(summary.skipped).toEqual(['GONE.md'])
   })
 
   it('imports a workflow candidate and records it', () => {

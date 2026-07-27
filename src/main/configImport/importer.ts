@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync, cpSync } from 'fs'
 import { join } from 'path'
 import { scanImportableConfig } from './scan'
-import { hashSourceContent } from './hash'
+import { readAndHashSource } from './hash'
 import { buildRuleCandidate } from './translateRules'
 import { buildWorkflowCandidate } from './translateWorkflows'
 import { buildSkillCandidate } from './translateSkills'
@@ -21,6 +21,7 @@ export interface ImportSummary {
   workflowsImported: number
   skillsImported: number
   mcpServersImported: number
+  skipped: string[]
 }
 
 // Picks the first available filename by appending "-imported", then
@@ -56,7 +57,8 @@ export function applyImportSelection(
     rulesImported: 0,
     workflowsImported: 0,
     skillsImported: 0,
-    mcpServersImported: 0
+    mcpServersImported: 0,
+    skipped: []
   }
   // Dedupe within each list (final review Minor): a selection carrying the
   // same sourcePath twice would otherwise import it twice and leave a
@@ -71,11 +73,15 @@ export function applyImportSelection(
   const rulesDir = join(projectPath, '.agents', 'rules')
   for (const sourcePath of uniq(selection.rules)) {
     const source = bySourcePath.get(sourcePath)
-    if (!source) continue
-    const candidate = buildRuleCandidate(projectPath, source, outside)
+    if (!source) {
+      summary.skipped.push(sourcePath)
+      continue
+    }
+    const read = readAndHashSource(projectPath, sourcePath)
+    if (read === null) continue
+    const candidate = buildRuleCandidate(projectPath, source, outside, read)
     if (!candidate) continue
-    const sourceHash = hashSourceContent(projectPath, sourcePath)
-    if (sourceHash === null) continue
+    const sourceHash = read.hash
     mkdirSync(rulesDir, { recursive: true })
     const target = uniqueTargetPath(rulesDir, candidate.suggestedName, '.md')
     writeFileSync(target, candidate.body)
@@ -95,11 +101,15 @@ export function applyImportSelection(
   const workflowsDir = join(projectPath, '.agents', 'workflows')
   for (const sourcePath of uniq(selection.workflows)) {
     const source = bySourcePath.get(sourcePath)
-    if (!source) continue
-    const candidate = buildWorkflowCandidate(projectPath, source)
+    if (!source) {
+      summary.skipped.push(sourcePath)
+      continue
+    }
+    const read = readAndHashSource(projectPath, sourcePath)
+    if (read === null) continue
+    const candidate = buildWorkflowCandidate(projectPath, source, read)
     if (!candidate) continue
-    const sourceHash = hashSourceContent(projectPath, sourcePath)
-    if (sourceHash === null) continue
+    const sourceHash = read.hash
     mkdirSync(workflowsDir, { recursive: true })
     const target = uniqueTargetPath(workflowsDir, candidate.suggestedName, '.md')
     writeFileSync(target, candidate.body)
@@ -116,12 +126,16 @@ export function applyImportSelection(
   const skillsDir = join(projectPath, '.agents', 'skills')
   for (const sourcePath of uniq(selection.skills)) {
     const source = bySourcePath.get(sourcePath)
-    if (!source) continue
-    const candidate = buildSkillCandidate(projectPath, source)
+    if (!source) {
+      summary.skipped.push(sourcePath)
+      continue
+    }
+    const read = readAndHashSource(projectPath, sourcePath)
+    if (read === null) continue
+    const candidate = buildSkillCandidate(projectPath, source, read)
     if (!candidate) continue
-    // hashSourceContent resolves a skill's folder sourcePath to its SKILL.md.
-    const sourceHash = hashSourceContent(projectPath, sourcePath)
-    if (sourceHash === null) continue
+    // readAndHashSource resolves a skill's folder sourcePath to its SKILL.md.
+    const sourceHash = read.hash
     mkdirSync(skillsDir, { recursive: true })
     const targetName = uniqueTargetDirName(skillsDir, candidate.suggestedName)
     cpSync(join(projectPath, sourcePath), join(skillsDir, targetName), { recursive: true })
