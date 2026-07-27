@@ -37,6 +37,12 @@ function toConvoLike(c: Convo): ConvoLike {
   }
   return cached
 }
+
+function computedTranslateX(el: HTMLElement): number {
+  const transform = getComputedStyle(el).transform
+  return transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m41
+}
+
 import { DisplayOptions } from './DisplayOptions'
 import { SidebarFooterMenu } from './SidebarFooterMenu'
 import { ConvoRow } from './ConvoRow'
@@ -148,20 +154,38 @@ export function Sidebar(): React.JSX.Element {
   // rasterized once and slid as a texture -- no per-frame re-raster => smooth.
   const sidebarRef = useRef<HTMLDivElement>(null)
   const prevCollapsed = useRef(collapsed)
+  const sidebarWidthRef = useRef(sidebarWidth)
+  useLayoutEffect(() => {
+    sidebarWidthRef.current = sidebarWidth
+  }, [sidebarWidth])
   useLayoutEffect(() => {
     if (prevCollapsed.current === collapsed) return
+    const wasCollapsed = prevCollapsed.current
     prevCollapsed.current = collapsed
     const el = sidebarRef.current
     if (!el) return
-    if (prefersReducedMotion()) return
-    const dist = sidebarWidth + 1
-    // Collapsing: box shifted left by `dist`, so invert with +dist. Expanding: inverse.
+    const clearMotionStyles = (): void => {
+      el.style.willChange = ''
+      el.style.transition = ''
+      el.style.transform = ''
+    }
+    if (prefersReducedMotion()) {
+      clearMotionStyles()
+      return
+    }
+    const dist = sidebarWidthRef.current + 1
+    const currentTranslateX = computedTranslateX(el)
+    const oldMargin = wasCollapsed ? -dist : 0
+    const newMargin = collapsed ? -dist : 0
+    const startX = oldMargin + currentTranslateX - newMargin
+    // Invert the new layout back to the current visual position, including
+    // when this direction change interrupts an in-flight transform.
     // Promote to a GPU layer NOW (will-change) so the layer already exists on the
     // first animated frame -- avoids a create-layer hitch at the start. translate3d
     // (not translateX) forces compositing.
     el.style.willChange = 'transform'
     el.style.transition = 'none'
-    el.style.transform = `translate3d(${collapsed ? dist : -dist}px, 0, 0)`
+    el.style.transform = `translate3d(${startX}px, 0, 0)`
     void el.offsetWidth // commit the inverted start before animating
     const raf = requestAnimationFrame(() => {
       const rootStyle = getComputedStyle(document.documentElement)
@@ -175,8 +199,7 @@ export function Sidebar(): React.JSX.Element {
         console.error(
           'Sidebar FLIP: could not resolve --ease-drawer/--dur-drawer from :root; skipping animation.'
         )
-        el.style.transition = ''
-        el.style.transform = 'translate3d(0, 0, 0)'
+        clearMotionStyles()
         return
       }
       el.style.transition = `transform ${dur} ${ease}`
@@ -184,8 +207,7 @@ export function Sidebar(): React.JSX.Element {
     })
     const done = (e: TransitionEvent): void => {
       if (e.propertyName !== 'transform') return
-      el.style.willChange = ''
-      el.style.transition = ''
+      clearMotionStyles()
       el.removeEventListener('transitionend', done)
     }
     el.addEventListener('transitionend', done)
@@ -193,7 +215,7 @@ export function Sidebar(): React.JSX.Element {
       cancelAnimationFrame(raf)
       el.removeEventListener('transitionend', done)
     }
-  }, [collapsed, sidebarWidth])
+  }, [collapsed])
 
   return (
     <div
