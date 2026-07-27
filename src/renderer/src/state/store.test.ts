@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type {
   BearcodeApi,
   CommandEntry,
@@ -187,6 +187,32 @@ beforeEach(() => {
     fileSuggestions: [],
     manualRules: [],
     draftConvoId: null
+  })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('pane width persistence', () => {
+  it('publishes transient widths without storage writes, then persists each released width once', () => {
+    const setItem = vi.fn()
+    vi.stubGlobal('localStorage', { setItem })
+
+    useAppStore.getState().setSidebarWidth(333.4, { persist: false })
+    useAppStore.getState().setAuxPaneWidth(777.6, { persist: false })
+
+    expect(useAppStore.getState().sidebarWidth).toBe(333)
+    expect(useAppStore.getState().auxPaneWidth).toBe(778)
+    expect(setItem).not.toHaveBeenCalled()
+
+    useAppStore.getState().setSidebarWidth(useAppStore.getState().sidebarWidth)
+    useAppStore.getState().setAuxPaneWidth(useAppStore.getState().auxPaneWidth)
+
+    expect(setItem.mock.calls).toEqual([
+      ['bearcode.sidebarWidth', '333'],
+      ['bearcode.auxPaneWidth', '778']
+    ])
   })
 })
 

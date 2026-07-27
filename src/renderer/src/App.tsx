@@ -118,7 +118,12 @@ function App(): React.JSX.Element {
     <div className={'app' + (cmdHeld ? ' cmd-held' : '')}>
       <Sidebar />
       {!collapsed ? (
-        <ResizeHandle onDrag={(dx) => setSidebarWidth(useAppStore.getState().sidebarWidth + dx)} />
+        <ResizeHandle
+          onDrag={(dx) =>
+            setSidebarWidth(useAppStore.getState().sidebarWidth + dx, { persist: false })
+          }
+          onDragEnd={() => setSidebarWidth(useAppStore.getState().sidebarWidth)}
+        />
       ) : null}
       <div className={'main' + (collapsed ? ' sidebar-collapsed' : '')}>
         <div className="topbar">
@@ -167,7 +172,12 @@ function App(): React.JSX.Element {
         <ConflictResolver />
       </div>
       {auxSelection ? (
-        <ResizeHandle onDrag={(dx) => setAuxPaneWidth(useAppStore.getState().auxPaneWidth - dx)} />
+        <ResizeHandle
+          onDrag={(dx) =>
+            setAuxPaneWidth(useAppStore.getState().auxPaneWidth - dx, { persist: false })
+          }
+          onDragEnd={() => setAuxPaneWidth(useAppStore.getState().auxPaneWidth)}
+        />
       ) : null}
       <AuxiliaryPane />
       {toast ? (
