@@ -57,6 +57,7 @@ const DEFAULTS: AppSettings = {
   profileCallMe: '',
   customInstructions: '',
   disabledModels: [],
+  enabledLiveModels: [],
   customModels: [],
   securityPreset: 'custom',
   fileAccessPolicy: 'deny',
@@ -272,6 +273,10 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   // malformed customModels collapses to [] so the registry merge stays safe.
   merged.disabledModels = coerceStringArray(s['disabledModels'])
   merged.customModels = coerceCustomModels(s['customModels'])
+  // Live-discovery opt-in list (mirrors disabledModels' coercion exactly): a
+  // non-array enabledLiveModels collapses to [] so `new Set(enabledLiveModels)`
+  // in registry.ts can never throw on a malformed/downgrade-corrupted value.
+  merged.enabledLiveModels = coerceStringArray(s['enabledLiveModels'])
   // F8 Agent Settings: coerce each enum to a valid value, falling back to the
   // BEHAVIOR-PRESERVING defaults (custom / deny / auto) so a malformed or
   // downgraded settings.json can never loosen the security posture.
@@ -399,6 +404,9 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.disabledModels !== undefined) {
     patch = { ...patch, disabledModels: coerceStringArray(patch.disabledModels) }
+  }
+  if (patch.enabledLiveModels !== undefined) {
+    patch = { ...patch, enabledLiveModels: coerceStringArray(patch.enabledLiveModels) }
   }
   // F8 Agent Settings: reject an unknown enum at the boundary so a bad value
   // (never a loosened one) can't be persisted.
