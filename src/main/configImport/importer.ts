@@ -21,6 +21,7 @@ export interface ImportSummary {
   workflowsImported: number
   skillsImported: number
   mcpServersImported: number
+  skipped: string[]
 }
 
 // Picks the first available filename by appending "-imported", then
@@ -56,7 +57,8 @@ export function applyImportSelection(
     rulesImported: 0,
     workflowsImported: 0,
     skillsImported: 0,
-    mcpServersImported: 0
+    mcpServersImported: 0,
+    skipped: []
   }
   // Dedupe within each list (final review Minor): a selection carrying the
   // same sourcePath twice would otherwise import it twice and leave a
@@ -71,7 +73,10 @@ export function applyImportSelection(
   const rulesDir = join(projectPath, '.agents', 'rules')
   for (const sourcePath of uniq(selection.rules)) {
     const source = bySourcePath.get(sourcePath)
-    if (!source) continue
+    if (!source) {
+      summary.skipped.push(sourcePath)
+      continue
+    }
     const read = readAndHashSource(projectPath, sourcePath)
     if (read === null) continue
     const candidate = buildRuleCandidate(projectPath, source, outside, read)
@@ -96,7 +101,10 @@ export function applyImportSelection(
   const workflowsDir = join(projectPath, '.agents', 'workflows')
   for (const sourcePath of uniq(selection.workflows)) {
     const source = bySourcePath.get(sourcePath)
-    if (!source) continue
+    if (!source) {
+      summary.skipped.push(sourcePath)
+      continue
+    }
     const read = readAndHashSource(projectPath, sourcePath)
     if (read === null) continue
     const candidate = buildWorkflowCandidate(projectPath, source, read)
@@ -118,7 +126,10 @@ export function applyImportSelection(
   const skillsDir = join(projectPath, '.agents', 'skills')
   for (const sourcePath of uniq(selection.skills)) {
     const source = bySourcePath.get(sourcePath)
-    if (!source) continue
+    if (!source) {
+      summary.skipped.push(sourcePath)
+      continue
+    }
     const read = readAndHashSource(projectPath, sourcePath)
     if (read === null) continue
     const candidate = buildSkillCandidate(projectPath, source, read)
