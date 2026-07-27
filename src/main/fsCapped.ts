@@ -13,7 +13,7 @@
 // Returns null on any error (missing, unreadable, non-regular): callers
 // never throw on a bad target. `truncated` reports whether the file held
 // more bytes than `cap`.
-import { closeSync, lstatSync, openSync, readSync, realpathSync, statSync } from 'fs'
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from 'fs'
 import { basename, dirname, sep } from 'path'
 
 // Resolves symlinks in EVERY path component (not just the leaf) via
@@ -70,7 +70,6 @@ export function readFileCapped(
   root?: string
 ): { text: string; truncated: boolean } | null {
   let fd: number
-  let size: number
   try {
     const lstat = lstatSync(path)
     // Opt-in, gated the same way as the isPathWithinRoot check just below:
@@ -90,14 +89,29 @@ export function readFileCapped(
     // fix -- leaf-only checks left `.cursor/rules` (etc) itself being a
     // symlink undetected).
     if (root && !isPathWithinRoot(path, root)) return null
-    const stats = statSync(path)
-    if (!stats.isFile()) return null
-    size = stats.size
-    fd = openSync(path, 'r')
+    // O_NOFOLLOW is opt-in, gated on `root` -- exactly the same discipline as
+    // the leaf-symlink check just above. Callers that never pass `root` (the
+    // ~12 non-config-import call sites) must keep transparently following a
+    // symlinked leaf (e.g. a dotfiles-managed ~/.bearcode/agents/rules/foo.md
+    // symlink), so they get the plain O_RDONLY open, identical to the
+    // previous `openSync(path, 'r')`. When `root` IS provided, O_NOFOLLOW
+    // closes the TOCTOU race window between the lstat/isPathWithinRoot
+    // checks above and this open: even if a symlink is swapped onto `path`
+    // in between, the open itself fails (ELOOP) instead of transparently
+    // following it. Mirrors hermes/nativeFiles.ts's
+    // describeNativeUpload/openAttachment pattern (open with O_NOFOLLOW,
+    // then fstat the DESCRIPTOR below, never the pathname again).
+    fd = openSync(path, root ? constants.O_RDONLY | constants.O_NOFOLLOW : constants.O_RDONLY)
   } catch {
     return null
   }
   try {
+    // fstat the OPEN DESCRIPTOR, not the pathname -- whatever currently sits
+    // at `path` on disk is irrelevant from this point on; only the inode
+    // this fd already points to matters, which is what closes the race.
+    const stats = fstatSync(fd)
+    if (!stats.isFile()) return null
+    const size = stats.size
     const toRead = Math.min(size, cap)
     const buf = Buffer.alloc(toRead)
     let offset = 0
