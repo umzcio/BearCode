@@ -13,6 +13,7 @@ import type {
 } from '../../shared/types'
 import { keyStatus } from '../keys'
 import { getSettings } from '../settings'
+import type { ModelMetadata } from '../../shared/pricing'
 
 interface ProviderRegistryEntry {
   id: ProviderId
@@ -239,21 +240,30 @@ export const REGISTRY: ProviderRegistryEntry[] = [
     displayName: 'Anthropic',
     color: '#d97757',
     requiresKey: true,
-    listModels: async () => ({ models: ANTHROPIC_MODELS, reachable: true })
+    listModels: async () => {
+      await ensureLiveDiscovery('anthropic')
+      return { models: knownModels('anthropic'), reachable: true }
+    }
   },
   {
     id: 'openai',
     displayName: 'OpenAI',
     color: '#9ad0b7',
     requiresKey: true,
-    listModels: async () => ({ models: OPENAI_MODELS, reachable: true })
+    listModels: async () => {
+      await ensureLiveDiscovery('openai')
+      return { models: knownModels('openai'), reachable: true }
+    }
   },
   {
     id: 'google',
     displayName: 'Google',
     color: '#4c8dff',
     requiresKey: true,
-    listModels: async () => ({ models: GOOGLE_MODELS, reachable: true })
+    listModels: async () => {
+      await ensureLiveDiscovery('google')
+      return { models: knownModels('google'), reachable: true }
+    }
   },
   {
     id: 'openrouter',
@@ -311,14 +321,17 @@ export function mergeModels(
 }
 
 // The first-party curated providers subject to opt-out + Add-model. Ollama is
-// excluded: it is fully dynamic/local and manages its own catalog.
-const MANAGEABLE: { id: ProviderId; models: ModelInfo[] }[] = [
-  { id: 'anthropic', models: ANTHROPIC_MODELS },
-  { id: 'openai', models: OPENAI_MODELS },
-  { id: 'google', models: GOOGLE_MODELS },
-  { id: 'openrouter', models: OPENROUTER_MODELS },
-  { id: 'perplexity', models: PERPLEXITY_MODELS },
-  { id: 'xai', models: XAI_MODELS }
+// excluded: it is fully dynamic/local and manages its own catalog. Anthropic/
+// Google/OpenAI's entries in knownModels() may be live-discovered (Task 6);
+// openrouter/perplexity/xai always resolve to their static array (no
+// discovery mechanism exists for any of them).
+const MANAGEABLE_PROVIDER_IDS: ProviderId[] = [
+  'anthropic',
+  'openai',
+  'google',
+  'openrouter',
+  'perplexity',
+  'xai'
 ]
 
 // Every "providerId/modelId" ref in the EFFECTIVE set (curated + custom minus
@@ -327,28 +340,37 @@ const MANAGEABLE: { id: ProviderId; models: ModelInfo[] }[] = [
 // excluded.
 export function allKnownModelRefs(): string[] {
   const { customModels = [], disabledModels = [] } = getSettings()
-  return MANAGEABLE.flatMap(({ id, models }) =>
-    mergeModels(id, models, customModels, disabledModels).map((m) => `${id}/${m.id}`)
+  return MANAGEABLE_PROVIDER_IDS.flatMap((id) =>
+    mergeModels(id, knownModels(id), customModels, disabledModels).map((m) => `${id}/${m.id}`)
   )
 }
 
-// The Models settings page's management list: curated + custom per first-party
-// provider, INCLUDING disabled models (with an `enabled` flag) so the user can
-// toggle them back on. Distinct from listAllModels, which returns only the
-// visible/effective set for the pickers.
-export function listManageableModels(): ManageableProvider[] {
+// The Models settings page's management list: curated/live + custom per
+// first-party provider, INCLUDING disabled models (with an `enabled` flag)
+// so the user can toggle them back on. Distinct from listAllModels, which
+// returns only the visible/effective set for the pickers. Async since Task
+// 6 has this trigger live discovery for anthropic/google/openai the first
+// time it (or listAllModels) is called this process lifetime.
+export async function listManageableModels(): Promise<ManageableProvider[]> {
+  await Promise.all(
+    (['anthropic', 'google', 'openai'] as ProviderId[]).map((id) => ensureLiveDiscovery(id))
+  )
   const { customModels = [], disabledModels = [] } = getSettings()
   const disabledSet = new Set(disabledModels)
-  return MANAGEABLE.map(({ id, models }) => {
+  return MANAGEABLE_PROVIDER_IDS.map((id) => {
     const entry = getProvider(id)
+    const models = knownModels(id)
     const byId = new Map<string, ManageableModel>()
     for (const m of models) {
+      const ref = `${id}/${m.id}`
+      const liveCapabilities = liveCapabilitiesFor(ref)
       byId.set(m.id, {
         id: m.id,
         label: m.label,
         contextWindow: m.contextWindow,
         custom: false,
-        enabled: !disabledSet.has(`${id}/${m.id}`)
+        enabled: !disabledSet.has(ref),
+        ...(liveCapabilities ? { liveCapabilities } : {})
       })
     }
     for (const c of customModels) {
@@ -384,6 +406,58 @@ const STATIC_MODELS: Partial<Record<ProviderId, ModelInfo[]>> = {
   xai: XAI_MODELS
 }
 
+// Per-provider live-discovered model list (Anthropic/Google/OpenAI only --
+// see liveDiscovery.ts), populated lazily by ensureLiveDiscovery(). Empty
+// until that provider's first successful live fetch this process lifetime;
+// knownModels() falls back to STATIC_MODELS for any provider with no cache
+// entry -- every provider, until Task 6 wires in the real fetchers, and
+// permanently for xAI/Perplexity/OpenRouter (no discovery mechanism exists).
+const liveModelCache = new Map<ProviderId, ModelInfo[]>()
+
+// Per-ref live-discovered capability patch. Merged on top of LiteLLM's
+// persisted AppSettings.modelMetadata at render time by buildModelRows
+// (Task 7) -- never itself persisted to settings.
+const liveCapabilityCache = new Map<string, Partial<ModelMetadata['capabilities']>>()
+
+// The current best-known model list for a provider: live-discovered if a
+// successful fetch has landed this process lifetime, else the static
+// curated array. Synchronous and side-effect-free -- never triggers a
+// fetch itself (that's ensureLiveDiscovery's job) -- safe to call from a
+// hot path like contextWindowFor.
+export function knownModels(provider: ProviderId): ModelInfo[] {
+  return liveModelCache.get(provider) ?? STATIC_MODELS[provider] ?? []
+}
+
+export function liveCapabilitiesFor(ref: string): Partial<ModelMetadata['capabilities']> | undefined {
+  return liveCapabilityCache.get(ref)
+}
+
+// Sync-metadata button (Models page header) calls this alongside its
+// existing LiteLLM sync, so one action refreshes everything about a
+// model's data. Clearing (rather than a "force" flag on
+// ensureLiveDiscovery) is enough: the guard below is just "does this
+// provider have a cache entry," and clearing removes it, making the next
+// natural call re-fetch.
+export function clearLiveDiscoveryCache(): void {
+  liveModelCache.clear()
+  liveCapabilityCache.clear()
+}
+
+// Idempotent per-provider live-discovery trigger. Whichever of
+// listAllModels() (via REGISTRY[i].listModels()) or listManageableModels()
+// runs first pays the network cost and warms the caches above for the
+// rest of the process; every later call this session is a no-op (the
+// guard is cache presence, not a separate "already tried" flag -- see
+// clearLiveDiscoveryCache's comment for why a failed/no-key attempt is
+// allowed to retry on the next call rather than being cached as a
+// permanent negative result). This stub intentionally does nothing yet --
+// Task 6 replaces the body with real per-provider fetchers from
+// liveDiscovery.ts. Behavior today is identical to before this task:
+// knownModels() falls back to STATIC_MODELS for every provider.
+async function ensureLiveDiscovery(_provider: ProviderId): Promise<void> {
+  // no-op until Task 6
+}
+
 // The model's real context window (tokens) for a "provider/modelId" ref, or
 // `null` when unknown (Ollama, OpenRouter, or an id absent from the curated
 // list). Never throws for an unknown model id — only an unparseable ref does.
@@ -397,7 +471,7 @@ export function contextWindowFor(ref: string): number | null {
     (c) => c.provider === provider && c.id === modelId
   )
   if (custom) return custom.contextWindow
-  const info = STATIC_MODELS[provider]?.find((m) => m.id === modelId)
+  const info = knownModels(provider).find((m) => m.id === modelId)
   return info?.contextWindow ?? null
 }
 
