@@ -12,14 +12,14 @@ import { useComposerDraft } from './useComposerDraft'
 describe('composer drafts', () => {
   it('subtracts only submitted mention and attachment identities', () => {
     const submittedMention: MentionRef = { kind: 'file', name: 'old.ts', path: 'old.ts' }
-    const lateMention: MentionRef = { kind: 'file', name: 'new.ts', path: 'new.ts' }
+    const lateMention: MentionRef = { kind: 'file', name: 'old.ts', path: 'old.ts' }
     const submittedAttachment: PickedAttachmentWire = {
       ref: { id: 'old', name: 'old.png', mime: 'image/png', kind: 'image' },
       previewDataUrl: 'data:old'
     }
     const lateAttachment: PickedAttachmentWire = {
-      ref: { id: 'new', name: 'new.png', mime: 'image/png', kind: 'image' },
-      previewDataUrl: 'data:new'
+      ref: { id: 'old', name: 'old.png', mime: 'image/png', kind: 'image' },
+      previewDataUrl: 'data:old'
     }
 
     const remainder = subtractSubmittedComposerDraft(
@@ -43,18 +43,22 @@ describe('composer drafts', () => {
       mentions: [lateMention],
       attachments: [lateAttachment]
     })
+    expect(remainder.mentions).not.toContain(submittedMention)
+    expect(remainder.mentions[0]).toBe(lateMention)
+    expect(remainder.attachments).not.toContain(submittedAttachment)
+    expect(remainder.attachments[0]).toBe(lateAttachment)
   })
 
   it('subtracts only submitted identities and returns the installed remainder', () => {
     const submittedMention: MentionRef = { kind: 'file', name: 'old.ts', path: 'old.ts' }
-    const lateMention: MentionRef = { kind: 'file', name: 'new.ts', path: 'new.ts' }
+    const lateMention: MentionRef = { kind: 'file', name: 'old.ts', path: 'old.ts' }
     const submittedAttachment: PickedAttachmentWire = {
       ref: { id: 'old', name: 'old.png', mime: 'image/png', kind: 'image' },
       previewDataUrl: 'data:old'
     }
     const lateAttachment: PickedAttachmentWire = {
-      ref: { id: 'new', name: 'new.png', mime: 'image/png', kind: 'image' },
-      previewDataUrl: 'data:new'
+      ref: { id: 'old', name: 'old.png', mime: 'image/png', kind: 'image' },
+      previewDataUrl: 'data:old'
     }
     const { result } = renderHook(() => useComposerDraft())
 
@@ -82,6 +86,10 @@ describe('composer drafts', () => {
       attachments: [lateAttachment]
     })
     expect(result.current.draft).toEqual(remainder!)
+    expect(result.current.draft.mentions).not.toContain(submittedMention)
+    expect(result.current.draft.mentions[0]).toBe(lateMention)
+    expect(result.current.draft.attachments).not.toContain(submittedAttachment)
+    expect(result.current.draft.attachments[0]).toBe(lateAttachment)
   })
 
   it('clears unchanged text and command from a submitted snapshot', () => {
@@ -180,5 +188,36 @@ describe('composer drafts', () => {
       mentions: [initialMention],
       attachments: [initialAttachment]
     })
+  })
+
+  it('clones snapshot arrays while preserving entries and isolating later snapshot mutation', () => {
+    const mention: MentionRef = { kind: 'file', name: 'snapshot.ts', path: 'snapshot.ts' }
+    const attachment: PickedAttachmentWire = {
+      ref: { id: 'snapshot', name: 'snapshot.png', mime: 'image/png', kind: 'image' },
+      previewDataUrl: 'data:snapshot'
+    }
+    const { result } = renderHook(() => useComposerDraft())
+
+    act(() => {
+      result.current.setMentions([mention])
+      result.current.setAttachments([attachment])
+    })
+    const snapshot = result.current.snapshot()
+
+    expect(snapshot.mentions).not.toBe(result.current.draft.mentions)
+    expect(snapshot.attachments).not.toBe(result.current.draft.attachments)
+    expect(snapshot.mentions[0]).toBe(mention)
+    expect(snapshot.attachments[0]).toBe(attachment)
+
+    snapshot.mentions.push({ kind: 'rule', name: 'Mutated snapshot' })
+    snapshot.attachments.push({
+      ref: { id: 'mutated', name: 'mutated.png', mime: 'image/png', kind: 'image' },
+      previewDataUrl: 'data:mutated'
+    })
+
+    expect(result.current.draft.mentions).toEqual([mention])
+    expect(result.current.draft.mentions[0]).toBe(mention)
+    expect(result.current.draft.attachments).toEqual([attachment])
+    expect(result.current.draft.attachments[0]).toBe(attachment)
   })
 })
