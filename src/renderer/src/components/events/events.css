@@ -24,7 +24,7 @@
 .worked-head .chev {
   display: flex;
   color: var(--text-dim);
-  transition: transform 0.18s var(--ease-out);
+  transition: transform var(--dur-menu) var(--ease-out);
 }
 .worked-head .chev svg {
   width: 13px;
@@ -39,9 +39,20 @@
   flex-direction: column;
   padding-left: 18px;
   overflow: hidden;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+  opacity: 1;
+  transform: translateY(0);
 }
 .steps.collapsed {
   display: none;
+}
+@starting-style {
+  .steps {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
 }
 
 .step {
@@ -80,7 +91,7 @@
   display: flex;
   color: var(--text-dim);
   flex-shrink: 0;
-  transition: transform 0.18s var(--ease-out);
+  transition: transform var(--dur-menu) var(--ease-out);
 }
 .step-row .chev svg {
   width: 12px;
@@ -122,9 +133,20 @@
   color: var(--text-mid);
   line-height: 1.6;
   white-space: pre-line;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+  opacity: 1;
+  transform: translateY(0);
 }
 .step.open .step-body {
   display: block;
+}
+@starting-style {
+  .step-body {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
 }
 .step-body.md {
   white-space: normal;
@@ -221,7 +243,7 @@
 .diff-head .chev {
   display: flex;
   color: var(--text-dim);
-  transition: transform 0.18s var(--ease-out);
+  transition: transform var(--dur-menu) var(--ease-out);
 }
 .diff-head .chev svg {
   width: 12px;
@@ -345,7 +367,7 @@
   gap: 2px;
   padding-top: 6px;
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity var(--dur-fast) ease;
 }
 .agent-turn:hover .msg-actions {
   opacity: 1;
@@ -619,7 +641,7 @@
 
 /* One-shot highlight when a command approval card appears / is jumped to. */
 .approval-card.pulse-once {
-  animation: approval-pulse 1.1s ease-out 1;
+  animation: approval-pulse 1.1s var(--ease-out) 1;
 }
 @keyframes approval-pulse {
   0% {
@@ -637,14 +659,24 @@
      just without the animated sweep. */
   .worked-head .chev,
   .step-row .chev,
-  .diff-head .chev,
-  .artifact-card .chev {
+  .diff-head .chev {
     transition: none;
   }
-  /* NOTE: the review UI's reduced-motion overrides (.finding-head .chev,
-     .finding-detail, .lens-chip:active) live in a SECOND block further down,
-     AFTER their base rules -- placing them here left them inert (their base
-     rules appear later in the file and won by source order). */
+  .steps,
+  .step-body {
+    transition: opacity var(--dur-fast) ease;
+  }
+  @starting-style {
+    .steps,
+    .step-body {
+      transform: none;
+    }
+  }
+  /* NOTE: the late-in-file reduced-motion overrides (.finding-head .chev,
+     .finding-detail, .lens-chip:active, .artifact-card .chev) live in a SECOND
+     block further down, AFTER their base rules -- placing them here left them
+     inert (their base rules appear later in the file and won by source
+     order). */
 }
 
 .allow-grid {
@@ -747,7 +779,7 @@
 .artifact-card .chev {
   color: var(--text-dim);
   display: flex;
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-menu) var(--ease-out);
 }
 .artifact-card.open .chev {
   transform: rotate(90deg);
@@ -1188,16 +1220,16 @@
   font-size: 12.5px;
   line-height: 1.6;
   white-space: pre-wrap;
-  animation: finding-detail-in var(--dur-menu) var(--ease-out);
+  transition:
+    opacity var(--dur-menu) var(--ease-out),
+    transform var(--dur-menu) var(--ease-out);
+  opacity: 1;
+  transform: translateY(0);
 }
-@keyframes finding-detail-in {
-  from {
+@starting-style {
+  .finding-detail {
     opacity: 0;
     transform: translateY(-3px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -1265,16 +1297,23 @@
 .lens-chip:active {
   transform: scale(0.96);
 }
-/* Reduced-motion overrides for the review UI, placed AFTER their base rules
-   (.finding-head .chev @1162, .finding-detail @1179, .lens-chip:active above)
-   so source order (equal specificity, no !important) actually suppresses the
-   motion. Grouping them in the earlier reduced-motion block left them inert. */
+/* Reduced-motion overrides for selectors whose base rules sit late in this
+   file (.finding-head .chev, .finding-detail, .lens-chip:active above, and
+   .artifact-card .chev), placed AFTER those base rules so source order (equal
+   specificity, no !important) actually suppresses the motion. Grouping them in
+   the earlier reduced-motion block left them inert. */
 @media (prefers-reduced-motion: reduce) {
-  .finding-head .chev {
+  .finding-head .chev,
+  .artifact-card .chev {
     transition: none;
   }
   .finding-detail {
-    animation: none;
+    transition: opacity var(--dur-fast) ease;
+  }
+  @starting-style {
+    .finding-detail {
+      transform: none;
+    }
   }
   .lens-chip:active {
     transform: none;

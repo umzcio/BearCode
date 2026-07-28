@@ -73,7 +73,7 @@
   border-radius: 9px;
   background: var(--border);
   position: relative;
-  transition: background 0.15s;
+  transition: background var(--dur-fast) ease;
 }
 .effort-switch::after {
   content: '';

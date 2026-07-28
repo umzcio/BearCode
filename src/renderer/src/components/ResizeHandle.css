@@ -22,7 +22,7 @@
   transform: translateX(-50%);
   background: var(--accent);
   opacity: 0;
-  transition: opacity 0.12s;
+  transition: opacity var(--dur-fast) ease;
 }
 .resize-handle:hover::after,
 .resize-handle:active::after {

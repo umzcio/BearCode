@@ -12,7 +12,7 @@
    background shows through afterward. */
 .event-focus-highlight {
   border-radius: 14px;
-  animation: event-focus-pulse 1.6s ease-out;
+  animation: event-focus-pulse 1.6s var(--ease-out);
 }
 @keyframes event-focus-pulse {
   0% {
@@ -166,7 +166,7 @@
   height: 24px;
   padding-right: 4px;
   opacity: 0;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--dur-fast) ease;
 }
 .msg-user-wrap:hover .msg-user-meta,
 .msg-user-meta:focus-within {
@@ -186,7 +186,7 @@
   font-size: 12px;
   color: var(--text-dim);
   opacity: 0;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--dur-fast) ease;
 }
 .agent-turn:hover .msg-ursa-badge,
 .msg-ursa-badge:focus-within {

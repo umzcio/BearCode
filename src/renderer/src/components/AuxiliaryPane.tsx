@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Event, FileDiff, FileDiffFile } from '@shared/types'
 import { useAppStore, type AuxSelection } from '../state/store'
@@ -14,6 +14,7 @@ import { IconClose, IconCopy, IconFile, IconPaw, IconRevert } from './icons'
 import { EmptyState } from './ui/EmptyState'
 import { Loading } from './ui/Loading'
 import { Hint } from './Hint'
+import { useAnimatedUnmount } from '../lib/useAnimatedUnmount'
 import './ReviewPanel.css'
 
 const MonacoDiff = lazy(() => import('./MonacoDiff'))
@@ -81,6 +82,8 @@ interface ReviewComment {
   text: string
 }
 
+const AUX_EXIT_MS = 340 // matches --dur-drawer (tokens.css)
+
 // The Auxiliary Pane (Ba4, design 3.6), reskinned 2026-07-06 with the two-row
 // Artifact Panel header. ONE side panel listing every deliverable of the
 // current conversation -- plan/walkthrough artifacts plus one virtual "Changes"
@@ -88,8 +91,14 @@ interface ReviewComment {
 // browsing is local state, overridden by the next deep-link via auxPaneOpenTick.
 export function AuxiliaryPane(): React.JSX.Element | null {
   const target = useAppStore((s) => s.auxSelection)
-  if (!target) return null
-  return <AuxiliaryPaneInner target={target} />
+  const { mounted, state } = useAnimatedUnmount(Boolean(target), { durationMs: AUX_EXIT_MS })
+  // Keep rendering the last selection through the exit slide (mirrors how
+  // Popover retains its children while closing). Overwritten on every open,
+  // so a stale target can never leak into the next open.
+  const lastTarget = useRef(target)
+  if (target) lastTarget.current = target
+  if (!mounted || !lastTarget.current) return null
+  return <AuxiliaryPaneInner target={lastTarget.current} dataState={state} />
 }
 
 // The paw + "Artifacts" wordmark that opens Row 1 of every panel variant.
@@ -104,7 +113,13 @@ function ApBrand(): React.JSX.Element {
   )
 }
 
-function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Element | null {
+function AuxiliaryPaneInner({
+  target,
+  dataState
+}: {
+  target: AuxSelection
+  dataState: 'open' | 'closing'
+}): React.JSX.Element | null {
   const convo = useAppStore(
     useShallow((s) => {
       const conversationId =
@@ -149,7 +164,7 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
   // Render it before the convo guard so it survives while events are loading.
   if (target.kind === 'browser') {
     return (
-      <div className="ap-panel" style={{ flexBasis: auxPaneWidth }}>
+      <div className="ap-panel" data-state={dataState} style={{ flexBasis: auxPaneWidth }}>
         <div className="ap-row ap-row-top">
           <ApBrand />
           <div className="ap-spacer" />
@@ -172,7 +187,14 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
   // deliverable in the rail. Self-contained (fetches its own text) so, like
   // browser, it renders before the convo/rail machinery.
   if (sel.kind === 'file') {
-    return <FilePanel key={sel.path + ':' + (sel.line ?? '')} path={sel.path} line={sel.line} />
+    return (
+      <FilePanel
+        key={sel.path + ':' + (sel.line ?? '')}
+        path={sel.path}
+        line={sel.line}
+        dataState={dataState}
+      />
+    )
   }
 
   if (sel.kind === 'attachment') {
@@ -186,6 +208,7 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
         conversationId={sel.conversationId}
         attachmentId={sel.attachmentId}
         attachment={event?.attachment}
+        dataState={dataState}
       />
     )
   }
@@ -259,11 +282,13 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
     ) : null
 
   if (resolved?.kind === 'diff') {
-    return <DiffPanel key={resolved.diffId} diffId={resolved.diffId} rail={rail} />
+    return (
+      <DiffPanel key={resolved.diffId} diffId={resolved.diffId} rail={rail} dataState={dataState} />
+    )
   }
   if (selectedArtifact) {
     return (
-      <div className="ap-panel" style={{ flexBasis: auxPaneWidth }}>
+      <div className="ap-panel" data-state={dataState} style={{ flexBasis: auxPaneWidth }}>
         <div className="ap-row ap-row-top">
           <ApBrand />
           <div className="ap-spacer" />
@@ -288,7 +313,7 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
     )
   }
   return (
-    <div className="ap-panel" style={{ flexBasis: auxPaneWidth }}>
+    <div className="ap-panel" data-state={dataState} style={{ flexBasis: auxPaneWidth }}>
       <div className="ap-row ap-row-top">
         <ApBrand />
         <div className="ap-spacer" />
@@ -307,11 +332,13 @@ function AuxiliaryPaneInner({ target }: { target: AuxSelection }): React.JSX.Ele
 function AttachmentPanel({
   conversationId,
   attachmentId,
-  attachment
+  attachment,
+  dataState
 }: {
   conversationId: string
   attachmentId: string
   attachment?: Extract<Event, { type: 'assistant_attachment' }>['attachment']
+  dataState: 'open' | 'closing'
 }): React.JSX.Element {
   const closeReview = useAppStore((s) => s.closeReview)
   const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
@@ -333,7 +360,11 @@ function AttachmentPanel({
   }
 
   return (
-    <div className="ap-panel ap-attachment-panel" style={{ flexBasis: auxPaneWidth }}>
+    <div
+      className="ap-panel ap-attachment-panel"
+      data-state={dataState}
+      style={{ flexBasis: auxPaneWidth }}
+    >
       <div className="ap-row ap-row-top ap-attachment-header">
         <span className="ap-attachment-name">{attachment?.name ?? 'Attachment'}</span>
         {attachment && badge ? (
@@ -371,7 +402,15 @@ function AttachmentPanel({
 // fetches the file's text through the jailed read-file IPC (never in the
 // renderer) and hands it to MonacoCode with revealLine, so clicking a finding
 // lands the cursor where it points -- read-only, no rail, no diff.
-function FilePanel({ path, line }: { path: string; line?: number }): React.JSX.Element {
+function FilePanel({
+  path,
+  line,
+  dataState
+}: {
+  path: string
+  line?: number
+  dataState: 'open' | 'closing'
+}): React.JSX.Element {
   const closeReview = useAppStore((s) => s.closeReview)
   const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
   const convoId = useAppStore((s) => (s.view.kind === 'conversation' ? s.view.id : null))
@@ -397,7 +436,7 @@ function FilePanel({ path, line }: { path: string; line?: number }): React.JSX.E
   }, [convoId, path])
 
   return (
-    <div className="ap-panel" style={{ flexBasis: auxPaneWidth }}>
+    <div className="ap-panel" data-state={dataState} style={{ flexBasis: auxPaneWidth }}>
       <div className="ap-row ap-row-top">
         <ApBrand />
         <span className="ap-file-name">
@@ -432,7 +471,15 @@ function FilePanel({ path, line }: { path: string; line?: number }): React.JSX.E
   )
 }
 
-function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }): React.JSX.Element {
+function DiffPanel({
+  diffId,
+  rail,
+  dataState
+}: {
+  diffId: string
+  rail: React.ReactNode
+  dataState: 'open' | 'closing'
+}): React.JSX.Element {
   const closeReview = useAppStore((s) => s.closeReview)
   const focusPath = useAppStore((s) => s.reviewFocusPath)
   const view = useAppStore((s) => s.view)
@@ -539,7 +586,7 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
   const body = activeFile ? viewFor(activeFile) : 'diff'
 
   return (
-    <div className="ap-panel" style={{ flexBasis: auxPaneWidth }}>
+    <div className="ap-panel" data-state={dataState} style={{ flexBasis: auxPaneWidth }}>
       {/* Row 1: brand + Overview/Diff mode toggle + actions */}
       <div className="ap-row ap-row-top">
         <ApBrand />

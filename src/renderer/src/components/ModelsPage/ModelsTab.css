@@ -110,6 +110,7 @@
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
+  transition: transform var(--dur-press-release) var(--ease-out);
 }
 .mt-fav:hover,
 .mt-more:hover {
@@ -136,6 +137,7 @@
   border-radius: 6px;
   padding: 4px 10px;
   cursor: pointer;
+  transition: transform var(--dur-press-release) var(--ease-out);
 }
 .mt-pagination button:disabled {
   opacity: 0.4;
@@ -149,6 +151,7 @@
   padding: 6px 12px;
   font-size: 12.5px;
   cursor: pointer;
+  transition: transform var(--dur-press-release) var(--ease-out);
 }
 .mt-bulk-btn:hover {
   background: var(--wash);
@@ -164,6 +167,7 @@
   padding: 6px 12px;
   font-size: 12.5px;
   cursor: pointer;
+  transition: transform var(--dur-press-release) var(--ease-out);
 }
 .mt-add-model::before {
   content: '+ ';
@@ -171,4 +175,22 @@
 .mt-add-model:hover {
   color: var(--text);
   border-color: var(--border);
+}
+.mt-fav:active,
+.mt-more:active,
+.mt-pagination button:active:not(:disabled),
+.mt-bulk-btn:active,
+.mt-add-model:active {
+  transform: scale(0.97);
+  transition: transform var(--dur-press) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mt-fav:active,
+  .mt-more:active,
+  .mt-pagination button:active,
+  .mt-bulk-btn:active,
+  .mt-add-model:active {
+    transform: none;
+  }
 }

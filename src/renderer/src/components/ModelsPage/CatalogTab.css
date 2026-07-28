@@ -76,7 +76,18 @@
   font-size: 12.5px;
   cursor: pointer;
   flex-shrink: 0;
+  transition: transform var(--dur-press-release) var(--ease-out);
 }
 .ct-enable:hover {
   background: var(--wash);
+}
+.ct-enable:active {
+  transform: scale(0.97);
+  transition: transform var(--dur-press) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-enable:active {
+    transform: none;
+  }
 }

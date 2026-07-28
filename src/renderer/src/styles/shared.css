@@ -24,7 +24,7 @@
   transition:
     background var(--dur-fast) ease,
     color var(--dur-fast) ease,
-    transform var(--dur-press) var(--ease-out);
+    transform var(--dur-press-release) var(--ease-out);
 }
 .chrome-btn:hover {
   background: var(--bg-hover);
@@ -32,6 +32,10 @@
 }
 .chrome-btn:active {
   transform: scale(0.97);
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    transform var(--dur-press) var(--ease-out);
 }
 .chrome-btn svg {
   width: 16px;
@@ -61,7 +65,7 @@
   transition:
     background var(--dur-fast) ease,
     color var(--dur-fast) ease,
-    transform var(--dur-press) var(--ease-out);
+    transform var(--dur-press-release) var(--ease-out);
 }
 .icon-btn:hover {
   background: var(--bg-hover);
@@ -69,6 +73,10 @@
 }
 .icon-btn:active {
   transform: scale(0.97);
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    transform var(--dur-press) var(--ease-out);
 }
 .icon-btn svg {
   width: 16px;
@@ -98,13 +106,17 @@
   transition:
     background var(--dur-fast) ease,
     color var(--dur-fast) ease,
-    transform var(--dur-press) var(--ease-out);
+    transform var(--dur-press-release) var(--ease-out);
 }
 .pill-btn:hover {
   background: var(--bg-hover);
 }
 .pill-btn:active {
   transform: scale(0.97);
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    transform var(--dur-press) var(--ease-out);
 }
 .pill-btn .chev {
   color: var(--text-dim);
@@ -181,9 +193,9 @@
   font-size: 13.5px;
   color: var(--text-mid);
   transition:
-    background 90ms ease,
-    color 90ms ease,
-    transform var(--dur-press) var(--ease-out);
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    transform var(--dur-press-release) var(--ease-out);
 }
 /* Leading `MenuItem.icon` (unsized inline icons render at native SVG
    dimensions otherwise) + single-line label truncation -- canonical for
@@ -213,6 +225,10 @@
 }
 .menu-item:active {
   transform: scale(0.97);
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    transform var(--dur-press) var(--ease-out);
 }
 /* Two-line rows (title + description), e.g. Antigravity-style rich dropdowns. */
 .menu-item.has-desc {

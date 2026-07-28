@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../../state/store'
 import { deriveActivity, formatElapsed } from '../../lib/activity'
+import { useAnimatedUnmount } from '../../lib/useAnimatedUnmount'
 import { ThinkingPaw } from '../brand/ThinkingPaw'
 import './RunStatusBar.css'
 
@@ -27,7 +28,13 @@ export function RunStatusBar({
     return () => clearInterval(timer)
   }, [active, startedAt])
 
-  if (!active || !runState) return null
+  const show = Boolean(active && runState)
+  // durationMs must match .run-status-bar's own CSS transition duration
+  // (--dur-fast, RunStatusBar.css).
+  const { mounted, state } = useAnimatedUnmount(show, { durationMs: 150 })
+
+  // The `!runState` guard covers runState clearing mid-exit -- the bar just unmounts.
+  if (!mounted || !runState) return null
 
   const activity = deriveActivity(runState, events ?? [])
   const attention = activity.tone === 'attention'
@@ -35,6 +42,7 @@ export function RunStatusBar({
   return (
     <div
       className={'run-status-bar' + (attention ? ' attention' : '')}
+      data-state={state}
       onClick={attention ? onJumpToApproval : undefined}
       onKeyDown={
         attention

@@ -150,11 +150,6 @@
 .pp-row:focus-within .pp-rowact {
   opacity: 1;
 }
-@media (prefers-reduced-motion: reduce) {
-  .pp-rowact {
-    transition: none;
-  }
-}
 
 /* Task 4 (b82f0dc) removed the old per-row hover actions from Sidebar.css,
    deleting .row-act/.row-act.active along with them -- but ConvoRowMenu.tsx's

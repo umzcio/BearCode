@@ -1292,11 +1292,6 @@
     opacity: 0;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .hermes-mode-fields {
-    transition: none;
-  }
-}
 .hermes-test-row {
   display: flex;
   align-items: center;

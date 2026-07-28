@@ -37,6 +37,7 @@
   cursor: pointer;
   border-bottom: 2px solid transparent;
   margin-right: 18px;
+  transition: transform var(--dur-press-release) var(--ease-out);
 }
 .mp-tab:hover {
   color: var(--text);
@@ -45,6 +46,16 @@
   color: var(--text);
   border-bottom-color: var(--accent, var(--text));
 }
+.mp-tab:active {
+  transform: scale(0.97);
+  transition: transform var(--dur-press) var(--ease-out);
+}
 .mp-body {
   padding: 20px 28px 28px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-tab:active {
+    transform: none;
+  }
 }

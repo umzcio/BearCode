@@ -223,9 +223,6 @@
   opacity: 1;
 }
 @media (prefers-reduced-motion: reduce) {
-  .sb-rowact {
-    transition: none;
-  }
   .seg-toggle button:active {
     transform: none;
   }

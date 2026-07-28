@@ -27,11 +27,6 @@
     opacity: 0;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .main-view {
-    transition: none;
-  }
-}
 
 .topbar {
   display: flex;

@@ -22,6 +22,11 @@
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
+  transition: transform var(--dur-press-release) var(--ease-out);
+}
+.amp-close:active {
+  transform: scale(0.97);
+  transition: transform var(--dur-press) var(--ease-out);
 }
 .amp-body {
   padding: 16px 18px;
@@ -46,4 +51,10 @@
   padding: 12px 18px 18px;
   display: flex;
   justify-content: flex-end;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .amp-close:active {
+    transform: none;
+  }
 }

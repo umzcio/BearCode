@@ -115,8 +115,3 @@
 .pidx-row:focus-within .pidx-rowact {
   opacity: 1;
 }
-@media (prefers-reduced-motion: reduce) {
-  .pidx-rowact {
-    transition: none;
-  }
-}

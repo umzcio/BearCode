@@ -111,6 +111,14 @@
     opacity: 0.3;
   }
 }
+/* Ambient paint costs money every frame (conic-gradient repaint under a 22px
+   blur); nobody is watching while the window is unfocused -- pause, don't stop. */
+:root[data-window-blurred] .composer--ursa,
+:root[data-window-blurred] .composer--ursa::before,
+:root[data-window-blurred] .composer--ursus,
+:root[data-window-blurred] .composer--ursus::before {
+  animation-play-state: paused;
+}
 
 .composer textarea {
   width: 100%;
@@ -340,6 +348,27 @@
   padding: 4px 8px;
   border-radius: 999px;
   max-width: 260px;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+  opacity: 1;
+  transform: scale(1);
+}
+@starting-style {
+  .attachment-pill {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .attachment-pill {
+    transition: opacity var(--dur-fast) ease;
+  }
+  @starting-style {
+    .attachment-pill {
+      transform: none;
+    }
+  }
 }
 .attachment-pill-file {
   padding-left: 6px;
@@ -405,7 +434,7 @@
   border-radius: 999px;
   flex: none;
   opacity: 0;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--dur-fast) ease;
 }
 .attachment-pill:hover .pill-x,
 .attachment-pill .pill-x:focus-visible {

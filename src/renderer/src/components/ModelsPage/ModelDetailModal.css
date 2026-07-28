@@ -39,11 +39,19 @@
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-press-release) var(--ease-out);
 }
 .mdp-icon-btn:hover {
   background: var(--wash);
   color: var(--text);
+}
+.mdp-icon-btn:active {
+  transform: scale(0.97);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
 }
 .mdp-icon-btn.active {
   color: var(--yellow, #e0b23e);
@@ -153,4 +161,10 @@
 }
 .status-dot.err {
   background: var(--red, #e0546e);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mdp-icon-btn:active {
+    transform: none;
+  }
 }

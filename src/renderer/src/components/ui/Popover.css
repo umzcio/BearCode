@@ -40,3 +40,14 @@
     transform: none;
   }
 }
+
+/* Keyboard-summoned popovers (slash/@ menus): no entrance, no exit --
+   command-palette-class UI appears instantly (App.tsx ⌘B precedent). The
+   data-motion variant needs !important to outrank the blanket reduced-motion
+   rule above, which would otherwise restore an entrance fade here. */
+.popover[data-instant] {
+  transition: none;
+}
+:root[data-motion='reduced'] .popover[data-instant] {
+  transition: none !important;
+}

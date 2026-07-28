@@ -22,6 +22,9 @@ export interface PopoverProps {
   // min-width = anchor width, e.g. Select's dropdown matching the trigger.
   matchAnchorWidth?: boolean
   className?: string
+  /** Skip open/close animation entirely -- for keyboard-summoned popovers
+      (slash menu, @-mention). Command-palette-class UI must not animate. */
+  instant?: boolean
   children: React.ReactNode
 }
 
@@ -37,13 +40,14 @@ export function Popover({
   placement = 'bottom-start',
   matchAnchorWidth = false,
   className,
+  instant = false,
   children
 }: PopoverProps): React.JSX.Element | null {
   const popRef = useRef<HTMLDivElement>(null)
   const immediateCloseRef = useRef(false)
   const { mounted, state } = useAnimatedUnmount(open, {
     durationMs: POPOVER_EXIT_MS,
-    immediate: immediateCloseRef.current
+    immediate: instant || immediateCloseRef.current
   })
   // `pos` doubles as the "have we measured yet" flag: while null, the
   // wrapper renders at (0, 0) with no minWidth. It is NOT hidden via
@@ -164,6 +168,7 @@ export function Popover({
       ref={popRef}
       className={'popover' + (className ? ` ${className}` : '')}
       data-state={state}
+      data-instant={instant || undefined}
       aria-hidden={state === 'closing' || undefined}
       inert={state === 'closing' || undefined}
       style={

@@ -10,6 +10,45 @@
   border-left: 1px solid var(--border);
 }
 
+/* Drawer motion for both pane variants: the flex slot appears in one reflow
+   (the conversation column snaps once), then the pane surface slides in from
+   the right edge on the same physics as the sidebar drawer. Transform only. */
+.ap-panel,
+.review-side {
+  transition: transform var(--dur-drawer) var(--ease-drawer);
+  transform: translateX(0);
+}
+@starting-style {
+  .ap-panel,
+  .review-side {
+    transform: translateX(100%);
+  }
+}
+.ap-panel[data-state='closing'],
+.review-side[data-state='closing'] {
+  transform: translateX(100%);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ap-panel,
+  .review-side {
+    transition: opacity var(--dur-fast) ease;
+    opacity: 1;
+  }
+  @starting-style {
+    .ap-panel,
+    .review-side {
+      transform: none;
+      opacity: 0;
+    }
+  }
+  .ap-panel[data-state='closing'],
+  .review-side[data-state='closing'] {
+    transform: none;
+    opacity: 0;
+  }
+}
+
 /* --- Tab bar --- */
 .review-tabs {
   display: flex;
@@ -202,7 +241,7 @@
   align-items: center;
   gap: 6px;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast) ease;
 }
 .file-section-head:hover .head-actions {
   opacity: 1;
@@ -237,7 +276,7 @@
 .file-section-head .chev {
   display: flex;
   color: var(--text-dim);
-  transition: transform 0.15s;
+  transition: transform var(--dur-menu) var(--ease-out);
   flex-shrink: 0;
 }
 .file-section-head .chev svg {
@@ -606,7 +645,7 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s;
+  transition: opacity var(--dur-fast) ease;
 }
 .comment-fab:hover::before {
   opacity: 1;

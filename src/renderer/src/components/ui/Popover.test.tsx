@@ -64,6 +64,18 @@ function ControlledHarness({ initialOpen = true }: { initialOpen?: boolean }): R
   )
 }
 
+function InstantHarness({ open }: { open: boolean }): React.JSX.Element {
+  const anchorRef = useRef<HTMLButtonElement>(null)
+  return (
+    <div>
+      <button ref={anchorRef}>Anchor</button>
+      <Popover anchorRef={anchorRef} open={open} onClose={vi.fn()} instant>
+        <div>Popover content</div>
+      </Popover>
+    </div>
+  )
+}
+
 describe('Popover', () => {
   it('renders nothing when closed', () => {
     render(<Harness open={false} onClose={vi.fn()} />)
@@ -180,6 +192,19 @@ describe('Popover', () => {
       vi.advanceTimersByTime(150)
     })
     expect(screen.queryByText('Popover content')).toBeTruthy()
+  })
+
+  it('unmounts an instant popover synchronously, with no closing phase', () => {
+    const { rerender } = render(<InstantHarness open={true} />)
+    const wrapper = screen.getByText('Popover content').closest('.popover')
+    expect(wrapper?.getAttribute('data-state')).toBe('open')
+    expect(wrapper).toHaveAttribute('data-instant')
+    expect(getComputedStyle(wrapper as Element).transition).toBe('none')
+
+    rerender(<InstantHarness open={false} />)
+
+    expect(screen.queryByText('Popover content')).toBeNull()
+    expect(document.querySelector(".popover[data-state='closing']")).toBeNull()
   })
 
   it('uses the open lifecycle state, then unmounts immediately under OS reduced motion', () => {

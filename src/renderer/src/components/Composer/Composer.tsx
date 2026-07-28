@@ -776,6 +776,7 @@ export function Composer({
         onClose={() => setMenuDismissed(true)}
         placement="top-start"
         matchAnchorWidth
+        instant
       >
         <SlashMenu
           entries={filtered}
@@ -790,6 +791,7 @@ export function Composer({
         onClose={() => setMentionQuery(null)}
         placement="top-start"
         matchAnchorWidth
+        instant
       >
         <MentionMenu
           rows={mentionRows}
@@ -805,6 +807,7 @@ export function Composer({
         onClose={() => setResumePickerOpen(false)}
         placement="top-start"
         matchAnchorWidth
+        instant
       >
         <ResumePicker />
       </Popover>

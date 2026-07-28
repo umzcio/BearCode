@@ -38,6 +38,7 @@ import type {
 } from '@shared/types'
 import { HERMES_MODEL_REF, URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 import { applyAppearance, watchSystemTheme } from '../lib/appearance'
+import { initWindowFocusTracking } from '../lib/windowFocus'
 import { describeError } from '../lib/errors'
 import { mergeEvent } from '../lib/mergeEvent'
 import { resolveProjectDefaults } from '@shared/projectDefaults'
@@ -776,6 +777,7 @@ export const useAppStore = create<AppState>((set, get) => {
         // Apply the persisted appearance immediately + follow OS theme changes
         // while in 'system' mode.
         applyAppearance(settings)
+        initWindowFocusTracking()
         watchSystemTheme(() => {
           const s = get().settings
           return s ?? settings
