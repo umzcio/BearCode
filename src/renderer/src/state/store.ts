@@ -96,7 +96,7 @@ export type TerminalTabMeta = {
   exited: boolean
 }
 
-// The Auxiliary Pane's target (Ba4 unification). ONE field for the ONE side
+// The Artifacts pane's target (Ba4 unification). ONE field for the ONE side
 // panel: an artifact (plan/walkthrough viewer) or a diff group (the virtual
 // "Changes" entry over the existing diffs table, design 3.4). Mutual
 // exclusion is structural -- the old reviewDiffId/reviewArtifactId pair kept

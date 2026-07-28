@@ -8,7 +8,7 @@ import { ProjectPage } from './components/ProjectPage/ProjectPage'
 import { ProjectsIndex } from './components/ProjectsIndex/ProjectsIndex'
 import { ModelsPage } from './components/ModelsPage/ModelsPage'
 import { ConversationView } from './components/ConversationView'
-import { AuxiliaryPane } from './components/AuxiliaryPane'
+import { ArtifactsPane } from './components/ArtifactsPane'
 import { ResizeHandle } from './components/ResizeHandle'
 import { SettingsModal } from './components/Settings/SettingsModal'
 import { ProjectSettingsModal } from './components/ProjectSettings/ProjectSettingsModal'
@@ -183,7 +183,7 @@ function App(): React.JSX.Element {
           onDragEnd={() => setAuxPaneWidth(useAppStore.getState().auxPaneWidth)}
         />
       ) : null}
-      <AuxiliaryPane />
+      <ArtifactsPane />
       {toast ? (
         <div className="toast" role="status" aria-live="polite">
           <span className="toast-msg">{toast.message}</span>

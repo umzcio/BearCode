@@ -3,7 +3,7 @@ import type { Event } from '@shared/types'
 import { useAppStore } from '../state/store'
 import { Markdown } from '../lib/markdown'
 import { ARTIFACT_STATUS_LABELS } from './events/ArtifactCard'
-import './ReviewPanel.css'
+import './ArtifactsPane.css'
 import './events/events.css'
 
 type ArtifactEvent = Extract<Event, { type: 'artifact' }>
@@ -30,13 +30,13 @@ function pendingPlanCallFor(events: Event[], artifactId: string): ToolCallEvent 
 // MOUNTS the pane must still focus the box (a ref initialized at mount would
 // swallow its own tick), while a stale tick from an earlier pane session must
 // not refocus on every remount. Exactly one viewer mounts at a time (the
-// AuxiliaryPane's single viewer slot), so a module singleton is safe.
+// ArtifactsPane's single viewer slot), so a module singleton is safe.
 let consumedFocusTick = 0
 
-// The artifact half of the Auxiliary Pane (Ba4): renders ONE selected plan or
+// The artifact half of the Artifacts pane (Ba4): renders ONE selected plan or
 // walkthrough -- sanitized markdown body, comments, and (only while a pending
 // submit_plan call is paired to it) the Ba2 Proceed/Review loop, unchanged.
-// The rail and selection moved up into AuxiliaryPane; the version chips
+// The rail and selection moved up into ArtifactsPane; the version chips
 // browse the same-type history (superseded plans viewable, design section 7).
 // SECURITY: a superseded/approved/final version can never show actions --
 // pendingCall requires status 'pending-review' AND a live pairing.
@@ -160,7 +160,7 @@ export function ArtifactViewer({
   }
 
   return (
-    <div className="review-scroll">
+    <div className="ap-scroll">
       <div className="artifact-view">
         <div className="artifact-view-title-row">
           <div className="artifact-view-title">{selected.title}</div>

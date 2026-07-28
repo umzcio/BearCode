@@ -6,7 +6,7 @@ export type FileDiffEvent = Extract<Event, { type: 'file_diff' }>
 export type RailEntry =
   { kind: 'artifact'; event: ArtifactEvent } | { kind: 'diff'; event: FileDiffEvent }
 
-// The unified Auxiliary Pane rail (design 3.6, Ba4): every artifact event
+// The unified Artifacts pane rail (design 3.6, Ba4): every artifact event
 // plus one virtual "Changes" entry per diff group, newest first. The diff
 // entries are DERIVED from the existing file_diff events over the existing
 // diffs table -- zero data migration (design 3.4). Superseded artifacts

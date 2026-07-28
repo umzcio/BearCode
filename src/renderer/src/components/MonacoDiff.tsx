@@ -1,4 +1,4 @@
-// Loaded lazily by the Auxiliary Pane so the Monaco chunk only downloads when
+// Loaded lazily by the Artifacts pane so the Monaco chunk only downloads when
 // a diff is actually reviewed.
 import { useEffect, useRef } from 'react'
 import { EDITOR_OPTIONS, attachCommenting, decorateCommentedLines, monaco } from './monacoCommon'

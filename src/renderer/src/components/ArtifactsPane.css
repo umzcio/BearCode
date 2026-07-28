@@ -1,95 +1,41 @@
-/* Docked review pane, Antigravity anatomy: tab bar, Review header with the
-   For Turn chip, stacked collapsible file sections with inline diffs. */
-.review-side {
-  flex: 0 0 clamp(500px, 46%, 960px);
-  min-width: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-window);
-  border-left: 1px solid var(--border);
-}
+/* The Artifacts pane (ArtifactsPane.tsx): docked side panel with a header,
+   stacked collapsible file sections with inline diffs, and the artifact rail.
+   Class prefix is `ap-`; the pane surface itself is `.ap-panel`. */
 
-/* Drawer motion for both pane variants: the flex slot appears in one reflow
-   (the conversation column snaps once), then the pane surface slides in from
-   the right edge on the same physics as the sidebar drawer. Transform only. */
-.ap-panel,
-.review-side {
+/* Drawer motion: the flex slot appears in one reflow (the conversation column
+   snaps once), then the pane surface slides in from the right edge on the same
+   physics as the sidebar drawer. Transform only. */
+.ap-panel {
   transition: transform var(--dur-drawer) var(--ease-drawer);
   transform: translateX(0);
 }
 @starting-style {
-  .ap-panel,
-  .review-side {
+  .ap-panel {
     transform: translateX(100%);
   }
 }
-.ap-panel[data-state='closing'],
-.review-side[data-state='closing'] {
+.ap-panel[data-state='closing'] {
   transform: translateX(100%);
   pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .ap-panel,
-  .review-side {
+  .ap-panel {
     transition: opacity var(--dur-fast) ease;
     opacity: 1;
   }
   @starting-style {
-    .ap-panel,
-    .review-side {
+    .ap-panel {
       transform: none;
       opacity: 0;
     }
   }
-  .ap-panel[data-state='closing'],
-  .review-side[data-state='closing'] {
+  .ap-panel[data-state='closing'] {
     transform: none;
     opacity: 0;
   }
 }
 
-/* --- Tab bar --- */
-.review-tabs {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border-soft);
-  overflow-x: auto;
-  flex-shrink: 0;
-}
-.review-tab {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  background: none;
-  border: none;
-  border-radius: 9px;
-  font-family: inherit;
-  font-size: 13.5px;
-  font-weight: 500;
-  color: var(--text-mid);
-  padding: 7px 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.review-tab:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-.review-tab.active {
-  background: var(--border);
-  color: var(--text);
-}
-.review-tab svg {
-  width: 14px;
-  height: 14px;
-}
-.review-tab.cmd-openable {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
+/* --- Header bits shared by the pane variants --- */
 .code-mark {
   font-family: var(--mono);
   font-size: 10px;
@@ -117,21 +63,7 @@
   height: 16px;
 }
 
-/* --- Review header row --- */
-.review-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border-soft);
-  flex-shrink: 0;
-}
-.review-head-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text);
-  flex-shrink: 0;
-}
+/* --- "For Turn" chip + header icon buttons --- */
 .turn-chip {
   display: flex;
   align-items: center;
@@ -168,13 +100,6 @@
 .turn-chip-x:hover {
   color: var(--text);
 }
-.review-head-icons {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-}
 .head-icon {
   background: none;
   border: none;
@@ -194,7 +119,7 @@
 }
 
 /* --- Scrolling stack of file sections --- */
-.review-scroll {
+.ap-scroll {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
@@ -364,18 +289,6 @@
 }
 
 /* --- File code tab --- */
-.review-crumb {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border-soft);
-  font-size: 13px;
-  color: var(--text-dim);
-  overflow: hidden;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
 .crumb-part {
   display: inline-flex;
   align-items: center;
@@ -388,11 +301,6 @@
   color: var(--text);
   font-weight: 600;
   font-size: 13.5px;
-}
-.review-code-body {
-  flex: 1;
-  display: flex;
-  min-height: 0;
 }
 .monaco-host {
   flex: 1;
@@ -837,7 +745,7 @@
   --ap-radius-sm: 6px;
   --ap-radius-md: 10px;
 
-  /* Top-level pane: same footprint the old .review-side flex item had. */
+  /* Top-level pane footprint. */
   flex: 0 0 clamp(500px, 46%, 960px);
   min-width: 0;
   height: 100%;
@@ -1085,7 +993,7 @@
 }
 
 /* --- Artifact (plan/walkthrough) body under the shared header. Lets the
-   inner .review-scroll own the scroll, so there's one scroller not two. --- */
+   inner .ap-scroll own the scroll, so there's one scroller not two. --- */
 .ap-artifact-body {
   flex: 1;
   min-height: 0;

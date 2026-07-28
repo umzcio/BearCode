@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BearcodeApi, Event } from '@shared/types'
 import { useAppStore, type Convo } from '../state/store'
-import { AuxiliaryPane } from './AuxiliaryPane'
+import { ArtifactsPane } from './ArtifactsPane'
 
 const preview = vi.fn()
 const save = vi.fn()
@@ -82,11 +82,11 @@ afterEach(() => {
   useAppStore.setState({ showToast: realShowToast } as never)
 })
 
-describe('AuxiliaryPane attachment mode', () => {
+describe('ArtifactsPane attachment mode', () => {
   it('shows persisted filename, file badge, and verified size without artifact controls', async () => {
     seedAttachmentSelection()
 
-    const { container } = render(<AuxiliaryPane />)
+    const { container } = render(<ArtifactsPane />)
 
     expect(screen.getByText('verified-report.pdf')).toBeInTheDocument()
     expect(screen.getByText('PDF')).toBeInTheDocument()
@@ -101,7 +101,7 @@ describe('AuxiliaryPane attachment mode', () => {
 
   it('uses the standard close control to clear attachment mode', () => {
     seedAttachmentSelection()
-    render(<AuxiliaryPane />)
+    render(<ArtifactsPane />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
 
@@ -111,7 +111,7 @@ describe('AuxiliaryPane attachment mode', () => {
   it('reports when selected-conversation event metadata is no longer available', () => {
     seedAttachmentSelection([])
 
-    render(<AuxiliaryPane />)
+    render(<ArtifactsPane />)
 
     expect(screen.getByText('Attachment is no longer available')).toBeInTheDocument()
     expect(preview).not.toHaveBeenCalled()
@@ -128,7 +128,7 @@ describe('AuxiliaryPane attachment mode', () => {
     })
 
     useAppStore.getState().openAttachmentPane('conv_123', 'att_123')
-    render(<AuxiliaryPane />)
+    render(<ArtifactsPane />)
 
     expect(screen.getByText('verified-report.pdf')).toBeInTheDocument()
     expect(await screen.findByText('Verified preview body')).toBeInTheDocument()
@@ -136,7 +136,7 @@ describe('AuxiliaryPane attachment mode', () => {
 
   it('routes Download through opaque conversation and attachment IDs', async () => {
     seedAttachmentSelection()
-    render(<AuxiliaryPane />)
+    render(<ArtifactsPane />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Download…' }))
 
@@ -146,7 +146,7 @@ describe('AuxiliaryPane attachment mode', () => {
   it('shows the existing success notification after a saved download', async () => {
     save.mockResolvedValueOnce('saved')
     seedAttachmentSelection()
-    render(<AuxiliaryPane />)
+    render(<ArtifactsPane />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Download…' }))
 
@@ -156,7 +156,7 @@ describe('AuxiliaryPane attachment mode', () => {
   it('keeps cancellation silent', async () => {
     save.mockResolvedValueOnce('cancelled')
     seedAttachmentSelection()
-    render(<AuxiliaryPane />)
+    render(<ArtifactsPane />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Download…' }))
 
@@ -167,7 +167,7 @@ describe('AuxiliaryPane attachment mode', () => {
   it('shows the existing error notification when saving rejects', async () => {
     save.mockRejectedValueOnce(new Error('disk full'))
     seedAttachmentSelection()
-    render(<AuxiliaryPane />)
+    render(<ArtifactsPane />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Download…' }))
 
@@ -182,7 +182,7 @@ describe('AuxiliaryPane attachment mode', () => {
       })
     )
     seedAttachmentSelection()
-    render(<AuxiliaryPane />)
+    render(<ArtifactsPane />)
     const download = screen.getByRole('button', { name: 'Download…' })
 
     fireEvent.click(download)

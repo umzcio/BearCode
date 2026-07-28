@@ -15,7 +15,7 @@ import { EmptyState } from './ui/EmptyState'
 import { Loading } from './ui/Loading'
 import { Hint } from './Hint'
 import { useAnimatedUnmount } from '../lib/useAnimatedUnmount'
-import './ReviewPanel.css'
+import './ArtifactsPane.css'
 
 const MonacoDiff = lazy(() => import('./MonacoDiff'))
 const MonacoCode = lazy(() => import('./MonacoCode'))
@@ -84,12 +84,12 @@ interface ReviewComment {
 
 const AUX_EXIT_MS = 340 // matches --dur-drawer (tokens.css)
 
-// The Auxiliary Pane (Ba4, design 3.6), reskinned 2026-07-06 with the two-row
+// The Artifacts pane (Ba4, design 3.6), reskinned 2026-07-06 with the two-row
 // Artifact Panel header. ONE side panel listing every deliverable of the
 // current conversation -- plan/walkthrough artifacts plus one virtual "Changes"
 // entry per diff group. The store's auxSelection deep-links a target; rail
 // browsing is local state, overridden by the next deep-link via auxPaneOpenTick.
-export function AuxiliaryPane(): React.JSX.Element | null {
+export function ArtifactsPane(): React.JSX.Element | null {
   const target = useAppStore((s) => s.auxSelection)
   const { mounted, state } = useAnimatedUnmount(Boolean(target), { durationMs: AUX_EXIT_MS })
   // Keep rendering the last selection through the exit slide (mirrors how
@@ -98,7 +98,7 @@ export function AuxiliaryPane(): React.JSX.Element | null {
   const lastTarget = useRef(target)
   if (target) lastTarget.current = target
   if (!mounted || !lastTarget.current) return null
-  return <AuxiliaryPaneInner target={lastTarget.current} dataState={state} />
+  return <ArtifactsPaneInner target={lastTarget.current} dataState={state} />
 }
 
 // The paw + "Artifacts" wordmark that opens Row 1 of every panel variant.
@@ -113,7 +113,7 @@ function ApBrand(): React.JSX.Element {
   )
 }
 
-function AuxiliaryPaneInner({
+function ArtifactsPaneInner({
   target,
   dataState
 }: {
