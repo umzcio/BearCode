@@ -1,3 +1,25 @@
+.preview-entry {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  opacity: 1;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+@starting-style {
+  .preview-entry {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-entry {
+    transition: none;
+  }
+}
+:root[data-motion='reduced'] .preview-entry {
+  transition: none;
+}
+
 .file-preview {
   max-height: 60vh;
   overflow: auto;

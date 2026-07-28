@@ -33,10 +33,14 @@ describe('AttachmentPreview', () => {
   it('requests a preview with opaque conversation and attachment IDs', async () => {
     preview.mockResolvedValue({ kind: 'text', text: 'Loaded' })
 
-    render(<AttachmentPreview conversationId="conv_123" attachmentId="att_123" />)
+    const { container } = render(
+      <AttachmentPreview conversationId="conv_123" attachmentId="att_123" />
+    )
 
     expect(preview).toHaveBeenCalledWith('conv_123', 'att_123')
+    expect(container.querySelector('.preview-entry')).toBeNull()
     expect(await screen.findByText('Loaded')).toBeInTheDocument()
+    expect(container.querySelectorAll('.preview-entry')).toHaveLength(1)
   })
 
   it('shows loading until the matching preview request resolves', async () => {
@@ -76,7 +80,7 @@ describe('AttachmentPreview', () => {
     const stale = deferred<PreviewPayload>()
     const matching = deferred<PreviewPayload>()
     preview.mockReturnValueOnce(stale.promise).mockReturnValueOnce(matching.promise)
-    const { rerender } = render(<AttachmentPreview {...initial} />)
+    const { container, rerender } = render(<AttachmentPreview {...initial} />)
 
     rerender(<AttachmentPreview {...current} />)
     await act(async () => {
@@ -85,11 +89,13 @@ describe('AttachmentPreview', () => {
 
     expect(screen.getByText('Loading preview…')).toBeInTheDocument()
     expect(screen.queryByText('STALE')).not.toBeInTheDocument()
+    expect(container.querySelector('.preview-entry')).toBeNull()
 
     await act(async () => {
       matching.resolve({ kind: 'text', text: 'CURRENT' })
     })
     expect(screen.getByText('CURRENT')).toBeInTheDocument()
+    expect(container.querySelectorAll('.preview-entry')).toHaveLength(1)
   })
 
   it('renders loaded payloads through the shared preview renderer', async () => {

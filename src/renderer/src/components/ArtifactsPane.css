@@ -1006,7 +1006,8 @@
   display: flex;
 }
 .ap-body .file-preview.html .file-preview-frame,
-.ap-body > .file-preview-frame.pdf {
+.ap-body > .file-preview-frame.pdf,
+.ap-body .preview-entry > .file-preview-frame.pdf {
   flex: 1;
   height: auto;
   max-width: 100%;
@@ -1097,7 +1098,8 @@
   display: flex;
 }
 .ap-attachment-body .file-preview.html .file-preview-frame,
-.ap-attachment-body > .file-preview-frame.pdf {
+.ap-attachment-body > .file-preview-frame.pdf,
+.ap-attachment-body .preview-entry > .file-preview-frame.pdf {
   flex: 1;
   height: auto;
   max-width: 100%;
