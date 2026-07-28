@@ -11,8 +11,8 @@ executor should read the entire linked plan before editing and update this table
 | [001](001-restore-static-gate.md) | Restore a zero-baseline typecheck, lint, and test gate | P1 | L | — | DONE |
 | [002](002-characterize-diff-review.md) | Characterize the primary diff-review workflow | P1 | M | 001 | DONE |
 | [003](003-fix-diff-load-focus.md) | Make diff loading and focus race-safe | P1 | M | 002 | DONE |
-| [004](004-preserve-review-drafts.md) | Preserve review drafts until run acceptance | P1 | L | 002 | IN PROGRESS |
-| [005](005-preserve-artifact-comment-draft.md) | Clear artifact comment drafts only after insertion succeeds | P1 | S | 001 | TODO |
+| [004](004-preserve-review-drafts.md) | Preserve review drafts until run acceptance | P1 | L | 002 | DONE |
+| [005](005-preserve-artifact-comment-draft.md) | Clear artifact comment drafts only after insertion succeeds | P1 | S | 001 | IN PROGRESS |
 | [006](006-fix-html-blob-lifecycle.md) | Allocate HTML blob URLs after committed content | P1 | S | 001 | TODO |
 | [007](007-harden-browser-control-ipc.md) | Authorize and validate browser-control IPC | P1 | M | 001 | TODO |
 | [008](008-isolate-resize-renders.md) | Keep pane resize state out of the heavy body | P2 | S | 002 | TODO |

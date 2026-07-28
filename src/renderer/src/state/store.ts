@@ -393,6 +393,10 @@ interface AppState {
   // display order. Drives the "N of M" jump navigator; stepFocus walks it. Empty
   // (or length 1) hides the navigator -- a lone hit needs no next/prev.
   focusMatches: string[]
+  // Identity for the current view/focus owner. This changes even when a newer
+  // search installs values identical to the previous search, allowing an older
+  // accepted send to clear only the focus state it actually dispatched under.
+  focusRevision: number
   // F3: the environment drafted in the Home composer's Local/New-Worktree
   // picker, applied to the conversation at create (before its first run) and
   // then locked. Reset to 'local' on goHome.
@@ -777,6 +781,7 @@ export const useAppStore = create<AppState>((set, get) => {
     conversationDraftHandoff: null,
     focusEventId: null,
     focusMatches: [],
+    focusRevision: 0,
     composerEnvironment: 'local',
     conflict: null,
 
@@ -1049,8 +1054,14 @@ export const useAppStore = create<AppState>((set, get) => {
         }
       }))
     },
-    clearFocusEvent: () => set({ focusEventId: null, focusMatches: [] }),
-    setFocusMatches: (ids) => set({ focusMatches: ids }),
+    clearFocusEvent: () =>
+      set((state) => ({
+        focusEventId: null,
+        focusMatches: [],
+        focusRevision: state.focusRevision + 1
+      })),
+    setFocusMatches: (ids) =>
+      set((state) => ({ focusMatches: ids, focusRevision: state.focusRevision + 1 })),
     // Walk the current match set (from a content-search jump) by one step,
     // clamped to the ends, and re-point focusEventId so ConversationView
     // re-scrolls + re-highlights. No-op when there's no match set.
@@ -1059,7 +1070,10 @@ export const useAppStore = create<AppState>((set, get) => {
       if (focusMatches.length === 0) return
       const cur = focusEventId ? focusMatches.indexOf(focusEventId) : -1
       const next = Math.min(focusMatches.length - 1, Math.max(0, cur + dir))
-      set({ focusEventId: focusMatches[next] })
+      set((state) => ({
+        focusEventId: focusMatches[next],
+        focusRevision: state.focusRevision + 1
+      }))
     },
     openConvo: (id, opts) => {
       const prev = get().view
@@ -1069,7 +1083,7 @@ export const useAppStore = create<AppState>((set, get) => {
       // conversation's diff. Re-clicking the already-open conversation keeps
       // the pane.
       const switching = !(prev.kind === 'conversation' && prev.id === id)
-      set({
+      set((state) => ({
         view: { kind: 'conversation', id },
         // F1: a content-search hit passes the event to jump to; a plain open
         // (no opts) clears any stale pending focus so it can't fire later.
@@ -1078,8 +1092,9 @@ export const useAppStore = create<AppState>((set, get) => {
         // focused event (no navigator) when the caller doesn't supply one, and
         // clears entirely on a plain open.
         focusMatches: opts?.focusMatches ?? (opts?.focusEventId ? [opts.focusEventId] : []),
+        focusRevision: state.focusRevision + 1,
         ...(switching ? { auxSelection: null, reviewFocusPath: null } : {})
-      })
+      }))
       const convo = get().conversations[id]
       if (!convo) return
       // Restore the model the conversation last used.
@@ -1323,9 +1338,18 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     send: async (convoId, text, command, mentions, attachments) => {
-      const { modelRef, conversations } = get()
+      const {
+        modelRef,
+        conversations,
+        pendingHomeConvoId,
+        pendingHomeAttempt,
+        view,
+        focusRevision
+      } = get()
       const convo = conversations[convoId]
-      if (!modelRef || !convo) return false
+      const provisionalHomeOwner = pendingHomeConvoId === convoId && pendingHomeAttempt !== null
+      if (!modelRef || !convo || provisionalHomeOwner) return false
+      const ownsFocus = view.kind === 'conversation' && view.id === convoId
       try {
         await window.bearcode.run.start(
           convoId,
@@ -1339,7 +1363,18 @@ export const useAppStore = create<AppState>((set, get) => {
         // A new turn must never stay pinned to a prior history-search jump: clear
         // the focus target + match set so the accepted follow-up run's streamed
         // events don't fight auto-follow (F1).
-        set({ focusEventId: null, focusMatches: [] })
+        set((state) =>
+          ownsFocus &&
+          state.focusRevision === focusRevision &&
+          state.view.kind === 'conversation' &&
+          state.view.id === convoId
+            ? {
+                focusEventId: null,
+                focusMatches: [],
+                focusRevision: state.focusRevision + 1
+              }
+            : state
+        )
         patchConvo(convoId, { modelRef })
         return true
       } catch (error) {

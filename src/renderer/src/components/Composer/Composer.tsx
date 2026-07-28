@@ -143,6 +143,7 @@ export function Composer({
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [sending, setSending] = useState(false)
   const sendingRef = useRef(false)
+  const contextMutationTailRef = useRef<Promise<void>>(Promise.resolve())
   const initialClaimedRef = useRef(false)
   const initialDraftSeededAtMountRef = useRef(initialDraft !== undefined)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -348,11 +349,25 @@ export function Composer({
   // Mentions opens the @ menu; Actions opens the / menu; Browser drops the
   // /browser command chip. The @/ menus already key off the textarea contents (mentionQuery /
   // value[0] === '/'), so those two just seed + focus.
-  const onMedia = async (): Promise<void> => {
+  const onMedia = (): Promise<void> => {
     setAddMenuOpen(false)
-    const { picked, errors } = await pickAttachments(attachments.length)
-    if (picked.length > 0) setAttachments((cur) => [...cur, ...picked])
-    if (errors.length > 0) showToast(errors[0])
+    // Start the external picker immediately, then append its normalized draft
+    // mutation to a stable settlement chain. Accepted submission waits until
+    // this chain stops changing, including operations added while it waits.
+    const operation = pickAttachments(snapshot().attachments.length)
+      .then(({ picked, errors }) => {
+        if (picked.length > 0) setAttachments((cur) => [...cur, ...picked])
+        if (errors.length > 0) showToast(errors[0])
+      })
+      .catch((error: unknown) => {
+        showToast(error instanceof Error ? error.message : 'Could not pick attachments')
+      })
+    const tracked = contextMutationTailRef.current.then(
+      () => operation,
+      () => operation
+    )
+    contextMutationTailRef.current = tracked
+    return tracked
   }
   const onMentions = (): void => {
     setAddMenuOpen(false)
@@ -445,18 +460,27 @@ export function Composer({
     const sentAttachments = sentDraft.attachments.map((attachment) => attachment.ref)
     sendingRef.current = true
     setSending(true)
-    void onSend(text, sentDraft.command, sentDraft.mentions, sentAttachments).then((accepted) => {
-      if (accepted) {
+    void (async () => {
+      try {
+        const accepted = await onSend(text, sentDraft.command, sentDraft.mentions, sentAttachments)
+        if (!accepted) return
+        // Observe the tail again after each settlement. A Media operation may
+        // have been initiated while acceptance was already waiting.
+        while (true) {
+          const observed = contextMutationTailRef.current
+          await observed
+          if (contextMutationTailRef.current === observed) break
+        }
         const remainingDraft = subtractSubmittedSnapshot(sentDraft)
         setMentionQuery((current) => (current === sentMentionQuery ? null : current))
+        onAccepted?.(remainingDraft)
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Could not send message')
+      } finally {
         sendingRef.current = false
         setSending(false)
-        onAccepted?.(remainingDraft)
-        return
       }
-      sendingRef.current = false
-      setSending(false)
-    })
+    })()
   }
 
   return (

@@ -25,6 +25,7 @@ const picked: PickedFixture = {
   errors: []
 }
 const pickAttachments = vi.fn(async () => picked)
+const showToast = vi.fn()
 
 function deferred<T>(): {
   promise: Promise<T>
@@ -64,7 +65,7 @@ vi.mock('../../state/store', () => ({
       conversations: {},
       convoOrder: [],
       pickAttachments,
-      showToast: vi.fn(),
+      showToast,
       selectModel: vi.fn(),
       setPermissionMode: vi.fn(),
       modelMenuTick: 0,
@@ -75,6 +76,117 @@ vi.mock('../../state/store', () => ({
 }))
 
 describe('Composer attachments', () => {
+  it('waits for every Media operation added before transfer reaches a stable point', async () => {
+    const pendingSend = deferred<boolean>()
+    const firstPick = deferred<PickedFixture>()
+    const secondPick = deferred<PickedFixture>()
+    const secondAttachment: PickedAttachmentWire = {
+      ref: { id: 'a2', name: 'second.png', mime: 'image/png', kind: 'image' },
+      previewDataUrl: 'data:image/png;base64,BBBB'
+    }
+    pickAttachments.mockReturnValueOnce(firstPick.promise).mockReturnValueOnce(secondPick.promise)
+    const onSend = vi.fn(() => pendingSend.promise)
+    const onAccepted = vi.fn()
+    render(<Composer conversationId="c1" onSend={onSend} onAccepted={onAccepted} />)
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'submitted' } })
+    fireEvent.click(screen.getByLabelText('Send'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Media/ }))
+    expect(pickAttachments).toHaveBeenCalledOnce()
+
+    await act(async () => pendingSend.resolve(true))
+    expect(onAccepted).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Send')).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Media/ }))
+    expect(pickAttachments).toHaveBeenCalledTimes(2)
+
+    await act(async () => firstPick.resolve(picked))
+    expect(onAccepted).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Send')).toBeDisabled()
+
+    await act(async () =>
+      secondPick.resolve({
+        picked: [secondAttachment],
+        errors: []
+      })
+    )
+
+    await waitFor(() =>
+      expect(onAccepted).toHaveBeenCalledWith({
+        text: '',
+        command: null,
+        mentions: [],
+        attachments: [picked.picked[0], secondAttachment]
+      })
+    )
+    expect(screen.getByText('shot.png')).toBeInTheDocument()
+    expect(screen.getByText('second.png')).toBeInTheDocument()
+    expect(screen.getByLabelText('Send')).not.toBeDisabled()
+  })
+
+  it('transfers a Media result that settles after the Composer unmounts', async () => {
+    const pendingSend = deferred<boolean>()
+    const pendingPick = deferred<PickedFixture>()
+    pickAttachments.mockReturnValueOnce(pendingPick.promise)
+    const onAccepted = vi.fn()
+    const mounted = render(
+      <Composer conversationId="c1" onSend={() => pendingSend.promise} onAccepted={onAccepted} />
+    )
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'submitted' } })
+    fireEvent.click(screen.getByLabelText('Send'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Media/ }))
+
+    await act(async () => pendingSend.resolve(true))
+    mounted.unmount()
+    await act(async () => pendingPick.resolve(picked))
+
+    await waitFor(() =>
+      expect(onAccepted).toHaveBeenCalledWith({
+        text: '',
+        command: null,
+        mentions: [],
+        attachments: [picked.picked[0]]
+      })
+    )
+  })
+
+  it('normalizes a rejected Media picker without leaving accepted transfer stuck', async () => {
+    const pendingSend = deferred<boolean>()
+    const pendingPick = deferred<PickedFixture>()
+    pickAttachments.mockReturnValueOnce(pendingPick.promise)
+    const onAccepted = vi.fn()
+    render(
+      <Composer conversationId="c1" onSend={() => pendingSend.promise} onAccepted={onAccepted} />
+    )
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'submitted' } })
+    fireEvent.click(screen.getByLabelText('Send'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Media/ }))
+
+    await act(async () => pendingSend.resolve(true))
+    expect(screen.getByLabelText('Send')).toBeDisabled()
+
+    await act(async () => pendingPick.reject(new Error('picker unavailable')))
+
+    await waitFor(() =>
+      expect(onAccepted).toHaveBeenCalledWith({
+        text: '',
+        command: null,
+        mentions: [],
+        attachments: []
+      })
+    )
+    expect(showToast).toHaveBeenCalledWith('picker unavailable')
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'retry' } })
+    expect(screen.getByLabelText('Send')).not.toBeDisabled()
+  })
+
   it('reports the exact rendered remainder after an accepted pending submit', async () => {
     const pending = deferred<boolean>()
     const onAccepted = vi.fn()

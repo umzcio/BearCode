@@ -60,10 +60,12 @@ const createConversation = vi.fn(
     id: id ?? conversationMeta.id
   })
 )
-const pickAttachments = vi.fn(async () => ({
-  picked: [pickedAttachment],
-  errors: []
-}))
+const pickAttachments = vi.fn(
+  async (): Promise<{ picked: PickedAttachmentWire[]; errors: string[] }> => ({
+    picked: [pickedAttachment],
+    errors: []
+  })
+)
 
 function deferred<T>(): {
   promise: Promise<T>
@@ -160,6 +162,48 @@ afterEach(() => {
 })
 
 describe('Home accepted draft handoff', () => {
+  it('keeps Home ownership pending until a deferred Media pick joins the accepted transfer', async () => {
+    const pendingRun = deferred<void>()
+    const pendingPick = deferred<{ picked: PickedAttachmentWire[]; errors: string[] }>()
+    runStart.mockReturnValueOnce(pendingRun.promise)
+    pickAttachments.mockReturnValueOnce(pendingPick.promise)
+    render(<MainViewHarness />)
+
+    const homeTextbox = screen.getByRole('textbox')
+    fireEvent.change(homeTextbox, { target: { value: 'submitted' } })
+    fireEvent.click(screen.getByLabelText('Send'))
+    await waitFor(() => expect(runStart).toHaveBeenCalledOnce())
+    const acceptedId = useAppStore.getState().draftConvoId
+    expect(acceptedId).toEqual(expect.any(String))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Media/ }))
+    expect(pickAttachments).toHaveBeenCalledWith(acceptedId, 0)
+
+    await act(async () => pendingRun.resolve(undefined))
+    await waitFor(() => expect(useAppStore.getState().acceptedHomeConvoId).toBe(acceptedId))
+    expect(useAppStore.getState()).toMatchObject({
+      view: { kind: 'home' },
+      pendingHomeConvoId: acceptedId,
+      acceptedHomeConvoId: acceptedId,
+      conversationDraftHandoff: null
+    })
+    expect(screen.getByRole('textbox')).toBe(homeTextbox)
+
+    await act(async () =>
+      pendingPick.resolve({
+        picked: [pickedAttachment],
+        errors: []
+      })
+    )
+
+    await waitFor(() =>
+      expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: acceptedId })
+    )
+    expect(screen.getByAltText('late.png')).toHaveAttribute('src', pickedAttachment.previewDataUrl)
+    await waitFor(() => expect(useAppStore.getState().conversationDraftHandoff).toBeNull())
+  })
+
   it('keeps a late attachment under the id reserved before deferred conversation creation', async () => {
     const pendingCreate = deferred<ConversationMeta>()
     const pendingRun = deferred<void>()

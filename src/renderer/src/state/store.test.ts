@@ -711,6 +711,39 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
     expect(run.start).not.toHaveBeenCalled()
   })
 
+  it('blocks send for the provisional Home-owned conversation without blocking unrelated conversations', async () => {
+    const showToast = vi.fn()
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      conversations: { c1: convo(), c2: convo({ id: 'c2', modelRef: 'openai/gpt-5' }) },
+      pendingHomeConvoId: 'c1',
+      pendingHomeAttempt: 71,
+      focusEventId: 'event-1',
+      focusMatches: ['event-1'],
+      showToast
+    })
+
+    await expect(useAppStore.getState().send('c1', 'duplicate')).resolves.toBe(false)
+
+    expect(run.start).not.toHaveBeenCalled()
+    expect(showToast).not.toHaveBeenCalled()
+    expect(useAppStore.getState().focusEventId).toBe('event-1')
+    expect(useAppStore.getState().conversations.c1.modelRef).toBe('anthropic/claude-sonnet-5')
+
+    await expect(useAppStore.getState().send('c2', 'unrelated')).resolves.toBe(true)
+    expect(run.start).toHaveBeenCalledOnce()
+    expect(run.start).toHaveBeenCalledWith(
+      'c2',
+      'unrelated',
+      'anthropic/claude-sonnet-5',
+      '/tmp/p',
+      null,
+      null,
+      null
+    )
+  })
+
   it('send returns true and resets focus only after run.start accepts the dispatch', async () => {
     let acceptRun!: () => void
     run.start.mockReturnValueOnce(
@@ -719,6 +752,7 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
       })
     )
     useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
       modelRef: 'anthropic/claude-sonnet-5',
       focusEventId: 'event-1',
       focusMatches: ['event-1', 'event-2'],
@@ -737,6 +771,55 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
     expect(useAppStore.getState().focusEventId).toBeNull()
     expect(useAppStore.getState().focusMatches).toEqual([])
     expect(useAppStore.getState().conversations.c1.modelRef).toBe('anthropic/claude-sonnet-5')
+  })
+
+  it('preserves a newer different-conversation search focus when an older send is accepted', async () => {
+    const pendingRun = deferred<void>()
+    run.start.mockReturnValueOnce(pendingRun.promise)
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      focusEventId: 'old-event',
+      focusMatches: ['old-event'],
+      conversations: { c1: convo(), c2: convo({ id: 'c2' }) }
+    })
+
+    const sending = useAppStore.getState().send('c1', 'accepted later')
+    useAppStore
+      .getState()
+      .openConvo('c2', { focusEventId: 'new-event', focusMatches: ['new-event', 'new-next'] })
+
+    pendingRun.resolve(undefined)
+    await expect(sending).resolves.toBe(true)
+
+    expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c2' })
+    expect(useAppStore.getState().focusEventId).toBe('new-event')
+    expect(useAppStore.getState().focusMatches).toEqual(['new-event', 'new-next'])
+  })
+
+  it('preserves a newer same-conversation focus revision even when its values are identical', async () => {
+    const pendingRun = deferred<void>()
+    run.start.mockReturnValueOnce(pendingRun.promise)
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      focusEventId: 'event-1',
+      focusMatches: ['event-1'],
+      conversations: { c1: convo() }
+    })
+
+    const sending = useAppStore.getState().send('c1', 'accepted later')
+    useAppStore.getState().openConvo('c1', {
+      focusEventId: 'event-1',
+      focusMatches: ['event-1']
+    })
+
+    pendingRun.resolve(undefined)
+    await expect(sending).resolves.toBe(true)
+
+    expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
+    expect(useAppStore.getState().focusEventId).toBe('event-1')
+    expect(useAppStore.getState().focusMatches).toEqual(['event-1'])
   })
 
   it('send returns false and reports a rejected run.start without changing accepted-run state', async () => {
