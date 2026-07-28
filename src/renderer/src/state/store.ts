@@ -374,6 +374,10 @@ interface AppState {
   // accepted Composer handoff completion. While set, Home navigation and
   // duplicate first-run dispatches are blocked.
   pendingHomeConvoId: string | null
+  // Distinguishes successive ownership attempts that happen to reuse the same
+  // conversation id. Async continuations must match both fields before they
+  // publish state, so deletion can permanently retire an in-flight attempt.
+  pendingHomeAttempt: number | null
   // A successfully accepted Home start remains owned by the Home composer until
   // it transfers any post-submit edits to the mounted conversation composer.
   acceptedHomeConvoId: string | null
@@ -577,6 +581,7 @@ interface AppState {
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 let initialized = false
 let nextReviewCommentId = 1
+let nextHomeAttempt = 1
 
 // "1 rule" / "3 rules" — used by the import-summary toast (final review
 // Finding 3). Every noun it is applied to takes a plain -s plural.
@@ -635,6 +640,11 @@ export function refConfigured(providers: ProviderModels[], ref: ModelRef | null)
 }
 
 export const useAppStore = create<AppState>((set, get) => {
+  function ownsHomeAttempt(conversationId: string, attempt: number): boolean {
+    const state = get()
+    return state.pendingHomeConvoId === conversationId && state.pendingHomeAttempt === attempt
+  }
+
   // Resolves the "active project" for @-menu / commands lookups: the open
   // conversation's project, or the Home composer's picked workspace when
   // there is no conversation yet.
@@ -762,6 +772,7 @@ export const useAppStore = create<AppState>((set, get) => {
     manualSkills: [],
     draftConvoId: null,
     pendingHomeConvoId: null,
+    pendingHomeAttempt: null,
     acceptedHomeConvoId: null,
     conversationDraftHandoff: null,
     focusEventId: null,
@@ -960,7 +971,7 @@ export const useAppStore = create<AppState>((set, get) => {
       // wins, and close the pane -- its contents belong to the conversation
       // being left.
       set((s) => {
-        if (s.pendingHomeConvoId) return s
+        if (s.pendingHomeConvoId || s.pendingHomeAttempt !== null) return s
         return {
           view: { kind: 'home' },
           // A Hermes conversation just left behind must not leak its sentinel
@@ -1111,11 +1122,13 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     startFromHome: async (text, command, mentions, attachments) => {
-      const { modelRef, workspacePath, pendingHomeConvoId } = get()
-      if (!modelRef || pendingHomeConvoId) return false
+      const { modelRef, workspacePath, pendingHomeConvoId, pendingHomeAttempt } = get()
+      if (!modelRef || pendingHomeConvoId || pendingHomeAttempt !== null) return false
       const reservedDraftConvoId = get().ensureDraftConvoId()
+      const attempt = nextHomeAttempt++
       set((state) => ({
         pendingHomeConvoId: reservedDraftConvoId,
+        pendingHomeAttempt: attempt,
         ...(state.acceptedHomeConvoId ? { acceptedHomeConvoId: null } : {})
       }))
       try {
@@ -1131,6 +1144,7 @@ export const useAppStore = create<AppState>((set, get) => {
             workspacePath,
             reservedDraftConvoId
           )
+          if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
           const createdConvo = fromMeta(meta)
           draftConvo = createdConvo
           set((s) => {
@@ -1153,6 +1167,7 @@ export const useAppStore = create<AppState>((set, get) => {
         // unusable folder model falls back to the composer model — never start a
         // run on an unconfigured model.
         if (workspacePath) await get().refreshProjectSettings()
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
         const folder = workspacePath
           ? (get().folderSettings.find((f) => f.path === workspacePath) ?? null)
           : null
@@ -1195,18 +1210,25 @@ export const useAppStore = create<AppState>((set, get) => {
         // resolves the right mode. Await rather than fire-and-forget: do not rely
         // on IPC ordering for a security-sensitive default.
         await window.bearcode.conversations.setMode(convoId, permissionMode)
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
         await window.bearcode.conversations.setEffort(convoId, effort)
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
         await window.bearcode.conversations.setThinking(convoId, thinking)
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
         await window.bearcode.conversations.setWebSearch(convoId, webSearch)
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
         await window.bearcode.conversations.setUrsaMode(convoId, ursaMode)
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
         // F3: lock the chosen environment before the first run. Worktree
         // provisioning happens main-side; a non-git folder degrades to local.
         const env = get().composerEnvironment
         if (env === 'worktree') {
           try {
             const updated = await window.bearcode.conversations.setEnvironment(convoId, 'worktree')
+            if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
             patchConvo(convoId, { environment: updated.environment })
           } catch (e) {
+            if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
             get().showToast(e instanceof Error ? e.message : 'Could not create worktree')
           }
         }
@@ -1219,11 +1241,21 @@ export const useAppStore = create<AppState>((set, get) => {
           mentions ?? null,
           attachments ?? null
         )
-        set((state) => (state.conversations[convoId] ? { acceptedHomeConvoId: convoId } : state))
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return true
+        set((state) =>
+          state.pendingHomeConvoId === reservedDraftConvoId &&
+          state.pendingHomeAttempt === attempt &&
+          state.conversations[convoId]
+            ? { acceptedHomeConvoId: convoId }
+            : state
+        )
         return true
       } catch (error) {
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
         set((state) =>
-          state.pendingHomeConvoId === reservedDraftConvoId ? { pendingHomeConvoId: null } : state
+          state.pendingHomeConvoId === reservedDraftConvoId && state.pendingHomeAttempt === attempt
+            ? { pendingHomeConvoId: null, pendingHomeAttempt: null }
+            : state
         )
         get().showToast(describeError(error))
         return false
@@ -1238,6 +1270,7 @@ export const useAppStore = create<AppState>((set, get) => {
           view: { kind: 'conversation', id: conversationId },
           draftConvoId: null,
           pendingHomeConvoId: null,
+          pendingHomeAttempt: null,
           acceptedHomeConvoId: null,
           conversationDraftHandoff: hasComposerDraftContent(remainingDraft)
             ? { conversationId, draft: remainingDraft }
@@ -1264,7 +1297,9 @@ export const useAppStore = create<AppState>((set, get) => {
             conversations,
             convoOrder: orderByRecency(conversations),
             view,
+            draftConvoId: s.draftConvoId === id ? null : s.draftConvoId,
             pendingHomeConvoId: s.pendingHomeConvoId === id ? null : s.pendingHomeConvoId,
+            pendingHomeAttempt: s.pendingHomeConvoId === id ? null : s.pendingHomeAttempt,
             acceptedHomeConvoId: s.acceptedHomeConvoId === id ? null : s.acceptedHomeConvoId,
             conversationDraftHandoff:
               s.conversationDraftHandoff?.conversationId === id ? null : s.conversationDraftHandoff,
@@ -1806,6 +1841,11 @@ export const useAppStore = create<AppState>((set, get) => {
         conversations: {},
         convoOrder: [],
         view: { kind: 'home' },
+        draftConvoId: null,
+        pendingHomeConvoId: null,
+        pendingHomeAttempt: null,
+        acceptedHomeConvoId: null,
+        conversationDraftHandoff: null,
         permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
         auxSelection: null,
         reviewFocusPath: null

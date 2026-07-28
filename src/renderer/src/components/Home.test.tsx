@@ -136,6 +136,7 @@ beforeEach(() => {
     convoOrder: [],
     draftConvoId: null,
     pendingHomeConvoId: null,
+    pendingHomeAttempt: null,
     acceptedHomeConvoId: null,
     conversationDraftHandoff: null,
     composerEnvironment: 'local',

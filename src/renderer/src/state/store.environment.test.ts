@@ -50,6 +50,7 @@ beforeEach(() => {
     workspacePath: null,
     draftConvoId: null,
     pendingHomeConvoId: null,
+    pendingHomeAttempt: null,
     composerEnvironment: 'local',
     conversations: {},
     convoOrder: []

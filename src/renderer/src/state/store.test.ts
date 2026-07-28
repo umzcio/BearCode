@@ -168,6 +168,20 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   ...over
 })
 
+const deferred = <T>(): {
+  promise: Promise<T>
+  resolve: (value: T | PromiseLike<T>) => void
+  reject: (reason?: unknown) => void
+} => {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
 const defaultShowToast = useAppStore.getState().showToast
 
 beforeEach(() => {
@@ -193,6 +207,7 @@ beforeEach(() => {
     manualRules: [],
     draftConvoId: null,
     pendingHomeConvoId: null,
+    pendingHomeAttempt: null,
     acceptedHomeConvoId: null,
     conversationDraftHandoff: null,
     diffReviewComments: {},
@@ -1164,6 +1179,217 @@ describe('Home accepted draft handoff', () => {
     expect(useAppStore.getState().view).toEqual({ kind: 'home' })
     expect(useAppStore.getState().acceptedHomeConvoId).toBeNull()
     expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
+  })
+
+  it('retires a deferred create when all conversations are deleted and permits a fresh Home start', async () => {
+    const oldCreate = deferred<ConversationMeta>()
+    conversations.create.mockReturnValueOnce(oldCreate.promise)
+    useAppStore.setState({
+      view: { kind: 'home' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      conversations: {},
+      convoOrder: [],
+      draftConvoId: 'c1',
+      pendingHomeConvoId: null,
+      pendingHomeAttempt: null,
+      acceptedHomeConvoId: null,
+      conversationDraftHandoff: null
+    })
+
+    const oldStart = useAppStore.getState().startFromHome('old')
+    await vi.waitFor(() => expect(conversations.create).toHaveBeenCalledOnce())
+    expect(useAppStore.getState().pendingHomeAttempt).toEqual(expect.any(Number))
+
+    await useAppStore.getState().deleteAllConversations()
+    expect(useAppStore.getState()).toMatchObject({
+      view: { kind: 'home' },
+      conversations: {},
+      draftConvoId: null,
+      pendingHomeConvoId: null,
+      pendingHomeAttempt: null,
+      acceptedHomeConvoId: null,
+      conversationDraftHandoff: null
+    })
+
+    oldCreate.resolve({ ...convoMeta, id: 'c1' })
+    await expect(oldStart).resolves.toBe(false)
+    expect(run.start).not.toHaveBeenCalled()
+    expect(useAppStore.getState().conversations).toEqual({})
+
+    useAppStore.setState({ view: { kind: 'models' } })
+    useAppStore.getState().goHome()
+    expect(useAppStore.getState().view).toEqual({ kind: 'home' })
+
+    useAppStore.setState({
+      draftConvoId: 'fresh-c2',
+      modelRef: 'anthropic/claude-sonnet-5'
+    })
+    conversations.create.mockResolvedValueOnce({ ...convoMeta, id: 'fresh-c2' })
+    await expect(useAppStore.getState().startFromHome('fresh')).resolves.toBe(true)
+    expect(run.start).toHaveBeenCalledWith(
+      'fresh-c2',
+      'fresh',
+      'anthropic/claude-sonnet-5',
+      null,
+      null,
+      null,
+      null
+    )
+  })
+
+  it('returns accepted dispatch semantics without restoring ownership after delete-all wins a run race', async () => {
+    const oldRun = deferred<void>()
+    run.start.mockReturnValueOnce(oldRun.promise)
+    useAppStore.setState({
+      view: { kind: 'home' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      conversations: { c1: convo() },
+      convoOrder: ['c1'],
+      draftConvoId: 'c1',
+      pendingHomeConvoId: null,
+      pendingHomeAttempt: null,
+      acceptedHomeConvoId: null,
+      conversationDraftHandoff: null
+    })
+
+    const oldStart = useAppStore.getState().startFromHome('old')
+    await vi.waitFor(() => expect(run.start).toHaveBeenCalledOnce())
+
+    await useAppStore.getState().deleteAllConversations()
+    oldRun.resolve()
+    await expect(oldStart).resolves.toBe(true)
+
+    expect(useAppStore.getState()).toMatchObject({
+      view: { kind: 'home' },
+      conversations: {},
+      draftConvoId: null,
+      pendingHomeConvoId: null,
+      pendingHomeAttempt: null,
+      acceptedHomeConvoId: null,
+      conversationDraftHandoff: null
+    })
+  })
+
+  it('does not let an old successful attempt accept or complete a same-id replacement', async () => {
+    const oldRun = deferred<void>()
+    const replacementRun = deferred<void>()
+    run.start.mockReturnValueOnce(oldRun.promise).mockReturnValueOnce(replacementRun.promise)
+    useAppStore.setState({
+      view: { kind: 'home' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      conversations: {},
+      convoOrder: [],
+      draftConvoId: 'c1',
+      pendingHomeConvoId: null,
+      pendingHomeAttempt: null,
+      acceptedHomeConvoId: null,
+      conversationDraftHandoff: null
+    })
+
+    const oldStart = useAppStore.getState().startFromHome('old')
+    await vi.waitFor(() => expect(run.start).toHaveBeenCalledOnce())
+    const oldAttempt = useAppStore.getState().pendingHomeAttempt
+
+    useAppStore.getState().deleteConvo('c1')
+    await vi.waitFor(() => expect(useAppStore.getState().conversations.c1).toBeUndefined())
+    useAppStore.setState({ draftConvoId: 'c1' })
+
+    const replacementStart = useAppStore.getState().startFromHome('replacement')
+    await vi.waitFor(() => expect(run.start).toHaveBeenCalledTimes(2))
+    const replacementAttempt = useAppStore.getState().pendingHomeAttempt
+    expect(replacementAttempt).toEqual(expect.any(Number))
+    expect(replacementAttempt).not.toBe(oldAttempt)
+
+    oldRun.resolve()
+    await expect(oldStart).resolves.toBe(true)
+    expect(useAppStore.getState()).toMatchObject({
+      pendingHomeConvoId: 'c1',
+      pendingHomeAttempt: replacementAttempt,
+      acceptedHomeConvoId: null
+    })
+
+    useAppStore.getState().completeHomeStart(lateDraft)
+    expect(useAppStore.getState()).toMatchObject({
+      view: { kind: 'home' },
+      pendingHomeConvoId: 'c1',
+      pendingHomeAttempt: replacementAttempt,
+      acceptedHomeConvoId: null,
+      conversationDraftHandoff: null
+    })
+
+    replacementRun.resolve()
+    await expect(replacementStart).resolves.toBe(true)
+  })
+
+  it('does not let an old rejected attempt clear a same-id replacement lock', async () => {
+    const oldRun = deferred<void>()
+    const replacementRun = deferred<void>()
+    run.start.mockReturnValueOnce(oldRun.promise).mockReturnValueOnce(replacementRun.promise)
+    useAppStore.setState({
+      view: { kind: 'home' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      conversations: {},
+      convoOrder: [],
+      draftConvoId: 'c1',
+      pendingHomeConvoId: null,
+      pendingHomeAttempt: null,
+      acceptedHomeConvoId: null,
+      conversationDraftHandoff: null
+    })
+
+    const oldStart = useAppStore.getState().startFromHome('old')
+    await vi.waitFor(() => expect(run.start).toHaveBeenCalledOnce())
+
+    useAppStore.getState().deleteConvo('c1')
+    await vi.waitFor(() => expect(useAppStore.getState().conversations.c1).toBeUndefined())
+    useAppStore.setState({ draftConvoId: 'c1' })
+
+    const replacementStart = useAppStore.getState().startFromHome('replacement')
+    await vi.waitFor(() => expect(run.start).toHaveBeenCalledTimes(2))
+    const replacementAttempt = useAppStore.getState().pendingHomeAttempt
+
+    oldRun.reject(new Error('old dispatch failed'))
+    await expect(oldStart).resolves.toBe(false)
+    expect(useAppStore.getState()).toMatchObject({
+      pendingHomeConvoId: 'c1',
+      pendingHomeAttempt: replacementAttempt,
+      acceptedHomeConvoId: null
+    })
+
+    replacementRun.resolve()
+    await expect(replacementStart).resolves.toBe(true)
+  })
+
+  it('retires matching single-delete Home ownership but preserves unrelated ownership', async () => {
+    useAppStore.setState({
+      conversations: { c1: convo(), c2: convo({ id: 'c2' }) },
+      convoOrder: ['c1', 'c2'],
+      draftConvoId: 'c1',
+      pendingHomeConvoId: 'c1',
+      pendingHomeAttempt: 41,
+      acceptedHomeConvoId: 'c1',
+      conversationDraftHandoff: { conversationId: 'c1', draft: lateDraft }
+    })
+
+    useAppStore.getState().deleteConvo('c2')
+    await vi.waitFor(() => expect(useAppStore.getState().conversations.c2).toBeUndefined())
+    expect(useAppStore.getState()).toMatchObject({
+      draftConvoId: 'c1',
+      pendingHomeConvoId: 'c1',
+      pendingHomeAttempt: 41,
+      acceptedHomeConvoId: 'c1',
+      conversationDraftHandoff: { conversationId: 'c1', draft: lateDraft }
+    })
+
+    useAppStore.getState().deleteConvo('c1')
+    await vi.waitFor(() => expect(useAppStore.getState().conversations.c1).toBeUndefined())
+    expect(useAppStore.getState()).toMatchObject({
+      draftConvoId: null,
+      pendingHomeConvoId: null,
+      pendingHomeAttempt: null,
+      acceptedHomeConvoId: null,
+      conversationDraftHandoff: null
+    })
   })
 })
 
