@@ -960,6 +960,12 @@ describe('Home accepted draft handoff', () => {
     expect(useAppStore.getState().conversationDraftHandoff?.draft.attachments).toEqual([
       { ref: lateAttachment, previewDataUrl: 'data:image/png;base64,bGF0ZQ==' }
     ])
+    expect(useAppStore.getState().conversationDraftHandoff?.draft.attachments[0]).toBe(
+      lateDraft.attachments[0]
+    )
+    expect(useAppStore.getState().conversationDraftHandoff?.draft.attachments[0]?.ref).toBe(
+      lateAttachment
+    )
   })
 
   it('navigates with no handoff when the remaining draft is empty', () => {
