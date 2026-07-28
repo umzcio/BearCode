@@ -207,4 +207,30 @@ describe('Home accepted draft handoff', () => {
     expect(useAppStore.getState().acceptedHomeConvoId).toBeNull()
     await waitFor(() => expect(useAppStore.getState().conversationDraftHandoff).toBeNull())
   })
+
+  it('claims the handoff when the accepted conversation Composer is already mounted', async () => {
+    const pendingRun = deferred<void>()
+    runStart.mockReturnValueOnce(pendingRun.promise)
+    render(<MainViewHarness />)
+
+    const homeTextbox = screen.getByRole('textbox')
+    fireEvent.change(homeTextbox, { target: { value: 'submitted' } })
+    fireEvent.click(screen.getByLabelText('Send'))
+    await waitFor(() => expect(runStart).toHaveBeenCalledOnce())
+
+    fireEvent.change(homeTextbox, { target: { value: 'late text' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Media/ }))
+    await screen.findByText('late.png')
+
+    act(() => useAppStore.setState({ view: { kind: 'conversation', id: 'c1' } }))
+    expect(screen.getByRole('textbox')).toHaveValue('')
+    expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
+
+    await act(async () => pendingRun.resolve(undefined))
+
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('late text'))
+    expect(screen.getByAltText('late.png')).toHaveAttribute('src', pickedAttachment.previewDataUrl)
+    expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
+  })
 })

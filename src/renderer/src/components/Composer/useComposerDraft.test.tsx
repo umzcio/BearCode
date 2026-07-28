@@ -220,4 +220,59 @@ describe('composer drafts', () => {
     expect(result.current.draft.attachments).toEqual([attachment])
     expect(result.current.draft.attachments[0]).toBe(attachment)
   })
+
+  it('claims every field of a draft supplied after mount when the live draft is empty', () => {
+    const command: CommandRef = { name: 'browser', kind: 'builtin' }
+    const mention: MentionRef = { kind: 'file', name: 'late.ts', path: 'late.ts' }
+    const attachment: PickedAttachmentWire = {
+      ref: { id: 'late', name: 'late.png', mime: 'image/png', kind: 'image' },
+      previewDataUrl: 'data:late'
+    }
+    const incoming: ComposerDraft = {
+      text: 'late text',
+      command,
+      mentions: [mention],
+      attachments: [attachment]
+    }
+    const { result } = renderHook(() => useComposerDraft())
+
+    let claimed = false
+    act(() => {
+      claimed = result.current.claimInitialDraftIfEmpty(incoming)
+    })
+
+    expect(claimed).toBe(true)
+    expect(result.current.draft).toEqual(incoming)
+    expect(result.current.draft.mentions).not.toBe(incoming.mentions)
+    expect(result.current.draft.attachments).not.toBe(incoming.attachments)
+    expect(result.current.draft.command).toBe(command)
+    expect(result.current.draft.mentions[0]).toBe(mention)
+    expect(result.current.draft.attachments[0]).toBe(attachment)
+  })
+
+  it('keeps an incoming draft pending until the live draft becomes empty', () => {
+    const incoming: ComposerDraft = {
+      text: 'incoming handoff',
+      command: null,
+      mentions: [],
+      attachments: []
+    }
+    const { result } = renderHook(() => useComposerDraft())
+
+    act(() => result.current.setText('destination edit'))
+
+    let claimed = true
+    act(() => {
+      claimed = result.current.claimInitialDraftIfEmpty(incoming)
+    })
+    expect(claimed).toBe(false)
+    expect(result.current.draft.text).toBe('destination edit')
+
+    act(() => result.current.setText(''))
+    act(() => {
+      claimed = result.current.claimInitialDraftIfEmpty(incoming)
+    })
+    expect(claimed).toBe(true)
+    expect(result.current.draft.text).toBe('incoming handoff')
+  })
 })

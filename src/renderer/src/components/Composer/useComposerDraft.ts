@@ -2,6 +2,7 @@ import { useCallback, useRef, useState, type Dispatch, type SetStateAction } fro
 import type { CommandRef, MentionRef, PickedAttachmentWire } from '@shared/types'
 import {
   EMPTY_COMPOSER_DRAFT,
+  hasComposerDraftContent,
   subtractSubmittedComposerDraft,
   type ComposerDraft
 } from '../../lib/composerDraft'
@@ -21,6 +22,7 @@ export function useComposerDraft(initialDraft = EMPTY_COMPOSER_DRAFT): {
   setCommand: Dispatch<SetStateAction<CommandRef | null>>
   setMentions: Dispatch<SetStateAction<MentionRef[]>>
   setAttachments: Dispatch<SetStateAction<PickedAttachmentWire[]>>
+  claimInitialDraftIfEmpty(incoming: ComposerDraft): boolean
   subtractSubmittedSnapshot(submitted: ComposerDraft): ComposerDraft
 } {
   const [initial] = useState(() => cloneDraft(initialDraft))
@@ -51,6 +53,13 @@ export function useComposerDraft(initialDraft = EMPTY_COMPOSER_DRAFT): {
     [update]
   )
   const snapshot = useCallback(() => cloneDraft(latestRef.current), [])
+  const claimInitialDraftIfEmpty = useCallback((incoming: ComposerDraft): boolean => {
+    if (hasComposerDraftContent(latestRef.current)) return false
+    const next = cloneDraft(incoming)
+    latestRef.current = next
+    setDraft(next)
+    return true
+  }, [])
   const subtractSubmittedSnapshot = useCallback((submitted: ComposerDraft): ComposerDraft => {
     const next = subtractSubmittedComposerDraft(latestRef.current, submitted)
     latestRef.current = next
@@ -65,6 +74,7 @@ export function useComposerDraft(initialDraft = EMPTY_COMPOSER_DRAFT): {
     setCommand,
     setMentions,
     setAttachments,
+    claimInitialDraftIfEmpty,
     subtractSubmittedSnapshot
   }
 }

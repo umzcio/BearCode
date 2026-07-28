@@ -124,6 +124,7 @@ export function Composer({
     setCommand,
     setMentions,
     setAttachments,
+    claimInitialDraftIfEmpty,
     subtractSubmittedSnapshot
   } = useComposerDraft(initialDraft)
   const { text: value, command, mentions, attachments } = draft
@@ -143,6 +144,7 @@ export function Composer({
   const [sending, setSending] = useState(false)
   const sendingRef = useRef(false)
   const initialClaimedRef = useRef(false)
+  const initialDraftSeededAtMountRef = useRef(initialDraft !== undefined)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const envTriggerRef = useRef<HTMLButtonElement>(null)
   const addMenuBtnRef = useRef<HTMLButtonElement>(null)
@@ -241,9 +243,12 @@ export function Composer({
 
   useEffect(() => {
     if (!initialDraft || initialClaimedRef.current) return
+    if (!initialDraftSeededAtMountRef.current && !claimInitialDraftIfEmpty(initialDraft)) {
+      return
+    }
     initialClaimedRef.current = true
     onInitialDraftConsumed?.()
-  }, [initialDraft, onInitialDraftConsumed])
+  }, [draft, initialDraft, claimInitialDraftIfEmpty, onInitialDraftConsumed])
 
   useEffect(() => {
     const ta = taRef.current

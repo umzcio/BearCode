@@ -148,6 +148,78 @@ describe('Composer attachments', () => {
     expect(onInitialDraftConsumed).toHaveBeenCalledOnce()
   })
 
+  it('claims and acknowledges a handoff prop that arrives after mount', async () => {
+    const onInitialDraftConsumed = vi.fn()
+    const onSend = vi.fn(async () => true)
+    const mounted = render(
+      <Composer
+        conversationId="c1"
+        onSend={onSend}
+        onInitialDraftConsumed={onInitialDraftConsumed}
+      />
+    )
+
+    mounted.rerender(
+      <Composer
+        conversationId="c1"
+        onSend={onSend}
+        initialDraft={{
+          text: 'arrived later',
+          command: null,
+          mentions: [],
+          attachments: [picked.picked[0]]
+        }}
+        onInitialDraftConsumed={onInitialDraftConsumed}
+      />
+    )
+
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('arrived later'))
+    expect(screen.getByText('shot.png')).toBeInTheDocument()
+    expect(onInitialDraftConsumed).toHaveBeenCalledOnce()
+  })
+
+  it('does not overwrite or acknowledge a late handoff until the live draft is empty', async () => {
+    const onInitialDraftConsumed = vi.fn()
+    const onSend = vi.fn(async () => true)
+    const mounted = render(
+      <Composer
+        conversationId="c1"
+        onSend={onSend}
+        onInitialDraftConsumed={onInitialDraftConsumed}
+      />
+    )
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, { target: { value: 'destination edit' } })
+
+    mounted.rerender(
+      <Composer
+        conversationId="c1"
+        onSend={onSend}
+        initialDraft={{
+          text: 'incoming handoff',
+          command: { name: 'browser', kind: 'builtin' },
+          mentions: [{ kind: 'file', name: 'src/answer.ts', path: 'src/answer.ts' }],
+          attachments: [picked.picked[0]]
+        }}
+        onInitialDraftConsumed={onInitialDraftConsumed}
+      />
+    )
+
+    expect(textarea).toHaveValue('destination edit')
+    expect(screen.queryByText('/browser')).toBeNull()
+    expect(screen.queryByText('@src/answer.ts')).toBeNull()
+    expect(screen.queryByText('shot.png')).toBeNull()
+    expect(onInitialDraftConsumed).not.toHaveBeenCalled()
+
+    fireEvent.change(textarea, { target: { value: '' } })
+
+    await waitFor(() => expect(textarea).toHaveValue('incoming handoff'))
+    expect(screen.getByText('/browser')).toBeInTheDocument()
+    expect(screen.getByText('@src/answer.ts')).toBeInTheDocument()
+    expect(screen.getByText('shot.png')).toBeInTheDocument()
+    expect(onInitialDraftConsumed).toHaveBeenCalledOnce()
+  })
+
   it('preserves text, command, mentions, and attachments when dispatch returns false', async () => {
     const onSend = vi.fn(async () => false)
     render(<Composer conversationId="c1" onSend={onSend} />)
