@@ -542,7 +542,34 @@ describe('ArtifactsPane file review loading', () => {
     expect(screen.getByTestId('monaco-code-stub')).toHaveTextContent('const answer = 42')
   })
 
-  it('ignores an older file response after the selected path changes', async () => {
+  it('hides rendered old-path content while a new-path request is loading', async () => {
+    const oldRequest = deferred<string>()
+    const newRequest = deferred<string>()
+    readFile.mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(newRequest.promise)
+    seedFileReview('/workspace/src/old.ts')
+
+    render(<ArtifactsPane />)
+    await act(async () => {
+      oldRequest.resolve('const oldPath = true\n')
+    })
+    expect(await screen.findByTestId('monaco-code-stub')).toHaveTextContent('const oldPath = true')
+
+    await act(async () => {
+      useAppStore.setState({
+        auxSelection: { kind: 'file', path: '/workspace/src/new.ts' },
+        auxPaneOpenTick: 1
+      } as never)
+    })
+    expect(screen.getByText('Loading file…')).toBeInTheDocument()
+    expect(screen.queryByText('const oldPath = true')).toBeNull()
+
+    await act(async () => {
+      newRequest.resolve('const newPath = true\n')
+    })
+    expect(await screen.findByTestId('monaco-code-stub')).toHaveTextContent('const newPath = true')
+  })
+
+  it('ignores a pending old-path response after the selected path changes', async () => {
     const oldRequest = deferred<string>()
     const newRequest = deferred<string>()
     readFile.mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(newRequest.promise)
