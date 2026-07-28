@@ -1103,21 +1103,22 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     startFromHome: async (text, command, mentions, attachments) => {
-      const { modelRef, workspacePath, draftConvoId } = get()
+      const { modelRef, workspacePath } = get()
       if (!modelRef) return false
+      const reservedDraftConvoId = get().ensureDraftConvoId()
       set((state) => (state.acceptedHomeConvoId ? { acceptedHomeConvoId: null } : state))
       try {
         // If Media was used on Home first, attachments are already on disk
-        // under draftConvoId -- create the conversation AS that id so they
+        // under reservedDraftConvoId -- create the conversation AS that id so they
         // line up, instead of minting a second, unrelated id.
         // A prior rejected first dispatch leaves its created conversation as
         // the Home draft, so retry that exact id instead of orphaning it (and
         // any attachments already stored beneath it).
-        let draftConvo = draftConvoId ? get().conversations[draftConvoId] : undefined
+        let draftConvo = get().conversations[reservedDraftConvoId]
         if (!draftConvo) {
           const meta = await window.bearcode.conversations.create(
             workspacePath,
-            draftConvoId ?? undefined
+            reservedDraftConvoId
           )
           const createdConvo = fromMeta(meta)
           draftConvo = createdConvo

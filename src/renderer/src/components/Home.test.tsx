@@ -158,6 +158,76 @@ afterEach(() => {
 })
 
 describe('Home accepted draft handoff', () => {
+  it('keeps a late attachment under the id reserved before deferred conversation creation', async () => {
+    const pendingCreate = deferred<ConversationMeta>()
+    const pendingRun = deferred<void>()
+    createConversation.mockReturnValueOnce(pendingCreate.promise)
+    runStart.mockReturnValueOnce(pendingRun.promise)
+    const observedHandoffs: NonNullable<
+      ReturnType<typeof useAppStore.getState>['conversationDraftHandoff']
+    >[] = []
+    const unsubscribe = useAppStore.subscribe((state) => {
+      if (state.conversationDraftHandoff) observedHandoffs.push(state.conversationDraftHandoff)
+    })
+
+    try {
+      render(<MainViewHarness />)
+
+      const homeTextbox = screen.getByRole('textbox')
+      fireEvent.change(homeTextbox, { target: { value: 'submitted' } })
+      fireEvent.click(screen.getByLabelText('Send'))
+      await waitFor(() => expect(createConversation).toHaveBeenCalledOnce())
+
+      const reservedId = useAppStore.getState().draftConvoId
+      expect(reservedId).toEqual(expect.any(String))
+      expect(createConversation).toHaveBeenCalledWith(null, reservedId)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+      fireEvent.click(screen.getByRole('option', { name: /^Media/ }))
+      await screen.findByText('late.png')
+      expect(pickAttachments).toHaveBeenCalledWith(reservedId, 0)
+
+      await act(async () => pendingCreate.resolve({ ...conversationMeta, id: reservedId! }))
+      await waitFor(() => expect(runStart).toHaveBeenCalledOnce())
+      expect(runStart).toHaveBeenCalledWith(
+        reservedId,
+        'submitted',
+        'anthropic/claude-sonnet-5',
+        null,
+        null,
+        [],
+        []
+      )
+
+      await act(async () => pendingRun.resolve(undefined))
+
+      await waitFor(() =>
+        expect(useAppStore.getState().view).toEqual({
+          kind: 'conversation',
+          id: reservedId
+        })
+      )
+      expect(observedHandoffs).toEqual([
+        {
+          conversationId: reservedId,
+          draft: {
+            text: '',
+            command: null,
+            mentions: [],
+            attachments: [pickedAttachment]
+          }
+        }
+      ])
+      expect(screen.getByAltText('late.png')).toHaveAttribute(
+        'src',
+        pickedAttachment.previewDataUrl
+      )
+      await waitFor(() => expect(useAppStore.getState().conversationDraftHandoff).toBeNull())
+    } finally {
+      unsubscribe()
+    }
+  })
+
   it('remounts the accepted conversation with late text and the literal attachment', async () => {
     const pendingRun = deferred<void>()
     runStart.mockReturnValueOnce(pendingRun.promise)
@@ -167,6 +237,8 @@ describe('Home accepted draft handoff', () => {
     fireEvent.change(homeTextbox, { target: { value: 'submitted' } })
     fireEvent.click(screen.getByLabelText('Send'))
     await waitFor(() => expect(runStart).toHaveBeenCalledOnce())
+    const acceptedId = useAppStore.getState().draftConvoId
+    expect(acceptedId).toEqual(expect.any(String))
 
     fireEvent.change(homeTextbox, { target: { value: 'late text' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
@@ -176,7 +248,7 @@ describe('Home accepted draft handoff', () => {
     await act(async () => pendingRun.resolve(undefined))
 
     await waitFor(() =>
-      expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
+      expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: acceptedId })
     )
     expect(screen.getByRole('textbox')).toHaveValue('late text')
     expect(screen.getByAltText('late.png')).toHaveAttribute('src', pickedAttachment.previewDataUrl)
@@ -193,6 +265,8 @@ describe('Home accepted draft handoff', () => {
     fireEvent.change(homeTextbox, { target: { value: 'submitted' } })
     fireEvent.click(screen.getByLabelText('Send'))
     await waitFor(() => expect(runStart).toHaveBeenCalledOnce())
+    const acceptedId = useAppStore.getState().draftConvoId
+    expect(acceptedId).toEqual(expect.any(String))
     fireEvent.change(homeTextbox, { target: { value: 'latest before leaving' } })
 
     act(() => useAppStore.setState({ view: { kind: 'models' } }))
@@ -201,7 +275,7 @@ describe('Home accepted draft handoff', () => {
     await act(async () => pendingRun.resolve(undefined))
 
     await waitFor(() =>
-      expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
+      expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: acceptedId })
     )
     expect(screen.getByRole('textbox')).toHaveValue('latest before leaving')
     expect(useAppStore.getState().acceptedHomeConvoId).toBeNull()
@@ -217,13 +291,15 @@ describe('Home accepted draft handoff', () => {
     fireEvent.change(homeTextbox, { target: { value: 'submitted' } })
     fireEvent.click(screen.getByLabelText('Send'))
     await waitFor(() => expect(runStart).toHaveBeenCalledOnce())
+    const acceptedId = useAppStore.getState().draftConvoId
+    expect(acceptedId).toEqual(expect.any(String))
 
     fireEvent.change(homeTextbox, { target: { value: 'late text' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
     fireEvent.click(screen.getByRole('option', { name: /^Media/ }))
     await screen.findByText('late.png')
 
-    act(() => useAppStore.setState({ view: { kind: 'conversation', id: 'c1' } }))
+    act(() => useAppStore.setState({ view: { kind: 'conversation', id: acceptedId! } }))
     expect(screen.getByRole('textbox')).toHaveValue('')
     expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
 

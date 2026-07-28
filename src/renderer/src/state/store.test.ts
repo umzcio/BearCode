@@ -883,16 +883,19 @@ describe('D4 Media on Home: draft conversation id (fixes greyed-out Media before
     expect(useAppStore.getState().draftConvoId).toBeNull()
   })
 
-  it('startFromHome with no prior draft id creates without a supplied id', async () => {
+  it('startFromHome with no prior draft id reserves one before create and supplies it', async () => {
     useAppStore.setState({
       view: { kind: 'home' },
       modelRef: 'anthropic/claude-sonnet-5',
       workspacePath: null,
       draftConvoId: null
     })
-    useAppStore.getState().startFromHome('hello')
+    const starting = useAppStore.getState().startFromHome('hello')
+    const reservedId = useAppStore.getState().draftConvoId
+    expect(reservedId).toEqual(expect.any(String))
     await vi.waitFor(() => expect(run.start).toHaveBeenCalled())
-    expect(conversations.create).toHaveBeenCalledWith(null, undefined)
+    expect(conversations.create).toHaveBeenCalledWith(null, reservedId)
+    await expect(starting).resolves.toBe(true)
   })
 
   it('goHome clears pending Home draft ownership', () => {

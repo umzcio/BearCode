@@ -440,6 +440,7 @@ export function Composer({
   const submit = (): void => {
     if (!hasContent || running || sendingRef.current || !modelReady) return
     const sentDraft = snapshot()
+    const sentMentionQuery = mentionQuery
     const text = sentDraft.text.trim()
     const sentAttachments = sentDraft.attachments.map((attachment) => attachment.ref)
     sendingRef.current = true
@@ -447,6 +448,7 @@ export function Composer({
     void onSend(text, sentDraft.command, sentDraft.mentions, sentAttachments).then((accepted) => {
       if (accepted) {
         const remainingDraft = subtractSubmittedSnapshot(sentDraft)
+        setMentionQuery((current) => (current === sentMentionQuery ? null : current))
         sendingRef.current = false
         setSending(false)
         onAccepted?.(remainingDraft)

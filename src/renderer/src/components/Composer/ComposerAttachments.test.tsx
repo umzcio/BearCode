@@ -100,6 +100,36 @@ describe('Composer attachments', () => {
     expect(screen.getByText('shot.png')).toBeInTheDocument()
   })
 
+  it('clears an unchanged mention query when an accepted send clears its text', async () => {
+    render(<Composer conversationId="c1" onSend={async () => true} />)
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, { target: { value: 'submitted @' } })
+    expect(document.querySelector('.mention-menu')).not.toBeNull()
+
+    fireEvent.click(screen.getByLabelText('Send'))
+
+    await waitFor(() => expect(textarea).toHaveValue(''))
+    expect(document.querySelector('.mention-menu')).toBeNull()
+  })
+
+  it('preserves a newer mention query created while an accepted send is pending', async () => {
+    const pending = deferred<boolean>()
+    render(<Composer conversationId="c1" onSend={() => pending.promise} />)
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, { target: { value: 'submitted @' } })
+    fireEvent.click(screen.getByLabelText('Send'))
+    fireEvent.change(textarea, { target: { value: 'late @file:' } })
+
+    expect(screen.getByText('src/answer.ts')).toBeInTheDocument()
+    await act(async () => pending.resolve(true))
+
+    expect(textarea).toHaveValue('late @file:')
+    expect(screen.getByText('src/answer.ts')).toBeInTheDocument()
+    expect(document.querySelector('.mention-menu')).not.toBeNull()
+  })
+
   it('does not report an accepted remainder when dispatch returns false', async () => {
     const onAccepted = vi.fn()
     render(<Composer conversationId="c1" onSend={async () => false} onAccepted={onAccepted} />)
