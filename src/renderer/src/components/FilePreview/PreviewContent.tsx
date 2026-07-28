@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo } from 'react'
+import { Suspense, lazy, useEffect, useReducer } from 'react'
 import type { PreviewPayload } from '@shared/types'
 import { Markdown } from '../../lib/markdown'
 import './FilePreview.css'
@@ -14,11 +14,20 @@ const MonacoCode = lazy(() => import('../MonacoCode'))
 // Still sandboxed allow-scripts, opaque origin -- no same-origin, no parent
 // access -- so previewing agent-authored HTML stays safe.
 function HtmlPreview({ html }: { html: string }): React.JSX.Element {
-  // Create the blob URL during render (not via setState-in-effect); the effect
-  // only revokes it -- React runs the cleanup for the previous url before the
-  // next, and on unmount, so no leak.
-  const url = useMemo(() => URL.createObjectURL(new Blob([html], { type: 'text/html' })), [html])
-  useEffect(() => () => URL.revokeObjectURL(url), [url])
+  // Blob URLs are external resources, so allocation and revocation belong to
+  // the committed effect lifecycle rather than render.
+  const [resource, publishResource] = useReducer(
+    (_: { html: string; url: string } | undefined, next: { html: string; url: string }) => next,
+    undefined
+  )
+
+  useEffect(() => {
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+    publishResource({ html, url })
+    return () => URL.revokeObjectURL(url)
+  }, [html])
+
+  const url = resource?.html === html ? resource.url : undefined
   return (
     <div className="file-preview html">
       <iframe className="file-preview-frame" title="preview" sandbox="allow-scripts" src={url} />
