@@ -15,6 +15,7 @@ import { EmptyState } from './ui/EmptyState'
 import { Loading } from './ui/Loading'
 import { Hint } from './Hint'
 import { useAnimatedUnmount } from '../lib/useAnimatedUnmount'
+import { prefersReducedMotion } from '../lib/prefersReducedMotion'
 import './ArtifactsPane.css'
 
 const MonacoDiff = lazy(() => import('./MonacoDiff'))
@@ -82,8 +83,6 @@ interface ReviewComment {
   text: string
 }
 
-const AUX_EXIT_MS = 340 // matches --dur-drawer (tokens.css)
-
 // The Artifacts pane (Ba4, design 3.6), reskinned 2026-07-06 with the two-row
 // Artifact Panel header. ONE side panel listing every deliverable of the
 // current conversation -- plan/walkthrough artifacts plus one virtual "Changes"
@@ -91,14 +90,55 @@ const AUX_EXIT_MS = 340 // matches --dur-drawer (tokens.css)
 // browsing is local state, overridden by the next deep-link via auxPaneOpenTick.
 export function ArtifactsPane(): React.JSX.Element | null {
   const target = useAppStore((s) => s.auxSelection)
-  const { mounted, state } = useAnimatedUnmount(Boolean(target), { durationMs: AUX_EXIT_MS })
+  const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
+  const open = Boolean(target)
+  const { mounted, state, completeExit } = useAnimatedUnmount(open, {
+    exitCompletion: 'signal'
+  })
   // Keep rendering the last selection through the exit slide (mirrors how
   // Popover retains its children while closing). Overwritten on every open,
   // so a stale target can never leak into the next open.
   const lastTarget = useRef(target)
   if (target) lastTarget.current = target
+
+  // Renderer transforms cannot move the main-process WebContentsView. Track
+  // whether the shell itself has finished opening so native pixels stay
+  // offscreen until their final bounds are stable.
+  const [motion, setMotion] = useState(() => ({
+    open,
+    settled: open && prefersReducedMotion()
+  }))
+  if (motion.open !== open) {
+    setMotion({ open, settled: open && prefersReducedMotion() })
+  }
+
   if (!mounted || !lastTarget.current) return null
-  return <ArtifactsPaneInner target={lastTarget.current} dataState={state} />
+  const renderedTarget = lastTarget.current
+  const onTransitionEnd = (event: React.TransitionEvent<HTMLDivElement>): void => {
+    if (event.target !== event.currentTarget || event.propertyName !== 'transform') return
+    if (state === 'closing') {
+      completeExit()
+    } else {
+      setMotion({ open: true, settled: true })
+    }
+  }
+
+  return (
+    <div
+      className={'ap-panel' + (renderedTarget.kind === 'attachment' ? ' ap-attachment-panel' : '')}
+      data-state={state}
+      data-panel-kind={renderedTarget.kind}
+      style={{ flexBasis: auxPaneWidth }}
+      onTransitionEnd={onTransitionEnd}
+    >
+      <ArtifactsPaneInner
+        target={renderedTarget}
+        browserVisible={
+          state === 'open' && motion.settled && renderedTarget.kind === 'browser' && open
+        }
+      />
+    </div>
+  )
 }
 
 // The paw + "Artifacts" wordmark that opens Row 1 of every panel variant.
@@ -115,10 +155,10 @@ function ApBrand(): React.JSX.Element {
 
 function ArtifactsPaneInner({
   target,
-  dataState
+  browserVisible
 }: {
   target: AuxSelection
-  dataState: 'open' | 'closing'
+  browserVisible: boolean
 }): React.JSX.Element | null {
   const convo = useAppStore(
     useShallow((s) => {
@@ -135,7 +175,6 @@ function ArtifactsPaneInner({
   )
   const closeReview = useAppStore((s) => s.closeReview)
   const openTick = useAppStore((s) => s.auxPaneOpenTick)
-  const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
 
   // Local rail selection, overridden by every deep-link (tick bump).
   const [sel, setSel] = useState<AuxSelection>(target)
@@ -164,7 +203,7 @@ function ArtifactsPaneInner({
   // Render it before the convo guard so it survives while events are loading.
   if (target.kind === 'browser') {
     return (
-      <div className="ap-panel" data-state={dataState} style={{ flexBasis: auxPaneWidth }}>
+      <>
         <div className="ap-row ap-row-top">
           <ApBrand />
           <div className="ap-spacer" />
@@ -177,9 +216,9 @@ function ArtifactsPaneInner({
           </div>
         </div>
         <div className="ap-browser-body">
-          <BrowserPane />
+          <BrowserPane visible={browserVisible} />
         </div>
-      </div>
+      </>
     )
   }
 
@@ -187,14 +226,7 @@ function ArtifactsPaneInner({
   // deliverable in the rail. Self-contained (fetches its own text) so, like
   // browser, it renders before the convo/rail machinery.
   if (sel.kind === 'file') {
-    return (
-      <FilePanel
-        key={sel.path + ':' + (sel.line ?? '')}
-        path={sel.path}
-        line={sel.line}
-        dataState={dataState}
-      />
-    )
+    return <FilePanel key={sel.path + ':' + (sel.line ?? '')} path={sel.path} line={sel.line} />
   }
 
   if (sel.kind === 'attachment') {
@@ -208,7 +240,6 @@ function ArtifactsPaneInner({
         conversationId={sel.conversationId}
         attachmentId={sel.attachmentId}
         attachment={event?.attachment}
-        dataState={dataState}
       />
     )
   }
@@ -282,13 +313,11 @@ function ArtifactsPaneInner({
     ) : null
 
   if (resolved?.kind === 'diff') {
-    return (
-      <DiffPanel key={resolved.diffId} diffId={resolved.diffId} rail={rail} dataState={dataState} />
-    )
+    return <DiffPanel key={resolved.diffId} diffId={resolved.diffId} rail={rail} />
   }
   if (selectedArtifact) {
     return (
-      <div className="ap-panel" data-state={dataState} style={{ flexBasis: auxPaneWidth }}>
+      <>
         <div className="ap-row ap-row-top">
           <ApBrand />
           <div className="ap-spacer" />
@@ -309,11 +338,11 @@ function ArtifactsPaneInner({
             onSelectVersion={(artifactId) => setSel({ kind: 'artifact', artifactId })}
           />
         </div>
-      </div>
+      </>
     )
   }
   return (
-    <div className="ap-panel" data-state={dataState} style={{ flexBasis: auxPaneWidth }}>
+    <>
       <div className="ap-row ap-row-top">
         <ApBrand />
         <div className="ap-spacer" />
@@ -325,23 +354,20 @@ function ArtifactsPaneInner({
           </Hint>
         </div>
       </div>
-    </div>
+    </>
   )
 }
 
 function AttachmentPanel({
   conversationId,
   attachmentId,
-  attachment,
-  dataState
+  attachment
 }: {
   conversationId: string
   attachmentId: string
   attachment?: Extract<Event, { type: 'assistant_attachment' }>['attachment']
-  dataState: 'open' | 'closing'
 }): React.JSX.Element {
   const closeReview = useAppStore((s) => s.closeReview)
-  const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
   const showToast = useAppStore((s) => s.showToast)
   const [savePending, setSavePending] = useState(false)
   const badge = attachment ? attachmentBadge(attachment.name, attachment.mime) : null
@@ -360,11 +386,7 @@ function AttachmentPanel({
   }
 
   return (
-    <div
-      className="ap-panel ap-attachment-panel"
-      data-state={dataState}
-      style={{ flexBasis: auxPaneWidth }}
-    >
+    <>
       <div className="ap-row ap-row-top ap-attachment-header">
         <span className="ap-attachment-name">{attachment?.name ?? 'Attachment'}</span>
         {attachment && badge ? (
@@ -394,7 +416,7 @@ function AttachmentPanel({
           <div className="ap-attachment-missing">Attachment is no longer available</div>
         )}
       </div>
-    </div>
+    </>
   )
 }
 
@@ -402,17 +424,8 @@ function AttachmentPanel({
 // fetches the file's text through the jailed read-file IPC (never in the
 // renderer) and hands it to MonacoCode with revealLine, so clicking a finding
 // lands the cursor where it points -- read-only, no rail, no diff.
-function FilePanel({
-  path,
-  line,
-  dataState
-}: {
-  path: string
-  line?: number
-  dataState: 'open' | 'closing'
-}): React.JSX.Element {
+function FilePanel({ path, line }: { path: string; line?: number }): React.JSX.Element {
   const closeReview = useAppStore((s) => s.closeReview)
-  const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
   const convoId = useAppStore((s) => (s.view.kind === 'conversation' ? s.view.id : null))
   const [content, setContent] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
@@ -436,7 +449,7 @@ function FilePanel({
   }, [convoId, path])
 
   return (
-    <div className="ap-panel" data-state={dataState} style={{ flexBasis: auxPaneWidth }}>
+    <>
       <div className="ap-row ap-row-top">
         <ApBrand />
         <span className="ap-file-name">
@@ -467,19 +480,11 @@ function FilePanel({
           </Suspense>
         )}
       </div>
-    </div>
+    </>
   )
 }
 
-function DiffPanel({
-  diffId,
-  rail,
-  dataState
-}: {
-  diffId: string
-  rail: React.ReactNode
-  dataState: 'open' | 'closing'
-}): React.JSX.Element {
+function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }): React.JSX.Element {
   const closeReview = useAppStore((s) => s.closeReview)
   const focusPath = useAppStore((s) => s.reviewFocusPath)
   const view = useAppStore((s) => s.view)
@@ -491,7 +496,6 @@ function DiffPanel({
       return c ? { events: c.events } : null
     })
   )
-  const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
   const send = useAppStore((s) => s.send)
   const showToast = useAppStore((s) => s.showToast)
   const openFile = useAppStore((s) => s.openFile)
@@ -586,7 +590,7 @@ function DiffPanel({
   const body = activeFile ? viewFor(activeFile) : 'diff'
 
   return (
-    <div className="ap-panel" data-state={dataState} style={{ flexBasis: auxPaneWidth }}>
+    <>
       {/* Row 1: brand + Overview/Diff mode toggle + actions */}
       <div className="ap-row ap-row-top">
         <ApBrand />
@@ -823,6 +827,6 @@ function DiffPanel({
           </div>
         </>
       ) : null}
-    </div>
+    </>
   )
 }

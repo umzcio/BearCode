@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BearcodeApi, Event } from '@shared/types'
 import { useAppStore, type Convo } from '../state/store'
@@ -8,7 +8,16 @@ import { ArtifactsPane } from './ArtifactsPane'
 const preview = vi.fn()
 const save = vi.fn()
 const showToast = vi.fn()
+const browserSetBounds = vi.fn().mockResolvedValue(undefined)
+const browserShow = vi.fn().mockResolvedValue(undefined)
+const browserHide = vi.fn().mockResolvedValue(undefined)
+const readFile = vi.fn(() => new Promise<string>(() => {}))
 const realShowToast = useAppStore.getState().showToast
+
+class ResizeObserverStub {
+  observe = vi.fn()
+  disconnect = vi.fn()
+}
 
 const returnedAttachment = {
   type: 'assistant_attachment',
@@ -71,14 +80,26 @@ beforeEach(() => {
   save.mockReset()
   save.mockResolvedValue('cancelled')
   showToast.mockReset()
+  browserSetBounds.mockClear()
+  browserShow.mockClear()
+  browserHide.mockClear()
+  readFile.mockClear()
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
-    attachments: { preview, save }
+    attachments: { preview, save },
+    browser: {
+      setBounds: browserSetBounds,
+      show: browserShow,
+      hide: browserHide
+    },
+    shell: { readFile }
   } as unknown as BearcodeApi
   useAppStore.setState({ showToast } as never)
 })
 
 afterEach(() => {
   cleanup()
+  vi.unstubAllGlobals()
   useAppStore.setState({ showToast: realShowToast } as never)
 })
 
@@ -193,5 +214,101 @@ describe('ArtifactsPane attachment mode', () => {
 
     finishSave?.('cancelled')
     await waitFor(() => expect(download).not.toBeDisabled())
+  })
+})
+
+describe('ArtifactsPane motion lifecycle', () => {
+  it('preserves the panel shell when the selected target changes', () => {
+    seedAttachmentSelection()
+    const { container } = render(<ArtifactsPane />)
+    const shell = container.querySelector('.ap-panel')
+
+    act(() => {
+      useAppStore.setState({
+        auxSelection: { kind: 'file', path: '/workspace/src/index.ts', line: 12 },
+        auxPaneOpenTick: 1
+      })
+    })
+
+    expect(container.querySelector('.ap-panel')).toBe(shell)
+    expect(screen.getByText('index.ts:12')).toBeInTheDocument()
+  })
+
+  it('keeps closing content mounted until the shell transform completes', () => {
+    seedAttachmentSelection()
+    const { container } = render(<ArtifactsPane />)
+    const shell = container.querySelector('.ap-panel') as HTMLElement
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+    expect(container.querySelector('.ap-panel')).toBe(shell)
+
+    fireEvent.transitionEnd(shell, { propertyName: 'opacity' })
+    expect(container.querySelector('.ap-panel')).toBe(shell)
+
+    fireEvent.transitionEnd(shell, { propertyName: 'transform' })
+    expect(container.querySelector('.ap-panel')).toBeNull()
+  })
+
+  it('ignores child transitions and stale exit completion after reopening', () => {
+    seedAttachmentSelection()
+    const { container } = render(<ArtifactsPane />)
+    const shell = container.querySelector('.ap-panel') as HTMLElement
+    const child = screen.getByRole('button', { name: 'Close panel' })
+
+    fireEvent.click(child)
+    fireEvent.transitionEnd(child, { propertyName: 'transform' })
+    expect(container.querySelector('.ap-panel')).toBe(shell)
+
+    act(() => {
+      useAppStore.setState({
+        auxSelection: {
+          kind: 'attachment',
+          conversationId: 'conv_123',
+          attachmentId: 'att_123'
+        },
+        auxPaneOpenTick: 1
+      })
+    })
+    fireEvent.transitionEnd(shell, { propertyName: 'transform' })
+
+    expect(container.querySelector('.ap-panel')).toBe(shell)
+    expect(shell).toHaveAttribute('data-state', 'open')
+  })
+
+  it('keeps native browser pixels hidden until an opening shell settles', () => {
+    useAppStore.setState({
+      auxSelection: { kind: 'browser', conversationId: 'conv_123' },
+      auxPaneOpenTick: 0,
+      auxPaneWidth: 560
+    })
+    const { container } = render(<ArtifactsPane />)
+    const shell = container.querySelector('.ap-panel') as HTMLElement
+
+    expect(browserSetBounds).toHaveBeenCalled()
+    expect(browserShow).not.toHaveBeenCalled()
+
+    fireEvent.transitionEnd(shell, { propertyName: 'transform' })
+
+    expect(browserShow).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows browser immediately when selected in an already-settled shell and hides on close', () => {
+    seedAttachmentSelection()
+    const { container } = render(<ArtifactsPane />)
+    const shell = container.querySelector('.ap-panel') as HTMLElement
+    fireEvent.transitionEnd(shell, { propertyName: 'transform' })
+
+    act(() => {
+      useAppStore.setState({
+        auxSelection: { kind: 'browser', conversationId: 'conv_123' },
+        auxPaneOpenTick: 1
+      })
+    })
+
+    expect(container.querySelector('.ap-panel')).toBe(shell)
+    expect(browserShow).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+    expect(browserHide).toHaveBeenCalled()
   })
 })
