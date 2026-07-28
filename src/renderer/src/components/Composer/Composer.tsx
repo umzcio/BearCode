@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type {
-  AttachmentRef,
-  CommandEntry,
-  CommandRef,
-  MentionRef,
-  PickedAttachmentWire
-} from '@shared/types'
+import type { AttachmentRef, CommandEntry, CommandRef, MentionRef } from '@shared/types'
 import { HERMES_MODEL_REF, URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
@@ -44,6 +38,8 @@ import {
   parseMentionQuery,
   type MentionRow
 } from './mentionQuery'
+import { useComposerDraft } from './useComposerDraft'
+import type { ComposerDraft } from '../../lib/composerDraft'
 import './Composer.css'
 
 interface ComposerProps {
@@ -58,6 +54,9 @@ interface ComposerProps {
   showEnvRow?: boolean
   autoFocus?: boolean
   conversationId?: string
+  initialDraft?: ComposerDraft
+  onAccepted?(remainingDraft: ComposerDraft): void
+  onInitialDraftConsumed?(): void
 }
 
 export function Composer({
@@ -66,7 +65,10 @@ export function Composer({
   onStop,
   showEnvRow = false,
   autoFocus = false,
-  conversationId
+  conversationId,
+  initialDraft,
+  onAccepted,
+  onInitialDraftConsumed
 }: ComposerProps): React.JSX.Element {
   const providers = useAppStore((s) => s.providers)
   const modelRef = useAppStore((s) => s.modelRef)
@@ -115,9 +117,16 @@ export function Composer({
   const showToast = useAppStore((s) => s.showToast)
   const composerEnvironment = useAppStore((s) => s.composerEnvironment)
   const setComposerEnvironment = useAppStore((s) => s.setComposerEnvironment)
-  const [value, setValue] = useState('')
-  const [command, setCommand] = useState<CommandRef | null>(null)
-  const [mentions, setMentions] = useState<MentionRef[]>([])
+  const {
+    draft,
+    snapshot,
+    setText: setValue,
+    setCommand,
+    setMentions,
+    setAttachments,
+    subtractSubmittedSnapshot
+  } = useComposerDraft(initialDraft)
+  const { text: value, command, mentions, attachments } = draft
   const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
   // After a category pick rewrites the composer text, park the caret just past
@@ -131,9 +140,9 @@ export function Composer({
   const [highlightedIndex, setHighlightedIndex] = useState(0)
   const [envOpen, setEnvOpen] = useState(false)
   const [addMenuOpen, setAddMenuOpen] = useState(false)
-  const [attachments, setAttachments] = useState<PickedAttachmentWire[]>([])
   const [sending, setSending] = useState(false)
   const sendingRef = useRef(false)
+  const initialClaimedRef = useRef(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const envTriggerRef = useRef<HTMLButtonElement>(null)
   const addMenuBtnRef = useRef<HTMLButtonElement>(null)
@@ -181,7 +190,12 @@ export function Composer({
   // directly is a second, independent entry point -- runHermes never forwards
   // commands (only plain text), so it must stay suppressed here too.
   const menuOpen =
-    command === null && !menuDismissed && !resumePickerOpen && value.length > 0 && value[0] === '/' && !isHermesConvo
+    command === null &&
+    !menuDismissed &&
+    !resumePickerOpen &&
+    value.length > 0 &&
+    value[0] === '/' &&
+    !isHermesConvo
   const filtered = menuOpen ? filterSlashCommands(value.slice(1), commands) : []
   const safeIndex = Math.min(highlightedIndex, Math.max(0, filtered.length - 1))
 
@@ -224,6 +238,12 @@ export function Composer({
         }[mentionParsed.category]
       : null
   const safeMentionIndex = Math.min(mentionIndex, Math.max(0, mentionRows.length - 1))
+
+  useEffect(() => {
+    if (!initialDraft || initialClaimedRef.current) return
+    initialClaimedRef.current = true
+    onInitialDraftConsumed?.()
+  }, [initialDraft, onInitialDraftConsumed])
 
   useEffect(() => {
     const ta = taRef.current
@@ -414,32 +434,22 @@ export function Composer({
 
   const submit = (): void => {
     if (!hasContent || running || sendingRef.current || !modelReady) return
-    const text = value.trim()
-    const sentValue = value
-    const sentCommand = command
-    const sentMentions = mentions
-    const sentAttachmentDrafts = attachments
-    const sentMentionQuery = mentionQuery
-    const sentAttachments = attachments.map((a) => a.ref)
+    const sentDraft = snapshot()
+    const text = sentDraft.text.trim()
+    const sentAttachments = sentDraft.attachments.map((attachment) => attachment.ref)
     sendingRef.current = true
     setSending(true)
-    void Promise.resolve(onSend(text, sentCommand, sentMentions, sentAttachments)).then(
-      (accepted) => {
-        if (accepted) {
-          setValue((current) => (current === sentValue ? '' : current))
-          setCommand((current) => (current === sentCommand ? null : current))
-          setMentions((current) =>
-            current.filter((mention) => !sentMentions.includes(mention))
-          )
-          setAttachments((current) =>
-            current.filter((attachment) => !sentAttachmentDrafts.includes(attachment))
-          )
-          setMentionQuery((current) => (current === sentMentionQuery ? null : current))
-        }
+    void onSend(text, sentDraft.command, sentDraft.mentions, sentAttachments).then((accepted) => {
+      if (accepted) {
+        const remainingDraft = subtractSubmittedSnapshot(sentDraft)
         sendingRef.current = false
         setSending(false)
+        onAccepted?.(remainingDraft)
+        return
       }
-    )
+      sendingRef.current = false
+      setSending(false)
+    })
   }
 
   return (

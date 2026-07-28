@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
+import { StrictMode } from 'react'
+import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react'
+import type { PickedAttachmentWire } from '@shared/types'
 import { Composer } from './Composer'
 
 afterEach(() => {
@@ -9,11 +11,7 @@ afterEach(() => {
 })
 
 interface PickedFixture {
-  picked: Array<{
-    ref: { id: string; name: string; mime: string; kind: string }
-    previewDataUrl: string
-    notice?: string
-  }>
+  picked: PickedAttachmentWire[]
   errors: string[]
 }
 
@@ -27,6 +25,21 @@ const picked: PickedFixture = {
   errors: []
 }
 const pickAttachments = vi.fn(async () => picked)
+
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve(value: T): void
+  reject(reason?: unknown): void
+} {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
 vi.mock('../../state/store', () => ({
   refConfigured: () => true,
   modelDisplay: () => 'Claude',
@@ -62,6 +75,79 @@ vi.mock('../../state/store', () => ({
 }))
 
 describe('Composer attachments', () => {
+  it('reports the exact rendered remainder after an accepted pending submit', async () => {
+    const pending = deferred<boolean>()
+    const onAccepted = vi.fn()
+    render(<Composer conversationId="c1" onSend={() => pending.promise} onAccepted={onAccepted} />)
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, { target: { value: 'submitted' } })
+    fireEvent.click(screen.getByLabelText('Send'))
+    fireEvent.change(textarea, { target: { value: 'late text' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Media/ }))
+    await screen.findByText('shot.png')
+
+    await act(async () => pending.resolve(true))
+
+    expect(onAccepted).toHaveBeenCalledWith({
+      text: 'late text',
+      command: null,
+      mentions: [],
+      attachments: [picked.picked[0]]
+    })
+    expect(textarea).toHaveValue('late text')
+    expect(screen.getByText('shot.png')).toBeInTheDocument()
+  })
+
+  it('does not report an accepted remainder when dispatch returns false', async () => {
+    const onAccepted = vi.fn()
+    render(<Composer conversationId="c1" onSend={async () => false} onAccepted={onAccepted} />)
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'keep this' } })
+    fireEvent.click(screen.getByLabelText('Send'))
+
+    await waitFor(() => expect(screen.getByLabelText('Send')).not.toBeDisabled())
+    expect(onAccepted).not.toHaveBeenCalled()
+    expect(screen.getByRole('textbox')).toHaveValue('keep this')
+  })
+
+  it('renders every literal field supplied by an initial draft', () => {
+    render(
+      <Composer
+        conversationId="c1"
+        onSend={async () => true}
+        initialDraft={{
+          text: 'continue from here',
+          command: { name: 'browser', kind: 'builtin' },
+          mentions: [{ kind: 'file', name: 'src/answer.ts', path: 'src/answer.ts' }],
+          attachments: [picked.picked[0]]
+        }}
+      />
+    )
+
+    expect(screen.getByRole('textbox')).toHaveValue('continue from here')
+    expect(screen.getByText('/browser')).toBeInTheDocument()
+    expect(screen.getByText('@src/answer.ts')).toBeInTheDocument()
+    expect(screen.getByText('shot.png')).toBeInTheDocument()
+  })
+
+  it('claims an initial draft exactly once under StrictMode', () => {
+    const onInitialDraftConsumed = vi.fn()
+    render(
+      <StrictMode>
+        <Composer
+          conversationId="c1"
+          onSend={async () => true}
+          initialDraft={{ text: 'claim me', command: null, mentions: [], attachments: [] }}
+          onInitialDraftConsumed={onInitialDraftConsumed}
+        />
+      </StrictMode>
+    )
+
+    expect(onInitialDraftConsumed).toHaveBeenCalledOnce()
+  })
+
   it('preserves text, command, mentions, and attachments when dispatch returns false', async () => {
     const onSend = vi.fn(async () => false)
     render(<Composer conversationId="c1" onSend={onSend} />)
@@ -141,7 +227,7 @@ describe('Composer attachments', () => {
   })
 
   it('adds a thumbnail pill after Media pick and sends the ref (no preview)', async () => {
-    const onSend = vi.fn()
+    const onSend = vi.fn(async () => true)
     render(<Composer conversationId="c1" onSend={onSend} />)
     fireEvent.click(screen.getByLabelText('Add context'))
     fireEvent.click(screen.getByText('Media'))
