@@ -100,6 +100,24 @@ const diff: FileDiff = {
   ]
 }
 
+const secondDiff: FileDiff = {
+  diffId: 'diff_456',
+  files: [
+    {
+      fileId: 'file_second',
+      path: '/workspace/src/second.ts',
+      status: 'modified',
+      beforeText: 'export const second = 1\n',
+      afterText: 'export const second = 2\n',
+      additions: 1,
+      deletions: 1,
+      state: 'applied'
+    }
+  ]
+}
+
+const emptyDiff: FileDiff = { diffId: 'diff_empty', files: [] }
+
 function conversation(id: string, events: Event[]): Convo {
   return {
     id,
@@ -126,40 +144,51 @@ function conversation(id: string, events: Event[]): Convo {
   }
 }
 
-function seedDiffReview(): void {
+function seedDiffReview(
+  selectedDiff: FileDiff = diff,
+  focusPath: string | null = null,
+  diffs: FileDiff[] = [selectedDiff]
+): void {
   useAppStore.setState({
     view: { kind: 'conversation', id: 'conv_123' },
     conversations: {
       conv_123: conversation('conv_123', [
         { type: 'user_message', id: 'event_prompt', text: 'Please add the answer and diagram.' },
-        {
-          type: 'file_diff',
-          id: 'event_diff',
-          diffId: diff.diffId,
-          files: diff.files.map(({ path, additions, deletions, status }) => ({
+        ...diffs.map((fileDiff, index) => ({
+          type: 'file_diff' as const,
+          id: `event_diff_${index}`,
+          diffId: fileDiff.diffId,
+          files: fileDiff.files.map(({ path, additions, deletions, status }) => ({
             path,
             additions,
             deletions,
             status
           }))
-        }
+        }))
       ])
     },
-    auxSelection: { kind: 'diff', diffId: diff.diffId },
+    auxSelection: { kind: 'diff', diffId: selectedDiff.diffId },
     auxPaneOpenTick: 0,
     auxPaneWidth: 560,
-    reviewFocusPath: null,
+    reviewFocusPath: focusPath,
     showToast
   } as never)
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (reason?: unknown) => void
+} {
   let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
   return {
-    promise: new Promise<T>((finish) => {
+    promise: new Promise<T>((finish, fail) => {
       resolve = finish
+      reject = fail
     }),
-    resolve
+    resolve,
+    reject
   }
 }
 
@@ -214,6 +243,88 @@ describe('ArtifactsPane diff review', () => {
       pending.resolve(diff)
     })
     expect(await screen.findByTestId('monaco-diff-stub')).toBeInTheDocument()
+  })
+
+  it('replaces loading with an accessible error when diff loading rejects', async () => {
+    getDiff.mockRejectedValueOnce(new Error('IPC unavailable'))
+    seedDiffReview()
+
+    render(<ArtifactsPane />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load changes')
+    expect(screen.queryByText('Loading changes…')).toBeNull()
+    expect(screen.queryByText('No changes')).toBeNull()
+  })
+
+  it('applies a pre-load focus request after its diff resolves', async () => {
+    const pending = deferred<FileDiff>()
+    getDiff.mockReturnValueOnce(pending.promise)
+    seedDiffReview(diff, '/workspace/assets/diagram.png')
+
+    render(<ArtifactsPane />)
+    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
+
+    await act(async () => {
+      pending.resolve(diff)
+    })
+
+    expect(screen.getByRole('button', { name: 'Diff · 2' })).toHaveClass('active')
+    expect(screen.getByRole('button', { name: /diagram\.png/ })).toHaveClass('active')
+    expect(screen.getByTestId('file-preview-stub')).toHaveTextContent('file_png')
+  })
+
+  it('consumes an unknown focus path and falls back to the first file', async () => {
+    const pending = deferred<FileDiff>()
+    getDiff.mockReturnValueOnce(pending.promise)
+    seedDiffReview(diff, '/workspace/src/missing.ts')
+
+    render(<ArtifactsPane />)
+    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
+
+    await act(async () => {
+      pending.resolve(diff)
+    })
+
+    expect(screen.getByRole('button', { name: 'Diff · 2' })).toHaveClass('active')
+    expect(screen.getByRole('button', { name: /answer\.ts/ })).toHaveClass('active')
+    expect(screen.getByTestId('monaco-diff-stub')).toBeInTheDocument()
+  })
+
+  it('ignores an older diff response after selection changes', async () => {
+    const oldRequest = deferred<FileDiff>()
+    const newRequest = deferred<FileDiff>()
+    getDiff.mockImplementation((id: string) =>
+      id === diff.diffId ? oldRequest.promise : newRequest.promise
+    )
+    seedDiffReview(diff, null, [diff, secondDiff])
+
+    render(<ArtifactsPane />)
+
+    fireEvent.click(
+      screen
+        .getAllByRole('button', { name: /Changes/ })
+        .find((button) => button.textContent?.includes('1 file'))!
+    )
+    await act(async () => {
+      newRequest.resolve(secondDiff)
+    })
+    expect(await screen.findByText('export const second = 2')).toBeInTheDocument()
+
+    await act(async () => {
+      oldRequest.resolve(diff)
+    })
+    expect(screen.getByText('export const second = 2')).toBeInTheDocument()
+    expect(screen.queryByText('export const answer = 42')).toBeNull()
+  })
+
+  it('shows No changes only after a successfully resolved empty diff', async () => {
+    getDiff.mockResolvedValueOnce(emptyDiff)
+    seedDiffReview(emptyDiff)
+
+    render(<ArtifactsPane />)
+
+    expect(await screen.findByText('No changes')).toBeInTheDocument()
+    expect(screen.queryByText('Loading changes…')).toBeNull()
   })
 
   it('opens the first code file in the TypeScript diff view after loading', async () => {

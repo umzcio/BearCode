@@ -12,6 +12,7 @@ import { attachmentBadge } from '../lib/attachmentBadge'
 import { ARTIFACT_STATUS_LABELS, ARTIFACT_TYPE_LABELS } from './events/ArtifactCard'
 import { IconClose, IconCopy, IconFile, IconPaw, IconRevert } from './icons'
 import { EmptyState } from './ui/EmptyState'
+import { ErrorCard } from './ui/ErrorCard'
 import { Loading } from './ui/Loading'
 import { Hint } from './Hint'
 import { useAnimatedUnmount } from '../lib/useAnimatedUnmount'
@@ -76,6 +77,11 @@ const isBinaryPreview = (p: string): boolean =>
 
 type BodyView = 'diff' | 'code' | 'preview'
 
+type DiffLoadState =
+  | { status: 'loading'; diffId: string }
+  | { status: 'ready'; diffId: string; diff: FileDiff }
+  | { status: 'error'; diffId: string }
+
 interface ReviewComment {
   id: number
   path: string
@@ -98,8 +104,8 @@ export function ArtifactsPane(): React.JSX.Element | null {
   // Keep rendering the last selection through the exit slide (mirrors how
   // Popover retains its children while closing). Overwritten on every open,
   // so a stale target can never leak into the next open.
-  const lastTarget = useRef(target)
-  if (target) lastTarget.current = target
+  const [lastTarget, setLastTarget] = useState(target)
+  if (target && target !== lastTarget) setLastTarget(target)
 
   // Renderer transforms cannot move the main-process WebContentsView. Track
   // whether the shell itself has finished opening so native pixels stay
@@ -112,8 +118,8 @@ export function ArtifactsPane(): React.JSX.Element | null {
     setMotion({ open, settled: open && prefersReducedMotion() })
   }
 
-  if (!mounted || !lastTarget.current) return null
-  const renderedTarget = lastTarget.current
+  const renderedTarget = target ?? lastTarget
+  if (!mounted || !renderedTarget) return null
   const onTransitionEnd = (event: React.TransitionEvent<HTMLDivElement>): void => {
     if (event.target !== event.currentTarget || event.propertyName !== 'transform') return
     if (state === 'closing') {
@@ -427,26 +433,30 @@ function AttachmentPanel({
 function FilePanel({ path, line }: { path: string; line?: number }): React.JSX.Element {
   const closeReview = useAppStore((s) => s.closeReview)
   const convoId = useAppStore((s) => (s.view.kind === 'conversation' ? s.view.id : null))
-  const [content, setContent] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
+  const requestId = convoId ? `${convoId}:${path}` : null
+  const [fileLoad, setFileLoad] = useState({
+    requestId: null as string | null,
+    content: null as string | null,
+    failed: false
+  })
+  const content = fileLoad.requestId === requestId ? fileLoad.content : null
+  const failed = fileLoad.requestId === requestId && fileLoad.failed
 
   useEffect(() => {
-    if (!convoId) return undefined
+    if (!convoId || !requestId) return undefined
     let stale = false
-    setContent(null)
-    setFailed(false)
     void window.bearcode.shell
       .readFile(convoId, path)
       .then((text) => {
-        if (!stale) setContent(text)
+        if (!stale) setFileLoad({ requestId, content: text, failed: false })
       })
       .catch(() => {
-        if (!stale) setFailed(true)
+        if (!stale) setFileLoad({ requestId, content: null, failed: true })
       })
     return () => {
       stale = true
     }
-  }, [convoId, path])
+  }, [convoId, path, requestId])
 
   return (
     <>
@@ -500,7 +510,7 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
   const showToast = useAppStore((s) => s.showToast)
   const openFile = useAppStore((s) => s.openFile)
   const cmdHeld = useCmdHeld()
-  const [diff, setDiff] = useState<FileDiff | null>(null)
+  const [diffLoad, setDiffLoad] = useState<DiffLoadState>({ status: 'loading', diffId })
   const [mode, setMode] = useState<'overview' | 'diff'>('diff')
   const [activeFileId, setActiveFileId] = useState<string | null>(null)
   const [bodyView, setBodyView] = useState<Record<string, BodyView>>({})
@@ -522,22 +532,47 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
 
   useEffect(() => {
     let stale = false
-    void window.bearcode.diffs.get(diffId).then((d) => {
-      if (!stale) setDiff(d)
+    void window.bearcode.diffs
+      .get(diffId)
+      .then((diff) => {
+        if (!stale) setDiffLoad({ status: 'ready', diffId, diff })
+      })
+      .catch(() => {
+        if (!stale) setDiffLoad({ status: 'error', diffId })
+      })
+    return () => {
+      stale = true
+    }
+  }, [diffId])
+
+  // A chip or step-row click focuses that file: switch to diff mode on it.
+  const seenFocus = useRef<string | null>(null)
+  useEffect(() => {
+    if (
+      !focusPath ||
+      focusPath === seenFocus.current ||
+      diffLoad.status !== 'ready' ||
+      diffLoad.diffId !== diffId
+    ) {
+      return
+    }
+
+    let stale = false
+    seenFocus.current = focusPath
+    const focusedFile = diffLoad.diff.files.find((file) => file.path === focusPath)
+    queueMicrotask(() => {
+      if (stale) return
+      if (focusedFile) setActiveFileId(focusedFile.fileId)
+      setMode('diff')
     })
     return () => {
       stale = true
     }
-  }, [diffId, closeReview])
+  }, [diffId, diffLoad, focusPath])
 
-  // A chip or step-row click focuses that file: switch to diff mode on it.
-  const [seenFocus, setSeenFocus] = useState<string | null>(null)
-  if (focusPath && focusPath !== seenFocus) {
-    setSeenFocus(focusPath)
-    setActiveFileId(diff?.files.find((f) => f.path === focusPath)?.fileId ?? null)
-    setMode('diff')
-  }
-
+  const currentDiffLoad =
+    diffLoad.diffId === diffId ? diffLoad : ({ status: 'loading', diffId } as const)
+  const diff = currentDiffLoad.status === 'ready' ? currentDiffLoad.diff : null
   const files = diff?.files ?? []
   const activeFile = files.find((f) => f.fileId === activeFileId) ?? files[0]
 
@@ -551,13 +586,18 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
 
   const revert = async (file: FileDiffFile): Promise<void> => {
     await window.bearcode.diffs.revert(file.fileId)
-    setDiff((d) =>
-      d
+    setDiffLoad((load) =>
+      load.status === 'ready'
         ? {
-            ...d,
-            files: d.files.map((f) => (f.fileId === file.fileId ? { ...f, state: 'reverted' } : f))
+            ...load,
+            diff: {
+              ...load.diff,
+              files: load.diff.files.map((f) =>
+                f.fileId === file.fileId ? { ...f, state: 'reverted' } : f
+              )
+            }
           }
-        : d
+        : load
     )
     showToast('Change reverted')
   }
@@ -588,6 +628,14 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
   }
 
   const body = activeFile ? viewFor(activeFile) : 'diff'
+  const emptyDiffState =
+    currentDiffLoad.status === 'loading' ? (
+      <Loading label="Loading changes…" />
+    ) : currentDiffLoad.status === 'error' ? (
+      <ErrorCard>Could not load changes</ErrorCard>
+    ) : (
+      <EmptyState title="No changes" />
+    )
 
   return (
     <>
@@ -669,15 +717,7 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
               )}
             </button>
           ))}
-          {files.length === 0 ? (
-            <div className="diff-loading">
-              {diff === null ? (
-                <Loading label="Loading changes…" />
-              ) : (
-                <EmptyState title="No changes" />
-              )}
-            </div>
-          ) : null}
+          {files.length === 0 ? <div className="diff-loading">{emptyDiffState}</div> : null}
         </div>
       ) : (
         <>
@@ -753,13 +793,7 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
           {/* Body */}
           <div className="ap-body">
             {!activeFile ? (
-              <div className="diff-loading">
-                {diff === null ? (
-                  <Loading label="Loading changes…" />
-                ) : (
-                  <EmptyState title="No changes" />
-                )}
-              </div>
+              <div className="diff-loading">{emptyDiffState}</div>
             ) : body === 'preview' ? (
               <FilePreview fileId={activeFile.fileId} />
             ) : body === 'code' ? (
