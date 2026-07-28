@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { StrictMode } from 'react'
+import { act, StrictMode } from 'react'
+import { flushSync } from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { PreviewContent } from './PreviewContent'
@@ -60,6 +62,24 @@ describe('PreviewContent', () => {
     const code = await screen.findByTestId('monaco-code')
     expect(code).toHaveTextContent('const answer = 42')
     expect(code).toHaveAttribute('data-language', 'typescript')
+  })
+
+  it('omits the iframe source while new HTML awaits its committed resource', async () => {
+    const host = document.createElement('div')
+    const root = createRoot(host)
+
+    flushSync(() => {
+      root.render(<PreviewContent payload={{ kind: 'html', html: '<h1>First</h1>' }} />)
+    })
+    await act(async () => {})
+    expect(host.querySelector('iframe')).toHaveAttribute('src', 'blob:preview-1')
+
+    flushSync(() => {
+      root.render(<PreviewContent payload={{ kind: 'html', html: '<h1>Second</h1>' }} />)
+    })
+    expect(host.querySelector('iframe')).not.toHaveAttribute('src')
+
+    flushSync(() => root.unmount())
   })
 
   it('pairs every committed HTML blob URL with one revocation in StrictMode', () => {

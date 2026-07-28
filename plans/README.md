@@ -13,8 +13,8 @@ executor should read the entire linked plan before editing and update this table
 | [003](003-fix-diff-load-focus.md) | Make diff loading and focus race-safe | P1 | M | 002 | DONE |
 | [004](004-preserve-review-drafts.md) | Preserve review drafts until run acceptance | P1 | L | 002 | DONE |
 | [005](005-preserve-artifact-comment-draft.md) | Clear artifact comment drafts only after insertion succeeds | P1 | S | 001 | DONE |
-| [006](006-fix-html-blob-lifecycle.md) | Allocate HTML blob URLs after committed content | P1 | S | 001 | IN PROGRESS |
-| [007](007-harden-browser-control-ipc.md) | Authorize and validate browser-control IPC | P1 | M | 001 | TODO |
+| [006](006-fix-html-blob-lifecycle.md) | Allocate HTML blob URLs after committed content | P1 | S | 001 | DONE |
+| [007](007-harden-browser-control-ipc.md) | Authorize and validate browser-control IPC | P1 | M | 001 | IN PROGRESS |
 | [008](008-isolate-resize-renders.md) | Keep pane resize state out of the heavy body | P2 | S | 002 | TODO |
 | [009](009-stabilize-artifact-event-projection.md) | Project artifact events incrementally | P2 | L | 002 | TODO |
 | [010](010-fix-monaco-comment-retargeting.md) | Make Monaco comment motion preference-live and target-stable | P2 | M | 001 | TODO |

@@ -7,6 +7,8 @@ import './FilePreview.css'
 // read-only code view.
 const MonacoCode = lazy(() => import('../MonacoCode'))
 
+type HtmlPreviewResource = { html: string; url: string }
+
 // HTML renders from a blob: URL (not srcDoc). A blob gives the iframe a real
 // document URL, so in-page "#anchor" links scroll natively instead of blanking
 // the frame (srcDoc's about:srcdoc URL blanks on fragment nav in a sandboxed
@@ -17,7 +19,7 @@ function HtmlPreview({ html }: { html: string }): React.JSX.Element {
   // Blob URLs are external resources, so allocation and revocation belong to
   // the committed effect lifecycle rather than render.
   const [resource, publishResource] = useReducer(
-    (_: { html: string; url: string } | undefined, next: { html: string; url: string }) => next,
+    (_: HtmlPreviewResource | undefined, next: HtmlPreviewResource) => next,
     undefined
   )
 
