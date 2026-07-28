@@ -83,6 +83,12 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const cancelRun = useAppStore((s) => s.cancelRun)
   const retryRun = useAppStore((s) => s.retryRun)
   const showToast = useAppStore((s) => s.showToast)
+  const initialDraft = useAppStore((s) =>
+    s.conversationDraftHandoff?.conversationId === convoId
+      ? s.conversationDraftHandoff.draft
+      : undefined
+  )
+  const consumeDraftHandoff = useAppStore((s) => s.consumeConversationDraftHandoff)
   // F1 jump-to-match: the event a content-search hit wants to land on, the full
   // match set for the next/prev navigator, and the actions to walk/clear it.
   const focusEventId = useAppStore((s) => s.focusEventId)
@@ -507,6 +513,8 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
         <div className="composer-wrap">
           <Composer
             conversationId={convoId}
+            initialDraft={initialDraft}
+            onInitialDraftConsumed={() => consumeDraftHandoff(convoId)}
             onSend={(text, command, mentions, attachments) =>
               send(convoId, text, command, mentions, attachments)
             }

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
+import { StrictMode } from 'react'
 import type { BearcodeApi } from '@shared/types'
 import { useAppStore } from '../state/store'
 import { ConversationView } from './ConversationView'
@@ -12,8 +13,121 @@ beforeEach(() => {
       read: vi.fn(async () => null)
     }
   } as unknown as BearcodeApi
+  useAppStore.setState({ conversationDraftHandoff: null })
 })
 afterEach(cleanup)
+
+describe('ConversationView accepted Home draft handoff', () => {
+  const conversation = {
+    id: 'c1',
+    projectPath: '/p',
+    title: 'T',
+    modelRef: 'anthropic/claude-sonnet-5',
+    permissionMode: 'accept-edits',
+    updatedAt: 1,
+    createdAt: 1,
+    loaded: true,
+    runState: 'idle',
+    events: [],
+    environment: 'local',
+    effort: 'adaptive',
+    thinking: true,
+    webSearch: false,
+    ursaMode: 'code',
+    hermesMode: 'legacy',
+    projectId: null,
+    pinned: false,
+    archived: false,
+    worktrees: []
+  }
+  const draft = {
+    text: 'late text',
+    command: null,
+    mentions: [],
+    attachments: [
+      {
+        ref: {
+          id: 'attachment-late',
+          name: 'late.png',
+          mime: 'image/png',
+          kind: 'image'
+        },
+        previewDataUrl: 'data:image/png;base64,bGF0ZQ=='
+      }
+    ]
+  } as const
+
+  it('claims a matching handoff once under StrictMode and does not restore it on reopen', async () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      providers: [
+        {
+          id: 'anthropic',
+          displayName: 'Anthropic',
+          color: '#c98a4b',
+          requiresKey: true,
+          keyConfigured: true,
+          reachable: true,
+          models: [{ id: 'claude-sonnet-5', label: 'Claude Sonnet 5' }]
+        }
+      ],
+      conversations: { c1: conversation },
+      convoOrder: ['c1'],
+      focusEventId: null,
+      focusMatches: [],
+      conversationDraftHandoff: {
+        conversationId: 'c1',
+        draft
+      }
+    } as never)
+
+    const mounted = render(
+      <StrictMode>
+        <ConversationView convoId="c1" />
+      </StrictMode>
+    )
+
+    expect(screen.getByRole('textbox')).toHaveValue('late text')
+    expect(screen.getByText('late.png')).toBeInTheDocument()
+    await waitFor(() => expect(useAppStore.getState().conversationDraftHandoff).toBeNull())
+
+    mounted.unmount()
+    render(
+      <StrictMode>
+        <ConversationView convoId="c1" />
+      </StrictMode>
+    )
+
+    expect(screen.getByRole('textbox')).toHaveValue('')
+    expect(screen.queryByText('late.png')).toBeNull()
+  })
+
+  it('neither renders nor consumes a handoff for a different conversation', () => {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      providers: [],
+      conversations: { c1: conversation },
+      convoOrder: ['c1'],
+      focusEventId: null,
+      focusMatches: [],
+      conversationDraftHandoff: {
+        conversationId: 'c2',
+        draft
+      }
+    } as never)
+
+    render(<ConversationView convoId="c1" />)
+
+    expect(screen.getByRole('textbox')).toHaveValue('')
+    expect(screen.queryByText('late.png')).toBeNull()
+    expect(useAppStore.getState().conversationDraftHandoff).toEqual({
+      conversationId: 'c2',
+      draft
+    })
+  })
+})
 
 describe('ConversationView user bubble', () => {
   it('renders a mention pill for each persisted user_message mention', () => {
