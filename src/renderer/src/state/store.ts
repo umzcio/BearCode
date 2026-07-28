@@ -370,6 +370,10 @@ interface AppState {
   // the id to create so already-picked attachments line up with the real
   // conversation. Cleared on goHome / after Composer completes an accepted Home start.
   draftConvoId: string | null
+  // Owns the entire async Home start, from synchronous ID reservation through
+  // accepted Composer handoff completion. While set, Home navigation and
+  // duplicate first-run dispatches are blocked.
+  pendingHomeConvoId: string | null
   // A successfully accepted Home start remains owned by the Home composer until
   // it transfers any post-submit edits to the mounted conversation composer.
   acceptedHomeConvoId: string | null
@@ -757,6 +761,7 @@ export const useAppStore = create<AppState>((set, get) => {
     mcpConnectors: [],
     manualSkills: [],
     draftConvoId: null,
+    pendingHomeConvoId: null,
     acceptedHomeConvoId: null,
     conversationDraftHandoff: null,
     focusEventId: null,
@@ -954,30 +959,33 @@ export const useAppStore = create<AppState>((set, get) => {
       // conversation. An explicit pick on the home composer afterward still
       // wins, and close the pane -- its contents belong to the conversation
       // being left.
-      set((s) => ({
-        view: { kind: 'home' },
-        // A Hermes conversation just left behind must not leak its sentinel
-        // modelRef into the next new conversation's composer (it would render
-        // in Hermes-lean mode with no model/mode pickers) -- reset it here
-        // alongside the other draft state below.
-        modelRef: s.settings?.defaultModelRef ?? URSA_MODEL_REF,
-        permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
-        effort: s.settings?.defaultEffort ?? 'adaptive',
-        thinking: s.settings?.defaultThinking ?? true,
-        // Ursa Mode has no settings default -- a fresh Home composer is Code.
-        ursaMode: 'code',
-        auxSelection: null,
-        reviewFocusPath: null,
-        // Abandoning Home drops any attachments already picked under the draft
-        // id (a minor on-disk orphan, acceptable for v1 -- see D4 design note);
-        // the next Home visit mints a fresh draft id on first Media use.
-        draftConvoId: null,
-        acceptedHomeConvoId: null,
-        conversationDraftHandoff: null,
-        // F3: a New-Worktree pick belongs to the conversation being left; the
-        // next new conversation starts back at Local unless re-chosen.
-        composerEnvironment: 'local'
-      })),
+      set((s) => {
+        if (s.pendingHomeConvoId) return s
+        return {
+          view: { kind: 'home' },
+          // A Hermes conversation just left behind must not leak its sentinel
+          // modelRef into the next new conversation's composer (it would render
+          // in Hermes-lean mode with no model/mode pickers) -- reset it here
+          // alongside the other draft state below.
+          modelRef: s.settings?.defaultModelRef ?? URSA_MODEL_REF,
+          permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
+          effort: s.settings?.defaultEffort ?? 'adaptive',
+          thinking: s.settings?.defaultThinking ?? true,
+          // Ursa Mode has no settings default -- a fresh Home composer is Code.
+          ursaMode: 'code',
+          auxSelection: null,
+          reviewFocusPath: null,
+          // Abandoning Home drops any attachments already picked under the draft
+          // id (a minor on-disk orphan, acceptable for v1 -- see D4 design note);
+          // the next Home visit mints a fresh draft id on first Media use.
+          draftConvoId: null,
+          acceptedHomeConvoId: null,
+          conversationDraftHandoff: null,
+          // F3: a New-Worktree pick belongs to the conversation being left; the
+          // next new conversation starts back at Local unless re-chosen.
+          composerEnvironment: 'local'
+        }
+      }),
     openHistory: () =>
       set({ view: { kind: 'history' }, auxSelection: null, reviewFocusPath: null }),
     openTerminalView: (path: string) => {
@@ -1103,10 +1111,13 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     startFromHome: async (text, command, mentions, attachments) => {
-      const { modelRef, workspacePath } = get()
-      if (!modelRef) return false
+      const { modelRef, workspacePath, pendingHomeConvoId } = get()
+      if (!modelRef || pendingHomeConvoId) return false
       const reservedDraftConvoId = get().ensureDraftConvoId()
-      set((state) => (state.acceptedHomeConvoId ? { acceptedHomeConvoId: null } : state))
+      set((state) => ({
+        pendingHomeConvoId: reservedDraftConvoId,
+        ...(state.acceptedHomeConvoId ? { acceptedHomeConvoId: null } : {})
+      }))
       try {
         // If Media was used on Home first, attachments are already on disk
         // under reservedDraftConvoId -- create the conversation AS that id so they
@@ -1211,6 +1222,9 @@ export const useAppStore = create<AppState>((set, get) => {
         set((state) => (state.conversations[convoId] ? { acceptedHomeConvoId: convoId } : state))
         return true
       } catch (error) {
+        set((state) =>
+          state.pendingHomeConvoId === reservedDraftConvoId ? { pendingHomeConvoId: null } : state
+        )
         get().showToast(describeError(error))
         return false
       }
@@ -1223,6 +1237,7 @@ export const useAppStore = create<AppState>((set, get) => {
         return {
           view: { kind: 'conversation', id: conversationId },
           draftConvoId: null,
+          pendingHomeConvoId: null,
           acceptedHomeConvoId: null,
           conversationDraftHandoff: hasComposerDraftContent(remainingDraft)
             ? { conversationId, draft: remainingDraft }
@@ -1249,6 +1264,7 @@ export const useAppStore = create<AppState>((set, get) => {
             conversations,
             convoOrder: orderByRecency(conversations),
             view,
+            pendingHomeConvoId: s.pendingHomeConvoId === id ? null : s.pendingHomeConvoId,
             acceptedHomeConvoId: s.acceptedHomeConvoId === id ? null : s.acceptedHomeConvoId,
             conversationDraftHandoff:
               s.conversationDraftHandoff?.conversationId === id ? null : s.conversationDraftHandoff,

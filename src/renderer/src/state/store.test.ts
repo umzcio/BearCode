@@ -192,6 +192,7 @@ beforeEach(() => {
     fileSuggestions: [],
     manualRules: [],
     draftConvoId: null,
+    pendingHomeConvoId: null,
     acceptedHomeConvoId: null,
     conversationDraftHandoff: null,
     diffReviewComments: {},
@@ -822,7 +823,7 @@ describe('D4 Media on Home: draft conversation id (fixes greyed-out Media before
       workspacePath: null,
       conversations: {},
       convoOrder: [],
-      draftConvoId: null
+      draftConvoId: 'c1'
     })
 
     const firstAttempt = useAppStore.getState().startFromHome('keep this draft')
@@ -830,17 +831,21 @@ describe('D4 Media on Home: draft conversation id (fixes greyed-out Media before
 
     expect(useAppStore.getState().view).toEqual({ kind: 'home' })
     expect(useAppStore.getState().draftConvoId).toBe('c1')
+    expect(useAppStore.getState().pendingHomeConvoId).toBe('c1')
 
     rejectFirstRun(new Error('dispatch unavailable'))
     await expect(firstAttempt).resolves.toBe(false)
     expect(useAppStore.getState().view).toEqual({ kind: 'home' })
     expect(useAppStore.getState().draftConvoId).toBe('c1')
+    expect(useAppStore.getState().pendingHomeConvoId).toBeNull()
 
     await expect(useAppStore.getState().startFromHome('keep this draft')).resolves.toBe(true)
     expect(conversations.create).toHaveBeenCalledOnce()
+    expect(useAppStore.getState().pendingHomeConvoId).toBe('c1')
     useAppStore.getState().completeHomeStart(EMPTY_COMPOSER_DRAFT)
     expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
     expect(useAppStore.getState().draftConvoId).toBeNull()
+    expect(useAppStore.getState().pendingHomeConvoId).toBeNull()
   })
 
   it('pickAttachments on Home mints a draft id (once) and picks under it', async () => {
@@ -898,14 +903,16 @@ describe('D4 Media on Home: draft conversation id (fixes greyed-out Media before
     await expect(starting).resolves.toBe(true)
   })
 
-  it('goHome clears pending Home draft ownership', () => {
+  it('goHome retains its established cleanup when no Home start is pending', () => {
     useAppStore.setState({
       draftConvoId: 'some-draft-id',
+      pendingHomeConvoId: null,
       acceptedHomeConvoId: 'c1',
       conversationDraftHandoff: { conversationId: 'c1', draft: EMPTY_COMPOSER_DRAFT }
     })
     useAppStore.getState().goHome()
     expect(useAppStore.getState().draftConvoId).toBeNull()
+    expect(useAppStore.getState().pendingHomeConvoId).toBeNull()
     expect(useAppStore.getState().acceptedHomeConvoId).toBeNull()
     expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
   })
@@ -930,7 +937,8 @@ describe('Home accepted draft handoff', () => {
       view: { kind: 'home' },
       modelRef: 'anthropic/claude-sonnet-5',
       conversations: {},
-      draftConvoId: null,
+      draftConvoId: 'c1',
+      pendingHomeConvoId: null,
       acceptedHomeConvoId: null,
       conversationDraftHandoff: null
     })
@@ -939,7 +947,71 @@ describe('Home accepted draft handoff', () => {
 
     expect(useAppStore.getState().view).toEqual({ kind: 'home' })
     expect(useAppStore.getState().draftConvoId).toBe('c1')
+    expect(useAppStore.getState().pendingHomeConvoId).toBe('c1')
     expect(useAppStore.getState().acceptedHomeConvoId).toBe('c1')
+  })
+
+  it.each([
+    ['the existing Home view', { kind: 'home' } as const],
+    ['an away view', { kind: 'models' } as const]
+  ])('makes goHome a genuine state no-op from %s while a Home start is pending', (_label, view) => {
+    useAppStore.setState({
+      view,
+      draftConvoId: 'pending-c1',
+      pendingHomeConvoId: 'pending-c1',
+      acceptedHomeConvoId: null,
+      conversationDraftHandoff: null,
+      composerEnvironment: 'worktree'
+    })
+    const before = useAppStore.getState()
+
+    useAppStore.getState().goHome()
+
+    expect(useAppStore.getState()).toBe(before)
+    expect(useAppStore.getState().view).toEqual(view)
+    expect(useAppStore.getState().draftConvoId).toBe('pending-c1')
+    expect(useAppStore.getState().composerEnvironment).toBe('worktree')
+  })
+
+  it('rejects duplicate starts during create and accepted completion without duplicate work', async () => {
+    let resolveCreate!: (meta: ConversationMeta) => void
+    conversations.create.mockReturnValueOnce(
+      new Promise<ConversationMeta>((resolve) => {
+        resolveCreate = resolve
+      })
+    )
+    useAppStore.setState({
+      view: { kind: 'home' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      workspacePath: null,
+      conversations: {},
+      draftConvoId: null,
+      pendingHomeConvoId: null,
+      acceptedHomeConvoId: null,
+      conversationDraftHandoff: null
+    })
+
+    const firstStart = useAppStore.getState().startFromHome('first')
+    const reservedId = useAppStore.getState().draftConvoId
+    expect(reservedId).toEqual(expect.any(String))
+    expect(useAppStore.getState().pendingHomeConvoId).toBe(reservedId)
+
+    await expect(useAppStore.getState().startFromHome('duplicate during create')).resolves.toBe(
+      false
+    )
+    expect(conversations.create).toHaveBeenCalledOnce()
+    expect(run.start).not.toHaveBeenCalled()
+
+    resolveCreate({ ...convoMeta, id: reservedId! })
+    await expect(firstStart).resolves.toBe(true)
+    expect(useAppStore.getState().acceptedHomeConvoId).toBe(reservedId)
+    expect(useAppStore.getState().pendingHomeConvoId).toBe(reservedId)
+
+    await expect(useAppStore.getState().startFromHome('duplicate before completion')).resolves.toBe(
+      false
+    )
+    expect(conversations.create).toHaveBeenCalledOnce()
+    expect(run.start).toHaveBeenCalledOnce()
   })
 
   it('atomically hands late composer content to the accepted conversation', () => {
@@ -947,6 +1019,7 @@ describe('Home accepted draft handoff', () => {
       view: { kind: 'home' },
       conversations: { c1: convo() },
       draftConvoId: 'c1',
+      pendingHomeConvoId: 'c1',
       acceptedHomeConvoId: 'c1',
       conversationDraftHandoff: null
     })
@@ -955,6 +1028,7 @@ describe('Home accepted draft handoff', () => {
 
     expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
     expect(useAppStore.getState().draftConvoId).toBeNull()
+    expect(useAppStore.getState().pendingHomeConvoId).toBeNull()
     expect(useAppStore.getState().acceptedHomeConvoId).toBeNull()
     expect(useAppStore.getState().conversationDraftHandoff).toEqual({
       conversationId: 'c1',
@@ -976,6 +1050,7 @@ describe('Home accepted draft handoff', () => {
       view: { kind: 'home' },
       conversations: { c1: convo() },
       draftConvoId: 'c1',
+      pendingHomeConvoId: 'c1',
       acceptedHomeConvoId: 'c1',
       conversationDraftHandoff: null
     })
@@ -984,6 +1059,7 @@ describe('Home accepted draft handoff', () => {
 
     expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
     expect(useAppStore.getState().draftConvoId).toBeNull()
+    expect(useAppStore.getState().pendingHomeConvoId).toBeNull()
     expect(useAppStore.getState().acceptedHomeConvoId).toBeNull()
     expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
   })
@@ -1025,7 +1101,8 @@ describe('Home accepted draft handoff', () => {
       view: { kind: 'home' },
       modelRef: 'anthropic/claude-sonnet-5',
       conversations: {},
-      draftConvoId: null,
+      draftConvoId: 'c1',
+      pendingHomeConvoId: null,
       acceptedHomeConvoId: null,
       conversationDraftHandoff: null
     })
@@ -1034,6 +1111,7 @@ describe('Home accepted draft handoff', () => {
 
     expect(useAppStore.getState().view).toEqual({ kind: 'home' })
     expect(useAppStore.getState().draftConvoId).toBe('c1')
+    expect(useAppStore.getState().pendingHomeConvoId).toBeNull()
     expect(useAppStore.getState().acceptedHomeConvoId).toBeNull()
     expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
   })
@@ -1041,12 +1119,14 @@ describe('Home accepted draft handoff', () => {
   it('clears an unconsumed handoff when its conversation is deleted', async () => {
     useAppStore.setState({
       conversations: { c1: convo() },
+      pendingHomeConvoId: 'c1',
       conversationDraftHandoff: { conversationId: 'c1', draft: lateDraft }
     })
 
     useAppStore.getState().deleteConvo('c1')
 
     await vi.waitFor(() => expect(useAppStore.getState().conversations.c1).toBeUndefined())
+    expect(useAppStore.getState().pendingHomeConvoId).toBeNull()
     expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
   })
 
@@ -1061,7 +1141,8 @@ describe('Home accepted draft handoff', () => {
       view: { kind: 'home' },
       modelRef: 'anthropic/claude-sonnet-5',
       conversations: {},
-      draftConvoId: null,
+      draftConvoId: 'c1',
+      pendingHomeConvoId: null,
       acceptedHomeConvoId: null,
       conversationDraftHandoff: null
     })
@@ -1076,6 +1157,7 @@ describe('Home accepted draft handoff', () => {
     await expect(starting).resolves.toBe(true)
 
     expect(useAppStore.getState().acceptedHomeConvoId).toBeNull()
+    expect(useAppStore.getState().pendingHomeConvoId).toBeNull()
     expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
 
     useAppStore.getState().completeHomeStart(lateDraft)

@@ -135,6 +135,7 @@ beforeEach(() => {
     conversations: {},
     convoOrder: [],
     draftConvoId: null,
+    pendingHomeConvoId: null,
     acceptedHomeConvoId: null,
     conversationDraftHandoff: null,
     composerEnvironment: 'local',
@@ -181,6 +182,10 @@ describe('Home accepted draft handoff', () => {
       const reservedId = useAppStore.getState().draftConvoId
       expect(reservedId).toEqual(expect.any(String))
       expect(createConversation).toHaveBeenCalledWith(null, reservedId)
+
+      act(() => useAppStore.getState().goHome())
+      expect(screen.getByRole('textbox')).toBe(homeTextbox)
+      expect(useAppStore.getState().draftConvoId).toBe(reservedId)
 
       fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
       fireEvent.click(screen.getByRole('option', { name: /^Media/ }))

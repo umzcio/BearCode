@@ -49,6 +49,7 @@ beforeEach(() => {
     modelRef: 'anthropic/claude-sonnet-5',
     workspacePath: null,
     draftConvoId: null,
+    pendingHomeConvoId: null,
     composerEnvironment: 'local',
     conversations: {},
     convoOrder: []
