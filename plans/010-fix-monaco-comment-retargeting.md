@@ -135,6 +135,19 @@ remain.
 - OS preference cannot be observed through the existing getter in the target Electron runtime.
 - Same-height suppression prevents overlay scroll positioning; keep positioning separate.
 
+## Approved STOP-condition resolution
+
+The only production caller is Monaco. Repeated close requests previously incremented the composer
+generation and replaced the completion callback for the same target. Resolve that dependency in
+the caller: make `closeComposer` idempotent while a close animation is active, preserving the
+original generation and callback. Clear the closing state when composer structure is removed or
+when `openComposer` interrupts the close. Do not add callback-replacement behavior to
+`HeightAnimator`; identical active targets have one unambiguous no-restart contract. Keep
+`positionOverlay()` outside the suppressed retarget so scroll positioning remains independent.
+
+Design record:
+`docs/superpowers/specs/2026-07-28-monaco-comment-retargeting-design.md`.
+
 ## Maintenance notes
 
 `current()` and active target are different concepts. Future callers should not infer that an
