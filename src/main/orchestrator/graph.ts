@@ -219,7 +219,11 @@ const BROWSER_SUBAGENT = {
 // instead of trying to disable it, so a "general-purpose" delegation gets
 // its own attributed pill rather than silently merging into the main
 // agent's stream.
-export const SUBAGENT_NAMES = new Set([RESEARCHER_SUBAGENT.name, BROWSER_SUBAGENT.name, 'general-purpose'])
+export const SUBAGENT_NAMES = new Set([
+  RESEARCHER_SUBAGENT.name,
+  BROWSER_SUBAGENT.name,
+  'general-purpose'
+])
 
 // Ursa Arc 2 (Task 2): the subagents array handed to createDeepAgent. When this
 // turn runs under Ursa (ursaRole set), each named subagent whose deepagents name
@@ -2211,9 +2215,7 @@ const pendingApprovals = new Map<string, PendingApprovalSet>()
 // is true when the resumed turn settled via failTurn (error/cancelled) rather
 // than cleanly, so a failed pipeline step halts the pipeline instead of
 // advancing into the next step.
-let onResumeSettled:
-  | ((conversationId: string, sink: RunSink, failed: boolean) => void)
-  | undefined
+let onResumeSettled: ((conversationId: string, sink: RunSink, failed: boolean) => void) | undefined
 export function setOnResumeSettled(
   fn: (conversationId: string, sink: RunSink, failed: boolean) => void
 ): void {
@@ -2228,8 +2230,7 @@ export function setOnResumeSettled(
 // at startup; runGraph's deep-research branch fires it (fire-and-forget on the
 // turn's live AbortController) after persisting the pipeline as 'running'.
 let startUrsaPipeline:
-  | ((conversationId: string, sink: RunSink, signal: AbortSignal) => void)
-  | undefined
+  ((conversationId: string, sink: RunSink, signal: AbortSignal) => void) | undefined
 export function setStartUrsaPipeline(
   fn: (conversationId: string, sink: RunSink, signal: AbortSignal) => void
 ): void {
@@ -3631,10 +3632,13 @@ async function closeOutTurn(
       configurable: { thread_id: ctx.conversationId }
     })
     const prevCutoff = getLastCompactionEvent(ctx.conversationId)?.summarizedCount ?? null
-    const { advanced, summarizedCount } = compactionAdvanced(
-      prevCutoff,
-      snapshot.values?._summarizationEvent
-    )
+    const summarizationEvent = snapshot.values?._summarizationEvent
+    const compactionEvent =
+      typeof summarizationEvent?.cutoffIndex === 'number' &&
+      Number.isFinite(summarizationEvent.cutoffIndex)
+        ? { cutoffIndex: summarizationEvent.cutoffIndex }
+        : undefined
+    const { advanced, summarizedCount } = compactionAdvanced(prevCutoff, compactionEvent)
     if (advanced) {
       const compaction: Event = {
         type: 'compaction',

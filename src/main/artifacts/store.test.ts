@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Artifact } from '../../shared/types'
+import { makeAppSettings } from '../test/fixtures'
 
 vi.mock('../db', () => ({
   insertArtifact: vi.fn(),
@@ -8,15 +9,7 @@ vi.mock('../db', () => ({
   markPendingPlansSuperseded: vi.fn(() => []),
   updateArtifactStatus: vi.fn()
 }))
-vi.mock('../settings', () => ({
-  getSettings: vi.fn(() => ({
-    ollamaBaseUrl: '',
-    defaultModelRef: null,
-    defaultPermissionMode: 'accept-edits',
-    disabledBuiltins: [] as string[],
-    artifactReviewPolicy: 'request-review' as const
-  }))
-}))
+vi.mock('../settings', () => ({ getSettings: vi.fn() }))
 
 import { getSettings } from '../settings'
 import {
@@ -47,13 +40,7 @@ const art = (over: Partial<Artifact> = {}): Artifact => ({
 })
 
 const settingsWith = (policy: 'request-review' | 'always-proceed'): void => {
-  vi.mocked(getSettings).mockReturnValue({
-    ollamaBaseUrl: '',
-    defaultModelRef: null,
-    defaultPermissionMode: 'accept-edits',
-    disabledBuiltins: [],
-    artifactReviewPolicy: policy
-  })
+  vi.mocked(getSettings).mockReturnValue(makeAppSettings({ artifactReviewPolicy: policy }))
 }
 
 beforeEach(() => {

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
+import type { TranscribeMeta } from '@shared/types'
 import { useVoiceRecorder } from './useVoiceRecorder'
 
 // jsdom ships neither MediaRecorder nor mediaDevices; stub both so the hook's
@@ -26,7 +27,9 @@ const trackStop = vi.fn()
 const getUserMedia = vi.fn(
   async () => ({ getTracks: () => [{ stop: trackStop }] }) as unknown as MediaStream
 )
-const transcribe = vi.fn(async () => ({ text: 'hello world' }))
+const transcribe = vi.fn<(audio: ArrayBuffer, meta: TranscribeMeta) => Promise<{ text: string }>>(
+  async () => ({ text: 'hello world' })
+)
 
 beforeEach(() => {
   vi.stubGlobal('MediaRecorder', MockMediaRecorder as unknown as typeof MediaRecorder)

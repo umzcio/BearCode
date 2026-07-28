@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import type { FileAccessPolicy, SecurityPreset, TerminalAutoExec } from '@shared/types'
+import { isSelectableDefaultMode } from '@shared/permissionMode'
 import { presetToSettings, settingsToPreset } from '@shared/securityPreset'
 import { useAppStore } from '../../../state/store'
 import { Select } from '../../Select'
@@ -177,7 +178,9 @@ export function PermissionsPage(): JSX.Element | null {
           <Select
             ariaLabel="Default permission mode"
             value={settings.defaultPermissionMode}
-            onChange={setDefaultMode}
+            onChange={(value) => {
+              if (value !== 'bypass' && isSelectableDefaultMode(value)) setDefaultMode(value)
+            }}
             options={[
               { value: 'ask', label: 'Ask permissions' },
               { value: 'accept-edits', label: 'Accept edits' },

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import mammoth from 'mammoth'
 import ExcelJS from 'exceljs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { generateDocument } from './generate'
 import { extractPdfCore } from '../attachments/extract'
 
@@ -9,14 +12,23 @@ describe('generateDocument', () => {
     const buf = await generateDocument('docx', '# Title\n\nHello from BearCode.')
     expect(buf.length).toBeGreaterThan(0)
     expect(buf.subarray(0, 2).toString()).toBe('PK') // zip/OOXML magic
-    const { value } = await mammoth.extractRawText({ buffer: buf })
-    expect(value).toContain('Title')
-    expect(value).toContain('Hello from BearCode')
+    const dir = mkdtempSync(join(tmpdir(), 'bc-docgen-'))
+    try {
+      const path = join(dir, 'document.docx')
+      writeFileSync(path, buf)
+      const { value } = await mammoth.extractRawText({ path })
+      expect(value).toContain('Title')
+      expect(value).toContain('Hello from BearCode')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
   it('xlsx contains the rows (exceljs round-trip)', async () => {
     const buf = await generateDocument('xlsx', 'Name\tScore\nAda\t99')
     const wb = new ExcelJS.Workbook()
-    await wb.xlsx.load(buf)
+    const bytes = new Uint8Array(buf.byteLength)
+    bytes.set(buf)
+    await wb.xlsx.load(bytes.buffer)
     const ws = wb.worksheets[0]
     expect(ws.getCell('A1').value).toBe('Name')
     expect(ws.getCell('B2').value).toBe('99')

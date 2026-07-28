@@ -35,9 +35,9 @@ All in `src/renderer/src/components/ui/` and `src/renderer/src/lib/`:
 ## Build & gate
 
 - Stack: Electron (electron-vite) + React 19 + TypeScript (strict) + vitest. macOS.
-- **Gate before merge:** `npx tsc --noEmit -p tsconfig.node.json` AND `-p tsconfig.web.json` AND
-  `npx vitest run`. Baseline pre-existing errors are **17 node-tc / 2 web-tc** — those are not regressions;
-  anything above baseline is.
+- **Gate before merge:** `npm run typecheck` must exit 0 with zero diagnostics; run
+  `npx eslint <changed files>` and require zero findings; and `npx vitest run` must pass in full.
+  A red gate is work to fix, never an allowed baseline.
 - **Auto-fix scoped only:** `npx eslint --fix <specific paths>`. **Never `npm run lint -- --fix`** — the
   lint script is `eslint .` and it reformats the whole repo.
 - Dev-server hygiene: kill stale `electron-vite`/`electron` before relaunch; after switching branches,
