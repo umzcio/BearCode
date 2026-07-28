@@ -1207,7 +1207,7 @@ export const useAppStore = create<AppState>((set, get) => {
           mentions ?? null,
           attachments ?? null
         )
-        set({ acceptedHomeConvoId: convoId })
+        set((state) => (state.conversations[convoId] ? { acceptedHomeConvoId: convoId } : state))
         return true
       } catch (error) {
         get().showToast(describeError(error))

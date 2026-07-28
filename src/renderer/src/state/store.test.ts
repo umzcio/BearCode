@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type {
   BearcodeApi,
+  AttachmentRef,
   CommandEntry,
   ConversationMeta,
   Event,
@@ -894,19 +895,31 @@ describe('D4 Media on Home: draft conversation id (fixes greyed-out Media before
     expect(conversations.create).toHaveBeenCalledWith(null, undefined)
   })
 
-  it('goHome clears any pending draft id', () => {
-    useAppStore.setState({ draftConvoId: 'some-draft-id' })
+  it('goHome clears pending Home draft ownership', () => {
+    useAppStore.setState({
+      draftConvoId: 'some-draft-id',
+      acceptedHomeConvoId: 'c1',
+      conversationDraftHandoff: { conversationId: 'c1', draft: EMPTY_COMPOSER_DRAFT }
+    })
     useAppStore.getState().goHome()
     expect(useAppStore.getState().draftConvoId).toBeNull()
+    expect(useAppStore.getState().acceptedHomeConvoId).toBeNull()
+    expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
   })
 })
 
 describe('Home accepted draft handoff', () => {
+  const lateAttachment: AttachmentRef = {
+    id: 'attachment-late',
+    name: 'late.png',
+    mime: 'image/png',
+    kind: 'image'
+  }
   const lateDraft: ComposerDraft = {
     text: 'late text',
     command: null,
     mentions: [],
-    attachments: []
+    attachments: [{ ref: lateAttachment, previewDataUrl: 'data:image/png;base64,bGF0ZQ==' }]
   }
 
   it('records acceptance without navigating until Composer transfers ownership', async () => {
@@ -944,6 +957,9 @@ describe('Home accepted draft handoff', () => {
       conversationId: 'c1',
       draft: lateDraft
     })
+    expect(useAppStore.getState().conversationDraftHandoff?.draft.attachments).toEqual([
+      { ref: lateAttachment, previewDataUrl: 'data:image/png;base64,bGF0ZQ==' }
+    ])
   })
 
   it('navigates with no handoff when the remaining draft is empty', () => {
@@ -1022,6 +1038,40 @@ describe('Home accepted draft handoff', () => {
     useAppStore.getState().deleteConvo('c1')
 
     await vi.waitFor(() => expect(useAppStore.getState().conversations.c1).toBeUndefined())
+    expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
+  })
+
+  it('does not restore accepted ownership after deletion wins a deferred start race', async () => {
+    let resolveRun!: () => void
+    run.start.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveRun = resolve
+      })
+    )
+    useAppStore.setState({
+      view: { kind: 'home' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      conversations: {},
+      draftConvoId: null,
+      acceptedHomeConvoId: null,
+      conversationDraftHandoff: null
+    })
+
+    const starting = useAppStore.getState().startFromHome('submitted')
+    await vi.waitFor(() => expect(run.start).toHaveBeenCalledOnce())
+
+    useAppStore.getState().deleteConvo('c1')
+    await vi.waitFor(() => expect(useAppStore.getState().conversations.c1).toBeUndefined())
+
+    resolveRun()
+    await expect(starting).resolves.toBe(true)
+
+    expect(useAppStore.getState().acceptedHomeConvoId).toBeNull()
+    expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
+
+    useAppStore.getState().completeHomeStart(lateDraft)
+    expect(useAppStore.getState().view).toEqual({ kind: 'home' })
+    expect(useAppStore.getState().acceptedHomeConvoId).toBeNull()
     expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
   })
 })
