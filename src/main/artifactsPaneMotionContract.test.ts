@@ -52,4 +52,14 @@ describe('Artifacts Pane motion CSS contract', () => {
     expect(paneCss).toContain('transform: translateY(-4px)')
     expect(paneCss).toMatch(/:root\[data-motion='reduced'\] \.comment-bar[\s\S]*?transform:\s*none/)
   })
+
+  it('gives plan-resolution status a subtle reduced-motion-safe acknowledgment', () => {
+    expect(paneCss).toMatch(
+      /\.plan-resolution-notice\s*{[\s\S]*?opacity var\(--dur-fast\) var\(--ease-out\)[\s\S]*?transform var\(--dur-fast\) var\(--ease-out\)/
+    )
+    expect(paneCss).toContain('transform: translateY(2px)')
+    expect(paneCss).toMatch(
+      /:root\[data-motion='reduced'\] \.plan-resolution-notice[\s\S]*?transform:\s*none/
+    )
+  })
 })

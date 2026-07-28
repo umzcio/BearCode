@@ -60,6 +60,11 @@ export function ArtifactViewer({
   const [draftQuote, setDraftQuote] = useState<string | null>(null)
   const [draftBody, setDraftBody] = useState('')
   const [feedbackText, setFeedbackText] = useState('')
+  const [resolving, setResolving] = useState(false)
+  const [resolutionNotice, setResolutionNotice] = useState<'Approved' | 'Feedback sent' | null>(
+    null
+  )
+  const resolutionRun = useRef(0)
   const feedbackRef = useRef<HTMLTextAreaElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
 
@@ -82,6 +87,9 @@ export function ArtifactViewer({
     setDraftQuote(null)
     setDraftBody('')
     setFeedbackText('')
+    setResolving(false)
+    setResolutionNotice(null)
+    resolutionRun.current += 1
   }
 
   // Reload comments whenever the selected artifact changes.
@@ -89,6 +97,19 @@ export function ArtifactViewer({
     void loadArtifactComments(selected.artifactId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected.artifactId])
+
+  useEffect(() => {
+    if (!resolutionNotice) return
+    const timer = window.setTimeout(() => setResolutionNotice(null), 1200)
+    return () => window.clearTimeout(timer)
+  }, [resolutionNotice])
+
+  useEffect(
+    () => () => {
+      resolutionRun.current += 1
+    },
+    []
+  )
 
   // Focus + scroll the feedback textarea when the pending card's "Send
   // feedback" action ticks this counter. Consumes the tick only once the
@@ -136,27 +157,40 @@ export function ArtifactViewer({
     setDraftBody('')
   }
 
+  const resolveReview = async (
+    approved: boolean,
+    feedback: string | undefined,
+    notice: 'Approved' | 'Feedback sent'
+  ): Promise<void> => {
+    if (!pendingCall || resolving) return
+    const run = resolutionRun.current + 1
+    resolutionRun.current = run
+    setResolving(true)
+    try {
+      const ok =
+        feedback === undefined
+          ? await resolvePlanReview(pendingCall.id, approved)
+          : await resolvePlanReview(pendingCall.id, approved, feedback)
+      if (resolutionRun.current !== run) return
+      setResolving(false)
+      if (!ok) return
+      // Resolution is already complete. The notice only acknowledges it; it
+      // never gates the tool call or the resumed run.
+      clearDraft()
+      if (!approved) setFeedbackText('')
+      setResolutionNotice(notice)
+      void loadArtifactComments(selected.artifactId)
+    } catch {
+      if (resolutionRun.current === run) setResolving(false)
+    }
+  }
+
   const proceed = (): void => {
-    if (!pendingCall) return
-    void resolvePlanReview(pendingCall.id, true).then((ok) => {
-      if (ok) {
-        // The review is resolved: drop any half-typed draft immediately rather
-        // than waiting for the re-emitted event to hide the composer.
-        clearDraft()
-        void loadArtifactComments(selected.artifactId)
-      }
-    })
+    void resolveReview(true, undefined, 'Approved')
   }
 
   const requestReview = (): void => {
-    if (!pendingCall) return
-    void resolvePlanReview(pendingCall.id, false, feedbackText.trim() || undefined).then((ok) => {
-      if (ok) {
-        clearDraft()
-        setFeedbackText('')
-        void loadArtifactComments(selected.artifactId)
-      }
-    })
+    void resolveReview(false, feedbackText.trim() || undefined, 'Feedback sent')
   }
 
   return (
@@ -168,14 +202,18 @@ export function ArtifactViewer({
           <span className={'artifact-status ' + selected.status}>
             {ARTIFACT_STATUS_LABELS[selected.status]}
           </span>
-          {pendingCall ? (
+          {resolutionNotice ? (
+            <div className="plan-resolution-notice" role="status" aria-live="polite">
+              {resolutionNotice}
+            </div>
+          ) : pendingCall ? (
             <div className="plan-review-actions">
-              <button className="plan-proceed" onClick={proceed}>
+              <button className="plan-proceed" disabled={resolving} onClick={proceed}>
                 Proceed
               </button>
               <button
                 className="plan-request-review"
-                disabled={unsentCount === 0 && feedbackText.trim() === ''}
+                disabled={resolving || (unsentCount === 0 && feedbackText.trim() === '')}
                 title="Needs at least one comment or a message"
                 onClick={requestReview}
               >
