@@ -8,8 +8,8 @@ executor should read the entire linked plan before editing and update this table
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |---|---|---:|---:|---|---|
-| [001](001-restore-static-gate.md) | Restore a zero-baseline typecheck, lint, and test gate | P1 | L | — | IN PROGRESS |
-| [002](002-characterize-diff-review.md) | Characterize the primary diff-review workflow | P1 | M | 001 | TODO |
+| [001](001-restore-static-gate.md) | Restore a zero-baseline typecheck, lint, and test gate | P1 | L | — | DONE |
+| [002](002-characterize-diff-review.md) | Characterize the primary diff-review workflow | P1 | M | 001 | IN PROGRESS |
 | [003](003-fix-diff-load-focus.md) | Make diff loading and focus race-safe | P1 | M | 002 | TODO |
 | [004](004-preserve-review-drafts.md) | Preserve review drafts until run acceptance | P1 | L | 002 | TODO |
 | [005](005-preserve-artifact-comment-draft.md) | Clear artifact comment drafts only after insertion succeeds | P1 | S | 001 | TODO |
