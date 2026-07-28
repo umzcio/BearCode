@@ -42,6 +42,7 @@ import { initWindowFocusTracking } from '../lib/windowFocus'
 import { describeError } from '../lib/errors'
 import { mergeEvent } from '../lib/mergeEvent'
 import { resolveProjectDefaults } from '@shared/projectDefaults'
+import { hasComposerDraftContent, type ComposerDraft } from '../lib/composerDraft'
 
 export type ConvoRunState = RunState | 'idle'
 
@@ -367,8 +368,12 @@ interface AppState {
   // placeholder id (crypto.randomUUID()) lazily set by ensureDraftConvoId the
   // first time Home's Media is used, then handed to conversations.create as
   // the id to create so already-picked attachments line up with the real
-  // conversation. Cleared on goHome / after a successful startFromHome.
+  // conversation. Cleared on goHome / after Composer completes an accepted Home start.
   draftConvoId: string | null
+  // A successfully accepted Home start remains owned by the Home composer until
+  // it transfers any post-submit edits to the mounted conversation composer.
+  acceptedHomeConvoId: string | null
+  conversationDraftHandoff: { conversationId: string; draft: ComposerDraft } | null
   // F1 Conversation History: the event a content-search hit should jump to in
   // the freshly-opened conversation. Transient -- set by openConvo(id, {focusEventId})
   // and consumed by ConversationView, which scrolls to + highlights the match.
@@ -425,6 +430,8 @@ interface AppState {
     mentions?: MentionRef[] | null,
     attachments?: AttachmentRef[] | null
   ): Promise<boolean>
+  completeHomeStart(remainingDraft: ComposerDraft): void
+  consumeConversationDraftHandoff(conversationId: string): void
   deleteConvo(id: string): void
   send(
     convoId: string,
@@ -750,6 +757,8 @@ export const useAppStore = create<AppState>((set, get) => {
     mcpConnectors: [],
     manualSkills: [],
     draftConvoId: null,
+    acceptedHomeConvoId: null,
+    conversationDraftHandoff: null,
     focusEventId: null,
     focusMatches: [],
     composerEnvironment: 'local',
@@ -963,6 +972,8 @@ export const useAppStore = create<AppState>((set, get) => {
         // id (a minor on-disk orphan, acceptable for v1 -- see D4 design note);
         // the next Home visit mints a fresh draft id on first Media use.
         draftConvoId: null,
+        acceptedHomeConvoId: null,
+        conversationDraftHandoff: null,
         // F3: a New-Worktree pick belongs to the conversation being left; the
         // next new conversation starts back at Local unless re-chosen.
         composerEnvironment: 'local'
@@ -1094,6 +1105,7 @@ export const useAppStore = create<AppState>((set, get) => {
     startFromHome: async (text, command, mentions, attachments) => {
       const { modelRef, workspacePath, draftConvoId } = get()
       if (!modelRef) return false
+      set((state) => (state.acceptedHomeConvoId ? { acceptedHomeConvoId: null } : state))
       try {
         // If Media was used on Home first, attachments are already on disk
         // under draftConvoId -- create the conversation AS that id so they
@@ -1195,13 +1207,34 @@ export const useAppStore = create<AppState>((set, get) => {
           mentions ?? null,
           attachments ?? null
         )
-        set({ view: { kind: 'conversation', id: convoId }, draftConvoId: null })
+        set({ acceptedHomeConvoId: convoId })
         return true
       } catch (error) {
         get().showToast(describeError(error))
         return false
       }
     },
+
+    completeHomeStart: (remainingDraft) =>
+      set((state) => {
+        const conversationId = state.acceptedHomeConvoId
+        if (!conversationId || !state.conversations[conversationId]) return state
+        return {
+          view: { kind: 'conversation', id: conversationId },
+          draftConvoId: null,
+          acceptedHomeConvoId: null,
+          conversationDraftHandoff: hasComposerDraftContent(remainingDraft)
+            ? { conversationId, draft: remainingDraft }
+            : null
+        }
+      }),
+
+    consumeConversationDraftHandoff: (conversationId) =>
+      set((state) =>
+        state.conversationDraftHandoff?.conversationId === conversationId
+          ? { conversationDraftHandoff: null }
+          : state
+      ),
 
     deleteConvo: (id) => {
       void window.bearcode.conversations.delete(id).then(() => {
@@ -1215,6 +1248,9 @@ export const useAppStore = create<AppState>((set, get) => {
             conversations,
             convoOrder: orderByRecency(conversations),
             view,
+            acceptedHomeConvoId: s.acceptedHomeConvoId === id ? null : s.acceptedHomeConvoId,
+            conversationDraftHandoff:
+              s.conversationDraftHandoff?.conversationId === id ? null : s.conversationDraftHandoff,
             // Landing back on home (deleted the active conversation): reset the
             // composer to the configured default so the next new conversation
             // starts there, not in the deleted conversation's mode.
