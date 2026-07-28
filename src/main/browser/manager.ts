@@ -25,7 +25,11 @@ async function cleanPlaywrightError<T>(op: () => Promise<T>): Promise<T> {
 
 type Bounds = { x: number; y: number; width: number; height: number }
 
-class BrowserManager {
+function hiddenBounds(bounds: Bounds): Bounds {
+  return { x: -10000, y: 0, width: bounds.width, height: bounds.height }
+}
+
+export class BrowserManager {
   private view: WebContentsView | null = null
   private browser: Browser | null = null
   private page: Page | null = null
@@ -36,6 +40,10 @@ class BrowserManager {
   // paint over the app UI before the renderer pane reports its on-screen bounds.
   // The BrowserPane's ResizeObserver overrides this with real bounds on mount.
   private bounds: Bounds = { x: -10000, y: 0, width: 1280, height: 800 }
+  // Requested renderer visibility is independent of whether a view currently
+  // exists. Bounds may keep updating while hidden without exposing native
+  // pixels or input above a moving DOM shell.
+  private visible = false
   // L2 domain policy provider (F4 finding 2). The tool layer wires this to the
   // live Settings-derived policy in tools.ts `buildBrowserTools` (which graph.ts
   // wires UNCONDITIONALLY — folder or not — so the provider is always installed),
@@ -95,7 +103,7 @@ class BrowserManager {
       webPreferences: { sandbox: true, partition: `browser:${conversationId}` }
     })
     win.contentView.addChildView(this.view)
-    this.view.setBounds(this.bounds)
+    this.view.setBounds(this.visible ? this.bounds : hiddenBounds(this.bounds))
     await this.view.webContents.loadURL(
       `data:text/html,<!--bearcode-${token}--><title>bearcode</title>`
     )
@@ -278,13 +286,15 @@ class BrowserManager {
 
   setBounds(b: Bounds): void {
     this.bounds = b
-    this.view?.setBounds(b)
+    this.view?.setBounds(this.visible ? b : hiddenBounds(b))
   }
   show(): void {
+    this.visible = true
     this.view?.setBounds(this.bounds)
   }
   hide(): void {
-    this.view?.setBounds({ x: -10000, y: 0, width: this.bounds.width, height: this.bounds.height })
+    this.visible = false
+    this.view?.setBounds(hiddenBounds(this.bounds))
   }
   async clearSession(): Promise<void> {
     await this.view?.webContents.session.clearStorageData()
