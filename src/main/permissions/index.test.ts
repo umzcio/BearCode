@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { PermissionRule } from '../../shared/types'
+import type { PermissionMode, PermissionRule } from '../../shared/types'
 import { makeConversationMeta } from '../test/fixtures'
 
 // The db module loads native better-sqlite3 (Electron ABI); it MUST be mocked
@@ -33,12 +33,12 @@ import { getConversationMeta } from '../db'
 import { getEffectiveRules } from './store'
 import { evaluateCommandForConversation, evaluateEditForConversation } from './index'
 
-const asMode = (permissionMode: string): void => {
+const asMode = (permissionMode: PermissionMode): void => {
   vi.mocked(getConversationMeta).mockReturnValue(
     makeConversationMeta({
       id: 'c1',
       projectPath: '/tmp/p',
-      permissionMode: permissionMode as never
+      permissionMode
     })
   )
 }
