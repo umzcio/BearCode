@@ -44,4 +44,12 @@ describe('Artifacts Pane motion CSS contract', () => {
       /:root\[data-motion='reduced'\][\s\S]*?:active:not\(:disabled\)[\s\S]*?transform:\s*none/
     )
   })
+
+  it('gives the inline comment surface a reduced-motion-safe entry cue', () => {
+    expect(paneCss).toMatch(
+      /\.comment-bar\s*{[\s\S]*?opacity var\(--dur-menu\) var\(--ease-out\)[\s\S]*?transform var\(--dur-menu\) var\(--ease-out\)/
+    )
+    expect(paneCss).toContain('transform: translateY(-4px)')
+    expect(paneCss).toMatch(/:root\[data-motion='reduced'\] \.comment-bar[\s\S]*?transform:\s*none/)
+  })
 })

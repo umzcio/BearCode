@@ -1114,6 +1114,17 @@
   border: 1px solid var(--border-soft);
   border-radius: 12px;
   padding: 7px 10px 7px 14px;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--dur-menu) var(--ease-out),
+    transform var(--dur-menu) var(--ease-out);
+}
+@starting-style {
+  .comment-bar {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
 .comment-bar-input {
   flex: 1;
@@ -1306,4 +1317,25 @@
     .foot-btn
   ):active:not(:disabled) {
   transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comment-bar {
+    transform: none;
+    transition: opacity var(--dur-menu) var(--ease-out);
+  }
+  @starting-style {
+    .comment-bar {
+      transform: none;
+    }
+  }
+}
+
+:root[data-motion='reduced'] .comment-bar {
+  transform: none;
+}
+@starting-style {
+  :root[data-motion='reduced'] .comment-bar {
+    transform: none;
+  }
 }

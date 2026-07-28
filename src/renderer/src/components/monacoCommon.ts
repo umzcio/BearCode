@@ -2,6 +2,9 @@
 // used by both the diff view and the plain code view.
 import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/editor/editor.worker.js?worker'
+import { createHeightAnimator } from '../lib/heightAnimator'
+import { readCssCubicBezier, readCssTimeMs } from '../lib/motionTokens'
+import { prefersReducedMotion } from '../lib/prefersReducedMotion'
 
 self.MonacoEnvironment = {
   getWorker: () => new editorWorker()
@@ -131,6 +134,8 @@ export function attachCommenting(
   let overlay: HTMLElement | null = null
   let overlayLine = 0
   let activeLine: monaco.editor.IEditorDecorationsCollection | null = null
+  let generation = 0
+  let focusTimer: number | null = null
 
   // Pin the overlay to the top of the reserved gap (just under the commented
   // line), tracking scroll.
@@ -139,21 +144,57 @@ export function attachCommenting(
     overlay.style.top = `${ed.getBottomForLineNumber(overlayLine) - ed.getScrollTop()}px`
   }
 
+  const removeComposerStructure = (): void => {
+    const id = zoneId
+    zoneId = null
+    zone = null
+    overlay?.remove()
+    overlay = null
+    if (id) ed.changeViewZones((acc) => acc.removeZone(id))
+  }
+
+  const animator = createHeightAnimator({
+    initialHeight: 0,
+    durationMs: readCssTimeMs('--dur-menu'),
+    curve: readCssCubicBezier('--ease-out'),
+    reduced: prefersReducedMotion(),
+    apply: (height) => {
+      if (!zoneId || !zone) return
+      zone.heightInPx = height
+      ed.changeViewZones((acc) => acc.layoutZone(zoneId as string))
+      positionOverlay()
+    }
+  })
+
   const closeComposer = (): void => {
     activeLine?.clear()
     activeLine = null
-    overlay?.remove()
-    overlay = null
-    if (zoneId) {
-      const id = zoneId
-      zoneId = null
-      zone = null
-      ed.changeViewZones((acc) => acc.removeZone(id))
+    if (focusTimer !== null) {
+      window.clearTimeout(focusTimer)
+      focusTimer = null
     }
+    if (!zoneId) return
+    const closingGeneration = ++generation
+    animator.retarget(0, () => {
+      if (closingGeneration === generation) removeComposerStructure()
+    })
   }
 
   const openComposer = (line: number): void => {
-    closeComposer()
+    const openingHeight = animator.current()
+    animator.cancel()
+    generation += 1
+    if (focusTimer !== null) {
+      window.clearTimeout(focusTimer)
+      focusTimer = null
+    }
+    activeLine?.clear()
+    activeLine = null
+    const previousZoneId = zoneId
+    overlay?.remove()
+    overlay = null
+    zoneId = null
+    zone = null
     overlayLine = line
     // Highlight the line being commented on while the composer is open.
     activeLine = ed.createDecorationsCollection([
@@ -192,8 +233,9 @@ export function attachCommenting(
 
     // Empty spacer view zone reserves the vertical room so code shifts down.
     const spacer = document.createElement('div')
-    zone = { afterLineNumber: line, heightInPx: 56, domNode: spacer }
+    zone = { afterLineNumber: line, heightInPx: openingHeight, domNode: spacer }
     ed.changeViewZones((acc) => {
+      if (previousZoneId) acc.removeZone(previousZoneId)
       zoneId = acc.addZone(zone as monaco.editor.IViewZone)
     })
 
@@ -202,8 +244,7 @@ export function attachCommenting(
       ta.style.height = 'auto'
       ta.style.height = `${ta.scrollHeight}px`
       if (zoneId && zone) {
-        zone.heightInPx = bar.offsetHeight + 12
-        ed.changeViewZones((acc) => acc.layoutZone(zoneId as string))
+        animator.retarget(bar.offsetHeight + 12)
       }
       positionOverlay()
     }
@@ -230,9 +271,10 @@ export function attachCommenting(
     }
 
     positionOverlay()
-    window.setTimeout(() => {
+    relayout()
+    focusTimer = window.setTimeout(() => {
+      focusTimer = null
       ta.focus()
-      relayout()
     }, 30)
   }
 
@@ -280,7 +322,13 @@ export function attachCommenting(
 
   return {
     dispose: () => {
-      closeComposer()
+      generation += 1
+      if (focusTimer !== null) window.clearTimeout(focusTimer)
+      focusTimer = null
+      animator.cancel()
+      activeLine?.clear()
+      activeLine = null
+      removeComposerStructure()
       mouse.dispose()
       move.dispose()
       scroll.dispose()
