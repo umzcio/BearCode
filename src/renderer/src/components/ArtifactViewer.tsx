@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Event } from '@shared/types'
 import { useAppStore } from '../state/store'
 import { Markdown } from '../lib/markdown'
@@ -98,7 +98,7 @@ export function ArtifactViewer({
     setResolutionNotice(null)
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     selectedArtifactIdRef.current = selected.artifactId
     insertionRun.current += 1
     insertionSubmitting.current = false
