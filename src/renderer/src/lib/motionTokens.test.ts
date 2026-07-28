@@ -27,9 +27,11 @@ describe('motion token readers', () => {
   it('parses cubic-bezier values and rejects malformed curves', () => {
     document.documentElement.style.setProperty('--test-curve', 'cubic-bezier(0.23, 1, 0.32, 1)')
     document.documentElement.style.setProperty('--bad-curve', 'ease-out')
+    document.documentElement.style.setProperty('--empty-part', 'cubic-bezier(0, , 1, 1)')
 
     expect(readCssCubicBezier('--test-curve')).toEqual([0.23, 1, 0.32, 1])
     expect(readCssCubicBezier('--bad-curve')).toBeNull()
+    expect(readCssCubicBezier('--empty-part')).toBeNull()
     expect(readCssCubicBezier('--missing')).toBeNull()
   })
 })

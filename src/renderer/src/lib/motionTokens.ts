@@ -19,7 +19,9 @@ export function readCssCubicBezier(
   const value = getComputedStyle(root).getPropertyValue(name).trim()
   const match = /^cubic-bezier\((.*)\)$/.exec(value)
   if (!match) return null
-  const values = match[1].split(',').map((part) => Number(part.trim()))
+  const parts = match[1].split(',').map((part) => part.trim())
+  if (parts.length !== 4 || parts.some((part) => part === '')) return null
+  const values = parts.map(Number)
   if (values.length !== 4 || values.some((part) => !Number.isFinite(part))) return null
   if (values[0] < 0 || values[0] > 1 || values[2] < 0 || values[2] > 1) return null
   return values as unknown as CubicBezier
