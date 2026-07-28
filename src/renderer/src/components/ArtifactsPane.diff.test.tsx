@@ -175,6 +175,20 @@ function seedDiffReview(
   } as never)
 }
 
+function seedFileReview(path: string, conversationId = 'conv_123'): void {
+  useAppStore.setState({
+    view: { kind: 'conversation', id: conversationId },
+    conversations: {
+      [conversationId]: conversation(conversationId, [])
+    },
+    auxSelection: { kind: 'file', path },
+    auxPaneOpenTick: 0,
+    auxPaneWidth: 560,
+    reviewFocusPath: null,
+    showToast
+  } as never)
+}
+
 function deferred<T>(): {
   promise: Promise<T>
   resolve: (value: T) => void
@@ -473,5 +487,68 @@ describe('ArtifactsPane diff review', () => {
     )
     expect(screen.queryByText('answer.ts:7')).toBeNull()
     expect(screen.getByText('diagram.png:12')).toBeInTheDocument()
+  })
+})
+
+describe('ArtifactsPane file review loading', () => {
+  it('hides a completed old file while a new conversation request is loading', async () => {
+    const first = deferred<string>()
+    const second = deferred<string>()
+    readFile.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    seedFileReview('/workspace/src/answer.ts')
+
+    render(<ArtifactsPane />)
+    await act(async () => {
+      first.resolve('const answer = 41\n')
+    })
+    expect(await screen.findByTestId('monaco-code-stub')).toHaveTextContent('const answer = 41')
+
+    await act(async () => {
+      useAppStore.setState({
+        view: { kind: 'conversation', id: 'conv_456' },
+        conversations: { conv_456: conversation('conv_456', []) }
+      } as never)
+    })
+    expect(screen.getByText('Loading file…')).toBeInTheDocument()
+    expect(screen.queryByText('const answer = 41')).toBeNull()
+
+    await act(async () => {
+      second.resolve('const answer = 42\n')
+    })
+    expect(await screen.findByTestId('monaco-code-stub')).toHaveTextContent('const answer = 42')
+  })
+
+  it('ignores an older file response after a newer conversation request resolves', async () => {
+    const oldRequest = deferred<string>()
+    const newRequest = deferred<string>()
+    readFile.mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(newRequest.promise)
+    seedFileReview('/workspace/src/answer.ts')
+
+    render(<ArtifactsPane />)
+    await act(async () => {
+      useAppStore.setState({
+        view: { kind: 'conversation', id: 'conv_456' },
+        conversations: { conv_456: conversation('conv_456', []) }
+      } as never)
+    })
+    await act(async () => {
+      newRequest.resolve('const answer = 42\n')
+    })
+    expect(await screen.findByTestId('monaco-code-stub')).toHaveTextContent('const answer = 42')
+
+    await act(async () => {
+      oldRequest.resolve('const answer = 41\n')
+    })
+    expect(screen.getByTestId('monaco-code-stub')).toHaveTextContent('const answer = 42')
+  })
+
+  it('shows the existing error state when file loading rejects', async () => {
+    readFile.mockRejectedValueOnce(new Error('read failed'))
+    seedFileReview('/workspace/src/answer.ts')
+
+    render(<ArtifactsPane />)
+
+    expect(await screen.findByText("Couldn't open file")).toBeInTheDocument()
+    expect(screen.queryByText('Loading file…')).toBeNull()
   })
 })
