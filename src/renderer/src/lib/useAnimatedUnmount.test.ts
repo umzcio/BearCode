@@ -29,7 +29,8 @@ afterEach(() => {
 describe('useAnimatedUnmount', () => {
   it('is mounted+open while open is true', () => {
     const { result } = renderHook(() => useAnimatedUnmount(true))
-    expect(result.current).toEqual({ mounted: true, state: 'open' })
+    expect(result.current).toMatchObject({ mounted: true, state: 'open' })
+    expect(result.current.completeExit).toEqual(expect.any(Function))
   })
 
   it('stays mounted and closing immediately after open flips false, then unmounts after the timeout', () => {
@@ -37,17 +38,17 @@ describe('useAnimatedUnmount', () => {
       initialProps: { open: true }
     })
     rerender({ open: false })
-    expect(result.current).toEqual({ mounted: true, state: 'closing' })
+    expect(result.current).toMatchObject({ mounted: true, state: 'closing' })
 
     act(() => {
       vi.advanceTimersByTime(219)
     })
-    expect(result.current).toEqual({ mounted: true, state: 'closing' })
+    expect(result.current).toMatchObject({ mounted: true, state: 'closing' })
 
     act(() => {
       vi.advanceTimersByTime(1)
     })
-    expect(result.current).toEqual({ mounted: false, state: 'closing' })
+    expect(result.current).toMatchObject({ mounted: false, state: 'closing' })
   })
 
   it('re-opening during closing cancels the pending unmount and returns to open', () => {
@@ -61,13 +62,13 @@ describe('useAnimatedUnmount', () => {
       vi.advanceTimersByTime(100)
     })
     rerender({ open: true })
-    expect(result.current).toEqual({ mounted: true, state: 'open' })
+    expect(result.current).toMatchObject({ mounted: true, state: 'open' })
 
     // The cancelled timer must not fire and unmount us later.
     act(() => {
       vi.advanceTimersByTime(220)
     })
-    expect(result.current).toEqual({ mounted: true, state: 'open' })
+    expect(result.current).toMatchObject({ mounted: true, state: 'open' })
   })
 
   it('respects a custom durationMs', () => {
@@ -98,7 +99,7 @@ describe('useAnimatedUnmount', () => {
 
     rerender({ open: false, immediate: true })
 
-    expect(result.current).toEqual({ mounted: false, state: 'closing' })
+    expect(result.current).toMatchObject({ mounted: false, state: 'closing' })
   })
 
   it('unmounts immediately under prefers-reduced-motion, skipping the closing delay', () => {
@@ -107,7 +108,7 @@ describe('useAnimatedUnmount', () => {
       initialProps: { open: true }
     })
     rerender({ open: false })
-    expect(result.current).toEqual({ mounted: false, state: 'closing' })
+    expect(result.current).toMatchObject({ mounted: false, state: 'closing' })
   })
 
   it('unmounts immediately when only the in-app data-motion="reduced" toggle is set (OS matchMedia false)', () => {
@@ -117,11 +118,75 @@ describe('useAnimatedUnmount', () => {
       initialProps: { open: true }
     })
     rerender({ open: false })
-    expect(result.current).toEqual({ mounted: false, state: 'closing' })
+    expect(result.current).toMatchObject({ mounted: false, state: 'closing' })
   })
 
   it('starts unmounted when initial open is false', () => {
     const { result } = renderHook(() => useAnimatedUnmount(false))
     expect(result.current.mounted).toBe(false)
+  })
+
+  it('keeps signal-completed exits mounted until completeExit is called', () => {
+    const { result, rerender } = renderHook(
+      ({ open }) => useAnimatedUnmount(open, { exitCompletion: 'signal' }),
+      { initialProps: { open: true } }
+    )
+
+    rerender({ open: false })
+    act(() => {
+      vi.advanceTimersByTime(340)
+    })
+    expect(result.current.mounted).toBe(true)
+
+    act(() => {
+      result.current.completeExit()
+    })
+    expect(result.current.mounted).toBe(false)
+  })
+
+  it('ignores a stale signal completion after reopening', () => {
+    const { result, rerender } = renderHook(
+      ({ open }) => useAnimatedUnmount(open, { exitCompletion: 'signal' }),
+      { initialProps: { open: true } }
+    )
+
+    rerender({ open: false })
+    const completeClosingExit = result.current.completeExit
+    rerender({ open: true })
+    act(() => {
+      completeClosingExit()
+    })
+
+    expect(result.current).toMatchObject({ mounted: true, state: 'open' })
+  })
+
+  it('fails safe after two seconds when an exit signal never arrives', () => {
+    const { result, rerender } = renderHook(
+      ({ open }) => useAnimatedUnmount(open, { exitCompletion: 'signal' }),
+      { initialProps: { open: true } }
+    )
+
+    rerender({ open: false })
+    act(() => {
+      vi.advanceTimersByTime(1999)
+    })
+    expect(result.current.mounted).toBe(true)
+
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+    expect(result.current.mounted).toBe(false)
+  })
+
+  it('unmounts signal-completed exits immediately under reduced motion', () => {
+    stubMatchMedia(true)
+    const { result, rerender } = renderHook(
+      ({ open }) => useAnimatedUnmount(open, { exitCompletion: 'signal' }),
+      { initialProps: { open: true } }
+    )
+
+    rerender({ open: false })
+
+    expect(result.current).toMatchObject({ mounted: false, state: 'closing' })
   })
 })
