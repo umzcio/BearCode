@@ -1,14 +1,9 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { StrictMode } from 'react'
 import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react'
-import type { PickedAttachmentWire } from '@shared/types'
+import type { PickedAttachmentWire, TranscribeMeta } from '@shared/types'
 import { Composer } from './Composer'
-
-afterEach(() => {
-  cleanup()
-  vi.clearAllMocks()
-})
 
 interface PickedFixture {
   picked: PickedAttachmentWire[]
@@ -26,6 +21,33 @@ const picked: PickedFixture = {
 }
 const pickAttachments = vi.fn(async () => picked)
 const showToast = vi.fn()
+const getUserMedia = vi.fn(
+  async () => ({ getTracks: () => [{ stop: vi.fn() }] }) as unknown as MediaStream
+)
+const transcribe = vi.fn<(audio: ArrayBuffer, meta: TranscribeMeta) => Promise<{ text: string }>>(
+  async () => ({ text: ' voice transcript' })
+)
+let recorderStopError: Error | null = null
+
+class MockMediaRecorder {
+  ondataavailable: ((event: { data: Blob }) => void) | null = null
+  onstop: (() => void) | null = null
+  mimeType = 'audio/webm'
+  state = 'inactive'
+
+  constructor(public stream: MediaStream) {}
+
+  start(): void {
+    this.state = 'recording'
+  }
+
+  stop(): void {
+    if (recorderStopError) throw recorderStopError
+    this.state = 'inactive'
+    this.ondataavailable?.({ data: new Blob(['voice'], { type: 'audio/webm' }) })
+    this.onstop?.()
+  }
+}
 
 function deferred<T>(): {
   promise: Promise<T>
@@ -44,38 +66,125 @@ function deferred<T>(): {
 vi.mock('../../state/store', () => ({
   refConfigured: () => true,
   modelDisplay: () => 'Claude',
-  useAppStore: (sel: (s: unknown) => unknown) =>
-    sel({
-      providers: [{ id: 'anthropic', keyConfigured: true, models: [] }],
-      modelRef: 'anthropic/claude',
-      view: { kind: 'home' },
-      openSettings: vi.fn(),
-      commands: [],
-      refreshCommands: vi.fn(),
-      resumePickerOpen: false,
-      setResumePickerOpen: vi.fn(),
-      fileSuggestions: ['src/answer.ts'],
-      manualRules: [],
-      mcpConnectors: [],
-      manualSkills: [],
-      suggestFiles: vi.fn(),
-      refreshManualRules: vi.fn(),
-      refreshMcpConnectors: vi.fn(),
-      refreshManualSkills: vi.fn(),
-      conversations: {},
-      convoOrder: [],
-      pickAttachments,
-      showToast,
-      selectModel: vi.fn(),
-      setPermissionMode: vi.fn(),
-      modelMenuTick: 0,
-      permMenuTick: 0,
-      permissionMode: 'accept-edits',
-      settings: { defaultPermissionMode: 'accept-edits' }
-    })
+  useAppStore: Object.assign(
+    (sel: (s: unknown) => unknown) =>
+      sel({
+        providers: [{ id: 'anthropic', keyConfigured: true, models: [] }],
+        modelRef: 'anthropic/claude',
+        view: { kind: 'home' },
+        openSettings: vi.fn(),
+        commands: [],
+        refreshCommands: vi.fn(),
+        resumePickerOpen: false,
+        setResumePickerOpen: vi.fn(),
+        fileSuggestions: ['src/answer.ts'],
+        manualRules: [],
+        mcpConnectors: [],
+        manualSkills: [],
+        suggestFiles: vi.fn(),
+        refreshManualRules: vi.fn(),
+        refreshMcpConnectors: vi.fn(),
+        refreshManualSkills: vi.fn(),
+        conversations: {},
+        convoOrder: [],
+        pickAttachments,
+        showToast,
+        selectModel: vi.fn(),
+        setPermissionMode: vi.fn(),
+        modelMenuTick: 0,
+        permMenuTick: 0,
+        permissionMode: 'accept-edits',
+        settings: { defaultPermissionMode: 'accept-edits' }
+      }),
+    { getState: () => ({ settings: null }) }
+  )
 }))
 
+beforeEach(() => {
+  recorderStopError = null
+  vi.stubGlobal('MediaRecorder', MockMediaRecorder as unknown as typeof MediaRecorder)
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: { getUserMedia }
+  })
+  ;(window as unknown as { bearcode: { voice: { transcribe: typeof transcribe } } }).bearcode = {
+    voice: { transcribe }
+  }
+})
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  vi.clearAllMocks()
+})
+
 describe('Composer attachments', () => {
+  it('waits for a deferred voice transcript before transferring the accepted remainder', async () => {
+    const pendingSend = deferred<boolean>()
+    const pendingTranscript = deferred<{ text: string }>()
+    transcribe.mockReturnValueOnce(pendingTranscript.promise)
+    const onAccepted = vi.fn()
+    render(
+      <Composer conversationId="c1" onSend={() => pendingSend.promise} onAccepted={onAccepted} />
+    )
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, { target: { value: 'submitted' } })
+    fireEvent.click(screen.getByLabelText('Voice input (⌃M)'))
+    await screen.findByLabelText('Stop recording (⌃M)')
+    fireEvent.click(screen.getByLabelText('Stop recording (⌃M)'))
+    await waitFor(() => expect(transcribe).toHaveBeenCalledOnce())
+
+    fireEvent.click(screen.getByLabelText('Send'))
+    await act(async () => pendingSend.resolve(true))
+
+    expect(onAccepted).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Send')).toBeDisabled()
+
+    await act(async () => pendingTranscript.resolve({ text: ' voice transcript' }))
+
+    await waitFor(() =>
+      expect(onAccepted).toHaveBeenCalledWith({
+        text: 'submitted voice transcript',
+        command: null,
+        mentions: [],
+        attachments: []
+      })
+    )
+    expect(textarea).toHaveValue('submitted voice transcript')
+    expect(screen.getByLabelText('Send')).not.toBeDisabled()
+  })
+
+  it('normalizes an unexpected voice-stop rejection without leaving transfer stuck', async () => {
+    const pendingSend = deferred<boolean>()
+    recorderStopError = new Error('recorder stop failed')
+    const onAccepted = vi.fn()
+    render(
+      <Composer conversationId="c1" onSend={() => pendingSend.promise} onAccepted={onAccepted} />
+    )
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, { target: { value: 'submitted' } })
+    fireEvent.click(screen.getByLabelText('Voice input (⌃M)'))
+    await screen.findByLabelText('Stop recording (⌃M)')
+    fireEvent.click(screen.getByLabelText('Stop recording (⌃M)'))
+    fireEvent.click(screen.getByLabelText('Send'))
+
+    await act(async () => pendingSend.resolve(true))
+
+    await waitFor(() =>
+      expect(onAccepted).toHaveBeenCalledWith({
+        text: '',
+        command: null,
+        mentions: [],
+        attachments: []
+      })
+    )
+    expect(showToast).toHaveBeenCalledWith('recorder stop failed')
+    fireEvent.change(textarea, { target: { value: 'retry' } })
+    expect(screen.getByLabelText('Send')).not.toBeDisabled()
+  })
+
   it('waits for every Media operation added before transfer reaches a stable point', async () => {
     const pendingSend = deferred<boolean>()
     const firstPick = deferred<PickedFixture>()

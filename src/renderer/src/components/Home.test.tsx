@@ -5,7 +5,8 @@ import type {
   BearcodeApi,
   ConversationMeta,
   PickedAttachmentWire,
-  ProviderModels
+  ProviderModels,
+  TranscribeMeta
 } from '@shared/types'
 import { useAppStore } from '../state/store'
 import { Composer } from './Composer/Composer'
@@ -66,6 +67,31 @@ const pickAttachments = vi.fn(
     errors: []
   })
 )
+const getUserMedia = vi.fn(
+  async () => ({ getTracks: () => [{ stop: vi.fn() }] }) as unknown as MediaStream
+)
+const transcribe = vi.fn<(audio: ArrayBuffer, meta: TranscribeMeta) => Promise<{ text: string }>>(
+  async () => ({ text: ' voice transcript' })
+)
+
+class MockMediaRecorder {
+  ondataavailable: ((event: { data: Blob }) => void) | null = null
+  onstop: (() => void) | null = null
+  mimeType = 'audio/webm'
+  state = 'inactive'
+
+  constructor(public stream: MediaStream) {}
+
+  start(): void {
+    this.state = 'recording'
+  }
+
+  stop(): void {
+    this.state = 'inactive'
+    this.ondataavailable?.({ data: new Blob(['voice'], { type: 'audio/webm' }) })
+    this.onstop?.()
+  }
+}
 
 function deferred<T>(): {
   promise: Promise<T>
@@ -99,6 +125,11 @@ function MainViewHarness(): React.JSX.Element {
 beforeEach(() => {
   vi.clearAllMocks()
   runStart.mockResolvedValue(undefined)
+  vi.stubGlobal('MediaRecorder', MockMediaRecorder as unknown as typeof MediaRecorder)
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: { getUserMedia }
+  })
   ;(window as unknown as { matchMedia: (query: string) => MediaQueryList }).matchMedia = vi.fn(
     (query: string) =>
       ({
@@ -127,6 +158,9 @@ beforeEach(() => {
     attachments: {
       pick: pickAttachments,
       read: vi.fn(async () => null)
+    },
+    voice: {
+      transcribe
     }
   } as unknown as BearcodeApi
   useAppStore.setState({
@@ -158,10 +192,76 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.unstubAllGlobals()
   vi.clearAllMocks()
 })
 
 describe('Home accepted draft handoff', () => {
+  it('hands off a voice transcript that settles after Home unmounts', async () => {
+    const pendingRun = deferred<void>()
+    const pendingTranscript = deferred<{ text: string }>()
+    runStart.mockReturnValueOnce(pendingRun.promise)
+    transcribe.mockReturnValueOnce(pendingTranscript.promise)
+    const observedHandoffs: NonNullable<
+      ReturnType<typeof useAppStore.getState>['conversationDraftHandoff']
+    >[] = []
+    const unsubscribe = useAppStore.subscribe((state) => {
+      if (state.conversationDraftHandoff) observedHandoffs.push(state.conversationDraftHandoff)
+    })
+
+    try {
+      render(<MainViewHarness />)
+      const homeTextbox = screen.getByRole('textbox')
+      fireEvent.change(homeTextbox, { target: { value: 'submitted' } })
+      fireEvent.click(screen.getByLabelText('Voice input (⌃M)'))
+      await screen.findByLabelText('Stop recording (⌃M)')
+      fireEvent.click(screen.getByLabelText('Stop recording (⌃M)'))
+      await waitFor(() => expect(transcribe).toHaveBeenCalledOnce())
+
+      fireEvent.click(screen.getByLabelText('Send'))
+      await waitFor(() => expect(runStart).toHaveBeenCalledOnce())
+      const acceptedId = useAppStore.getState().draftConvoId
+      expect(acceptedId).toEqual(expect.any(String))
+
+      act(() => useAppStore.setState({ view: { kind: 'models' } }))
+      expect(screen.getByText('Different view')).toBeInTheDocument()
+
+      await act(async () => pendingRun.resolve(undefined))
+      await waitFor(() => expect(useAppStore.getState().acceptedHomeConvoId).toBe(acceptedId))
+      expect(useAppStore.getState().view).toEqual({ kind: 'models' })
+      expect(useAppStore.getState().conversationDraftHandoff).toBeNull()
+
+      await act(async () => pendingTranscript.resolve({ text: ' voice transcript' }))
+
+      await waitFor(() =>
+        expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: acceptedId })
+      )
+      expect(screen.getByRole('textbox')).toHaveValue('submitted voice transcript')
+      expect(observedHandoffs).toEqual([
+        {
+          conversationId: acceptedId,
+          draft: {
+            text: 'submitted voice transcript',
+            command: null,
+            mentions: [],
+            attachments: []
+          }
+        }
+      ])
+      await waitFor(() => expect(useAppStore.getState().conversationDraftHandoff).toBeNull())
+
+      act(() => useAppStore.setState({ view: { kind: 'models' } }))
+      act(() =>
+        useAppStore.setState({
+          view: { kind: 'conversation', id: acceptedId! }
+        })
+      )
+      expect(screen.getByRole('textbox')).toHaveValue('')
+    } finally {
+      unsubscribe()
+    }
+  })
+
   it('keeps Home ownership pending until a deferred Media pick joins the accepted transfer', async () => {
     const pendingRun = deferred<void>()
     const pendingPick = deferred<{ picked: PickedAttachmentWire[]; errors: string[] }>()

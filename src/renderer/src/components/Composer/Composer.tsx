@@ -349,25 +349,37 @@ export function Composer({
   // Mentions opens the @ menu; Actions opens the / menu; Browser drops the
   // /browser command chip. The @/ menus already key off the textarea contents (mentionQuery /
   // value[0] === '/'), so those two just seed + focus.
+  const trackContextMutation = (
+    mutate: () => Promise<void>,
+    fallbackError: string
+  ): Promise<void> => {
+    let operation: Promise<void>
+    try {
+      operation = mutate()
+    } catch (error) {
+      operation = Promise.reject(error)
+    }
+    const normalized = operation.catch((error: unknown) => {
+      showToast(error instanceof Error ? error.message : fallbackError)
+    })
+    const tracked = contextMutationTailRef.current.then(
+      () => normalized,
+      () => normalized
+    )
+    contextMutationTailRef.current = tracked
+    return tracked
+  }
+
   const onMedia = (): Promise<void> => {
     setAddMenuOpen(false)
     // Start the external picker immediately, then append its normalized draft
     // mutation to a stable settlement chain. Accepted submission waits until
     // this chain stops changing, including operations added while it waits.
-    const operation = pickAttachments(snapshot().attachments.length)
-      .then(({ picked, errors }) => {
-        if (picked.length > 0) setAttachments((cur) => [...cur, ...picked])
-        if (errors.length > 0) showToast(errors[0])
-      })
-      .catch((error: unknown) => {
-        showToast(error instanceof Error ? error.message : 'Could not pick attachments')
-      })
-    const tracked = contextMutationTailRef.current.then(
-      () => operation,
-      () => operation
-    )
-    contextMutationTailRef.current = tracked
-    return tracked
+    return trackContextMutation(async () => {
+      const { picked, errors } = await pickAttachments(snapshot().attachments.length)
+      if (picked.length > 0) setAttachments((cur) => [...cur, ...picked])
+      if (errors.length > 0) showToast(errors[0])
+    }, 'Could not pick attachments')
   }
   const onMentions = (): void => {
     setAddMenuOpen(false)
@@ -431,10 +443,13 @@ export function Composer({
   // closure over `value` can't clobber text typed while recording.
   const insertTranscript = (text: string): void => {
     const ta = taRef.current
-    const cur = ta ? ta.value : value
-    const caret = ta?.selectionStart ?? cur.length
-    const next = cur.slice(0, caret) + text + cur.slice(caret)
-    setValue(next)
+    if (!ta) {
+      setValue((current) => current + text)
+      return
+    }
+    const cur = ta.value
+    const caret = ta.selectionStart
+    setValue(cur.slice(0, caret) + text + cur.slice(caret))
     setMenuDismissed(false)
     setPendingCaret(caret + text.length)
   }
@@ -444,9 +459,10 @@ export function Composer({
   const toggleRecord = (): void => {
     if (voice.status === 'transcribing') return
     if (voice.status === 'recording') {
-      void voice.stop().then((text) => {
+      void trackContextMutation(async () => {
+        const text = await voice.stop()
         if (text && text.trim() !== '') insertTranscript(text)
-      })
+      }, 'Could not transcribe recording')
     } else {
       void voice.start()
     }
