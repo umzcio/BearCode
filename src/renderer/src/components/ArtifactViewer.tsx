@@ -142,7 +142,7 @@ export function ArtifactViewer({
   const unsentCount = comments.filter((c) => c.sentAt === null).length
 
   const onBodyMouseUp = (): void => {
-    if (!pendingCall) return
+    if (!pendingCall || inserting) return
     const sel = window.getSelection()
     if (!sel || sel.isCollapsed || !bodyRef.current) return
     if (!bodyRef.current.contains(sel.anchorNode)) return
@@ -287,6 +287,7 @@ export function ArtifactViewer({
             <blockquote className="plan-comment-quote">{draftQuote}</blockquote>
             <textarea
               value={draftBody}
+              disabled={inserting}
               onChange={(e) => setDraftBody(e.target.value)}
               placeholder="Add a comment…"
               autoFocus

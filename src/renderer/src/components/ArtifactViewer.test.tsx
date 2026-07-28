@@ -215,6 +215,7 @@ describe('ArtifactViewer artifact comment insertion', () => {
     )
     expect(add).toBeDisabled()
     expect(cancel).toBeDisabled()
+    expect(body).toBeDisabled()
     expect(body).toHaveValue('  Keep exact spacing  ')
     expect(screen.getByText('Implementation plan', { selector: 'blockquote' })).toBeInTheDocument()
   })
