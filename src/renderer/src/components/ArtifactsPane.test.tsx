@@ -2,7 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BearcodeApi, Event } from '@shared/types'
-import { useAppStore, type Convo } from '../state/store'
+import { mergeConvoEvent, useAppStore, type Convo } from '../state/store'
+import { projectAuxEvents } from '../lib/auxEvents'
 import { ArtifactsPane } from './ArtifactsPane'
 
 const { attachmentPreviewRender } = vi.hoisted(() => ({ attachmentPreviewRender: vi.fn() }))
@@ -22,6 +23,8 @@ const browserShow = vi.fn().mockResolvedValue(undefined)
 const browserHide = vi.fn().mockResolvedValue(undefined)
 const readFile = vi.fn(() => new Promise<string>(() => {}))
 const realShowToast = useAppStore.getState().showToast
+const realLoadArtifactComments = useAppStore.getState().loadArtifactComments
+const loadArtifactComments = vi.fn(() => Promise.resolve())
 
 class ResizeObserverStub {
   observe = vi.fn()
@@ -74,6 +77,7 @@ function conversation(id: string, events: Event[]): Convo {
     createdAt: 1,
     loaded: true,
     events,
+    auxEvents: projectAuxEvents(events),
     runState: 'idle',
     environment: 'local',
     worktrees: []
@@ -107,6 +111,7 @@ beforeEach(() => {
   browserShow.mockClear()
   browserHide.mockClear()
   readFile.mockClear()
+  loadArtifactComments.mockClear()
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
     attachments: { preview, save },
@@ -117,13 +122,16 @@ beforeEach(() => {
     },
     shell: { readFile }
   } as unknown as BearcodeApi
-  useAppStore.setState({ showToast } as never)
+  useAppStore.setState({ showToast, loadArtifactComments } as never)
 })
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
-  useAppStore.setState({ showToast: realShowToast } as never)
+  useAppStore.setState({
+    showToast: realShowToast,
+    loadArtifactComments: realLoadArtifactComments
+  } as never)
 })
 
 describe('ArtifactsPane attachment mode', () => {
@@ -241,6 +249,52 @@ describe('ArtifactsPane attachment mode', () => {
 })
 
 describe('ArtifactsPane motion lifecycle', () => {
+  it('removes plan actions when submit_plan is re-emitted as approved', () => {
+    const plan = {
+      type: 'artifact',
+      id: 'event-plan',
+      artifactId: 'plan-1',
+      artifactType: 'plan',
+      version: 1,
+      title: 'Implementation plan',
+      status: 'pending-review',
+      body: '# Implementation plan'
+    } satisfies Extract<Event, { type: 'artifact' }>
+    const pendingCall = {
+      type: 'tool_call',
+      id: 'call-plan',
+      tool: 'submit_plan',
+      input: { artifactId: 'plan-1' },
+      approvalState: 'pending'
+    } satisfies Extract<Event, { type: 'tool_call' }>
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'conv_123' },
+      conversations: {
+        conv_123: conversation('conv_123', [plan, pendingCall])
+      },
+      auxSelection: { kind: 'artifact', artifactId: 'plan-1' },
+      auxPaneOpenTick: 0
+    })
+    render(<ArtifactsPane />)
+    expect(screen.getByRole('button', { name: 'Proceed' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Review' })).toBeInTheDocument()
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        conversations: {
+          ...state.conversations,
+          conv_123: mergeConvoEvent(state.conversations.conv_123, {
+            ...pendingCall,
+            approvalState: 'approved'
+          })
+        }
+      }))
+    })
+
+    expect(screen.queryByRole('button', { name: 'Proceed' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Review' })).toBeNull()
+  })
+
   it('resizes the persistent shell without rerendering a stable body', () => {
     seedAttachmentSelection([returnedAttachment, returnedAttachmentTwo])
     const { container } = render(<ArtifactsPane />)

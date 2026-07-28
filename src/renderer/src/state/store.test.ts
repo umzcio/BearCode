@@ -12,6 +12,7 @@ import type {
 import {
   AUX_MIN,
   useAppStore,
+  mergeConvoEvent,
   shouldFollowNewDiff,
   shouldOpenBrowserPane,
   refConfigured,
@@ -69,7 +70,7 @@ const conversations = {
   setArchived: vi.fn(() => Promise.resolve()),
   delete: vi.fn(() => Promise.resolve()),
   rename: vi.fn(() => Promise.resolve()),
-  get: vi.fn(() => Promise.resolve([])),
+  get: vi.fn((_id: string): Promise<Event[]> => Promise.resolve([])),
   clear: vi.fn(() => Promise.resolve())
 }
 const run = { start: vi.fn(() => Promise.resolve()), cancel: vi.fn(() => Promise.resolve()) }
@@ -155,6 +156,7 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   createdAt: 0,
   loaded: true,
   events: [],
+  auxEvents: [],
   runState: 'idle',
   environment: 'local',
   effort: 'adaptive',
@@ -219,6 +221,85 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('incremental artifacts event projection', () => {
+  const userMessage = { type: 'user_message', id: 'user-1', text: 'Make the change' } as Event
+  const plan = {
+    type: 'artifact',
+    id: 'artifact-1',
+    artifactId: 'plan-1',
+    artifactType: 'plan',
+    version: 1,
+    title: 'Plan',
+    status: 'pending-review',
+    body: '# Plan'
+  } as Event
+  const diff = {
+    type: 'file_diff',
+    id: 'diff-1',
+    diffId: 'changes-1',
+    files: [{ path: 'src/a.ts', additions: 1, deletions: 0, status: 'modified' }]
+  } as Event
+
+  it('changes authoritative events but preserves auxEvents identity for irrelevant streaming', () => {
+    const projection = [userMessage, plan] as Convo['auxEvents']
+    const before = convo({ events: [userMessage, plan], auxEvents: projection })
+
+    const after = mergeConvoEvent(before, {
+      type: 'assistant_text',
+      id: 'text-1',
+      text: 'Streaming'
+    })
+
+    expect(after.events).not.toBe(before.events)
+    expect(after.events.map((event) => event.id)).toEqual(['user-1', 'artifact-1', 'text-1'])
+    expect(after.auxEvents).toBe(projection)
+  })
+
+  it('updates both authoritative events and auxEvents for a relevant re-emission', () => {
+    const projection = [userMessage, plan] as Convo['auxEvents']
+    const before = convo({ events: [userMessage, plan], auxEvents: projection })
+    const approvedPlan = { ...plan, status: 'approved' } as Event
+
+    const after = mergeConvoEvent(before, approvedPlan)
+
+    expect(after.events).not.toBe(before.events)
+    expect(after.auxEvents).not.toBe(projection)
+    expect(after.events.map((event) => event.id)).toEqual(['user-1', 'artifact-1'])
+    expect(after.auxEvents.map((event) => event.id)).toEqual(['user-1', 'artifact-1'])
+    expect(after.events[1]).toBe(approvedPlan)
+    expect(after.auxEvents[1]).toBe(approvedPlan)
+  })
+
+  it('hydrates loaded history and its projection together', async () => {
+    const history: Event[] = [
+      userMessage,
+      { type: 'assistant_text', id: 'text-1', text: 'Working' },
+      diff,
+      {
+        type: 'tool_call',
+        id: 'tool-noise',
+        tool: 'read_file',
+        input: {},
+        approvalState: 'auto'
+      } as Event
+    ]
+    conversations.get.mockResolvedValueOnce(history)
+    useAppStore.setState({
+      view: { kind: 'history' },
+      conversations: { c1: convo({ loaded: false, events: [], auxEvents: [] }) }
+    })
+
+    useAppStore.getState().openConvo('c1')
+
+    await vi.waitFor(() => expect(useAppStore.getState().conversations.c1.loaded).toBe(true))
+    const loaded = useAppStore.getState().conversations.c1
+    expect(loaded.events).toBe(history)
+    expect(loaded.auxEvents.map((event) => event.id)).toEqual(['user-1', 'diff-1'])
+    expect(loaded.auxEvents[0]).toBe(userMessage)
+    expect(loaded.auxEvents[1]).toBe(diff)
+  })
 })
 
 describe('pane width persistence', () => {

@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Profiler } from 'react'
 import type { BearcodeApi, Event, FileDiff } from '@shared/types'
-import { useAppStore, type Convo } from '../state/store'
+import { mergeConvoEvent, useAppStore, type Convo } from '../state/store'
+import { projectAuxEvents } from '../lib/auxEvents'
 import { ArtifactsPane } from './ArtifactsPane'
 
 vi.mock('./MonacoCode', () => ({
@@ -139,6 +141,7 @@ function conversation(id: string, events: Event[]): Convo {
     createdAt: 1,
     loaded: true,
     events,
+    auxEvents: projectAuxEvents(events),
     runState: 'idle',
     environment: 'local',
     worktrees: []
@@ -249,6 +252,83 @@ afterEach(() => {
 })
 
 describe('ArtifactsPane diff review', () => {
+  it('skips assistant text stream renders but rerenders for new diff and artifact events', async () => {
+    seedDiffReview()
+    const onRender = vi.fn()
+    render(
+      <Profiler id="artifacts-pane" onRender={onRender}>
+        <ArtifactsPane />
+      </Profiler>
+    )
+    await screen.findByTestId('monaco-diff-stub')
+    onRender.mockClear()
+
+    act(() => {
+      useAppStore.setState((state) => {
+        const current = state.conversations.conv_123
+        return {
+          conversations: {
+            ...state.conversations,
+            conv_123: mergeConvoEvent(current, {
+              type: 'assistant_text',
+              id: 'text-stream',
+              text: 'Still working'
+            })
+          }
+        }
+      })
+    })
+
+    expect(onRender).not.toHaveBeenCalled()
+
+    act(() => {
+      useAppStore.setState((state) => {
+        const current = state.conversations.conv_123
+        return {
+          conversations: {
+            ...state.conversations,
+            conv_123: mergeConvoEvent(current, {
+              type: 'file_diff',
+              id: 'event-diff-new',
+              diffId: 'diff_456',
+              files: [
+                { path: '/workspace/src/second.ts', additions: 1, deletions: 1, status: 'modified' }
+              ]
+            })
+          }
+        }
+      })
+    })
+
+    expect(onRender).toHaveBeenCalled()
+    expect(screen.getAllByRole('button', { name: /Changes/ })).toHaveLength(2)
+    onRender.mockClear()
+
+    act(() => {
+      useAppStore.setState((state) => {
+        const current = state.conversations.conv_123
+        return {
+          conversations: {
+            ...state.conversations,
+            conv_123: mergeConvoEvent(current, {
+              type: 'artifact',
+              id: 'event-plan-new',
+              artifactId: 'plan-new',
+              artifactType: 'plan',
+              version: 1,
+              title: 'Plan',
+              status: 'pending-review',
+              body: '# Plan'
+            })
+          }
+        }
+      })
+    })
+
+    expect(onRender).toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /Plan v1/ })).toBeInTheDocument()
+  })
+
   it('keeps the diff pane loading until its requested diff resolves', async () => {
     const pending = deferred<FileDiff>()
     getDiff.mockReturnValueOnce(pending.promise)

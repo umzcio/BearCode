@@ -41,6 +41,7 @@ import { applyAppearance, watchSystemTheme } from '../lib/appearance'
 import { initWindowFocusTracking } from '../lib/windowFocus'
 import { describeError } from '../lib/errors'
 import { mergeEvent } from '../lib/mergeEvent'
+import { mergeAuxEvent, projectAuxEvents, type AuxEvent } from '../lib/auxEvents'
 import { resolveProjectDefaults } from '@shared/projectDefaults'
 import { hasComposerDraftContent, type ComposerDraft } from '../lib/composerDraft'
 
@@ -65,6 +66,7 @@ export interface Convo {
   createdAt: number
   loaded: boolean
   events: Event[]
+  auxEvents: AuxEvent[]
   runState: ConvoRunState
   // F3: execution environment, chosen at creation and locked at first run.
   // 'local' runs in the project folder; 'worktree' runs in isolated git
@@ -259,10 +261,19 @@ function fromMeta(meta: ConversationMeta): Convo {
     createdAt: meta.createdAt,
     loaded: false,
     events: [],
+    auxEvents: [],
     runState: 'idle',
     environment: meta.environment,
     worktrees: meta.worktrees ?? [],
     preview: meta.preview ?? null
+  }
+}
+
+export function mergeConvoEvent(convo: Convo, event: Event): Convo {
+  return {
+    ...convo,
+    events: mergeEvent(convo.events, event),
+    auxEvents: mergeAuxEvent(convo.auxEvents, event)
   }
 }
 
@@ -671,8 +682,12 @@ export const useAppStore = create<AppState>((set, get) => {
     set((s) => {
       const convo = s.conversations[convoId]
       if (!convo) return s
-      const events = mergeEvent(convo.events, event)
-      return { conversations: { ...s.conversations, [convoId]: { ...convo, events } } }
+      return {
+        conversations: {
+          ...s.conversations,
+          [convoId]: mergeConvoEvent(convo, event)
+        }
+      }
     })
   }
 
@@ -1123,6 +1138,7 @@ export const useAppStore = create<AppState>((set, get) => {
             const pending = last && last.type === 'tool_call' && last.approvalState === 'pending'
             patchConvo(id, {
               events,
+              auxEvents: projectAuxEvents(events),
               loaded: true,
               ...(pending ? { runState: 'awaiting-approval' as const } : {})
             })

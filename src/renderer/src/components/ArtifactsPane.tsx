@@ -171,7 +171,7 @@ function ArtifactsPaneInnerImplementation({
             : null
       if (!conversationId) return null
       const c = s.conversations[conversationId]
-      return c ? { events: c.events } : null
+      return c ? { auxEvents: c.auxEvents } : null
     })
   )
   const closeReview = useAppStore((s) => s.closeReview)
@@ -231,7 +231,7 @@ function ArtifactsPaneInnerImplementation({
   }
 
   if (sel.kind === 'attachment') {
-    const event = convo?.events.find(
+    const event = convo?.auxEvents.find(
       (candidate): candidate is Extract<Event, { type: 'assistant_attachment' }> =>
         candidate.type === 'assistant_attachment' && candidate.attachment.id === sel.attachmentId
     )
@@ -247,13 +247,13 @@ function ArtifactsPaneInnerImplementation({
 
   if (!convo) return null
 
-  const entries = deriveRailEntries(convo.events)
+  const entries = deriveRailEntries(convo.auxEvents)
   const artifactFor = (artifactId: string): ArtifactEvent | undefined =>
-    convo.events.find(
+    convo.auxEvents.find(
       (e): e is ArtifactEvent => e.type === 'artifact' && e.artifactId === artifactId
     )
   const diffExists = (diffId: string): boolean =>
-    convo.events.some((e) => e.type === 'file_diff' && e.diffId === diffId)
+    convo.auxEvents.some((e) => e.type === 'file_diff' && e.diffId === diffId)
 
   // Resolve the local selection against the live events; fall back to the
   // newest rail entry (e.g. a stale local pick after events changed).
@@ -334,8 +334,8 @@ function ArtifactsPaneInnerImplementation({
         <div className="ap-artifact-body">
           <ArtifactViewer
             selected={selectedArtifact}
-            versions={versionsOfType(convo.events, selectedArtifact.artifactType)}
-            convoEvents={convo.events}
+            versions={versionsOfType(convo.auxEvents, selectedArtifact.artifactType)}
+            convoEvents={convo.auxEvents}
             onSelectVersion={(artifactId) => setSel({ kind: 'artifact', artifactId })}
           />
         </div>
@@ -500,7 +500,7 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
     useShallow((s) => {
       if (s.view.kind !== 'conversation') return null
       const c = s.conversations[s.view.id]
-      return c ? { events: c.events } : null
+      return c ? { auxEvents: c.auxEvents } : null
     })
   )
   const send = useAppStore((s) => s.send)
@@ -531,8 +531,8 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
   let turnPrompt = ''
   if (convo) {
     let sawDiff = false
-    for (let i = convo.events.length - 1; i >= 0; i--) {
-      const ev: Event = convo.events[i]
+    for (let i = convo.auxEvents.length - 1; i >= 0; i--) {
+      const ev: Event = convo.auxEvents[i]
       if (ev.type === 'file_diff' && ev.diffId === diffId) sawDiff = true
       else if (sawDiff && ev.type === 'user_message') {
         turnPrompt = ev.text
