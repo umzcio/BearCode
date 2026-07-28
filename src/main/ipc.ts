@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { statSync, readFileSync } from 'fs'
 import { isAbsolute } from 'path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
+import type { IpcMainInvokeEvent } from 'electron'
 import type {
   AddRuleInput,
   AppSettings,
@@ -96,6 +97,8 @@ import { renderPreviewPayload } from './preview/render'
 import * as db from './db'
 import { createWorktrees, removeWorktrees, gitAvailable, discoverRepos } from './worktree/manager'
 import { browserManager } from './browser/manager'
+import { assertBrowserControlSender, parseBrowserBounds } from './browser/ipcGuard'
+import { getMainWindow } from './mainWindow'
 import { terminalManager } from './terminal/manager'
 import {
   commitWorktree,
@@ -1031,15 +1034,31 @@ export function registerIpc(): void {
   // singleton (browserManager); the renderer only reports the placeholder
   // rect's bounds and toggles visibility on mount/unmount. `status` backs the
   // Settings Browser tab; `clear-session` wipes per-conversation browsing data.
-  ipcMain.handle('bearcode:browser:status', () => browserManager.status())
-  ipcMain.handle('bearcode:browser:clear-session', () => browserManager.clearSession())
-  ipcMain.handle(
-    'bearcode:browser:set-bounds',
-    (_e, b: { x: number; y: number; width: number; height: number }) => {
-      browserManager.setBounds(b)
-    }
-  )
-  ipcMain.handle('bearcode:browser:show', () => browserManager.show())
+  const requireBrowserControlWindow = (event: IpcMainInvokeEvent): BrowserWindow => {
+    const mainWindow = getMainWindow()
+    assertBrowserControlSender(event, mainWindow)
+    return mainWindow
+  }
+  ipcMain.handle('bearcode:browser:status', (event) => {
+    requireBrowserControlWindow(event)
+    return browserManager.status()
+  })
+  ipcMain.handle('bearcode:browser:clear-session', (event) => {
+    requireBrowserControlWindow(event)
+    return browserManager.clearSession()
+  })
+  ipcMain.handle('bearcode:browser:set-bounds', (event, raw: unknown) => {
+    const mainWindow = requireBrowserControlWindow(event)
+    browserManager.setBounds(parseBrowserBounds(raw, mainWindow.getContentBounds()))
+  })
+  ipcMain.handle('bearcode:browser:show', (event) => {
+    requireBrowserControlWindow(event)
+    browserManager.show()
+  })
+  ipcMain.handle('bearcode:browser:hide', (event) => {
+    requireBrowserControlWindow(event)
+    browserManager.hide()
+  })
 
   // Embedded Terminal (2026-07-25 design): TerminalManager is a main-side
   // singleton keyed by project path. Data/exit are pushed to every window via
@@ -1878,5 +1897,4 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:clipboard:write', (_e, text: unknown) => {
     clipboard.writeText(typeof text === 'string' ? text : String(text))
   })
-  ipcMain.handle('bearcode:browser:hide', () => browserManager.hide())
 }
