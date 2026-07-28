@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, memo, useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Event, FileDiff, FileDiffFile } from '@shared/types'
 import { useAppStore, type AuxSelection, type ReviewComment } from '../state/store'
@@ -154,7 +154,7 @@ function ApBrand(): React.JSX.Element {
   )
 }
 
-function ArtifactsPaneInner({
+function ArtifactsPaneInnerImplementation({
   target,
   browserVisible
 }: {
@@ -358,6 +358,8 @@ function ArtifactsPaneInner({
     </>
   )
 }
+
+const ArtifactsPaneInner = memo(ArtifactsPaneInnerImplementation)
 
 function AttachmentPanel({
   conversationId,

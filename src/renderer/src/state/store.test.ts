@@ -10,6 +10,7 @@ import type {
   PlanReviewResolveResult
 } from '@shared/types'
 import {
+  AUX_MIN,
   useAppStore,
   shouldFollowNewDiff,
   shouldOpenBrowserPane,
@@ -243,6 +244,24 @@ describe('pane width persistence', () => {
       ['bearcode.sidebarWidth', '333'],
       ['bearcode.auxPaneWidth', '778']
     ])
+  })
+
+  it('skips no-op rounded or clamped aux widths but still persists a released width', () => {
+    const setItem = vi.fn()
+    vi.stubGlobal('localStorage', { setItem })
+    useAppStore.setState({ auxPaneWidth: AUX_MIN })
+    const stateBefore = useAppStore.getState()
+    const subscriber = vi.fn()
+    const unsubscribe = useAppStore.subscribe(subscriber)
+
+    useAppStore.getState().setAuxPaneWidth(AUX_MIN - 0.4, { persist: false })
+    useAppStore.getState().setAuxPaneWidth(AUX_MIN - 100)
+
+    unsubscribe()
+
+    expect(useAppStore.getState()).toBe(stateBefore)
+    expect(subscriber).not.toHaveBeenCalled()
+    expect(setItem).toHaveBeenCalledWith('bearcode.auxPaneWidth', String(AUX_MIN))
   })
 })
 

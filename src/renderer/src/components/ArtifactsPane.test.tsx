@@ -5,6 +5,15 @@ import type { BearcodeApi, Event } from '@shared/types'
 import { useAppStore, type Convo } from '../state/store'
 import { ArtifactsPane } from './ArtifactsPane'
 
+const { attachmentPreviewRender } = vi.hoisted(() => ({ attachmentPreviewRender: vi.fn() }))
+
+vi.mock('./AttachmentPreview/AttachmentPreview', () => ({
+  AttachmentPreview: ({ attachmentId }: { attachmentId: string }) => {
+    attachmentPreviewRender()
+    return <div>Mock attachment preview {attachmentId}</div>
+  }
+}))
+
 const preview = vi.fn()
 const save = vi.fn()
 const showToast = vi.fn()
@@ -29,6 +38,19 @@ const returnedAttachment = {
     kind: 'document',
     sizeBytes: 1536,
     sha256: 'a'.repeat(64)
+  }
+} satisfies Extract<Event, { type: 'assistant_attachment' }>
+
+const returnedAttachmentTwo = {
+  type: 'assistant_attachment',
+  id: 'event_456',
+  attachment: {
+    id: 'att_456',
+    name: 'follow-up-report.pdf',
+    mime: 'application/pdf',
+    kind: 'document',
+    sizeBytes: 2048,
+    sha256: 'b'.repeat(64)
   }
 } satisfies Extract<Event, { type: 'assistant_attachment' }>
 
@@ -75,6 +97,7 @@ function seedAttachmentSelection(events: Event[] = [returnedAttachment]): void {
 }
 
 beforeEach(() => {
+  attachmentPreviewRender.mockClear()
   preview.mockReset()
   preview.mockResolvedValue({ kind: 'text', text: 'Verified preview body' })
   save.mockReset()
@@ -112,7 +135,7 @@ describe('ArtifactsPane attachment mode', () => {
     expect(screen.getByText('verified-report.pdf')).toBeInTheDocument()
     expect(screen.getByText('PDF')).toBeInTheDocument()
     expect(screen.getByText('1.5 KB')).toBeInTheDocument()
-    expect(await screen.findByText('Verified preview body')).toBeInTheDocument()
+    expect(await screen.findByText('Mock attachment preview att_123')).toBeInTheDocument()
     expect(container.querySelector('.ap-rail')).toBeNull()
     expect(container.querySelector('.artifact-version-history')).toBeNull()
     expect(container.querySelector('.artifact-status')).toBeNull()
@@ -152,7 +175,7 @@ describe('ArtifactsPane attachment mode', () => {
     render(<ArtifactsPane />)
 
     expect(screen.getByText('verified-report.pdf')).toBeInTheDocument()
-    expect(await screen.findByText('Verified preview body')).toBeInTheDocument()
+    expect(await screen.findByText('Mock attachment preview att_123')).toBeInTheDocument()
   })
 
   it('routes Download through opaque conversation and attachment IDs', async () => {
@@ -218,6 +241,39 @@ describe('ArtifactsPane attachment mode', () => {
 })
 
 describe('ArtifactsPane motion lifecycle', () => {
+  it('resizes the persistent shell without rerendering a stable body', () => {
+    seedAttachmentSelection([returnedAttachment, returnedAttachmentTwo])
+    const { container } = render(<ArtifactsPane />)
+    const shell = container.querySelector('.ap-panel') as HTMLElement
+
+    expect(screen.getByText('Mock attachment preview att_123')).toBeInTheDocument()
+    expect(attachmentPreviewRender).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      useAppStore.getState().setAuxPaneWidth(512, { persist: false })
+      useAppStore.getState().setAuxPaneWidth(576, { persist: false })
+      useAppStore.getState().setAuxPaneWidth(640, { persist: false })
+    })
+
+    expect(container.querySelector('.ap-panel')).toBe(shell)
+    expect(shell).toHaveStyle({ flexBasis: '640px' })
+    expect(attachmentPreviewRender).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      useAppStore.setState({
+        auxSelection: {
+          kind: 'attachment',
+          conversationId: 'conv_123',
+          attachmentId: 'att_456'
+        },
+        auxPaneOpenTick: 1
+      })
+    })
+
+    expect(screen.getByText('Mock attachment preview att_456')).toBeInTheDocument()
+    expect(attachmentPreviewRender).toHaveBeenCalledTimes(2)
+  })
+
   it('preserves the panel shell when the selected target changes', () => {
     seedAttachmentSelection()
     const { container } = render(<ArtifactsPane />)

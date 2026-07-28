@@ -965,7 +965,7 @@ export const useAppStore = create<AppState>((set, get) => {
     setAuxPaneWidth: (w, options) => {
       const c = Math.min(AUX_MAX, Math.max(AUX_MIN, Math.round(w)))
       if (options?.persist !== false) writeStoredWidth('bearcode.auxPaneWidth', c)
-      set({ auxPaneWidth: c })
+      set((s) => (s.auxPaneWidth === c ? s : { auxPaneWidth: c }))
     },
     toggleModelMenu: () => set((s) => ({ modelMenuTick: s.modelMenuTick + 1 })),
     goHome: () =>
