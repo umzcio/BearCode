@@ -40,10 +40,14 @@ vi.mock('../../state/store', () => ({
       refreshCommands: vi.fn(),
       resumePickerOpen: false,
       setResumePickerOpen: vi.fn(),
-      fileSuggestions: [],
+      fileSuggestions: ['src/answer.ts'],
       manualRules: [],
+      mcpConnectors: [],
+      manualSkills: [],
       suggestFiles: vi.fn(),
       refreshManualRules: vi.fn(),
+      refreshMcpConnectors: vi.fn(),
+      refreshManualSkills: vi.fn(),
       conversations: {},
       convoOrder: [],
       pickAttachments,
@@ -58,6 +62,84 @@ vi.mock('../../state/store', () => ({
 }))
 
 describe('Composer attachments', () => {
+  it('preserves text, command, mentions, and attachments when dispatch returns false', async () => {
+    const onSend = vi.fn(async () => false)
+    render(<Composer conversationId="c1" onSend={onSend} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Media/ }))
+    await screen.findByText('shot.png')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Mentions/ }))
+    fireEvent.click(screen.getByText('Files'))
+    fireEvent.click(screen.getByText('src/answer.ts'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Browser/ }))
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, { target: { value: 'Please review this' } })
+    fireEvent.click(screen.getByLabelText('Send'))
+
+    await waitFor(() => expect(onSend).toHaveBeenCalledOnce())
+    expect(textarea).toHaveValue('Please review this')
+    expect(screen.getByText('/browser')).toBeInTheDocument()
+    expect(screen.getByText('@src/answer.ts')).toBeInTheDocument()
+    expect(screen.getByText('shot.png')).toBeInTheDocument()
+  })
+
+  it('keeps the draft visible and blocks duplicate submit while dispatch is pending', async () => {
+    let resolveSend!: (accepted: boolean) => void
+    const onSend = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveSend = resolve
+        })
+    )
+    render(<Composer conversationId="c1" onSend={onSend} />)
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, { target: { value: 'Send once' } })
+
+    fireEvent.click(screen.getByLabelText('Send'))
+
+    expect(onSend).toHaveBeenCalledOnce()
+    expect(textarea).toHaveValue('Send once')
+    const sendButton = screen.getByLabelText('Send')
+    expect(sendButton).toBeDisabled()
+    fireEvent.click(sendButton)
+    expect(onSend).toHaveBeenCalledOnce()
+
+    resolveSend(true)
+
+    await waitFor(() => expect(textarea).toHaveValue(''))
+  })
+
+  it('preserves edits and attachments added after a pending submit is accepted', async () => {
+    let resolveSend!: (accepted: boolean) => void
+    const onSend = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveSend = resolve
+        })
+    )
+    render(<Composer conversationId="c1" onSend={onSend} />)
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, { target: { value: 'Original draft' } })
+    fireEvent.click(screen.getByLabelText('Send'))
+
+    fireEvent.change(textarea, { target: { value: 'Late edit' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+    fireEvent.click(screen.getByRole('option', { name: /^Media/ }))
+    await screen.findByText('shot.png')
+
+    resolveSend(true)
+
+    await waitFor(() => expect(screen.getByLabelText('Send')).not.toBeDisabled())
+    expect(textarea).toHaveValue('Late edit')
+    expect(screen.getByText('shot.png')).toBeInTheDocument()
+  })
+
   it('adds a thumbnail pill after Media pick and sends the ref (no preview)', async () => {
     const onSend = vi.fn()
     render(<Composer conversationId="c1" onSend={onSend} />)

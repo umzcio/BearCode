@@ -173,6 +173,7 @@ function seedDiffReview(
     auxPaneWidth: 560,
     reviewFocusPath: focusPath,
     diffReviewComments: {},
+    diffReviewSending: {},
     send: sendReview,
     showToast
   } as never)
@@ -592,6 +593,43 @@ describe('ArtifactsPane diff review', () => {
     await act(async () => {
       pending.resolve(false)
     })
+  })
+
+  it('keeps the send guard across remount and does not close a newer selection', async () => {
+    const pending = deferred<boolean>()
+    sendReview.mockReturnValueOnce(pending.promise)
+    getDiff.mockImplementation((id: string) =>
+      Promise.resolve(id === secondDiff.diffId ? secondDiff : diff)
+    )
+    seedDiffReview(diff, null, [diff, secondDiff])
+    render(<ArtifactsPane />)
+    await screen.findByTestId('monaco-diff-stub')
+    fireEvent.click(screen.getByRole('button', { name: 'Add comment at line 7' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send 1 comment' }))
+
+    const railButton = (fileCount: string): HTMLElement =>
+      screen
+        .getAllByRole('button', { name: /Changes/ })
+        .find((button) => button.textContent?.includes(fileCount))!
+
+    fireEvent.click(railButton('1 file'))
+    await screen.findByText('export const second = 2')
+    fireEvent.click(railButton('2 files'))
+    await screen.findByText('export const answer = 42')
+
+    const remountedSend = screen.getByRole('button', { name: 'Send 1 comment' })
+    expect(remountedSend).toBeDisabled()
+    fireEvent.click(remountedSend)
+    expect(sendReview).toHaveBeenCalledOnce()
+
+    fireEvent.click(railButton('1 file'))
+    await screen.findByText('export const second = 2')
+    await act(async () => {
+      pending.resolve(true)
+    })
+
+    expect(useAppStore.getState().auxSelection).not.toBeNull()
+    expect(screen.getByText('export const second = 2')).toBeInTheDocument()
   })
 
   it('retains comments added during an accepted pending send', async () => {

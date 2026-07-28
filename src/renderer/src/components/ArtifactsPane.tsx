@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Event, FileDiff, FileDiffFile } from '@shared/types'
-import { useAppStore, type AuxSelection } from '../state/store'
+import { useAppStore, type AuxSelection, type ReviewComment } from '../state/store'
 import { useCmdHeld } from '../lib/useCmdHeld'
 import { ArtifactViewer } from './ArtifactViewer'
 import { BrowserPane } from './Browser/BrowserPane'
@@ -82,12 +82,7 @@ type DiffLoadState =
   | { status: 'ready'; diffId: string; diff: FileDiff }
   | { status: 'error'; diffId: string }
 
-interface ReviewComment {
-  id: number
-  path: string
-  line: number
-  text: string
-}
+const EMPTY_REVIEW_COMMENTS: ReviewComment[] = []
 
 // The Artifacts pane (Ba4, design 3.6), reskinned 2026-07-06 with the two-row
 // Artifact Panel header. ONE side panel listing every deliverable of the
@@ -514,7 +509,21 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
   const [mode, setMode] = useState<'overview' | 'diff'>('diff')
   const [activeFileId, setActiveFileId] = useState<string | null>(null)
   const [bodyView, setBodyView] = useState<Record<string, BodyView>>({})
-  const [comments, setComments] = useState<ReviewComment[]>([])
+  const mountedRef = useRef(true)
+  const comments = useAppStore((s) => s.diffReviewComments[diffId] ?? EMPTY_REVIEW_COMMENTS)
+  const sending = useAppStore((s) => s.diffReviewSending[diffId] === true)
+  const addDiffReviewComment = useAppStore((s) => s.addDiffReviewComment)
+  const removeDiffReviewComment = useAppStore((s) => s.removeDiffReviewComment)
+  const clearDiffReviewComments = useAppStore((s) => s.clearDiffReviewComments)
+  const beginDiffReviewSend = useAppStore((s) => s.beginDiffReviewSend)
+  const finishDiffReviewSend = useAppStore((s) => s.finishDiffReviewSend)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   // The user prompt this diff belongs to, for the For-Turn context line.
   let turnPrompt = ''
@@ -602,18 +611,32 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
     showToast('Change reverted')
   }
 
-  // Functional update: Monaco captures this closure once at mount.
+  // The store action is stable, so Monaco can safely retain this callback.
   const addComment = (path: string) => (line: number, text: string) => {
-    setComments((c) => [...c, { id: (c[c.length - 1]?.id ?? 0) + 1, path, line, text }])
+    addDiffReviewComment(diffId, { path, line, text })
   }
 
   const sendComments = (): void => {
-    if (!convoId || comments.length === 0) return
-    const lines = comments.map((c) => `- ${c.path} line ${c.line}: ${c.text}`)
-    send(convoId, `Please address these review comments:\n${lines.join('\n')}`)
-    setComments([])
-    showToast(`Sent ${comments.length === 1 ? '1 comment' : `${comments.length} comments`}`)
-    closeReview()
+    if (!convoId || comments.length === 0 || !beginDiffReviewSend(diffId)) return
+    const snapshot = comments
+    const lines = snapshot.map((c) => `- ${c.path} line ${c.line}: ${c.text}`)
+    void (async () => {
+      let accepted = false
+      try {
+        accepted = await send(convoId, `Please address these review comments:\n${lines.join('\n')}`)
+      } catch {
+        // Store dispatch resolves false on failure. This catch protects the
+        // drafts if a non-store test double or future caller rejects instead.
+      }
+      finishDiffReviewSend(diffId)
+      if (!accepted) return
+      clearDiffReviewComments(
+        diffId,
+        snapshot.map((comment) => comment.id)
+      )
+      showToast(`Sent ${snapshot.length === 1 ? '1 comment' : `${snapshot.length} comments`}`)
+      if (mountedRef.current) closeReview()
+    })()
   }
 
   const commentedLines = (path: string): number[] =>
@@ -846,7 +869,7 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
                   <button
                     className="comment-del"
                     aria-label="Remove comment"
-                    onClick={() => setComments((list) => list.filter((x) => x.id !== c.id))}
+                    onClick={() => removeDiffReviewComment(diffId, c.id)}
                   >
                     <IconClose size={12} />
                   </button>
@@ -855,7 +878,7 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
             ))}
           </div>
           <div className="comment-send">
-            <button className="foot-btn accept" onClick={sendComments}>
+            <button className="foot-btn accept" onClick={sendComments} disabled={sending}>
               Send {comments.length === 1 ? '1 comment' : `${comments.length} comments`}
             </button>
           </div>

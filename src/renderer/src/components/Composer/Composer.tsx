@@ -52,7 +52,7 @@ interface ComposerProps {
     command: CommandRef | null,
     mentions: MentionRef[],
     attachments: AttachmentRef[]
-  ): void
+  ): Promise<boolean>
   running?: boolean
   onStop?(): void
   showEnvRow?: boolean
@@ -132,6 +132,8 @@ export function Composer({
   const [envOpen, setEnvOpen] = useState(false)
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [attachments, setAttachments] = useState<PickedAttachmentWire[]>([])
+  const [sending, setSending] = useState(false)
+  const sendingRef = useRef(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const envTriggerRef = useRef<HTMLButtonElement>(null)
   const addMenuBtnRef = useRef<HTMLButtonElement>(null)
@@ -411,17 +413,33 @@ export function Composer({
   }
 
   const submit = (): void => {
-    if (!hasContent || running || !modelReady) return
+    if (!hasContent || running || sendingRef.current || !modelReady) return
     const text = value.trim()
+    const sentValue = value
     const sentCommand = command
     const sentMentions = mentions
+    const sentAttachmentDrafts = attachments
+    const sentMentionQuery = mentionQuery
     const sentAttachments = attachments.map((a) => a.ref)
-    setValue('')
-    setCommand(null)
-    setMentions([])
-    setAttachments([])
-    setMentionQuery(null)
-    onSend(text, sentCommand, sentMentions, sentAttachments)
+    sendingRef.current = true
+    setSending(true)
+    void Promise.resolve(onSend(text, sentCommand, sentMentions, sentAttachments)).then(
+      (accepted) => {
+        if (accepted) {
+          setValue((current) => (current === sentValue ? '' : current))
+          setCommand((current) => (current === sentCommand ? null : current))
+          setMentions((current) =>
+            current.filter((mention) => !sentMentions.includes(mention))
+          )
+          setAttachments((current) =>
+            current.filter((attachment) => !sentAttachmentDrafts.includes(attachment))
+          )
+          setMentionQuery((current) => (current === sentMentionQuery ? null : current))
+        }
+        sendingRef.current = false
+        setSending(false)
+      }
+    )
   }
 
   return (
@@ -756,7 +774,12 @@ export function Composer({
             </Hint>
           ) : hasContent && modelReady ? (
             <Hint label="Send" side="top">
-              <button className="icon-btn send-btn" aria-label="Send" onClick={submit}>
+              <button
+                className="icon-btn send-btn"
+                aria-label="Send"
+                onClick={submit}
+                disabled={sending}
+              >
                 <IconArrowUp />
               </button>
             </Hint>

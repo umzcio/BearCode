@@ -96,6 +96,13 @@ export type TerminalTabMeta = {
   exited: boolean
 }
 
+export interface ReviewComment {
+  id: string
+  path: string
+  line: number
+  text: string
+}
+
 // The Artifacts pane's target (Ba4 unification). ONE field for the ONE side
 // panel: an artifact (plan/walkthrough viewer) or a diff group (the virtual
 // "Changes" entry over the existing diffs table, design 3.4). Mutual
@@ -326,6 +333,12 @@ interface AppState {
   reviewFocusPath: string | null
   // Drafted/sent comments per artifact id, loaded lazily by the pane.
   artifactComments: Record<string, ArtifactComment[]>
+  // Session-only review drafts, keyed by diff id. These intentionally do not
+  // participate in persistence or IPC.
+  diffReviewComments: Record<string, ReviewComment[]>
+  // Session-level pending flags so rail navigation/remounts cannot duplicate a
+  // review send for the same diff.
+  diffReviewSending: Record<string, boolean>
   // Tick: the pane focuses its feedback box when this increments (the pending
   // card's "Send feedback" action).
   artifactPaneFocusFeedback: number
@@ -411,7 +424,7 @@ interface AppState {
     command?: CommandRef | null,
     mentions?: MentionRef[] | null,
     attachments?: AttachmentRef[] | null
-  ): void
+  ): Promise<boolean>
   deleteConvo(id: string): void
   send(
     convoId: string,
@@ -419,7 +432,7 @@ interface AppState {
     command?: CommandRef | null,
     mentions?: MentionRef[] | null,
     attachments?: AttachmentRef[] | null
-  ): void
+  ): Promise<boolean>
   cancelRun(convoId: string): void
   approveTool(callId: string, approved: boolean): void
   // Ursa Phase 2: approve/deny a proposed pipeline (the synthetic 'ursa_pipeline'
@@ -528,6 +541,11 @@ interface AppState {
   openBrowserPane(conversationId: string): void
   loadArtifactComments(artifactId: string): Promise<void>
   addArtifactComment(artifactId: string, quote: string | null, body: string): Promise<void>
+  addDiffReviewComment(diffId: string, comment: Omit<ReviewComment, 'id'>): void
+  removeDiffReviewComment(diffId: string, commentId: string): void
+  clearDiffReviewComments(diffId: string, commentIds?: readonly string[]): void
+  beginDiffReviewSend(diffId: string): boolean
+  finishDiffReviewSend(diffId: string): void
   resolvePlanReview(callId: string, proceed: boolean, message?: string): Promise<boolean>
   resolveSkillProposal(callId: string, resolution: SkillProposalResolution): Promise<void>
   closeReview(): void
@@ -547,6 +565,7 @@ interface AppState {
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 let initialized = false
+let nextReviewCommentId = 1
 
 // "1 rule" / "3 rules" — used by the import-summary toast (final review
 // Finding 3). Every noun it is applied to takes a plain -s plural.
@@ -719,6 +738,8 @@ export const useAppStore = create<AppState>((set, get) => {
     activeTerminalTab: {},
     reviewFocusPath: null,
     artifactComments: {},
+    diffReviewComments: {},
+    diffReviewSending: {},
     artifactPaneFocusFeedback: 0,
     auxPaneOpenTick: 0,
     toast: null,
@@ -1070,17 +1091,34 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
-    startFromHome: (text, command, mentions, attachments) => {
+    startFromHome: async (text, command, mentions, attachments) => {
       const { modelRef, workspacePath, draftConvoId } = get()
-      if (!modelRef) return
-      void (async () => {
+      if (!modelRef) return false
+      try {
         // If Media was used on Home first, attachments are already on disk
         // under draftConvoId -- create the conversation AS that id so they
         // line up, instead of minting a second, unrelated id.
-        const meta = await window.bearcode.conversations.create(
-          workspacePath,
-          draftConvoId ?? undefined
-        )
+        // A prior rejected first dispatch leaves its created conversation as
+        // the Home draft, so retry that exact id instead of orphaning it (and
+        // any attachments already stored beneath it).
+        let draftConvo = draftConvoId ? get().conversations[draftConvoId] : undefined
+        if (!draftConvo) {
+          const meta = await window.bearcode.conversations.create(
+            workspacePath,
+            draftConvoId ?? undefined
+          )
+          const createdConvo = fromMeta(meta)
+          draftConvo = createdConvo
+          set((s) => {
+            const conversations = { ...s.conversations, [meta.id]: createdConvo }
+            return {
+              conversations,
+              convoOrder: orderByRecency(conversations),
+              draftConvoId: meta.id
+            }
+          })
+        }
+        const convoId = draftConvo.id
         // F9 (folder = project) inheritance on the PRIMARY entry point: a folder's
         // per-folder default model/effort/mode is the folder's opinion for
         // conversations that start in it. create() seeds a new folder's row from
@@ -1105,7 +1143,7 @@ export const useAppStore = create<AppState>((set, get) => {
           wantModel && refConfigured(get().providers, wantModel) ? wantModel : modelRef
         const provisional = text.length > 42 ? text.slice(0, 42) + '…' : text
         const convo = {
-          ...fromMeta(meta),
+          ...draftConvo,
           title: provisional,
           loaded: true,
           modelRef: runModel,
@@ -1116,12 +1154,11 @@ export const useAppStore = create<AppState>((set, get) => {
           ursaMode
         }
         set((s) => {
-          const conversations = { ...s.conversations, [meta.id]: convo }
+          const conversations = { ...s.conversations, [convoId]: convo }
           return {
             conversations,
             convoOrder: orderByRecency(conversations),
-            view: { kind: 'conversation', id: meta.id },
-            draftConvoId: null,
+            draftConvoId: convoId,
             // Reflect the folder's inherited defaults in the composer for this
             // new session (mirrors newConversationInProject).
             modelRef: runModel,
@@ -1133,24 +1170,24 @@ export const useAppStore = create<AppState>((set, get) => {
         // Persist the mode before the run starts so the very first run_command
         // resolves the right mode. Await rather than fire-and-forget: do not rely
         // on IPC ordering for a security-sensitive default.
-        await window.bearcode.conversations.setMode(meta.id, permissionMode)
-        await window.bearcode.conversations.setEffort(meta.id, effort)
-        await window.bearcode.conversations.setThinking(meta.id, thinking)
-        await window.bearcode.conversations.setWebSearch(meta.id, webSearch)
-        await window.bearcode.conversations.setUrsaMode(meta.id, ursaMode)
+        await window.bearcode.conversations.setMode(convoId, permissionMode)
+        await window.bearcode.conversations.setEffort(convoId, effort)
+        await window.bearcode.conversations.setThinking(convoId, thinking)
+        await window.bearcode.conversations.setWebSearch(convoId, webSearch)
+        await window.bearcode.conversations.setUrsaMode(convoId, ursaMode)
         // F3: lock the chosen environment before the first run. Worktree
         // provisioning happens main-side; a non-git folder degrades to local.
         const env = get().composerEnvironment
         if (env === 'worktree') {
           try {
-            const updated = await window.bearcode.conversations.setEnvironment(meta.id, 'worktree')
-            patchConvo(meta.id, { environment: updated.environment })
+            const updated = await window.bearcode.conversations.setEnvironment(convoId, 'worktree')
+            patchConvo(convoId, { environment: updated.environment })
           } catch (e) {
             get().showToast(e instanceof Error ? e.message : 'Could not create worktree')
           }
         }
         await window.bearcode.run.start(
-          meta.id,
+          convoId,
           text,
           runModel,
           workspacePath,
@@ -1158,7 +1195,12 @@ export const useAppStore = create<AppState>((set, get) => {
           mentions ?? null,
           attachments ?? null
         )
-      })()
+        set({ view: { kind: 'conversation', id: convoId }, draftConvoId: null })
+        return true
+      } catch (error) {
+        get().showToast(describeError(error))
+        return false
+      }
     },
 
     deleteConvo: (id) => {
@@ -1192,23 +1234,30 @@ export const useAppStore = create<AppState>((set, get) => {
       })
     },
 
-    send: (convoId, text, command, mentions, attachments) => {
+    send: async (convoId, text, command, mentions, attachments) => {
       const { modelRef, conversations } = get()
-      if (!modelRef) return
-      // A new turn must never stay pinned to a prior history-search jump: clear
-      // the focus target + match set so the follow-up run's streamed events
-      // don't fight auto-follow (F1).
-      set({ focusEventId: null, focusMatches: [] })
-      patchConvo(convoId, { modelRef })
-      void window.bearcode.run.start(
-        convoId,
-        text,
-        modelRef,
-        conversations[convoId].projectPath,
-        command ?? null,
-        mentions ?? null,
-        attachments ?? null
-      )
+      const convo = conversations[convoId]
+      if (!modelRef || !convo) return false
+      try {
+        await window.bearcode.run.start(
+          convoId,
+          text,
+          modelRef,
+          convo.projectPath,
+          command ?? null,
+          mentions ?? null,
+          attachments ?? null
+        )
+        // A new turn must never stay pinned to a prior history-search jump: clear
+        // the focus target + match set so the accepted follow-up run's streamed
+        // events don't fight auto-follow (F1).
+        set({ focusEventId: null, focusMatches: [] })
+        patchConvo(convoId, { modelRef })
+        return true
+      } catch (error) {
+        get().showToast(describeError(error))
+        return false
+      }
     },
 
     cancelRun: (convoId) => {
@@ -1784,6 +1833,58 @@ export const useAppStore = create<AppState>((set, get) => {
       await window.bearcode.artifacts.addComment(artifactId, quote, body)
       await get().loadArtifactComments(artifactId)
     },
+
+    addDiffReviewComment: (diffId, comment) =>
+      set((s) => ({
+        diffReviewComments: {
+          ...s.diffReviewComments,
+          [diffId]: [
+            ...(s.diffReviewComments[diffId] ?? []),
+            { id: `review-comment-${nextReviewCommentId++}`, ...comment }
+          ]
+        }
+      })),
+
+    removeDiffReviewComment: (diffId, commentId) =>
+      set((s) => ({
+        diffReviewComments: {
+          ...s.diffReviewComments,
+          [diffId]: (s.diffReviewComments[diffId] ?? []).filter(
+            (comment) => comment.id !== commentId
+          )
+        }
+      })),
+
+    clearDiffReviewComments: (diffId, commentIds) =>
+      set((s) => {
+        const diffReviewComments = { ...s.diffReviewComments }
+        if (commentIds === undefined) {
+          delete diffReviewComments[diffId]
+        } else {
+          const ids = new Set(commentIds)
+          const remaining = (diffReviewComments[diffId] ?? []).filter(
+            (comment) => !ids.has(comment.id)
+          )
+          if (remaining.length === 0) delete diffReviewComments[diffId]
+          else diffReviewComments[diffId] = remaining
+        }
+        return { diffReviewComments }
+      }),
+
+    beginDiffReviewSend: (diffId) => {
+      if (get().diffReviewSending[diffId]) return false
+      set((s) => ({
+        diffReviewSending: { ...s.diffReviewSending, [diffId]: true }
+      }))
+      return true
+    },
+
+    finishDiffReviewSend: (diffId) =>
+      set((s) => {
+        const diffReviewSending = { ...s.diffReviewSending }
+        delete diffReviewSending[diffId]
+        return { diffReviewSending }
+      }),
 
     // Plan reviews resolve over their own channel, never tools.approve
     // (main-side kind cross-guards make the wires mutually exclusive). The

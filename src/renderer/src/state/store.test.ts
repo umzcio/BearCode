@@ -165,6 +165,8 @@ const convo = (over: Partial<Convo> = {}): Convo => ({
   ...over
 })
 
+const defaultShowToast = useAppStore.getState().showToast
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal('window', {
@@ -186,7 +188,10 @@ beforeEach(() => {
     resumePickerOpen: false,
     fileSuggestions: [],
     manualRules: [],
-    draftConvoId: null
+    draftConvoId: null,
+    diffReviewComments: {},
+    diffReviewSending: {},
+    showToast: defaultShowToast
   })
 })
 
@@ -217,6 +222,38 @@ describe('pane width persistence', () => {
       ['bearcode.sidebarWidth', '333'],
       ['bearcode.auxPaneWidth', '778']
     ])
+  })
+})
+
+describe('diff review comment drafts', () => {
+  it('keeps comment IDs stable across removal and clears only snapshotted IDs', () => {
+    const store = useAppStore.getState()
+    store.addDiffReviewComment('diff-1', {
+      path: '/repo/a.ts',
+      line: 1,
+      text: 'first'
+    })
+    store.addDiffReviewComment('diff-1', {
+      path: '/repo/b.ts',
+      line: 2,
+      text: 'second'
+    })
+    const [first, second] = useAppStore.getState().diffReviewComments['diff-1']
+
+    store.removeDiffReviewComment('diff-1', first.id)
+    store.addDiffReviewComment('diff-1', {
+      path: '/repo/c.ts',
+      line: 3,
+      text: 'late'
+    })
+    const [stillSecond, late] = useAppStore.getState().diffReviewComments['diff-1']
+
+    expect(stillSecond.id).toBe(second.id)
+    expect(late.id).not.toBe(first.id)
+    expect(late.id).not.toBe(second.id)
+
+    store.clearDiffReviewComments('diff-1', [second.id])
+    expect(useAppStore.getState().diffReviewComments['diff-1']).toEqual([late])
   })
 })
 
@@ -621,8 +658,8 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
     })
     // Folder row exists but sets no overrides → composer choices stand.
     projects.list.mockResolvedValueOnce([folderProject('/repo/y')] as never)
-    useAppStore.getState().startFromHome('hi')
-    await vi.waitFor(() => expect(run.start).toHaveBeenCalled())
+    const accepted = await useAppStore.getState().startFromHome('hi')
+    expect(accepted).toBe(true)
     expect(conversations.setMode).toHaveBeenCalledWith('c1', 'auto')
     expect(run.start).toHaveBeenCalledWith(
       'c1',
@@ -633,6 +670,72 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
       null,
       null
     )
+  })
+
+  it('send returns false without IPC when no model is selected or the conversation is missing', async () => {
+    useAppStore.setState({
+      modelRef: null,
+      conversations: { c1: convo() }
+    })
+
+    await expect(useAppStore.getState().send('c1', 'no model')).resolves.toBe(false)
+    expect(run.start).not.toHaveBeenCalled()
+
+    useAppStore.setState({
+      modelRef: 'anthropic/claude-sonnet-5',
+      conversations: {}
+    })
+
+    await expect(useAppStore.getState().send('missing', 'no conversation')).resolves.toBe(false)
+    expect(run.start).not.toHaveBeenCalled()
+  })
+
+  it('send returns true and resets focus only after run.start accepts the dispatch', async () => {
+    let acceptRun!: () => void
+    run.start.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        acceptRun = resolve
+      })
+    )
+    useAppStore.setState({
+      modelRef: 'anthropic/claude-sonnet-5',
+      focusEventId: 'event-1',
+      focusMatches: ['event-1', 'event-2'],
+      conversations: { c1: convo({ modelRef: 'openai/gpt-5' }) }
+    })
+
+    const pending = useAppStore.getState().send('c1', 'accepted')
+
+    expect(useAppStore.getState().focusEventId).toBe('event-1')
+    expect(useAppStore.getState().focusMatches).toEqual(['event-1', 'event-2'])
+    expect(useAppStore.getState().conversations.c1.modelRef).toBe('openai/gpt-5')
+
+    acceptRun()
+
+    await expect(pending).resolves.toBe(true)
+    expect(useAppStore.getState().focusEventId).toBeNull()
+    expect(useAppStore.getState().focusMatches).toEqual([])
+    expect(useAppStore.getState().conversations.c1.modelRef).toBe('anthropic/claude-sonnet-5')
+  })
+
+  it('send returns false and reports a rejected run.start without changing accepted-run state', async () => {
+    const showToast = vi.fn()
+    run.start.mockRejectedValueOnce(new Error('dispatch unavailable'))
+    useAppStore.setState({
+      modelRef: 'anthropic/claude-sonnet-5',
+      focusEventId: 'event-1',
+      focusMatches: ['event-1'],
+      conversations: { c1: convo({ modelRef: 'openai/gpt-5' }) },
+      showToast
+    })
+
+    await expect(useAppStore.getState().send('c1', 'rejected')).resolves.toBe(false)
+
+    expect(showToast).toHaveBeenCalledOnce()
+    expect(showToast).toHaveBeenCalledWith('dispatch unavailable')
+    expect(useAppStore.getState().focusEventId).toBe('event-1')
+    expect(useAppStore.getState().focusMatches).toEqual(['event-1'])
+    expect(useAppStore.getState().conversations.c1.modelRef).toBe('openai/gpt-5')
   })
 
   it('send threads the command through to run.start as the fifth argument', () => {
@@ -701,6 +804,39 @@ describe('D2 commands: registry fetch, send-path command slot, resume picker', (
 })
 
 describe('D4 Media on Home: draft conversation id (fixes greyed-out Media before the first send)', () => {
+  it('keeps Home mounted after a rejected first dispatch and reuses the same draft conversation on retry', async () => {
+    let rejectFirstRun!: (reason?: unknown) => void
+    run.start.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        rejectFirstRun = reject
+      })
+    )
+    useAppStore.setState({
+      view: { kind: 'home' },
+      modelRef: 'anthropic/claude-sonnet-5',
+      workspacePath: null,
+      conversations: {},
+      convoOrder: [],
+      draftConvoId: null
+    })
+
+    const firstAttempt = useAppStore.getState().startFromHome('keep this draft')
+    await vi.waitFor(() => expect(run.start).toHaveBeenCalledOnce())
+
+    expect(useAppStore.getState().view).toEqual({ kind: 'home' })
+    expect(useAppStore.getState().draftConvoId).toBe('c1')
+
+    rejectFirstRun(new Error('dispatch unavailable'))
+    await expect(firstAttempt).resolves.toBe(false)
+    expect(useAppStore.getState().view).toEqual({ kind: 'home' })
+    expect(useAppStore.getState().draftConvoId).toBe('c1')
+
+    await expect(useAppStore.getState().startFromHome('keep this draft')).resolves.toBe(true)
+    expect(conversations.create).toHaveBeenCalledOnce()
+    expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
+    expect(useAppStore.getState().draftConvoId).toBeNull()
+  })
+
   it('pickAttachments on Home mints a draft id (once) and picks under it', async () => {
     useAppStore.setState({ view: { kind: 'home' }, draftConvoId: null })
     const first = await useAppStore.getState().pickAttachments(0)
@@ -1358,13 +1494,13 @@ describe('pricing/models store actions', () => {
 
   it('syncPricing calls refreshProviders and refreshManageableModels after fetching settings', async () => {
     const pricingSyncResult = { syncedCount: 1, metadataCount: 1, unmatched: [], syncedAt: Date.now() }
-    ;(window.bearcode.pricing.sync as any).mockResolvedValue(pricingSyncResult)
-    ;(window.bearcode.settings.get as any).mockResolvedValue({
+    vi.mocked(window.bearcode.pricing.sync).mockResolvedValue(pricingSyncResult)
+    vi.mocked(window.bearcode.settings.get).mockResolvedValue({
       modelPricing: { 'anthropic/claude-opus-4-8': { inputCostPer1kTokens: 0.015 } },
       modelMetadata: {},
       favoriteModels: [],
       modelPricingSyncedAt: Date.now()
-    })
+    } as unknown as Awaited<ReturnType<typeof window.bearcode.settings.get>>)
 
     // Setup spy/mock functions for the refresh actions. Capture the real
     // implementations first and restore them afterward — useAppStore is a
