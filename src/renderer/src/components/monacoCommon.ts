@@ -135,6 +135,7 @@ export function attachCommenting(
   let overlayLine = 0
   let activeLine: monaco.editor.IEditorDecorationsCollection | null = null
   let generation = 0
+  let closing = false
   let focusTimer: number | null = null
 
   // Pin the overlay to the top of the reserved gap (just under the commented
@@ -146,6 +147,7 @@ export function attachCommenting(
 
   const removeComposerStructure = (): void => {
     const id = zoneId
+    closing = false
     zoneId = null
     zone = null
     overlay?.remove()
@@ -157,7 +159,7 @@ export function attachCommenting(
     initialHeight: 0,
     durationMs: readCssTimeMs('--dur-menu'),
     curve: readCssCubicBezier('--ease-out'),
-    reduced: prefersReducedMotion(),
+    reduced: prefersReducedMotion,
     apply: (height) => {
       if (!zoneId || !zone) return
       zone.heightInPx = height
@@ -167,6 +169,7 @@ export function attachCommenting(
   })
 
   const closeComposer = (): void => {
+    if (closing) return
     activeLine?.clear()
     activeLine = null
     if (focusTimer !== null) {
@@ -174,6 +177,7 @@ export function attachCommenting(
       focusTimer = null
     }
     if (!zoneId) return
+    closing = true
     const closingGeneration = ++generation
     animator.retarget(0, () => {
       if (closingGeneration === generation) removeComposerStructure()
@@ -184,6 +188,7 @@ export function attachCommenting(
     const openingHeight = animator.current()
     animator.cancel()
     generation += 1
+    closing = false
     if (focusTimer !== null) {
       window.clearTimeout(focusTimer)
       focusTimer = null
@@ -244,7 +249,8 @@ export function attachCommenting(
       ta.style.height = 'auto'
       ta.style.height = `${ta.scrollHeight}px`
       if (zoneId && zone) {
-        animator.retarget(bar.offsetHeight + 12)
+        const nextHeight = bar.offsetHeight + 12
+        animator.retarget(nextHeight)
       }
       positionOverlay()
     }
