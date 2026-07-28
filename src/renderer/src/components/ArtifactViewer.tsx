@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Event } from '@shared/types'
 import { useAppStore } from '../state/store'
 import { Markdown } from '../lib/markdown'
+import { describeError } from '../lib/errors'
 import { ARTIFACT_STATUS_LABELS } from './events/ArtifactCard'
 import './ArtifactsPane.css'
 import './events/events.css'
@@ -56,15 +57,20 @@ export function ArtifactViewer({
   const artifactPaneFocusFeedback = useAppStore((s) => s.artifactPaneFocusFeedback)
   const loadArtifactComments = useAppStore((s) => s.loadArtifactComments)
   const addArtifactComment = useAppStore((s) => s.addArtifactComment)
+  const showToast = useAppStore((s) => s.showToast)
   const resolvePlanReview = useAppStore((s) => s.resolvePlanReview)
   const [draftQuote, setDraftQuote] = useState<string | null>(null)
   const [draftBody, setDraftBody] = useState('')
   const [feedbackText, setFeedbackText] = useState('')
+  const [inserting, setInserting] = useState(false)
   const [resolving, setResolving] = useState(false)
   const [resolutionNotice, setResolutionNotice] = useState<'Approved' | 'Feedback sent' | null>(
     null
   )
   const resolutionRun = useRef(0)
+  const insertionRun = useRef(0)
+  const insertionSubmitting = useRef(false)
+  const selectedArtifactIdRef = useRef(selected.artifactId)
   const feedbackRef = useRef<HTMLTextAreaElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
 
@@ -87,10 +93,17 @@ export function ArtifactViewer({
     setDraftQuote(null)
     setDraftBody('')
     setFeedbackText('')
+    setInserting(false)
     setResolving(false)
     setResolutionNotice(null)
-    resolutionRun.current += 1
   }
+
+  useEffect(() => {
+    selectedArtifactIdRef.current = selected.artifactId
+    insertionRun.current += 1
+    insertionSubmitting.current = false
+    resolutionRun.current += 1
+  }, [selected.artifactId])
 
   // Reload comments whenever the selected artifact changes.
   useEffect(() => {
@@ -106,6 +119,7 @@ export function ArtifactViewer({
 
   useEffect(
     () => () => {
+      insertionRun.current += 1
       resolutionRun.current += 1
     },
     []
@@ -145,11 +159,30 @@ export function ArtifactViewer({
   // the re-emitted tool_call event clears pendingCall and the composer both
   // hides and refuses to submit -- a resolved plan's comment set is final, so
   // no orphaned never-deliverable draft can be added after the fact.
-  const submitDraft = (): void => {
-    if (!pendingCall || draftBody.trim() === '') return
-    void addArtifactComment(selected.artifactId, draftQuote, draftBody.trim())
-    setDraftQuote(null)
-    setDraftBody('')
+  const submitDraft = async (): Promise<void> => {
+    if (!pendingCall || insertionSubmitting.current || draftBody.trim() === '') return
+    const artifactId = selected.artifactId
+    const quote = draftQuote
+    const body = draftBody.trim()
+    const run = insertionRun.current + 1
+    insertionRun.current = run
+    insertionSubmitting.current = true
+    setInserting(true)
+    try {
+      await addArtifactComment(artifactId, quote, body)
+      if (insertionRun.current !== run || selectedArtifactIdRef.current !== artifactId) return
+      setDraftQuote(null)
+      setDraftBody('')
+    } catch (error) {
+      if (insertionRun.current === run && selectedArtifactIdRef.current === artifactId) {
+        showToast(describeError(error))
+      }
+    } finally {
+      if (insertionRun.current === run && selectedArtifactIdRef.current === artifactId) {
+        insertionSubmitting.current = false
+        setInserting(false)
+      }
+    }
   }
 
   const clearDraft = (): void => {
@@ -261,12 +294,12 @@ export function ArtifactViewer({
             <div className="comment-composer-actions">
               <button
                 className="plan-request-review"
-                disabled={draftBody.trim() === ''}
-                onClick={submitDraft}
+                disabled={inserting || draftBody.trim() === ''}
+                onClick={() => void submitDraft()}
               >
                 Add comment
               </button>
-              <button className="plan-request-review" onClick={clearDraft}>
+              <button className="plan-request-review" disabled={inserting} onClick={clearDraft}>
                 Cancel
               </button>
             </div>
