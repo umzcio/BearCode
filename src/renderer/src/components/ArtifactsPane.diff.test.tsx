@@ -73,6 +73,7 @@ const writeClipboard = vi.fn()
 const openFile = vi.fn()
 const readFile = vi.fn()
 const showToast = vi.fn()
+const sendReview = vi.fn()
 
 const diff: FileDiff = {
   diffId: 'diff_123',
@@ -171,6 +172,8 @@ function seedDiffReview(
     auxPaneOpenTick: 0,
     auxPaneWidth: 560,
     reviewFocusPath: focusPath,
+    diffReviewComments: {},
+    send: sendReview,
     showToast
   } as never)
 }
@@ -227,6 +230,8 @@ beforeEach(() => {
   readFile.mockReset()
   readFile.mockResolvedValue('')
   showToast.mockReset()
+  sendReview.mockReset()
+  sendReview.mockResolvedValue(true)
   ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
     diffs: { get: getDiff, revert: revertDiff, open: openDiff, previewFile },
     clipboard: { write: writeClipboard },
@@ -487,6 +492,131 @@ describe('ArtifactsPane diff review', () => {
     )
     expect(screen.queryByText('answer.ts:7')).toBeNull()
     expect(screen.getByText('diagram.png:12')).toBeInTheDocument()
+  })
+
+  it('preserves a comment when rail navigation unmounts its diff and later returns', async () => {
+    getDiff.mockImplementation((id: string) =>
+      Promise.resolve(id === secondDiff.diffId ? secondDiff : diff)
+    )
+    seedDiffReview(diff, null, [diff, secondDiff])
+    render(<ArtifactsPane />)
+    await screen.findByTestId('monaco-diff-stub')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add comment at line 7' }))
+    expect(screen.getByText('answer.ts:7')).toBeInTheDocument()
+
+    fireEvent.click(
+      screen
+        .getAllByRole('button', { name: /Changes/ })
+        .find((button) => button.textContent?.includes('1 file'))!
+    )
+    expect(await screen.findByText('export const second = 2')).toBeInTheDocument()
+
+    fireEvent.click(
+      screen
+        .getAllByRole('button', { name: /Changes/ })
+        .find((button) => button.textContent?.includes('2 files'))!
+    )
+    expect(await screen.findByText('answer.ts:7')).toBeInTheDocument()
+    expect(screen.getByText('Check the answer')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+    expect(useAppStore.getState().diffReviewComments['diff_123']).toHaveLength(1)
+    await act(async () => {
+      useAppStore.getState().openReview('diff_123')
+    })
+    expect(await screen.findByText('answer.ts:7')).toBeInTheDocument()
+  })
+
+  it('keeps comments and the pane open when dispatch returns false', async () => {
+    sendReview.mockResolvedValueOnce(false)
+    seedDiffReview()
+    render(<ArtifactsPane />)
+    await screen.findByTestId('monaco-diff-stub')
+    fireEvent.click(screen.getByRole('button', { name: 'Add comment at line 7' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send 1 comment' }))
+
+    await waitFor(() => expect(sendReview).toHaveBeenCalledOnce())
+    expect(sendReview).toHaveBeenCalledWith(
+      'conv_123',
+      'Please address these review comments:\n' +
+        '- /workspace/src/answer.ts line 7: Check the answer'
+    )
+    expect(screen.getByText('answer.ts:7')).toBeInTheDocument()
+    expect(useAppStore.getState().auxSelection).toEqual({
+      kind: 'diff',
+      diffId: 'diff_123'
+    })
+    expect(showToast).not.toHaveBeenCalled()
+  })
+
+  it('waits for accepted dispatch before clearing, toasting, and closing', async () => {
+    const pending = deferred<boolean>()
+    sendReview.mockReturnValueOnce(pending.promise)
+    seedDiffReview()
+    render(<ArtifactsPane />)
+    await screen.findByTestId('monaco-diff-stub')
+    fireEvent.click(screen.getByRole('button', { name: 'Add comment at line 7' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send 1 comment' }))
+
+    expect(screen.getByText('answer.ts:7')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send 1 comment' })).toBeDisabled()
+    expect(showToast).not.toHaveBeenCalled()
+    expect(useAppStore.getState().auxSelection).not.toBeNull()
+
+    await act(async () => {
+      pending.resolve(true)
+    })
+
+    expect(useAppStore.getState().diffReviewComments['diff_123']).toBeUndefined()
+    expect(useAppStore.getState().auxSelection).toBeNull()
+    expect(showToast).toHaveBeenCalledWith('Sent 1 comment')
+  })
+
+  it('blocks duplicate review sends while dispatch is pending', async () => {
+    const pending = deferred<boolean>()
+    sendReview.mockReturnValueOnce(pending.promise)
+    seedDiffReview()
+    render(<ArtifactsPane />)
+    await screen.findByTestId('monaco-diff-stub')
+    fireEvent.click(screen.getByRole('button', { name: 'Add comment at line 7' }))
+
+    const sendButton = screen.getByRole('button', { name: 'Send 1 comment' })
+    fireEvent.click(sendButton)
+    fireEvent.click(sendButton)
+
+    expect(sendReview).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      pending.resolve(false)
+    })
+  })
+
+  it('retains comments added during an accepted pending send', async () => {
+    const pending = deferred<boolean>()
+    sendReview.mockReturnValueOnce(pending.promise)
+    seedDiffReview()
+    render(<ArtifactsPane />)
+    await screen.findByTestId('monaco-diff-stub')
+    const addButton = screen.getByRole('button', { name: 'Add comment at line 7' })
+    fireEvent.click(addButton)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send 1 comment' }))
+    fireEvent.click(addButton)
+    expect(screen.getAllByText('answer.ts:7')).toHaveLength(2)
+
+    await act(async () => {
+      pending.resolve(true)
+    })
+
+    expect(useAppStore.getState().diffReviewComments['diff_123']).toHaveLength(1)
+    expect(useAppStore.getState().diffReviewComments['diff_123'][0]).toMatchObject({
+      path: '/workspace/src/answer.ts',
+      line: 7,
+      text: 'Check the answer'
+    })
   })
 })
 
