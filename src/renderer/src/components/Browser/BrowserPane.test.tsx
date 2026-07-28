@@ -29,6 +29,22 @@ afterEach(() => {
 })
 
 describe('BrowserPane native-view staging', () => {
+  it('reports the measured pane bounds as exact rounded integers', () => {
+    const { container } = render(<BrowserPane visible={false} />)
+    const pane = container.querySelector<HTMLDivElement>('.browser-pane')!
+    vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue(new DOMRect(0.49, 48.5, 799.5, 599.49))
+    setBounds.mockClear()
+
+    window.dispatchEvent(new Event('resize'))
+
+    expect(setBounds).toHaveBeenCalledExactlyOnceWith({
+      x: 0,
+      y: 49,
+      width: 800,
+      height: 599
+    })
+  })
+
   it('reports placeholder bounds but stays hidden until visible', async () => {
     const { rerender } = render(<BrowserPane visible={false} />)
 
@@ -39,9 +55,7 @@ describe('BrowserPane native-view staging', () => {
     rerender(<BrowserPane visible />)
 
     await waitFor(() => expect(show).toHaveBeenCalledTimes(1))
-    expect(setBounds.mock.invocationCallOrder.at(-1)).toBeLessThan(
-      show.mock.invocationCallOrder[0]
-    )
+    expect(setBounds.mock.invocationCallOrder.at(-1)).toBeLessThan(show.mock.invocationCallOrder[0])
   })
 
   it('hides immediately when visibility is revoked and again on unmount', () => {

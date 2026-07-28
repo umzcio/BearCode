@@ -15,13 +15,18 @@ export function assertBrowserControlSender(
   event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>,
   mainWindow: BrowserWindow | null
 ): asserts mainWindow is BrowserWindow {
-  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
     throw new Error('Browser control unavailable.')
   }
-  if (
-    event.sender !== mainWindow.webContents ||
-    event.senderFrame !== mainWindow.webContents.mainFrame
-  ) {
+  const webContents = mainWindow.webContents
+  if (webContents.isDestroyed()) {
+    throw new Error('Browser control unavailable.')
+  }
+  const mainFrame = webContents.mainFrame
+  if (!mainFrame || mainFrame.isDestroyed() || mainFrame.detached) {
+    throw new Error('Browser control unavailable.')
+  }
+  if (event.sender !== webContents || event.senderFrame !== mainFrame) {
     throw new Error('Unauthorized browser control.')
   }
 }

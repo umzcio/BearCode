@@ -15,8 +15,16 @@ const handlers = new Map<string, Handler>()
 const contentBounds = { x: 300, y: 200, width: 1200, height: 800 }
 
 const { browserManager, getMainWindow, mainFrame, mainWindow, webContents } = vi.hoisted(() => {
-  const mainFrame = { routingId: 1 }
-  const webContents = {
+  const mainFrame = {
+    routingId: 1,
+    isDestroyed: vi.fn(() => false),
+    detached: false
+  }
+  const webContents: {
+    id: number
+    isDestroyed: ReturnType<typeof vi.fn<() => boolean>>
+    mainFrame: typeof mainFrame | null
+  } = {
     id: 1,
     isDestroyed: vi.fn(() => false),
     mainFrame
@@ -99,6 +107,9 @@ beforeEach(() => {
   getMainWindow.mockReturnValue(mainWindow)
   mainWindow.isDestroyed.mockReturnValue(false)
   webContents.isDestroyed.mockReturnValue(false)
+  webContents.mainFrame = mainFrame
+  mainFrame.isDestroyed.mockReturnValue(false)
+  mainFrame.detached = false
   registerIpc()
 })
 
@@ -191,6 +202,44 @@ describe('browser-control IPC authorization', () => {
     await expect(invoke('bearcode:browser:clear-session', eventFor())).rejects.toThrow(
       'Browser control unavailable.'
     )
+
+    expectNoManagerCalls()
+  })
+
+  it('rejects calls when the authoritative main frame is destroyed', async () => {
+    mainFrame.isDestroyed.mockReturnValueOnce(true)
+
+    await expect(invoke('bearcode:browser:show', eventFor())).rejects.toThrow(
+      'Browser control unavailable.'
+    )
+
+    expectNoManagerCalls()
+  })
+
+  it('rejects calls when the authoritative main frame is missing', async () => {
+    webContents.mainFrame = null
+
+    await expect(invoke('bearcode:browser:status', eventFor())).rejects.toThrow(
+      'Browser control unavailable.'
+    )
+
+    expectNoManagerCalls()
+  })
+
+  it('rejects calls when the authoritative main frame is detached', async () => {
+    mainFrame.detached = true
+
+    await expect(invoke('bearcode:browser:hide', eventFor())).rejects.toThrow(
+      'Browser control unavailable.'
+    )
+
+    expectNoManagerCalls()
+  })
+
+  it('rejects a null sender frame before any manager call', async () => {
+    await expect(
+      invoke('bearcode:browser:clear-session', eventFor(webContents, null))
+    ).rejects.toThrow('Unauthorized browser control.')
 
     expectNoManagerCalls()
   })
