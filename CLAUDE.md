@@ -38,6 +38,8 @@ All in `src/renderer/src/components/ui/` and `src/renderer/src/lib/`:
 - **Gate before merge:** `npm run typecheck` must exit 0 with zero diagnostics; run
   `npx eslint <changed files>` and require zero findings; and `npx vitest run` must pass in full.
   A red gate is work to fix, never an allowed baseline.
+- Changes to the native browser or its Artifacts Pane integration must also pass
+  `npm run test:electron:browser`. This is a real headed Electron gate and must not silently skip.
 - **Auto-fix scoped only:** `npx eslint --fix <specific paths>`. **Never `npm run lint -- --fix`** — the
   lint script is `eslint .` and it reformats the whole repo.
 - Dev-server hygiene: kill stale `electron-vite`/`electron` before relaunch; after switching branches,
@@ -54,3 +56,7 @@ All in `src/renderer/src/components/ui/` and `src/renderer/src/lib/`:
 - UX craft overhaul: `planning/2026-07-12-ux-craft-overhaul-design.md` (+ phase plans) — the full
   rationale, the primitive APIs, and the gotchas each phase's review caught.
 - Motion pass: `planning/2026-07-12-motion-polish-plan.md`.
+- Shipped Artifacts Pane motion design and implementation record:
+  `docs/superpowers/specs/2026-07-27-artifacts-pane-motion-polish-design.md` and
+  `docs/superpowers/plans/2026-07-27-artifacts-pane-motion-polish.md`; follow-up audit status is in
+  `plans/README.md`.

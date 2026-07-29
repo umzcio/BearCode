@@ -1,7 +1,15 @@
 # Artifacts Pane Motion Polish — Design
 
 **Date:** 2026-07-27
-**Status:** Approved, pending implementation plan
+**Status:** Implemented and follow-up audited
+
+**Implementation note (2026-07-28):** The original motion scope shipped in commits `860168d`,
+`887a93e`, `2afafc0`, `563a8b8`, `f9743a8`, `28ab9d9`, `59ef879`, and `102a212`. The subsequent
+Artifacts Pane correctness, security, performance, accessibility, browser-lifecycle, export, and
+module-boundary audit is tracked through plan 018 in
+[`plans/README.md`](../../../plans/README.md). Those follow-ups preserve this design's persistent
+shell, immediate high-frequency switching, native-view staging without per-frame IPC, 2000ms
+signal-exit fail-safe, bounded Monaco height exception, and unchanged review-flow constraints.
 
 ## Context
 
