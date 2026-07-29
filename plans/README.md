@@ -19,8 +19,8 @@ executor should read the entire linked plan before editing and update this table
 | [009](009-stabilize-artifact-event-projection.md) | Project artifact events incrementally | P2 | L | 002 | DONE |
 | [010](010-fix-monaco-comment-retargeting.md) | Make Monaco comment motion preference-live and target-stable | P2 | M | 001 | DONE |
 | [011](011-strengthen-motion-css-contract.md) | Strengthen the CSS motion contract and prune dead declarations | P2 | M | 001 | DONE |
-| [012](012-add-headed-browser-harness.md) | Add a headed Electron native-browser gate | P2 | L | 007 | IN PROGRESS |
-| [013](013-centralize-file-classification.md) | Centralize file-kind and language classification | P2 | M | 001 | TODO |
+| [012](012-add-headed-browser-harness.md) | Add a headed Electron native-browser gate | P2 | L | 007 | DONE |
+| [013](013-centralize-file-classification.md) | Centralize file-kind and language classification | P2 | M | 001 | IN PROGRESS |
 | [014](014-add-keyboard-review-navigation.md) | Add keyboard review navigation | P2 | M | 002, 003 | TODO |
 | [015](015-surface-browser-readiness.md) | Surface browser readiness and failure states | P2 | L | 007, 012 | TODO |
 | [016](016-add-artifact-copy-export.md) | Add artifact copy and export actions | P2 | L | 005, 007 | TODO |
