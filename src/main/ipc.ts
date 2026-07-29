@@ -44,7 +44,8 @@ import type {
   TranscribeMeta,
   WorktreeInfo,
   HermesConnectionMode,
-  ApprovalDecision
+  ApprovalDecision,
+  BrowserStatus
 } from '../shared/types'
 import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
@@ -210,6 +211,8 @@ const sink = {
 export async function bootResumeInterruptedRuns(): Promise<void> {
   await resumeInterruptedRuns(sink)
 }
+
+let browserStatusUnsubscribe: (() => void) | null = null
 
 export function registerIpc(): void {
   // Wire git-over-HTTPS credential injection into the worktree/git runner: any
@@ -1039,6 +1042,17 @@ export function registerIpc(): void {
     assertBrowserControlSender(event, mainWindow)
     return mainWindow
   }
+  browserStatusUnsubscribe?.()
+  browserStatusUnsubscribe =
+    typeof browserManager.onStatus === 'function'
+      ? browserManager.onStatus((status: BrowserStatus) => {
+          const mainWindow = getMainWindow()
+          if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+            return
+          }
+          mainWindow.webContents.send('bearcode:browser:status', status)
+        })
+      : null
   ipcMain.handle('bearcode:browser:status', (event) => {
     requireBrowserControlWindow(event)
     return browserManager.status()

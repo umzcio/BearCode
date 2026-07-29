@@ -6,3 +6,7 @@
   height: 100%;
   background: var(--wash);
 }
+
+.browser-pane-state {
+  padding: 14px 16px;
+}

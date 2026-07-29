@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { BrowserStatus } from '../shared/types'
 
 type InvokeEvent = {
   preventDefault: ReturnType<typeof vi.fn>
@@ -13,6 +14,14 @@ type Handler = (event: InvokeEvent, ...args: unknown[]) => unknown
 
 const handlers = new Map<string, Handler>()
 const contentBounds = { x: 300, y: 200, width: 1200, height: 800 }
+const idleStatus: BrowserStatus = {
+  phase: 'idle',
+  message: null,
+  installed: true,
+  connected: false,
+  conversationId: null,
+  debuggingEnabled: true
+}
 
 const { browserManager, getMainWindow, mainFrame, mainWindow, webContents } = vi.hoisted(() => {
   const mainFrame = {
@@ -24,10 +33,12 @@ const { browserManager, getMainWindow, mainFrame, mainWindow, webContents } = vi
     id: number
     isDestroyed: ReturnType<typeof vi.fn<() => boolean>>
     mainFrame: typeof mainFrame | null
+    send: ReturnType<typeof vi.fn>
   } = {
     id: 1,
     isDestroyed: vi.fn(() => false),
-    mainFrame
+    mainFrame,
+    send: vi.fn()
   }
   const mainWindow = {
     isDestroyed: vi.fn(() => false),
@@ -37,7 +48,8 @@ const { browserManager, getMainWindow, mainFrame, mainWindow, webContents } = vi
   const getMainWindow = vi.fn<() => typeof mainWindow | null>(() => mainWindow)
   return {
     browserManager: {
-      status: vi.fn(() => ({ connected: false })),
+      status: vi.fn(),
+      onStatus: vi.fn(),
       clearSession: vi.fn(async () => {}),
       setBounds: vi.fn(),
       show: vi.fn(),
@@ -110,6 +122,8 @@ beforeEach(() => {
   webContents.mainFrame = mainFrame
   mainFrame.isDestroyed.mockReturnValue(false)
   mainFrame.detached = false
+  browserManager.status.mockReturnValue(idleStatus)
+  browserManager.onStatus.mockReturnValue(vi.fn())
   registerIpc()
 })
 
@@ -118,7 +132,12 @@ describe('browser-control IPC authorization', () => {
     const bounds = { x: 0, y: 0, width: contentBounds.width, height: contentBounds.height }
 
     await expect(invoke('bearcode:browser:status', eventFor())).resolves.toEqual({
-      connected: false
+      phase: 'idle',
+      message: null,
+      installed: true,
+      connected: false,
+      conversationId: null,
+      debuggingEnabled: true
     })
     await expect(invoke('bearcode:browser:clear-session', eventFor())).resolves.toBeUndefined()
     await expect(invoke('bearcode:browser:set-bounds', eventFor(), bounds)).resolves.toBeUndefined()
@@ -242,6 +261,61 @@ describe('browser-control IPC authorization', () => {
     ).rejects.toThrow('Unauthorized browser control.')
 
     expectNoManagerCalls()
+  })
+})
+
+describe('browser status push routing', () => {
+  it('sends status changes only to the live authoritative main window', () => {
+    const listener = browserManager.onStatus.mock.calls.at(-1)![0]
+    const ready: BrowserStatus = {
+      ...idleStatus,
+      phase: 'ready',
+      connected: true,
+      conversationId: 'conversation-1'
+    }
+
+    listener(ready)
+
+    expect(webContents.send).toHaveBeenCalledExactlyOnceWith('bearcode:browser:status', ready)
+  })
+
+  it('does not send a status push when the authoritative window is unavailable', () => {
+    const listener = browserManager.onStatus.mock.calls.at(-1)![0]
+
+    getMainWindow.mockReturnValueOnce(null)
+    listener(idleStatus)
+
+    expect(webContents.send).not.toHaveBeenCalled()
+  })
+
+  it('does not send a status push through a destroyed authoritative window', () => {
+    const listener = browserManager.onStatus.mock.calls.at(-1)![0]
+
+    mainWindow.isDestroyed.mockReturnValueOnce(true)
+    listener(idleStatus)
+
+    expect(webContents.send).not.toHaveBeenCalled()
+  })
+
+  it('does not send a status push through destroyed authoritative webContents', () => {
+    const listener = browserManager.onStatus.mock.calls.at(-1)![0]
+
+    webContents.isDestroyed.mockReturnValueOnce(true)
+    listener(idleStatus)
+
+    expect(webContents.send).not.toHaveBeenCalled()
+  })
+
+  it('replaces the manager subscription when registerIpc is called again', () => {
+    const priorUnsubscribe = browserManager.onStatus.mock.results.at(-1)!.value
+    const nextUnsubscribe = vi.fn()
+    browserManager.onStatus.mockReturnValueOnce(nextUnsubscribe)
+
+    registerIpc()
+
+    expect(priorUnsubscribe).toHaveBeenCalledOnce()
+    expect(browserManager.onStatus).toHaveBeenCalledTimes(2)
+    expect(nextUnsubscribe).not.toHaveBeenCalled()
   })
 })
 

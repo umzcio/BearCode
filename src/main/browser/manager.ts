@@ -5,6 +5,7 @@ import { getMainWindow, REMOTE_DEBUG_PORT, browserDebuggingEnabled } from '../ma
 import { ensureChromium, chromiumInstalled } from './install'
 import { indexOfPageWithToken, type DomainPolicy } from './policy'
 import { navigationBlockedByPolicy } from './guard'
+import type { BrowserPhase, BrowserStatus } from '../../shared/types'
 
 // Playwright locator errors embed ANSI color codes and a long "Call log:" retry
 // dump that render as unreadable noise ("[2m … [22m") in the tool error card.
@@ -29,6 +30,16 @@ function hiddenBounds(bounds: Bounds): Bounds {
   return { x: -10000, y: 0, width: bounds.width, height: bounds.height }
 }
 
+function sanitizedError(error: unknown): Error {
+  const raw = error instanceof Error ? error.message : String(error)
+  const firstLine = raw
+    .split('\n')[0]
+    .replace(/\[[0-9;]*m/g, '')
+    .replaceAll(String.fromCharCode(27), '')
+    .trim()
+  return new Error(firstLine || 'The browser could not be started.')
+}
+
 export class BrowserManager {
   private view: WebContentsView | null = null
   private browser: Browser | null = null
@@ -44,6 +55,9 @@ export class BrowserManager {
   // exists. Bounds may keep updating while hidden without exposing native
   // pixels or input above a moving DOM shell.
   private visible = false
+  private phase: BrowserPhase = 'idle'
+  private message: string | null = null
+  private statusListeners = new Set<(status: BrowserStatus) => void>()
   // L2 domain policy provider (F4 finding 2). The tool layer wires this to the
   // live Settings-derived policy in tools.ts `buildBrowserTools` (which graph.ts
   // wires UNCONDITIONALLY — folder or not — so the provider is always installed),
@@ -57,22 +71,32 @@ export class BrowserManager {
     this.policyProvider = provider
   }
 
-  status(): {
-    installed: boolean
-    connected: boolean
-    conversationId: string | null
-    debuggingEnabled: boolean
-  } {
+  status(): BrowserStatus {
     // debuggingEnabled = whether the CDP endpoint was opened at BOOT (finding 2).
     // It's read once at boot from the persisted setting, so it can diverge from
     // the live `browserEnabled` setting after the user toggles the feature —
     // the Settings UI compares the two to show a "relaunch required" note.
-    return {
+    return Object.freeze({
+      phase: this.phase,
+      message: this.message,
       installed: chromiumInstalled(),
       connected: !!this.page,
       conversationId: this.convId,
       debuggingEnabled: browserDebuggingEnabled()
+    })
+  }
+  onStatus(listener: (status: BrowserStatus) => void): () => void {
+    this.statusListeners.add(listener)
+    return () => {
+      this.statusListeners.delete(listener)
     }
+  }
+  private transition(phase: BrowserPhase, message: string | null = null): void {
+    if (this.phase === phase && this.message === message) return
+    this.phase = phase
+    this.message = message
+    const snapshot = this.status()
+    for (const listener of this.statusListeners) listener(snapshot)
   }
   currentUrl(): string {
     return this.view?.webContents.getURL() ?? 'about:blank'
@@ -81,89 +105,107 @@ export class BrowserManager {
   async start(conversationId: string): Promise<void> {
     if (this.page && this.convId === conversationId) return
     await this.teardown()
-    await ensureChromium()
-    // finding 2: the CDP endpoint is only open when the feature was enabled at
-    // boot. Fail with an actionable message rather than blindly dialling a port
-    // that isn't ours (or isn't listening at all).
-    if (!browserDebuggingEnabled()) {
-      throw new Error(
-        'The browser debugging endpoint is disabled. Enable Browser in Settings and relaunch BearCode.'
-      )
-    }
-    const win = getMainWindow()
-    if (!win) throw new Error('No main window to attach the browser view to.')
-    this.convId = conversationId
-    // finding 1: mint a unique per-session token and embed it in the view's
-    // initial URL. resolvePage() selects the CDP page by this token, so it can
-    // ONLY ever attach to our WebContentsView — never the app's own renderer,
-    // another BearCode instance sharing the (silently-collided) port, or a
-    // squatter's fake endpoint. Any of those yields no token match → we refuse.
-    const token = randomUUID()
-    this.view = new WebContentsView({
-      webPreferences: { sandbox: true, partition: `browser:${conversationId}` }
-    })
-    win.contentView.addChildView(this.view)
-    this.view.setBounds(this.visible ? this.bounds : hiddenBounds(this.bounds))
-    await this.view.webContents.loadURL(
-      `data:text/html,<!--bearcode-${token}--><title>bearcode</title>`
-    )
-    // Recover if the view's renderer dies mid-session.
-    this.view.webContents.on('render-process-gone', () => {
-      void this.teardown()
-    })
-    // L2 hard gate on EVERY navigation (F4 finding 2), not just the
-    // browser_navigate tool: browser_evaluate setting location.href, an in-page
-    // link click, and server 302 redirects all reach a new origin WITHOUT
-    // passing the tool's L2 check. will-navigate covers renderer-initiated
-    // navigations (links, location changes); will-redirect covers server
-    // redirect hops. A blocklisted destination is cancelled outright; 'allow'
-    // and 'prompt' origins pass (prompting/consent is the tool layer's job —
-    // there is no way to raise an approval mid-navigation). Our own
-    // page.goto in navigate() already cleared L2 at the tool, so re-checking it
-    // here is at worst a no-op (it can only be allow/prompt, never block).
-    const guardNavigation = (event: { preventDefault: () => void }, targetUrl: string): void => {
-      if (navigationBlockedByPolicy(targetUrl, this.policyProvider())) event.preventDefault()
-    }
-    this.view.webContents.on('will-navigate', guardNavigation)
-    this.view.webContents.on('will-redirect', guardNavigation)
-    // F4 (whole-branch review, popup escape): v1 is single-tab. A visited page's
-    // window.open()/target=_blank must NOT spawn a window outside the pane,
-    // Playwright's control, and the domain policy — deny all popups outright.
-    this.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    // finding 4: never leave a zombie view attached if connect/target-select
-    // throws (port squatted, target list unsettled, CDP flake). Tear the whole
-    // session down and surface the error.
+    // A new native view always starts hidden. The renderer must explicitly show
+    // it again after receiving `ready`, so stale visibility from a prior session
+    // can never expose native pixels over loading or error feedback.
+    this.visible = false
+    this.transition('starting')
     try {
-      this.page = await this.connectAndResolve(token)
-    } catch (err) {
-      await this.teardown()
-      throw err instanceof Error ? err : new Error(String(err))
-    }
-    // finding 4: if Playwright disconnects mid-session, tear the session DOWN
-    // (detach + destroy the view) rather than only nulling the page — otherwise
-    // status() reports a stranded view against a dead connection. Registered
-    // BEFORE the awaited emulateMedia loop below (polish review): if the
-    // connection drops mid-loop, 'disconnected' must still reach a live handler.
-    this.browser?.on('disconnected', () => {
-      void this.teardown()
-    })
-    // THEME FIX (confirmed via probe): connectOverCDP applies Playwright's
-    // default colorScheme:'light' emulation to EVERY attached page — including
-    // BearCode's own renderer — which flips the app UI to light in System theme
-    // (before=dark → afterStart=light → restored only on teardown). Clear the
-    // media override on every attached page that is NOT our browser view so the
-    // app's own theme is never touched. Best-effort: a theme cosmetic must never
-    // break the session. The view page keeps Playwright's default (fine for the
-    // browsed content).
-    try {
-      for (const ctx of this.browser?.contexts() ?? []) {
-        for (const p of ctx.pages()) {
-          if (p !== this.page) await p.emulateMedia({ colorScheme: null })
-        }
+      await ensureChromium()
+      // finding 2: the CDP endpoint is only open when the feature was enabled at
+      // boot. Fail with an actionable message rather than blindly dialling a port
+      // that isn't ours (or isn't listening at all).
+      if (!browserDebuggingEnabled()) {
+        throw new Error(
+          'The browser debugging endpoint is disabled. Enable Browser in Settings and relaunch BearCode.'
+        )
       }
-    } catch {
-      /* leave app theme as-is if the reset fails */
+      const win = getMainWindow()
+      if (!win) throw new Error('No main window to attach the browser view to.')
+      this.convId = conversationId
+      // finding 1: mint a unique per-session token and embed it in the view's
+      // initial URL. resolvePage() selects the CDP page by this token, so it can
+      // ONLY ever attach to our WebContentsView — never the app's own renderer,
+      // another BearCode instance sharing the (silently-collided) port, or a
+      // squatter's fake endpoint. Any of those yields no token match → we refuse.
+      const token = randomUUID()
+      this.view = new WebContentsView({
+        webPreferences: { sandbox: true, partition: `browser:${conversationId}` }
+      })
+      win.contentView.addChildView(this.view)
+      this.view.setBounds(hiddenBounds(this.bounds))
+      await this.view.webContents.loadURL(
+        `data:text/html,<!--bearcode-${token}--><title>bearcode</title>`
+      )
+      // A crashed renderer is not a normal stop: preserve an actionable error
+      // after cleanup so the pane explains why its native pixels disappeared.
+      this.view.webContents.on('render-process-gone', () => {
+        void this.failSession('The browser view stopped unexpectedly. Start it again.')
+      })
+      // L2 hard gate on EVERY navigation (F4 finding 2), not just the
+      // browser_navigate tool: browser_evaluate setting location.href, an in-page
+      // link click, and server 302 redirects all reach a new origin WITHOUT
+      // passing the tool's L2 check. will-navigate covers renderer-initiated
+      // navigations (links, location changes); will-redirect covers server
+      // redirect hops. A blocklisted destination is cancelled outright; 'allow'
+      // and 'prompt' origins pass (prompting/consent is the tool layer's job —
+      // there is no way to raise an approval mid-navigation). Our own
+      // page.goto in navigate() already cleared L2 at the tool, so re-checking it
+      // here is at worst a no-op (it can only be allow/prompt, never block).
+      const guardNavigation = (event: { preventDefault: () => void }, targetUrl: string): void => {
+        if (navigationBlockedByPolicy(targetUrl, this.policyProvider())) event.preventDefault()
+      }
+      this.view.webContents.on('will-navigate', guardNavigation)
+      this.view.webContents.on('will-redirect', guardNavigation)
+      // F4 (whole-branch review, popup escape): v1 is single-tab. A visited page's
+      // window.open()/target=_blank must NOT spawn a window outside the pane,
+      // Playwright's control, and the domain policy — deny all popups outright.
+      this.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+      // finding 4: never leave a zombie view attached if connect/target-select
+      // throws (port squatted, target list unsettled, CDP flake). The outer
+      // failure path tears down the whole session before publishing its error.
+      this.page = await this.connectAndResolve(token)
+      // finding 4: if Playwright disconnects mid-session, tear the session DOWN
+      // (detach + destroy the view) rather than only nulling the page — otherwise
+      // status() reports a stranded view against a dead connection. Registered
+      // BEFORE the awaited emulateMedia loop below (polish review): if the
+      // connection drops mid-loop, 'disconnected' must still reach a live handler.
+      this.browser?.on('disconnected', () => {
+        if (!this.tearingDown) {
+          void this.failSession('The browser connection closed unexpectedly. Start it again.')
+        }
+      })
+      // THEME FIX (confirmed via probe): connectOverCDP applies Playwright's
+      // default colorScheme:'light' emulation to EVERY attached page — including
+      // BearCode's own renderer — which flips the app UI to light in System theme
+      // (before=dark → afterStart=light → restored only on teardown). Clear the
+      // media override on every attached page that is NOT our browser view so the
+      // app's own theme is never touched. Best-effort: a theme cosmetic must never
+      // break the session. The view page keeps Playwright's default (fine for the
+      // browsed content).
+      try {
+        for (const ctx of this.browser?.contexts() ?? []) {
+          for (const p of ctx.pages()) {
+            if (p !== this.page) await p.emulateMedia({ colorScheme: null })
+          }
+        }
+      } catch {
+        /* leave app theme as-is if the reset fails */
+      }
+      this.transition('ready')
+    } catch (error) {
+      const sanitized = sanitizedError(error)
+      await this.teardownSession(true)
+      this.transition('error', sanitized.message)
+      throw sanitized
     }
+  }
+
+  private async failSession(message: string): Promise<void> {
+    if (this.tearingDown) return
+    this.hide()
+    await this.teardownSession(true)
+    this.transition('error', message)
   }
 
   // Connect to the CDP endpoint and resolve our view's page, retrying ONCE
@@ -300,11 +342,15 @@ export class BrowserManager {
     await this.view?.webContents.session.clearStorageData()
   }
   async teardown(): Promise<void> {
+    await this.teardownSession(false)
+  }
+  private async teardownSession(preserveStatus: boolean): Promise<void> {
     // Re-entrancy guard: browser.close() below fires 'disconnected', whose
     // handler calls teardown() again; the view's 'render-process-gone' can also
     // land here concurrently. Null the refs up front and bail on re-entry.
     if (this.tearingDown) return
     this.tearingDown = true
+    this.visible = false
     this.screenshots.clear()
     try {
       const browser = this.browser
@@ -336,6 +382,7 @@ export class BrowserManager {
       }
     } finally {
       this.tearingDown = false
+      if (!preserveStatus) this.transition('idle')
     }
   }
 }

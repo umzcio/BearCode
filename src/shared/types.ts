@@ -1478,6 +1478,17 @@ export interface TerminalSessionView {
   exited: boolean
 }
 
+export type BrowserPhase = 'idle' | 'starting' | 'ready' | 'error'
+
+export interface BrowserStatus {
+  phase: BrowserPhase
+  message: string | null
+  installed: boolean
+  connected: boolean
+  conversationId: string | null
+  debuggingEnabled: boolean
+}
+
 export interface BearcodeApi {
   ping(): Promise<PingResult>
   run: {
@@ -1720,17 +1731,12 @@ export interface BearcodeApi {
   // F4: the embedded browser pane. The WebContentsView is a main-side singleton
   // driven by Playwright over CDP (browserManager). The renderer owns only the
   // pane's geometry (`setBounds` from the placeholder rect) and visibility
-  // (`show`/`hide` on mount/unmount); `status` backs the Settings tab, and
-  // `clearSession` wipes the per-conversation browsing data.
+  // (`show`/`hide` on mount/unmount); status is subscribed before the initial
+  // invoke so lifecycle pushes cannot race hydration, and `clearSession` wipes
+  // the per-conversation browsing data.
   browser: {
-    status(): Promise<{
-      installed: boolean
-      connected: boolean
-      conversationId: string | null
-      // Whether the CDP endpoint was opened at boot; diverges from the live
-      // `browserEnabled` setting after a toggle, gating the relaunch note.
-      debuggingEnabled: boolean
-    }>
+    status(): Promise<BrowserStatus>
+    onStatus(cb: (status: BrowserStatus) => void): () => void
     clearSession(): Promise<void>
     setBounds(b: { x: number; y: number; width: number; height: number }): Promise<void>
     show(): Promise<void>
