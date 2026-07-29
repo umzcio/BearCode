@@ -1,15 +1,18 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Event } from '@shared/types'
+import type { BearcodeApi, Event } from '@shared/types'
 import { useAppStore } from '../state/store'
 import { ArtifactViewer } from './ArtifactViewer'
 
 const resolvePlanReview = vi.fn()
 const loadArtifactComments = vi.fn().mockResolvedValue(undefined)
 const addArtifactComment = vi.fn().mockResolvedValue(undefined)
+const writeClipboard = vi.fn()
+const saveMarkdown = vi.fn()
 const originalState = useAppStore.getState()
 const showToast = vi.fn()
+let bearcodeBefore: PropertyDescriptor | undefined
 
 function controlledPromise<T>(): {
   promise: Promise<T>
@@ -76,11 +79,20 @@ function openCommentComposer(text = 'Implementation plan'): HTMLTextAreaElement 
 
 beforeEach(() => {
   vi.useFakeTimers()
+  bearcodeBefore = Object.getOwnPropertyDescriptor(window, 'bearcode')
   resolvePlanReview.mockReset()
   loadArtifactComments.mockClear()
   addArtifactComment.mockReset()
   addArtifactComment.mockResolvedValue(undefined)
+  writeClipboard.mockReset()
+  writeClipboard.mockResolvedValue(undefined)
+  saveMarkdown.mockReset()
+  saveMarkdown.mockResolvedValue('cancelled')
   showToast.mockReset()
+  ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
+    clipboard: { write: writeClipboard },
+    artifacts: { saveMarkdown }
+  } as unknown as BearcodeApi
   useAppStore.setState({
     auxSelection: { kind: 'artifact', artifactId: 'one' },
     artifactComments: {},
@@ -95,12 +107,175 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+  if (bearcodeBefore) Object.defineProperty(window, 'bearcode', bearcodeBefore)
+  else Reflect.deleteProperty(window, 'bearcode')
   useAppStore.setState({
     resolvePlanReview: originalState.resolvePlanReview,
     loadArtifactComments: originalState.loadArtifactComments,
     addArtifactComment: originalState.addArtifactComment,
     showToast: originalState.showToast
   } as never)
+})
+
+describe('ArtifactViewer copy and Markdown export', () => {
+  it('copies the exact source Markdown and toasts only after the clipboard write succeeds', async () => {
+    const write = controlledPromise<void>()
+    writeClipboard.mockReturnValue(write.promise)
+    const selected = {
+      ...plan('one'),
+      body: '# Exact Markdown\n\nUnicode ✅\n`\\u0000-like`'
+    }
+    render(
+      <ArtifactViewer
+        selected={selected}
+        versions={[selected]}
+        convoEvents={[selected, pendingCall('one')]}
+        onSelectVersion={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Markdown' }))
+
+    expect(writeClipboard).toHaveBeenCalledExactlyOnceWith(selected.body)
+    expect(showToast).not.toHaveBeenCalled()
+
+    await act(async () => {
+      write.resolve()
+      await write.promise
+    })
+
+    expect(showToast).toHaveBeenCalledExactlyOnceWith('Markdown copied')
+  })
+
+  it('reports clipboard failures without a success toast', async () => {
+    writeClipboard.mockRejectedValueOnce(new Error('clipboard unavailable'))
+    renderViewer()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Markdown' }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(showToast).toHaveBeenCalledExactlyOnceWith('Could not copy Markdown')
+    expect(showToast).not.toHaveBeenCalledWith('Markdown copied')
+  })
+
+  it('passes only the selected opaque ID and toasts after a successful export', async () => {
+    const save = controlledPromise<'saved' | 'cancelled'>()
+    saveMarkdown.mockReturnValue(save.promise)
+    renderViewer()
+
+    const exportButton = screen.getByRole('button', { name: 'Export…' })
+    fireEvent.click(exportButton)
+
+    expect(saveMarkdown).toHaveBeenCalledExactlyOnceWith('one')
+    expect(exportButton).toBeDisabled()
+    expect(showToast).not.toHaveBeenCalled()
+
+    await act(async () => {
+      save.resolve('saved')
+      await save.promise
+    })
+
+    expect(showToast).toHaveBeenCalledExactlyOnceWith('Artifact exported')
+    expect(exportButton).not.toBeDisabled()
+  })
+
+  it('keeps cancellation silent and restores the export control', async () => {
+    saveMarkdown.mockResolvedValueOnce('cancelled')
+    renderViewer()
+
+    const exportButton = screen.getByRole('button', { name: 'Export…' })
+    fireEvent.click(exportButton)
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(showToast).not.toHaveBeenCalled()
+    expect(exportButton).not.toBeDisabled()
+  })
+
+  it('reports export rejection and restores the export control', async () => {
+    saveMarkdown.mockRejectedValueOnce(new Error('disk full'))
+    renderViewer()
+
+    const exportButton = screen.getByRole('button', { name: 'Export…' })
+    fireEvent.click(exportButton)
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(showToast).toHaveBeenCalledExactlyOnceWith('Could not export artifact')
+    expect(exportButton).not.toBeDisabled()
+  })
+
+  it('disables export and suppresses duplicate dialogs while one is pending', () => {
+    const save = controlledPromise<'saved' | 'cancelled'>()
+    saveMarkdown.mockReturnValue(save.promise)
+    renderViewer()
+
+    const exportButton = screen.getByRole('button', { name: 'Export…' })
+    fireEvent.click(exportButton)
+    fireEvent.click(exportButton)
+
+    expect(exportButton).toBeDisabled()
+    expect(saveMarkdown).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores a stale successful completion after selection changes', async () => {
+    const save = controlledPromise<'saved' | 'cancelled'>()
+    saveMarkdown.mockReturnValue(save.promise)
+    const view = renderViewer()
+    fireEvent.click(screen.getByRole('button', { name: 'Export…' }))
+
+    const next = plan('two')
+    view.rerender(
+      <ArtifactViewer
+        selected={next}
+        versions={[next]}
+        convoEvents={[next, pendingCall('two')]}
+        onSelectVersion={vi.fn()}
+      />
+    )
+    expect(screen.getByRole('button', { name: 'Export…' })).not.toBeDisabled()
+
+    await act(async () => {
+      save.resolve('saved')
+      await save.promise
+    })
+
+    expect(showToast).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Export…' })).not.toBeDisabled()
+  })
+
+  it('ignores a stale rejection after selection changes', async () => {
+    const save = controlledPromise<'saved' | 'cancelled'>()
+    saveMarkdown.mockReturnValue(save.promise)
+    const view = renderViewer()
+    fireEvent.click(screen.getByRole('button', { name: 'Export…' }))
+
+    const next = plan('two')
+    view.rerender(
+      <ArtifactViewer
+        selected={next}
+        versions={[next]}
+        convoEvents={[next, pendingCall('two')]}
+        onSelectVersion={vi.fn()}
+      />
+    )
+
+    await act(async () => {
+      save.reject(new Error('old dialog failed'))
+      try {
+        await save.promise
+      } catch {
+        // The component owns the rejection.
+      }
+    })
+
+    expect(showToast).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Export…' })).not.toBeDisabled()
+  })
 })
 
 describe('ArtifactViewer plan resolution feedback', () => {

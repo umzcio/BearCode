@@ -64,12 +64,15 @@ export function ArtifactViewer({
   const [feedbackText, setFeedbackText] = useState('')
   const [inserting, setInserting] = useState(false)
   const [resolving, setResolving] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [resolutionNotice, setResolutionNotice] = useState<'Approved' | 'Feedback sent' | null>(
     null
   )
   const resolutionRun = useRef(0)
   const insertionRun = useRef(0)
   const insertionSubmitting = useRef(false)
+  const exportRun = useRef(0)
+  const exportSubmitting = useRef(false)
   const selectedArtifactIdRef = useRef(selected.artifactId)
   const feedbackRef = useRef<HTMLTextAreaElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -95,6 +98,7 @@ export function ArtifactViewer({
     setFeedbackText('')
     setInserting(false)
     setResolving(false)
+    setExporting(false)
     setResolutionNotice(null)
   }
 
@@ -103,6 +107,8 @@ export function ArtifactViewer({
     insertionRun.current += 1
     insertionSubmitting.current = false
     resolutionRun.current += 1
+    exportRun.current += 1
+    exportSubmitting.current = false
   }, [selected.artifactId])
 
   // Reload comments whenever the selected artifact changes.
@@ -121,6 +127,7 @@ export function ArtifactViewer({
     () => () => {
       insertionRun.current += 1
       resolutionRun.current += 1
+      exportRun.current += 1
     },
     []
   )
@@ -226,6 +233,38 @@ export function ArtifactViewer({
     void resolveReview(false, feedbackText.trim() || undefined, 'Feedback sent')
   }
 
+  const copyMarkdown = async (): Promise<void> => {
+    try {
+      await window.bearcode.clipboard.write(selected.body)
+      showToast('Markdown copied')
+    } catch {
+      showToast('Could not copy Markdown')
+    }
+  }
+
+  const exportMarkdown = async (): Promise<void> => {
+    if (exportSubmitting.current) return
+    const artifactId = selected.artifactId
+    const run = exportRun.current + 1
+    exportRun.current = run
+    exportSubmitting.current = true
+    setExporting(true)
+    try {
+      const result = await window.bearcode.artifacts.saveMarkdown(artifactId)
+      if (exportRun.current !== run || selectedArtifactIdRef.current !== artifactId) return
+      if (result === 'saved') showToast('Artifact exported')
+    } catch {
+      if (exportRun.current === run && selectedArtifactIdRef.current === artifactId) {
+        showToast('Could not export artifact')
+      }
+    } finally {
+      if (exportRun.current === run && selectedArtifactIdRef.current === artifactId) {
+        exportSubmitting.current = false
+        setExporting(false)
+      }
+    }
+  }
+
   return (
     <div className="ap-scroll">
       <div className="artifact-view">
@@ -235,25 +274,37 @@ export function ArtifactViewer({
           <span className={'artifact-status ' + selected.status}>
             {ARTIFACT_STATUS_LABELS[selected.status]}
           </span>
-          {resolutionNotice ? (
-            <div className="plan-resolution-notice" role="status" aria-live="polite">
-              {resolutionNotice}
-            </div>
-          ) : pendingCall ? (
-            <div className="plan-review-actions">
-              <button className="plan-proceed" disabled={resolving} onClick={proceed}>
-                Proceed
-              </button>
-              <button
-                className="plan-request-review"
-                disabled={resolving || (unsentCount === 0 && feedbackText.trim() === '')}
-                title="Needs at least one comment or a message"
-                onClick={requestReview}
-              >
-                Review
-              </button>
-            </div>
-          ) : null}
+          <div className="plan-review-actions">
+            {resolutionNotice ? (
+              <div className="plan-resolution-notice" role="status" aria-live="polite">
+                {resolutionNotice}
+              </div>
+            ) : pendingCall ? (
+              <>
+                <button className="plan-proceed" disabled={resolving} onClick={proceed}>
+                  Proceed
+                </button>
+                <button
+                  className="plan-request-review"
+                  disabled={resolving || (unsentCount === 0 && feedbackText.trim() === '')}
+                  title="Needs at least one comment or a message"
+                  onClick={requestReview}
+                >
+                  Review
+                </button>
+              </>
+            ) : null}
+            <button className="plan-request-review" onClick={() => void copyMarkdown()}>
+              Copy Markdown
+            </button>
+            <button
+              className="plan-request-review"
+              disabled={exporting}
+              onClick={() => void exportMarkdown()}
+            >
+              Export…
+            </button>
+          </div>
         </div>
         {versions.length > 1 ? (
           <div className="artifact-version-history">

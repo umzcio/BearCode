@@ -1689,6 +1689,7 @@ export interface BearcodeApi {
     ): Promise<PlanReviewResolveResult>
     addComment(artifactId: string, quote: string | null, body: string): Promise<ArtifactComment>
     listComments(artifactId: string): Promise<ArtifactComment[]>
+    saveMarkdown(artifactId: string): Promise<'saved' | 'cancelled'>
   }
   // Voice input (E5): the composer records mic audio and hands the ArrayBuffer
   // to main, which routes it to the selected STT backend and returns the

@@ -185,6 +185,12 @@ import {
 } from './orchestrator'
 import { checkNow, installNow } from './updater'
 
+function artifactExportName(title: string): string {
+  const safeTitle = sanitizeAttachmentName(title)
+  const stem = safeTitle.replace(/(?:\.md)+$/i, '') || 'artifact'
+  return sanitizeAttachmentName(`${stem}.md`)
+}
+
 function broadcast(channel: string, ...args: unknown[]): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send(channel, ...args)
@@ -548,6 +554,24 @@ export function registerIpc(): void {
   )
   ipcMain.handle('bearcode:artifacts:list-comments', (_e, artifactId: string) =>
     db.listArtifactComments(artifactId)
+  )
+  ipcMain.handle(
+    'bearcode:artifacts:save-markdown',
+    async (_e, artifactId: unknown): Promise<'saved' | 'cancelled'> => {
+      if (typeof artifactId !== 'string' || artifactId.length === 0) {
+        throw new Error('Invalid artifact ID')
+      }
+      const artifact = db.getArtifact(artifactId)
+      if (!artifact) throw new Error('Artifact not found')
+
+      const result = await dialog.showSaveDialog({
+        defaultPath: artifactExportName(artifact.title)
+      })
+      if (result.canceled || !result.filePath) return 'cancelled'
+
+      await saveVerifiedBytes(result.filePath, Buffer.from(artifact.body, 'utf8'))
+      return 'saved'
+    }
   )
 
   ipcMain.handle('bearcode:keys:set', (_e, provider: ProviderId, key: string) => {

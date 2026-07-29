@@ -292,7 +292,9 @@ const bearcode: BearcodeApi = {
     ): Promise<ArtifactComment> =>
       ipcRenderer.invoke('bearcode:artifacts:add-comment', artifactId, quote, body),
     listComments: (artifactId: string): Promise<ArtifactComment[]> =>
-      ipcRenderer.invoke('bearcode:artifacts:list-comments', artifactId)
+      ipcRenderer.invoke('bearcode:artifacts:list-comments', artifactId),
+    saveMarkdown: (artifactId: string): Promise<'saved' | 'cancelled'> =>
+      ipcRenderer.invoke('bearcode:artifacts:save-markdown', artifactId)
   },
   voice: {
     transcribe: (audio: ArrayBuffer, meta: TranscribeMeta) =>

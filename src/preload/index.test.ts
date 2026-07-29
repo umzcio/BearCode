@@ -287,3 +287,22 @@ describe('preload attachment save bridge', () => {
     expect(invoke).toHaveBeenCalledWith('bearcode:attachments:save', 'conv_123', 'att_123')
   })
 })
+
+describe('preload artifact Markdown export bridge', () => {
+  it('forwards only the opaque artifact ID to native Save As', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      artifacts: {
+        saveMarkdown: (artifactId: string) => Promise<'saved' | 'cancelled'>
+      }
+    }
+    invoke.mockClear()
+
+    await bearcode.artifacts.saveMarkdown('provider:opaque/artifact id')
+
+    expect(invoke).toHaveBeenCalledExactlyOnceWith(
+      'bearcode:artifacts:save-markdown',
+      'provider:opaque/artifact id'
+    )
+  })
+})
