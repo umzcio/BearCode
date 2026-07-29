@@ -18,8 +18,8 @@ executor should read the entire linked plan before editing and update this table
 | [008](008-isolate-resize-renders.md) | Keep pane resize state out of the heavy body | P2 | S | 002 | DONE |
 | [009](009-stabilize-artifact-event-projection.md) | Project artifact events incrementally | P2 | L | 002 | DONE |
 | [010](010-fix-monaco-comment-retargeting.md) | Make Monaco comment motion preference-live and target-stable | P2 | M | 001 | DONE |
-| [011](011-strengthen-motion-css-contract.md) | Strengthen the CSS motion contract and prune dead declarations | P2 | M | 001 | IN PROGRESS |
-| [012](012-add-headed-browser-harness.md) | Add a headed Electron native-browser gate | P2 | L | 007 | TODO |
+| [011](011-strengthen-motion-css-contract.md) | Strengthen the CSS motion contract and prune dead declarations | P2 | M | 001 | DONE |
+| [012](012-add-headed-browser-harness.md) | Add a headed Electron native-browser gate | P2 | L | 007 | IN PROGRESS |
 | [013](013-centralize-file-classification.md) | Centralize file-kind and language classification | P2 | M | 001 | TODO |
 | [014](014-add-keyboard-review-navigation.md) | Add keyboard review navigation | P2 | M | 002, 003 | TODO |
 | [015](015-surface-browser-readiness.md) | Surface browser readiness and failure states | P2 | L | 007, 012 | TODO |
