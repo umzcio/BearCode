@@ -47,11 +47,13 @@ All in `src/renderer/src/components/ui/` and `src/renderer/src/lib/`:
 
 ## Process
 
-- `planning/` is gitignored — design docs and plans live there and are **never committed**.
+- `planning/` is gitignored local working material; drafts kept there are **never committed**.
+  Shipped implementation records are the exception and live in tracked `docs/superpowers/` and
+  `plans/` paths.
 - Merge to `main` is the maintainer's decision; live-smoke UI before merging.
 - Commit-message last line: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@noreply>`
 
-## Where the details live (gitignored `planning/`)
+## Where planning and shipped records live
 
 - UX craft overhaul: `planning/2026-07-12-ux-craft-overhaul-design.md` (+ phase plans) — the full
   rationale, the primitive APIs, and the gotchas each phase's review caught.
