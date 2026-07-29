@@ -8,7 +8,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/main/index.ts'),
-          officeWorker: resolve('src/main/attachments/officeWorker.ts')
+          officeWorker: resolve('src/main/attachments/officeWorker.ts'),
+          browserHarness: resolve('src/main/browser/electronHarness.ts')
         }
       }
     }

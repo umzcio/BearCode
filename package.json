@@ -20,6 +20,7 @@
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "patch-package && electron-builder install-app-deps",
     "test": "vitest run",
+    "test:electron:browser": "electron-vite build && electron out/main/browserHarness.js",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
