@@ -249,6 +249,35 @@ describe('ArtifactsPane attachment mode', () => {
 })
 
 describe('ArtifactsPane motion lifecycle', () => {
+  it('labels a single artifact as a direct region when no artifact rail is rendered', () => {
+    const plan = {
+      type: 'artifact',
+      id: 'event-plan',
+      artifactId: 'plan-1',
+      artifactType: 'plan',
+      version: 1,
+      title: 'Implementation plan',
+      status: 'pending-review',
+      body: '# Implementation plan'
+    } satisfies Extract<Event, { type: 'artifact' }>
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'conv_123' },
+      conversations: {
+        conv_123: conversation('conv_123', [plan])
+      },
+      auxSelection: { kind: 'artifact', artifactId: 'plan-1' },
+      auxPaneOpenTick: 0
+    })
+    render(<ArtifactsPane />)
+
+    expect(screen.queryByRole('tablist', { name: 'Artifacts' })).toBeNull()
+    const content = screen.getByRole('region', { name: 'Artifact content' })
+    expect(content).not.toHaveAttribute('id', 'artifacts-rail-content')
+    expect(content).not.toHaveAttribute('aria-labelledby')
+    expect(document.getElementById('artifacts-rail-tab-artifact:plan-1')).toBeNull()
+    expect(document.querySelector('[aria-labelledby]')).toBeNull()
+  })
+
   it('leaves actual plan feedback textarea arrow keys outside rail navigation', () => {
     const plan = {
       type: 'artifact',

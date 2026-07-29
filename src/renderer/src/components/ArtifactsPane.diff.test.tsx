@@ -686,6 +686,25 @@ describe('ArtifactsPane diff review', () => {
     await waitFor(() => expect(screen.getByRole('tab', { name: /Changes/ })).toHaveFocus())
   })
 
+  it('labels a single diff as a direct region when no artifact rail is rendered', async () => {
+    seedDiffReview()
+    render(<ArtifactsPane />)
+
+    await screen.findByTestId('monaco-diff-stub')
+
+    expect(screen.queryByRole('tablist', { name: 'Artifacts' })).toBeNull()
+    const content = screen.getByRole('region', { name: 'Diff review content' })
+    expect(content).not.toHaveAttribute('id', 'artifacts-rail-content')
+    expect(content).not.toHaveAttribute('aria-labelledby')
+    expect(document.getElementById('artifacts-rail-tab-diff:diff_123')).toBeNull()
+    for (const tab of screen.getAllByRole('tab')) {
+      expect(document.getElementById(tab.getAttribute('aria-controls')!)).not.toBeNull()
+    }
+    for (const panel of document.querySelectorAll<HTMLElement>('[aria-labelledby]')) {
+      expect(document.getElementById(panel.getAttribute('aria-labelledby')!)).not.toBeNull()
+    }
+  })
+
   it('uses shared Monaco languages while retaining rendered and source body defaults', async () => {
     getDiff.mockResolvedValueOnce(classificationDiff)
     seedDiffReview(classificationDiff)

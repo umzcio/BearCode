@@ -264,22 +264,23 @@ function ArtifactsPaneInnerImplementation({
         : undefined
   // The deliverable rail is shared markup handed to whichever panel renders,
   // so its Row 1 header stays above it in the same .ap-panel column.
-  const rail =
-    entries.length > 1 ? (
-      <ArtifactRail
-        entries={entries}
-        resolved={resolved}
-        onSelect={setSel}
-        tablistRef={railTablistRef}
-      />
-    ) : null
+  const railVisible = entries.length > 1
+  const rail = railVisible ? (
+    <ArtifactRail
+      entries={entries}
+      resolved={resolved}
+      onSelect={setSel}
+      tablistRef={railTablistRef}
+    />
+  ) : null
 
   if (resolved?.kind === 'diff') {
     return (
       <DiffPanel
         diffId={resolved.diffId}
         rail={rail}
-        railPanelLabelledBy={selectedRailId ? railTabId(selectedRailId) : undefined}
+        railVisible={railVisible}
+        railPanelLabelledBy={railVisible && selectedRailId ? railTabId(selectedRailId) : undefined}
       />
     )
   }
@@ -300,10 +301,10 @@ function ArtifactsPaneInnerImplementation({
         {rail}
         <div
           className="ap-artifact-body"
-          role="tabpanel"
-          id={RAIL_CONTENT_PANEL_ID}
-          aria-labelledby={selectedRailId ? railTabId(selectedRailId) : undefined}
-          aria-label={selectedRailId ? undefined : 'Artifact content'}
+          role={railVisible ? 'tabpanel' : 'region'}
+          id={railVisible ? RAIL_CONTENT_PANEL_ID : undefined}
+          aria-labelledby={railVisible && selectedRailId ? railTabId(selectedRailId) : undefined}
+          aria-label={railVisible ? undefined : 'Artifact content'}
         >
           <ArtifactViewer
             selected={selectedArtifact}
@@ -566,10 +567,12 @@ function FilePanel({ path, line }: { path: string; line?: number }): React.JSX.E
 function DiffPanel({
   diffId,
   rail,
+  railVisible,
   railPanelLabelledBy
 }: {
   diffId: string
   rail: React.ReactNode
+  railVisible: boolean
   railPanelLabelledBy?: string
 }): React.JSX.Element {
   const closeReview = useAppStore((s) => s.closeReview)
@@ -852,10 +855,10 @@ function DiffPanel({
 
       <div
         className="ap-rail-content"
-        role="tabpanel"
-        id={RAIL_CONTENT_PANEL_ID}
-        aria-labelledby={railPanelLabelledBy}
-        aria-label={railPanelLabelledBy ? undefined : 'Diff review content'}
+        role={railVisible ? 'tabpanel' : 'region'}
+        id={railVisible ? RAIL_CONTENT_PANEL_ID : undefined}
+        aria-labelledby={railVisible ? railPanelLabelledBy : undefined}
+        aria-label={railVisible ? undefined : 'Diff review content'}
       >
         <div
           className="ap-mode-content"
