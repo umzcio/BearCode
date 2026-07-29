@@ -18,6 +18,7 @@ import { Loading } from './ui/Loading'
 import { Hint } from './Hint'
 import { useAnimatedUnmount } from '../lib/useAnimatedUnmount'
 import { prefersReducedMotion } from '../lib/prefersReducedMotion'
+import { useRovingTabs } from '../lib/useRovingTabs'
 import './ArtifactsPane.css'
 
 const MonacoDiff = lazy(() => import('./MonacoDiff'))
@@ -145,6 +146,7 @@ function ArtifactsPaneInnerImplementation({
   // Local rail selection, overridden by every deep-link (tick bump).
   const [sel, setSel] = useState<AuxSelection>(target)
   const [seenTick, setSeenTick] = useState(openTick)
+  const railTablistRef = useRef<HTMLDivElement>(null)
   if (seenTick !== openTick) {
     setSeenTick(openTick)
     setSel(target)
@@ -234,52 +236,20 @@ function ArtifactsPaneInnerImplementation({
   }
   const selectedArtifact =
     resolved?.kind === 'artifact' ? artifactFor(resolved.artifactId) : undefined
-
   // The deliverable rail is shared markup handed to whichever panel renders,
   // so its Row 1 header stays above it in the same .ap-panel column.
   const rail =
     entries.length > 1 ? (
-      <div className="ap-rail">
-        {entries.map((entry) =>
-          entry.kind === 'artifact' ? (
-            <button
-              key={entry.event.id}
-              className={
-                'ap-rail-item' +
-                (resolved?.kind === 'artifact' && resolved.artifactId === entry.event.artifactId
-                  ? ' selected'
-                  : '')
-              }
-              onClick={() => setSel({ kind: 'artifact', artifactId: entry.event.artifactId })}
-            >
-              <span>
-                {ARTIFACT_TYPE_LABELS[entry.event.artifactType]} v{entry.event.version}
-              </span>
-              <span className="ap-rail-meta">{ARTIFACT_STATUS_LABELS[entry.event.status]}</span>
-            </button>
-          ) : (
-            <button
-              key={entry.event.id}
-              className={
-                'ap-rail-item' +
-                (resolved?.kind === 'diff' && resolved.diffId === entry.event.diffId
-                  ? ' selected'
-                  : '')
-              }
-              onClick={() => setSel({ kind: 'diff', diffId: entry.event.diffId })}
-            >
-              <span>Changes</span>
-              <span className="ap-rail-meta">
-                {entry.event.files.length} file{entry.event.files.length === 1 ? '' : 's'}
-              </span>
-            </button>
-          )
-        )}
-      </div>
+      <ArtifactRail
+        entries={entries}
+        resolved={resolved}
+        onSelect={setSel}
+        tablistRef={railTablistRef}
+      />
     ) : null
 
   if (resolved?.kind === 'diff') {
-    return <DiffPanel key={resolved.diffId} diffId={resolved.diffId} rail={rail} />
+    return <DiffPanel diffId={resolved.diffId} rail={rail} />
   }
   if (selectedArtifact) {
     return (
@@ -325,6 +295,96 @@ function ArtifactsPaneInnerImplementation({
 }
 
 const ArtifactsPaneInner = memo(ArtifactsPaneInnerImplementation)
+
+function ArtifactRail({
+  entries,
+  resolved,
+  onSelect,
+  tablistRef
+}: {
+  entries: ReturnType<typeof deriveRailEntries>
+  resolved: AuxSelection | null
+  onSelect: (selection: AuxSelection) => void
+  tablistRef: React.RefObject<HTMLDivElement | null>
+}): React.JSX.Element {
+  const railIds = entries.map((entry) =>
+    entry.kind === 'artifact' ? `artifact:${entry.event.artifactId}` : `diff:${entry.event.diffId}`
+  )
+  const selectedRailId =
+    resolved?.kind === 'artifact'
+      ? `artifact:${resolved.artifactId}`
+      : resolved?.kind === 'diff'
+        ? `diff:${resolved.diffId}`
+        : undefined
+  const { onKeyDown: onRailKeyDown } = useRovingTabs({
+    ids: railIds,
+    selectedId: selectedRailId,
+    tablistRef,
+    onActivate: (id) => {
+      const entry = entries[railIds.indexOf(id)]
+      if (!entry) return
+      onSelect(
+        entry.kind === 'artifact'
+          ? { kind: 'artifact', artifactId: entry.event.artifactId }
+          : { kind: 'diff', diffId: entry.event.diffId }
+      )
+    }
+  })
+
+  return (
+    <div
+      ref={tablistRef}
+      className="ap-rail"
+      role="tablist"
+      aria-label="Artifacts"
+      onKeyDown={onRailKeyDown}
+    >
+      {entries.map((entry, index) =>
+        entry.kind === 'artifact' ? (
+          <button
+            key={entry.event.id}
+            role="tab"
+            data-roving-tab-id={railIds[index]}
+            aria-selected={selectedRailId === railIds[index]}
+            tabIndex={selectedRailId === railIds[index] ? 0 : -1}
+            className={
+              'ap-rail-item' +
+              (resolved?.kind === 'artifact' && resolved.artifactId === entry.event.artifactId
+                ? ' selected'
+                : '')
+            }
+            onClick={() => onSelect({ kind: 'artifact', artifactId: entry.event.artifactId })}
+          >
+            <span>
+              {ARTIFACT_TYPE_LABELS[entry.event.artifactType]} v{entry.event.version}
+            </span>
+            <span className="ap-rail-meta">{ARTIFACT_STATUS_LABELS[entry.event.status]}</span>
+          </button>
+        ) : (
+          <button
+            key={entry.event.id}
+            role="tab"
+            data-roving-tab-id={railIds[index]}
+            aria-selected={selectedRailId === railIds[index]}
+            tabIndex={selectedRailId === railIds[index] ? 0 : -1}
+            className={
+              'ap-rail-item' +
+              (resolved?.kind === 'diff' && resolved.diffId === entry.event.diffId
+                ? ' selected'
+                : '')
+            }
+            onClick={() => onSelect({ kind: 'diff', diffId: entry.event.diffId })}
+          >
+            <span>Changes</span>
+            <span className="ap-rail-meta">
+              {entry.event.files.length} file{entry.event.files.length === 1 ? '' : 's'}
+            </span>
+          </button>
+        )
+      )}
+    </div>
+  )
+}
 
 function AttachmentPanel({
   conversationId,
@@ -481,7 +541,9 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
   const [mode, setMode] = useState<'overview' | 'diff'>('diff')
   const [activeFileId, setActiveFileId] = useState<string | null>(null)
   const [bodyView, setBodyView] = useState<Record<string, BodyView>>({})
+  const [resetForDiffId, setResetForDiffId] = useState(diffId)
   const mountedRef = useRef(true)
+  const activeDiffIdRef = useRef(diffId)
   const comments = useAppStore((s) => s.diffReviewComments[diffId] ?? EMPTY_REVIEW_COMMENTS)
   const sending = useAppStore((s) => s.diffReviewSending[diffId] === true)
   const addDiffReviewComment = useAppStore((s) => s.addDiffReviewComment)
@@ -490,12 +552,26 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
   const beginDiffReviewSend = useAppStore((s) => s.beginDiffReviewSend)
   const finishDiffReviewSend = useAppStore((s) => s.finishDiffReviewSend)
 
+  // The rail stays mounted across diff changes so keyboard focus can remain
+  // on its selected tab. Reset the state that the former keyed panel reset.
+  if (resetForDiffId !== diffId) {
+    setResetForDiffId(diffId)
+    setDiffLoad({ status: 'loading', diffId })
+    setMode('diff')
+    setActiveFileId(null)
+    setBodyView({})
+  }
+
   useEffect(() => {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
     }
   }, [])
+
+  useEffect(() => {
+    activeDiffIdRef.current = diffId
+  }, [diffId])
 
   // The user prompt this diff belongs to, for the For-Turn context line.
   let turnPrompt = ''
@@ -607,7 +683,7 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
         snapshot.map((comment) => comment.id)
       )
       showToast(`Sent ${snapshot.length === 1 ? '1 comment' : `${snapshot.length} comments`}`)
-      if (mountedRef.current) closeReview()
+      if (mountedRef.current && activeDiffIdRef.current === diffId) closeReview()
     })()
   }
 
@@ -623,6 +699,25 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
   }
 
   const body = activeFile ? viewFor(activeFile) : 'diff'
+  const { tablistRef: modeRef, onKeyDown: onModeKeyDown } = useRovingTabs({
+    ids: ['overview', 'diff'],
+    selectedId: mode,
+    onActivate: (nextMode) => setMode(nextMode as 'overview' | 'diff')
+  })
+  const fileTabIds = files.map((file) => file.fileId)
+  const { tablistRef: fileTabsRef, onKeyDown: onFileTabsKeyDown } = useRovingTabs({
+    ids: fileTabIds,
+    selectedId: activeFile?.fileId,
+    onActivate: setActiveFileId
+  })
+  const bodyViewIds: BodyView[] = ['diff', 'code', 'preview']
+  const { tablistRef: bodyViewRef, onKeyDown: onBodyViewKeyDown } = useRovingTabs({
+    ids: bodyViewIds,
+    selectedId: body,
+    onActivate: (nextView) => {
+      if (activeFile) setViewFor(activeFile.fileId, nextView as BodyView)
+    }
+  })
   const emptyDiffState =
     currentDiffLoad.status === 'loading' ? (
       <Loading label="Loading changes…" />
@@ -637,14 +732,31 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
       {/* Row 1: brand + Overview/Diff mode toggle + actions */}
       <div className="ap-row ap-row-top">
         <ApBrand />
-        <div className="ap-segmented">
+        <div
+          ref={modeRef}
+          className="ap-segmented"
+          role="tablist"
+          aria-label="Review mode"
+          onKeyDown={onModeKeyDown}
+        >
           <button
+            role="tab"
+            data-roving-tab-id="overview"
+            aria-selected={mode === 'overview'}
+            tabIndex={mode === 'overview' ? 0 : -1}
             className={mode === 'overview' ? 'active' : ''}
             onClick={() => setMode('overview')}
           >
             Overview
           </button>
-          <button className={mode === 'diff' ? 'active' : ''} onClick={() => setMode('diff')}>
+          <button
+            role="tab"
+            data-roving-tab-id="diff"
+            aria-selected={mode === 'diff'}
+            tabIndex={mode === 'diff' ? 0 : -1}
+            className={mode === 'diff' ? 'active' : ''}
+            onClick={() => setMode('diff')}
+          >
             Diff · {files.length}
           </button>
         </div>
@@ -718,10 +830,20 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
         <>
           {/* Row 2: file tabs + Diff/Code/Preview toggle */}
           <div className="ap-row ap-row-tabs">
-            <div className="ap-tabs">
+            <div
+              ref={fileTabsRef}
+              className="ap-tabs"
+              role="tablist"
+              aria-label="Changed files"
+              onKeyDown={onFileTabsKeyDown}
+            >
               {files.map((f) => (
                 <button
                   key={f.fileId}
+                  role="tab"
+                  data-roving-tab-id={f.fileId}
+                  aria-selected={f.fileId === activeFile?.fileId}
+                  tabIndex={f.fileId === activeFile?.fileId ? 0 : -1}
                   className={
                     'ap-tab' +
                     (f.fileId === activeFile?.fileId ? ' active' : '') +
@@ -762,20 +884,38 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
               ))}
             </div>
             {activeFile ? (
-              <div className="ap-segmented">
+              <div
+                ref={bodyViewRef}
+                className="ap-segmented"
+                role="tablist"
+                aria-label="File view"
+                onKeyDown={onBodyViewKeyDown}
+              >
                 <button
+                  role="tab"
+                  data-roving-tab-id="diff"
+                  aria-selected={body === 'diff'}
+                  tabIndex={body === 'diff' ? 0 : -1}
                   className={body === 'diff' ? 'active' : ''}
                   onClick={() => setViewFor(activeFile.fileId, 'diff')}
                 >
                   Diff
                 </button>
                 <button
+                  role="tab"
+                  data-roving-tab-id="code"
+                  aria-selected={body === 'code'}
+                  tabIndex={body === 'code' ? 0 : -1}
                   className={body === 'code' ? 'active' : ''}
                   onClick={() => setViewFor(activeFile.fileId, 'code')}
                 >
                   Code
                 </button>
                 <button
+                  role="tab"
+                  data-roving-tab-id="preview"
+                  aria-selected={body === 'preview'}
+                  tabIndex={body === 'preview' ? 0 : -1}
                   className={body === 'preview' ? 'active' : ''}
                   onClick={() => setViewFor(activeFile.fileId, 'preview')}
                 >

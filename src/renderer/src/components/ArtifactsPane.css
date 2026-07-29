@@ -528,6 +528,12 @@
   background: var(--ap-surface-2);
   color: var(--ap-text-primary);
 }
+.ap-segmented button:focus-visible,
+.ap-rail-item:focus-visible,
+.ap-tab:focus-visible {
+  outline: 2px solid var(--ap-accent-blue);
+  outline-offset: -2px;
+}
 
 /* --- Action cluster --- */
 .ap-actions {

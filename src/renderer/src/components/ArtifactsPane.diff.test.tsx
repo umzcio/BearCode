@@ -29,6 +29,7 @@ vi.mock('./MonacoCode', () => ({
         data-commented-lines={commentedLines.join(',')}
       >
         <pre>{value}</pre>
+        <textarea aria-label="Monaco input" />
         <button onClick={() => onAddComment?.(line, text)}>Add comment at line {line}</button>
       </section>
     )
@@ -56,6 +57,7 @@ vi.mock('./MonacoDiff', () => ({
     >
       <pre>{original}</pre>
       <pre>{modified}</pre>
+      <textarea aria-label="Monaco input" />
       <button onClick={() => onAddComment?.(7, 'Check the answer')}>Add comment at line 7</button>
     </section>
   )
@@ -367,7 +369,7 @@ describe('ArtifactsPane diff review', () => {
     })
 
     expect(onRender).toHaveBeenCalled()
-    expect(screen.getAllByRole('button', { name: /Changes/ })).toHaveLength(2)
+    expect(screen.getAllByRole('tab', { name: /Changes/ })).toHaveLength(2)
     onRender.mockClear()
 
     act(() => {
@@ -392,7 +394,7 @@ describe('ArtifactsPane diff review', () => {
     })
 
     expect(onRender).toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: /Plan v1/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Plan v1/ })).toBeInTheDocument()
   })
 
   it('keeps the diff pane loading until its requested diff resolves', async () => {
@@ -428,14 +430,14 @@ describe('ArtifactsPane diff review', () => {
     seedDiffReview(diff, '/workspace/assets/diagram.png')
 
     render(<ArtifactsPane />)
-    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Overview' }))
 
     await act(async () => {
       pending.resolve(diff)
     })
 
-    expect(screen.getByRole('button', { name: 'Diff · 2' })).toHaveClass('active')
-    expect(screen.getByRole('button', { name: /diagram\.png/ })).toHaveClass('active')
+    expect(screen.getByRole('tab', { name: 'Diff · 2' })).toHaveClass('active')
+    expect(screen.getByRole('tab', { name: /diagram\.png/ })).toHaveClass('active')
     expect(screen.getByTestId('file-preview-stub')).toHaveTextContent('file_png')
   })
 
@@ -445,14 +447,14 @@ describe('ArtifactsPane diff review', () => {
     seedDiffReview(diff, '/workspace/src/missing.ts')
 
     render(<ArtifactsPane />)
-    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Overview' }))
 
     await act(async () => {
       pending.resolve(diff)
     })
 
-    expect(screen.getByRole('button', { name: 'Diff · 2' })).toHaveClass('active')
-    expect(screen.getByRole('button', { name: /answer\.ts/ })).toHaveClass('active')
+    expect(screen.getByRole('tab', { name: 'Diff · 2' })).toHaveClass('active')
+    expect(screen.getByRole('tab', { name: /answer\.ts/ })).toHaveClass('active')
     expect(screen.getByTestId('monaco-diff-stub')).toBeInTheDocument()
   })
 
@@ -468,7 +470,7 @@ describe('ArtifactsPane diff review', () => {
 
     fireEvent.click(
       screen
-        .getAllByRole('button', { name: /Changes/ })
+        .getAllByRole('tab', { name: /Changes/ })
         .find((button) => button.textContent?.includes('1 file'))!
     )
     await act(async () => {
@@ -503,7 +505,7 @@ describe('ArtifactsPane diff review', () => {
     expect(editor).toHaveAttribute('data-language', 'typescript')
     expect(editor).toHaveTextContent('export const answer = 41')
     expect(editor).toHaveTextContent('export const answer = 42')
-    expect(screen.getByRole('button', { name: /answer\.ts/ })).toHaveClass('active')
+    expect(screen.getByRole('tab', { name: /answer\.ts/ })).toHaveClass('active')
   })
 
   it('shows the originating prompt and every changed file in Overview', async () => {
@@ -511,7 +513,7 @@ describe('ArtifactsPane diff review', () => {
     render(<ArtifactsPane />)
     await screen.findByTestId('monaco-diff-stub')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Overview' }))
 
     expect(screen.getByText('Please add the answer and diagram.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /answer\.ts/ })).toBeInTheDocument()
@@ -523,10 +525,10 @@ describe('ArtifactsPane diff review', () => {
     render(<ArtifactsPane />)
     await screen.findByTestId('monaco-diff-stub')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Overview' }))
     fireEvent.click(screen.getByRole('button', { name: /diagram\.png/ }))
 
-    expect(screen.getByRole('button', { name: /diagram\.png/ })).toHaveClass('active')
+    expect(screen.getByRole('tab', { name: /diagram\.png/ })).toHaveClass('active')
     expect(screen.getByTestId('file-preview-stub')).toHaveTextContent('file_png')
   })
 
@@ -535,11 +537,103 @@ describe('ArtifactsPane diff review', () => {
     render(<ArtifactsPane />)
     expect(await screen.findByTestId('monaco-diff-stub')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /diagram\.png/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /diagram\.png/ }))
     expect(screen.getByTestId('file-preview-stub')).toHaveTextContent('file_png')
 
-    fireEvent.click(screen.getByRole('button', { name: /answer\.ts/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /answer\.ts/ }))
     expect(screen.getByTestId('monaco-diff-stub')).toHaveAttribute('data-language', 'typescript')
+  })
+
+  it('exposes local automatically activated tablists without stealing Monaco arrow keys', async () => {
+    seedDiffReview(diff, null, [diff, secondDiff])
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView
+    })
+    render(<ArtifactsPane />)
+    await screen.findByTestId('monaco-diff-stub')
+
+    const rail = screen.getByRole('tablist', { name: 'Artifacts' })
+    const reviewMode = screen.getByRole('tablist', { name: 'Review mode' })
+    const fileTabs = screen.getByRole('tablist', { name: 'Changed files' })
+    const fileView = screen.getByRole('tablist', { name: 'File view' })
+    const changes = within(rail).getAllByRole('tab', { name: /Changes/ })
+    const overview = within(reviewMode).getByRole('tab', { name: 'Overview' })
+    const diffMode = within(reviewMode).getByRole('tab', { name: 'Diff · 2' })
+    const answer = within(fileTabs).getByRole('tab', { name: /answer\.ts/ })
+    const diagram = within(fileTabs).getByRole('tab', { name: /diagram\.png/ })
+    const diffView = within(fileView).getByRole('tab', { name: 'Diff' })
+
+    expect(changes[1]).toHaveAttribute('aria-selected', 'true')
+    expect(changes[1]).toHaveAttribute('tabindex', '0')
+    expect(changes[0]).toHaveAttribute('tabindex', '-1')
+    expect(diffMode).toHaveAttribute('aria-selected', 'true')
+    expect(diffMode).toHaveAttribute('tabindex', '0')
+    expect(overview).toHaveAttribute('tabindex', '-1')
+    expect(answer).toHaveAttribute('aria-selected', 'true')
+    expect(answer).toHaveAttribute('tabindex', '0')
+    expect(diagram).toHaveAttribute('tabindex', '-1')
+    expect(diffView).toHaveAttribute('aria-selected', 'true')
+    expect(diffView).toHaveAttribute('tabindex', '0')
+
+    fireEvent.keyDown(diffMode, { key: 'ArrowRight' })
+    expect(overview).toHaveFocus()
+    expect(overview).toHaveAttribute('aria-selected', 'true')
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' })
+
+    fireEvent.keyDown(overview, { key: 'End' })
+    expect(screen.getByRole('tab', { name: 'Diff · 2' })).toHaveFocus()
+    expect(screen.getByRole('tab', { name: 'Diff · 2' })).toHaveAttribute('aria-selected', 'true')
+
+    const visibleFileTabs = screen.getByRole('tablist', { name: 'Changed files' })
+    const visibleAnswer = within(visibleFileTabs).getByRole('tab', { name: /answer\.ts/ })
+    fireEvent.keyDown(visibleAnswer, { key: 'End' })
+    expect(within(visibleFileTabs).getByRole('tab', { name: /diagram\.png/ })).toHaveFocus()
+    expect(within(visibleFileTabs).getByRole('tab', { name: /diagram\.png/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+
+    const visibleFileView = screen.getByRole('tablist', { name: 'File view' })
+    const preview = within(visibleFileView).getByRole('tab', { name: 'Preview' })
+    fireEvent.keyDown(preview, { key: 'ArrowRight' })
+    expect(within(visibleFileView).getByRole('tab', { name: 'Diff' })).toHaveFocus()
+    expect(within(visibleFileView).getByRole('tab', { name: 'Diff' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+
+    const activeFileBeforeMonacoKey = within(visibleFileTabs).getByRole('tab', {
+      name: /diagram\.png/
+    })
+    fireEvent.keyDown(await screen.findByRole('textbox', { name: 'Monaco input' }), {
+      key: 'ArrowLeft'
+    })
+    expect(activeFileBeforeMonacoKey).toHaveAttribute('aria-selected', 'true')
+
+    scrollIntoView.mockClear()
+    fireEvent.click(within(rail).getAllByRole('tab', { name: /Changes/ })[0])
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    const currentRail = screen.getByRole('tablist', { name: 'Artifacts' })
+    await waitFor(() =>
+      expect(within(currentRail).getAllByRole('tab', { name: /Changes/ })[0]).toHaveAttribute(
+        'tabindex',
+        '0'
+      )
+    )
+
+    fireEvent.keyDown(within(currentRail).getAllByRole('tab', { name: /Changes/ })[0], {
+      key: 'ArrowLeft'
+    })
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('tablist', { name: 'Artifacts' })).getAllByRole('tab', {
+          name: /Changes/
+        })[1]
+      ).toHaveFocus()
+    )
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' })
   })
 
   it('uses shared Monaco languages while retaining rendered and source body defaults', async () => {
@@ -549,19 +643,19 @@ describe('ArtifactsPane diff review', () => {
 
     expect(await screen.findByTestId('monaco-diff-stub')).toHaveAttribute('data-language', 'ruby')
 
-    fireEvent.click(screen.getByRole('button', { name: /main\.go/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /main\.go/ }))
     expect(screen.getByTestId('monaco-diff-stub')).toHaveAttribute('data-language', 'go')
 
-    fireEvent.click(screen.getByRole('button', { name: /lib\.rs/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /lib\.rs/ }))
     expect(screen.getByTestId('monaco-diff-stub')).toHaveAttribute('data-language', 'rust')
 
-    fireEvent.click(screen.getByRole('button', { name: /icon\.svg/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /icon\.svg/ }))
     expect(screen.getByTestId('file-preview-stub')).toHaveTextContent('file_svg')
 
-    fireEvent.click(screen.getByRole('button', { name: /index\.html/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /index\.html/ }))
     expect(await screen.findByTestId('monaco-code-stub')).toHaveAttribute('data-language', 'html')
 
-    fireEvent.click(screen.getByRole('button', { name: /notes\.md/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /notes\.md/ }))
     expect(await screen.findByTestId('monaco-code-stub')).toHaveAttribute(
       'data-language',
       'markdown'
@@ -573,28 +667,28 @@ describe('ArtifactsPane diff review', () => {
     render(<ArtifactsPane />)
     await screen.findByTestId('monaco-diff-stub')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Code' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Code' }))
     expect(await screen.findByTestId('monaco-code-stub')).toHaveAttribute(
       'data-language',
       'typescript'
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /diagram\.png/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /diagram\.png/ }))
     expect(screen.getByTestId('file-preview-stub')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Diff' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Diff' }))
     expect(await screen.findByTestId('monaco-code-stub')).toHaveAttribute(
       'data-language',
       'plaintext'
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /answer\.ts/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /answer\.ts/ }))
     expect(screen.getByTestId('monaco-code-stub')).toHaveAttribute('data-language', 'typescript')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview' }))
     expect(screen.getByTestId('file-preview-stub')).toHaveTextContent('file_typescript')
-    fireEvent.click(screen.getByRole('button', { name: /diagram\.png/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /diagram\.png/ }))
     expect(screen.getByTestId('monaco-code-stub')).toHaveAttribute('data-language', 'plaintext')
-    fireEvent.click(screen.getByRole('button', { name: /answer\.ts/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /answer\.ts/ }))
     expect(screen.getByTestId('file-preview-stub')).toHaveTextContent('file_typescript')
   })
 
@@ -635,10 +729,10 @@ describe('ArtifactsPane diff review', () => {
 
     await waitFor(() => expect(revertDiff).toHaveBeenCalledWith('file_typescript'))
     await waitFor(() => expect(showToast).toHaveBeenCalledWith('Change reverted'))
-    expect(screen.getByRole('button', { name: /answer\.ts/ })).toHaveTextContent('Reverted')
+    expect(screen.getByRole('tab', { name: /answer\.ts/ })).toHaveTextContent('Reverted')
 
-    fireEvent.click(screen.getByRole('button', { name: /diagram\.png/ }))
-    expect(screen.getByRole('button', { name: /diagram\.png/ })).not.toHaveTextContent('Reverted')
+    fireEvent.click(screen.getByRole('tab', { name: /diagram\.png/ }))
+    expect(screen.getByRole('tab', { name: /diagram\.png/ })).not.toHaveTextContent('Reverted')
   })
 
   it('keeps comments scoped to their file and reflects their marked lines in each editor', async () => {
@@ -649,15 +743,15 @@ describe('ArtifactsPane diff review', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add comment at line 7' }))
     expect(screen.getByTestId('monaco-diff-stub')).toHaveAttribute('data-commented-lines', '7')
 
-    fireEvent.click(screen.getByRole('button', { name: /diagram\.png/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Code' }))
+    fireEvent.click(screen.getByRole('tab', { name: /diagram\.png/ }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Code' }))
     await screen.findByTestId('monaco-code-stub')
     fireEvent.click(screen.getByRole('button', { name: 'Add comment at line 12' }))
     expect(screen.getByTestId('monaco-code-stub')).toHaveAttribute('data-commented-lines', '12')
     expect(screen.getByText('answer.ts:7')).toBeInTheDocument()
     expect(screen.getByText('diagram.png:12')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /answer\.ts/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /answer\.ts/ }))
     expect(screen.getByTestId('monaco-diff-stub')).toHaveAttribute('data-commented-lines', '7')
 
     fireEvent.click(
@@ -680,14 +774,14 @@ describe('ArtifactsPane diff review', () => {
 
     fireEvent.click(
       screen
-        .getAllByRole('button', { name: /Changes/ })
+        .getAllByRole('tab', { name: /Changes/ })
         .find((button) => button.textContent?.includes('1 file'))!
     )
     expect(await screen.findByText('export const second = 2')).toBeInTheDocument()
 
     fireEvent.click(
       screen
-        .getAllByRole('button', { name: /Changes/ })
+        .getAllByRole('tab', { name: /Changes/ })
         .find((button) => button.textContent?.includes('2 files'))!
     )
     expect(await screen.findByText('answer.ts:7')).toBeInTheDocument()
@@ -781,7 +875,7 @@ describe('ArtifactsPane diff review', () => {
 
     const railButton = (fileCount: string): HTMLElement =>
       screen
-        .getAllByRole('button', { name: /Changes/ })
+        .getAllByRole('tab', { name: /Changes/ })
         .find((button) => button.textContent?.includes(fileCount))!
 
     fireEvent.click(railButton('1 file'))
