@@ -13,7 +13,15 @@ function errorMessage(error: unknown): string {
 // F4: the in-app browser pane. This is a placeholder rect only -- the real
 // pixels come from a main-side WebContentsView positioned over this element.
 // `visible` already combines shell visibility + motion settlement upstream.
-export function BrowserPane({ visible }: { visible: boolean }): React.JSX.Element {
+export function BrowserPane({
+  visible,
+  hideRequest = null,
+  onHideSettled
+}: {
+  visible: boolean
+  hideRequest?: number | null
+  onHideSettled?: (request: number) => void
+}): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const mountedRef = useRef(true)
   const presentationRevisionRef = useRef(0)
@@ -132,6 +140,7 @@ export function BrowserPane({ visible }: { visible: boolean }): React.JSX.Elemen
             setCommandError(pendingError)
             setPendingError(null)
           }
+          if (!visible && hideRequest !== null) onHideSettled?.(hideRequest)
         },
         (error: unknown) => {
           if (!isCurrent()) return
@@ -140,6 +149,10 @@ export function BrowserPane({ visible }: { visible: boolean }): React.JSX.Elemen
           setHideConfirmedRevision(revision)
           setPendingError(null)
           setCommandError(errorMessage(error))
+          // BrowserManager rejects only after its safety teardown completes,
+          // so rejection confirms that native pixels can no longer overlap
+          // the renderer just as a successful offscreen move does.
+          if (!visible && hideRequest !== null) onHideSettled?.(hideRequest)
         }
       )
       return
@@ -158,7 +171,9 @@ export function BrowserPane({ visible }: { visible: boolean }): React.JSX.Elemen
     })()
   }, [
     commandError,
+    hideRequest,
     measuredBounds,
+    onHideSettled,
     pendingError,
     presentationRevision,
     queueFailure,

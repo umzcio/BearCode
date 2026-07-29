@@ -7,6 +7,10 @@
 **Goal:** Preserve every Home Composer edit made during an accepted first-run dispatch by handing
 the exact remaining draft to the newly opened conversation.
 
+**Status:** Implemented. The planned handoff shipped across `be5373f`, `2508f7c`, `e8c48af`,
+`79a3493`, `345a3f1`, and `d000d56`, with follow-up race hardening in `e71b388`, `fc57d34`,
+`7957a02`, and `957297c`.
+
 **Architecture:** A renderer-only draft value and focused hook make snapshot subtraction atomic.
 `startFromHome` records acceptance without navigating; Home completes ownership transfer with a
 one-shot store handoff, and ConversationView seeds and acknowledges that handoff after Composer
@@ -86,7 +90,7 @@ export function useComposerDraft(initialDraft?: ComposerDraft): {
 }
 ```
 
-- [ ] **Step 1: Write the pure subtraction and hook tests**
+- [x] **Step 1: Write the pure subtraction and hook tests**
 
 Use literal fixtures; never call the production predicate to build expected values.
 
@@ -144,7 +148,7 @@ Add separate cases for:
   field;
 - an `initialDraft` being cloned into state without later mutating the caller's arrays.
 
-- [ ] **Step 2: Run the hook test and verify RED**
+- [x] **Step 2: Run the hook test and verify RED**
 
 Run:
 
@@ -154,7 +158,7 @@ npx vitest run src/renderer/src/components/Composer/useComposerDraft.test.tsx
 
 Expected: fail because `useComposerDraft` and `composerDraft` do not exist.
 
-- [ ] **Step 3: Implement the pure value**
+- [x] **Step 3: Implement the pure value**
 
 Create `src/renderer/src/lib/composerDraft.ts`:
 
@@ -199,7 +203,7 @@ export function subtractSubmittedComposerDraft(
 }
 ```
 
-- [ ] **Step 4: Implement the atomic hook**
+- [x] **Step 4: Implement the atomic hook**
 
 Create `useComposerDraft.ts`. All field setters must synchronously update `latestRef` and React
 state through one `update` function; do not read/write the ref during render.
@@ -288,7 +292,7 @@ export function useComposerDraft(initialDraft = EMPTY_COMPOSER_DRAFT): {
 }
 ```
 
-- [ ] **Step 5: Run focused tests and lint**
+- [x] **Step 5: Run focused tests and lint**
 
 ```bash
 npx vitest run src/renderer/src/components/Composer/useComposerDraft.test.tsx
@@ -299,7 +303,7 @@ npx eslint src/renderer/src/lib/composerDraft.ts \
 
 Expected: all tests pass and ESLint exits 0.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add src/renderer/src/lib/composerDraft.ts \
@@ -328,7 +332,7 @@ onAccepted?(remainingDraft: ComposerDraft): void
 onInitialDraftConsumed?(): void
 ```
 
-- [ ] **Step 1: Add failing component contract tests**
+- [x] **Step 1: Add failing component contract tests**
 
 Extend `ComposerAttachments.test.tsx`:
 
@@ -379,7 +383,7 @@ Add cases proving:
 - `initialDraft` renders its literal text, command, mention, and attachment;
 - `onInitialDraftConsumed` fires exactly once under `<StrictMode>`.
 
-- [ ] **Step 2: Run the Composer test and verify RED**
+- [x] **Step 2: Run the Composer test and verify RED**
 
 ```bash
 npx vitest run src/renderer/src/components/Composer/ComposerAttachments.test.tsx
@@ -387,7 +391,7 @@ npx vitest run src/renderer/src/components/Composer/ComposerAttachments.test.tsx
 
 Expected: new props/behavior are absent.
 
-- [ ] **Step 3: Replace the four independent states with the hook**
+- [x] **Step 3: Replace the four independent states with the hook**
 
 In `Composer`, initialize:
 
@@ -407,7 +411,7 @@ const { text: value, command, mentions, attachments } = draft
 Mechanically route every existing mutation of `value`, `command`, `mentions`, and `attachments`
 through these setters. Leave `mentionQuery`, caret, menus, environment, and sending state local.
 
-- [ ] **Step 4: Make accepted subtraction and callback one operation**
+- [x] **Step 4: Make accepted subtraction and callback one operation**
 
 Replace submit snapshot/acceptance logic with:
 
@@ -441,7 +445,7 @@ useEffect(() => {
 }, [initialDraft, onInitialDraftConsumed])
 ```
 
-- [ ] **Step 5: Run Composer regression checks**
+- [x] **Step 5: Run Composer regression checks**
 
 ```bash
 npx vitest run \
@@ -455,7 +459,7 @@ npx eslint src/renderer/src/components/Composer/Composer.tsx \
 
 Expected: all pass; no duplicate callback or StrictMode draft loss.
 
-- [ ] **Step 6: Commit Task 2**
+- [x] **Step 6: Commit Task 2**
 
 ```bash
 git add src/renderer/src/components/Composer/Composer.tsx \
@@ -488,7 +492,7 @@ completeHomeStart(remainingDraft: ComposerDraft): void
 consumeConversationDraftHandoff(conversationId: string): void
 ```
 
-- [ ] **Step 1: Add failing store lifecycle tests**
+- [x] **Step 1: Add failing store lifecycle tests**
 
 Add a focused `describe('Home accepted draft handoff', ...)`:
 
@@ -521,7 +525,7 @@ Add literal cases for:
 - rejection retaining Home/draft ID with no accepted owner/handoff;
 - deleting the target conversation clearing an unconsumed handoff.
 
-- [ ] **Step 2: Run the focused store tests and verify RED**
+- [x] **Step 2: Run the focused store tests and verify RED**
 
 ```bash
 npx vitest run src/renderer/src/state/store.test.ts -t 'Home accepted draft handoff'
@@ -529,7 +533,7 @@ npx vitest run src/renderer/src/state/store.test.ts -t 'Home accepted draft hand
 
 Expected: state/actions are absent and existing start immediately navigates.
 
-- [ ] **Step 3: Add transient state and actions**
+- [x] **Step 3: Add transient state and actions**
 
 Initialize both fields to `null`. On successful `run.start`, replace immediate navigation with:
 
@@ -566,7 +570,7 @@ Before a new Home attempt, clear only a stale `acceptedHomeConvoId`; on rejectio
 `draftConvoId` and Home unchanged. Update `goHome` and `deleteConvo` so stale accepted ownership or
 matching unconsumed handoffs cannot survive their target.
 
-- [ ] **Step 4: Update older immediate-navigation assertions**
+- [x] **Step 4: Update older immediate-navigation assertions**
 
 Tests that previously expected `startFromHome` alone to open the conversation must now call:
 
@@ -577,7 +581,7 @@ useAppStore.getState().completeHomeStart(EMPTY_COMPOSER_DRAFT)
 Do not weaken their existing assertions about conversation creation, project defaults, attachment
 IDs, retry identity, or `run.start` arguments.
 
-- [ ] **Step 5: Run store and static checks**
+- [x] **Step 5: Run store and static checks**
 
 ```bash
 npx vitest run src/renderer/src/state/store.test.ts \
@@ -588,7 +592,7 @@ npx eslint src/renderer/src/state/store.ts src/renderer/src/state/store.test.ts
 
 Expected: all pass.
 
-- [ ] **Step 6: Commit Task 3**
+- [x] **Step 6: Commit Task 3**
 
 ```bash
 git add src/renderer/src/state/store.ts src/renderer/src/state/store.test.ts
@@ -611,7 +615,7 @@ git commit -m "fix: stage accepted home draft ownership"
 - Consumes all Task 2 Composer props and Task 3 store actions.
 - Produces the complete accepted Home-to-conversation data flow; no new public interface.
 
-- [ ] **Step 1: Add a failing Home remount integration**
+- [x] **Step 1: Add a failing Home remount integration**
 
 Create `Home.test.tsx` with real `Home`, `Composer`, and Zustand actions. A small test main-view
 harness may render a real conversation Composer after the store changes view; it must not mock
@@ -661,7 +665,7 @@ draft and open the accepted conversation; it must not strand `acceptedHomeConvoI
 Expected RED: current Home navigates inside `startFromHome`, so the accepted callback cannot hand
 off the late draft.
 
-- [ ] **Step 2: Wire Home completion**
+- [x] **Step 2: Wire Home completion**
 
 In `Home`:
 
@@ -676,7 +680,7 @@ const completeHomeStart = useAppStore((state) => state.completeHomeStart)
 />
 ```
 
-- [ ] **Step 3: Add matching ConversationView and StrictMode tests**
+- [x] **Step 3: Add matching ConversationView and StrictMode tests**
 
 In `ConversationView.test.tsx`, render a real matching handoff under `<StrictMode>`:
 
@@ -693,7 +697,7 @@ await waitFor(() => expect(useAppStore.getState().conversationDraftHandoff).toBe
 Then unmount/reopen the same conversation and assert the old handoff does not reappear. Add a
 different-conversation handoff case proving it is not consumed or rendered.
 
-- [ ] **Step 4: Wire matching initialization and acknowledgment**
+- [x] **Step 4: Wire matching initialization and acknowledgment**
 
 In `ConversationView`:
 
@@ -716,7 +720,7 @@ Pass:
 />
 ```
 
-- [ ] **Step 5: Run integration and Plan 004 regression gates**
+- [x] **Step 5: Run integration and Plan 004 regression gates**
 
 ```bash
 npx vitest run \
@@ -747,7 +751,7 @@ git diff --check
 Expected: every command exits 0. Existing non-error formatter warnings may be reported, but no
 ESLint error or rule suppression is allowed.
 
-- [ ] **Step 6: Run the full web and build gate**
+- [x] **Step 6: Run the full web and build gate**
 
 ```bash
 npm test
@@ -756,7 +760,7 @@ npm run build
 
 Expected: full suite and build exit 0.
 
-- [ ] **Step 7: Commit Task 4**
+- [x] **Step 7: Commit Task 4**
 
 ```bash
 git add src/renderer/src/components/Home.tsx \
@@ -768,12 +772,12 @@ git commit -m "fix: hand home drafts to accepted conversations"
 
 ## Completion checklist
 
-- [ ] Every task has recorded RED and GREEN evidence.
-- [ ] Home stays mounted until Composer computes the accepted remainder.
-- [ ] Late text, command, mention, and attachment identities survive accepted navigation.
-- [ ] Failure retains Home, the complete draft, and retry conversation identity.
-- [ ] Empty accepted remainder navigates without creating a handoff.
-- [ ] Matching handoff initializes exactly once under StrictMode.
-- [ ] Different-conversation handoffs are neither rendered nor consumed.
-- [ ] Plan 004 diff-review transactional cases remain green.
-- [ ] Focused tests, full suite, typecheck, lint, diff check, and build pass.
+- [x] Every task has recorded RED and GREEN evidence.
+- [x] Home stays mounted until Composer computes the accepted remainder.
+- [x] Late text, command, mention, and attachment identities survive accepted navigation.
+- [x] Failure retains Home, the complete draft, and retry conversation identity.
+- [x] Empty accepted remainder navigates without creating a handoff.
+- [x] Matching handoff initializes exactly once under StrictMode.
+- [x] Different-conversation handoffs are neither rendered nor consumed.
+- [x] Plan 004 diff-review transactional cases remain green.
+- [x] Focused tests, full suite, typecheck, lint, diff check, and build pass.

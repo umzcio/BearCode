@@ -51,4 +51,3 @@ snapping, and cancellation. Monaco tests will cover repeated Escape during
 close, reopening during close, same-height typing, live reduced motion, and
 disposal with no pending frames. Focused tests, web typechecking, and scoped
 lint must pass before review.
-

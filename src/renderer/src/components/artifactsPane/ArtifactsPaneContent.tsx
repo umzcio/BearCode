@@ -17,10 +17,14 @@ import { ApBrand } from './PaneHeader'
 
 function ArtifactsPaneContentImplementation({
   target,
-  browserVisible
+  browserVisible,
+  browserHideRequest,
+  onBrowserHideSettled
 }: {
   target: AuxSelection
   browserVisible: boolean
+  browserHideRequest: number | null
+  onBrowserHideSettled: (request: number) => void
 }): React.JSX.Element | null {
   const convo = useAppStore(
     useShallow((s) => {
@@ -41,9 +45,11 @@ function ArtifactsPaneContentImplementation({
   // Local rail selection, overridden by every deep-link (tick bump).
   const [sel, setSel] = useState<AuxSelection>(target)
   const [seenTick, setSeenTick] = useState(openTick)
+  const [seenTarget, setSeenTarget] = useState(target)
   const railTablistRef = useRef<HTMLDivElement>(null)
-  if (seenTick !== openTick) {
+  if (seenTick !== openTick || seenTarget !== target) {
     setSeenTick(openTick)
+    setSeenTarget(target)
     setSel(target)
   }
 
@@ -79,7 +85,11 @@ function ArtifactsPaneContentImplementation({
           </div>
         </div>
         <div className="ap-browser-body">
-          <BrowserPane visible={browserVisible} />
+          <BrowserPane
+            visible={browserVisible}
+            hideRequest={browserHideRequest}
+            onHideSettled={onBrowserHideSettled}
+          />
         </div>
       </>
     )

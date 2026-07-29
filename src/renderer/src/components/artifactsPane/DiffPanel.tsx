@@ -31,6 +31,7 @@ export function DiffPanel({
 }): React.JSX.Element {
   const closeReview = useAppStore((s) => s.closeReview)
   const focusPath = useAppStore((s) => s.reviewFocusPath)
+  const openTick = useAppStore((s) => s.auxPaneOpenTick)
   const view = useAppStore((s) => s.view)
   const convoId = view.kind === 'conversation' ? view.id : null
   const convo = useAppStore(
@@ -110,11 +111,12 @@ export function DiffPanel({
   }, [diffId])
 
   // A chip or step-row click focuses that file: switch to diff mode on it.
-  const seenFocus = useRef<string | null>(null)
+  const seenFocusRequest = useRef<string | null>(null)
   useEffect(() => {
+    const focusRequest = focusPath ? `${openTick}:${diffId}:${focusPath}` : null
     if (
-      !focusPath ||
-      focusPath === seenFocus.current ||
+      !focusRequest ||
+      focusRequest === seenFocusRequest.current ||
       diffLoad.status !== 'ready' ||
       diffLoad.diffId !== diffId
     ) {
@@ -122,7 +124,7 @@ export function DiffPanel({
     }
 
     let stale = false
-    seenFocus.current = focusPath
+    seenFocusRequest.current = focusRequest
     const focusedFile = diffLoad.diff.files.find((file) => file.path === focusPath)
     queueMicrotask(() => {
       if (stale) return
@@ -132,7 +134,7 @@ export function DiffPanel({
     return () => {
       stale = true
     }
-  }, [diffId, diffLoad, focusPath])
+  }, [diffId, diffLoad, focusPath, openTick])
 
   const currentDiffLoad =
     diffLoad.diffId === diffId ? diffLoad : ({ status: 'loading', diffId } as const)
@@ -149,21 +151,25 @@ export function DiffPanel({
     setBodyView((m) => ({ ...m, [fileId]: v }))
 
   const revert = async (file: FileDiffFile): Promise<void> => {
-    await window.bearcode.diffs.revert(file.fileId)
-    setDiffLoad((load) =>
-      load.status === 'ready'
-        ? {
-            ...load,
-            diff: {
-              ...load.diff,
-              files: load.diff.files.map((f) =>
-                f.fileId === file.fileId ? { ...f, state: 'reverted' } : f
-              )
+    try {
+      await window.bearcode.diffs.revert(file.fileId)
+      setDiffLoad((load) =>
+        load.status === 'ready'
+          ? {
+              ...load,
+              diff: {
+                ...load.diff,
+                files: load.diff.files.map((f) =>
+                  f.fileId === file.fileId ? { ...f, state: 'reverted' } : f
+                )
+              }
             }
-          }
-        : load
-    )
-    showToast('Change reverted')
+          : load
+      )
+      showToast('Change reverted')
+    } catch {
+      showToast('Could not revert change')
+    }
   }
 
   // The store action is stable, so Monaco can safely retain this callback.
@@ -203,6 +209,7 @@ export function DiffPanel({
     void window.bearcode.clipboard
       .write(activeFile.afterText)
       .then(() => showToast(`Copied ${name}`))
+      .catch(() => showToast('Could not copy file'))
   }
 
   const body = activeFile ? viewFor(activeFile) : 'diff'

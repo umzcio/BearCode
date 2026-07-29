@@ -121,6 +121,48 @@ const secondDiff: FileDiff = {
   ]
 }
 
+const sharedPathFirstDiff: FileDiff = {
+  diffId: 'diff_shared_first',
+  files: [
+    {
+      fileId: 'file_shared_first',
+      path: '/workspace/src/shared.ts',
+      status: 'modified',
+      beforeText: 'export const shared = 1\n',
+      afterText: 'export const shared = 2\n',
+      additions: 1,
+      deletions: 1,
+      state: 'applied'
+    }
+  ]
+}
+
+const sharedPathSecondDiff: FileDiff = {
+  diffId: 'diff_shared_second',
+  files: [
+    {
+      fileId: 'file_unrelated_second',
+      path: '/workspace/src/unrelated.ts',
+      status: 'modified',
+      beforeText: 'export const unrelated = 1\n',
+      afterText: 'export const unrelated = 2\n',
+      additions: 1,
+      deletions: 1,
+      state: 'applied'
+    },
+    {
+      fileId: 'file_shared_second',
+      path: '/workspace/src/shared.ts',
+      status: 'modified',
+      beforeText: 'export const shared = 2\n',
+      afterText: 'export const shared = 3\n',
+      additions: 1,
+      deletions: 1,
+      state: 'applied'
+    }
+  ]
+}
+
 const emptyDiff: FileDiff = { diffId: 'diff_empty', files: [] }
 
 const classificationDiff: FileDiff = {
@@ -458,6 +500,51 @@ describe('ArtifactsPane diff review', () => {
     expect(screen.getByTestId('monaco-diff-stub')).toBeInTheDocument()
   })
 
+  it('reapplies a repeated file deep-link after the user manually selects another file', async () => {
+    seedDiffReview(diff, '/workspace/src/answer.ts')
+    render(<ArtifactsPane />)
+    await screen.findByTestId('monaco-diff-stub')
+
+    fireEvent.click(screen.getByRole('tab', { name: /diagram\.png/ }))
+    expect(screen.getByRole('tab', { name: /diagram\.png/ })).toHaveClass('active')
+
+    act(() => {
+      useAppStore.getState().openReviewForFile('conv_123', '/workspace/src/answer.ts')
+    })
+
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /answer\.ts/ })).toHaveClass('active')
+    )
+  })
+
+  it('applies the same focus path again when a new deep-link targets a different diff', async () => {
+    getDiff.mockImplementation((id: string) =>
+      Promise.resolve(
+        id === sharedPathFirstDiff.diffId ? sharedPathFirstDiff : sharedPathSecondDiff
+      )
+    )
+    seedDiffReview(sharedPathFirstDiff, '/workspace/src/shared.ts', [
+      sharedPathFirstDiff,
+      sharedPathSecondDiff
+    ])
+    render(<ArtifactsPane />)
+    await screen.findByText('export const shared = 2')
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        auxSelection: { kind: 'diff', diffId: sharedPathSecondDiff.diffId },
+        reviewFocusPath: '/workspace/src/shared.ts',
+        auxPaneOpenTick: state.auxPaneOpenTick + 1
+      }))
+    })
+
+    await screen.findByText('export const shared = 3')
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /shared\.ts/ })).toHaveClass('active')
+    )
+    expect(screen.getByRole('tab', { name: /unrelated\.ts/ })).not.toHaveClass('active')
+  })
+
   it('ignores an older diff response after selection changes', async () => {
     const oldRequest = deferred<FileDiff>()
     const newRequest = deferred<FileDiff>()
@@ -779,6 +866,18 @@ describe('ArtifactsPane diff review', () => {
     await waitFor(() => expect(showToast).toHaveBeenCalledWith('Copied answer.ts'))
   })
 
+  it('reports a rejected clipboard write without emitting an unhandled success', async () => {
+    writeClipboard.mockRejectedValueOnce(new Error('clipboard unavailable'))
+    seedDiffReview()
+    render(<ArtifactsPane />)
+    await screen.findByTestId('monaco-diff-stub')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy file' }))
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('Could not copy file'))
+    expect(showToast).not.toHaveBeenCalledWith('Copied answer.ts')
+  })
+
   it('opens the active file through the diff API', async () => {
     seedDiffReview()
     render(<ArtifactsPane />)
@@ -802,6 +901,19 @@ describe('ArtifactsPane diff review', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: /diagram\.png/ }))
     expect(screen.getByRole('tab', { name: /diagram\.png/ })).not.toHaveTextContent('Reverted')
+  })
+
+  it('reports a rejected revert and leaves the file applied', async () => {
+    revertDiff.mockRejectedValueOnce(new Error('revert unavailable'))
+    seedDiffReview()
+    render(<ArtifactsPane />)
+    await screen.findByTestId('monaco-diff-stub')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Revert change' }))
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('Could not revert change'))
+    expect(showToast).not.toHaveBeenCalledWith('Change reverted')
+    expect(screen.getByRole('tab', { name: /answer\.ts/ })).not.toHaveTextContent('Reverted')
   })
 
   it('keeps comments scoped to their file and reflects their marked lines in each editor', async () => {

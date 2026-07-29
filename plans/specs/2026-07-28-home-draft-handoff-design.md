@@ -1,6 +1,10 @@
 # Home accepted-draft handoff design
 
-**Status:** Approved; awaiting written-spec review
+**Status:** Implemented
+
+**Implementation:** Shipped across `be5373f`, `2508f7c`, `e8c48af`, `79a3493`, `345a3f1`,
+`d000d56`, `e71b388`, `fc57d34`, `7957a02`, and `957297c`. The later commits harden ownership
+against deletion, attachment, pending-start, stale-attempt, and accepted-transfer races.
 
 **Date:** 2026-07-28
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { BearcodeApi, BrowserStatus, Event } from '@shared/types'
+import type { BearcodeApi, BrowserStatus, Event, FileDiff } from '@shared/types'
 import { mergeConvoEvent, useAppStore, type Convo } from '../state/store'
 import { projectAuxEvents } from '../lib/auxEvents'
 import { ArtifactsPane } from './ArtifactsPane'
@@ -32,6 +32,10 @@ const browserStatus: BrowserStatus = {
 const browserGetStatus = vi.fn<() => Promise<BrowserStatus>>()
 const browserUnsubscribe = vi.fn()
 const browserOnStatus = vi.fn<(listener: (status: BrowserStatus) => void) => () => void>()
+const getDiff = vi.fn()
+const revertDiff = vi.fn().mockResolvedValue(undefined)
+const openDiff = vi.fn().mockResolvedValue(undefined)
+const previewDiffFile = vi.fn().mockResolvedValue({ kind: 'text', text: '' })
 const readFile = vi.fn(() => new Promise<string>(() => {}))
 const realShowToast = useAppStore.getState().showToast
 const realLoadArtifactComments = useAppStore.getState().loadArtifactComments
@@ -68,6 +72,73 @@ const returnedAttachmentTwo = {
     sha256: 'b'.repeat(64)
   }
 } satisfies Extract<Event, { type: 'assistant_attachment' }>
+
+const browserPlan = {
+  type: 'artifact',
+  id: 'event-plan-browser-transition',
+  artifactId: 'plan-browser-transition',
+  artifactType: 'plan',
+  version: 1,
+  title: 'Browser transition plan',
+  status: 'pending-review',
+  body: '# Browser transition plan'
+} satisfies Extract<Event, { type: 'artifact' }>
+
+const browserWalkthrough = {
+  type: 'artifact',
+  id: 'event-walkthrough-browser-transition',
+  artifactId: 'walkthrough-browser-transition',
+  artifactType: 'walkthrough',
+  version: 1,
+  title: 'Browser transition walkthrough',
+  status: 'final',
+  body: '# Browser transition walkthrough'
+} satisfies Extract<Event, { type: 'artifact' }>
+
+const browserDiff: FileDiff = {
+  diffId: 'diff-browser-transition',
+  files: [
+    {
+      fileId: 'file-browser-transition',
+      path: '/workspace/src/browser-transition.ts',
+      status: 'modified',
+      beforeText: 'export const transition = false\n',
+      afterText: 'export const transition = true\n',
+      additions: 1,
+      deletions: 1,
+      state: 'applied'
+    }
+  ]
+}
+
+const browserDiffEvent = {
+  type: 'file_diff',
+  id: 'event-diff-browser-transition',
+  diffId: browserDiff.diffId,
+  files: browserDiff.files.map(({ path, additions, deletions, status }) => ({
+    path,
+    additions,
+    deletions,
+    status
+  }))
+} satisfies Extract<Event, { type: 'file_diff' }>
+
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (reason?: unknown) => void
+} {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  return {
+    promise: new Promise<T>((finish, fail) => {
+      resolve = finish
+      reject = fail
+    }),
+    resolve,
+    reject
+  }
+}
 
 function conversation(id: string, events: Event[]): Convo {
   return {
@@ -112,6 +183,19 @@ function seedAttachmentSelection(events: Event[] = [returnedAttachment]): void {
   })
 }
 
+function seedBrowserSelection(events: Event[]): void {
+  useAppStore.setState({
+    view: { kind: 'conversation', id: 'conv_123' },
+    conversations: {
+      conv_123: conversation('conv_123', events)
+    },
+    auxSelection: { kind: 'browser', conversationId: 'conv_123' },
+    auxPaneOpenTick: 0,
+    auxPaneWidth: 560,
+    reviewFocusPath: null
+  })
+}
+
 beforeEach(() => {
   bearcodeBefore = Object.getOwnPropertyDescriptor(window, 'bearcode')
   attachmentPreviewRender.mockClear()
@@ -122,7 +206,8 @@ beforeEach(() => {
   showToast.mockReset()
   browserSetBounds.mockClear()
   browserShow.mockClear()
-  browserHide.mockClear()
+  browserHide.mockReset()
+  browserHide.mockResolvedValue(undefined)
   browserGetStatus.mockReset()
   browserGetStatus.mockResolvedValue(browserStatus)
   browserUnsubscribe.mockClear()
@@ -131,6 +216,11 @@ beforeEach(() => {
     listener(browserStatus)
     return browserUnsubscribe
   })
+  getDiff.mockReset()
+  getDiff.mockResolvedValue(browserDiff)
+  revertDiff.mockClear()
+  openDiff.mockClear()
+  previewDiffFile.mockClear()
   readFile.mockClear()
   loadArtifactComments.mockClear()
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
@@ -142,6 +232,12 @@ beforeEach(() => {
       setBounds: browserSetBounds,
       show: browserShow,
       hide: browserHide
+    },
+    diffs: {
+      get: getDiff,
+      revert: revertDiff,
+      open: openDiff,
+      previewFile: previewDiffFile
     },
     shell: { readFile }
   } as unknown as BearcodeApi
@@ -520,5 +616,111 @@ describe('ArtifactsPane motion lifecycle', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
     expect(browserHide).toHaveBeenCalled()
+  })
+
+  it('retains browser content until authoritative hide resolves before showing an artifact', async () => {
+    seedBrowserSelection([browserPlan])
+    const { container } = render(<ArtifactsPane />)
+    const shell = container.querySelector('.ap-panel') as HTMLElement
+    fireEvent.transitionEnd(shell, { propertyName: 'transform' })
+    await waitFor(() => expect(browserShow).toHaveBeenCalledTimes(1))
+    const departureHide = deferred<void>()
+    browserHide.mockReturnValueOnce(departureHide.promise)
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        auxSelection: { kind: 'artifact', artifactId: browserPlan.artifactId },
+        auxPaneOpenTick: state.auxPaneOpenTick + 1
+      }))
+    })
+
+    expect(container.querySelector('.ap-panel')).toHaveAttribute('data-panel-kind', 'browser')
+    expect(container.querySelector('.browser-pane')).toBeInTheDocument()
+    expect(screen.queryByText(browserPlan.title)).toBeNull()
+
+    await act(async () => departureHide.resolve(undefined))
+
+    await waitFor(() =>
+      expect(container.querySelector('.ap-panel')).toHaveAttribute('data-panel-kind', 'artifact')
+    )
+    expect(screen.getAllByText(browserPlan.title)).not.toHaveLength(0)
+  })
+
+  it('retains browser content until authoritative hide resolves before showing a diff', async () => {
+    seedBrowserSelection([browserDiffEvent])
+    const { container } = render(<ArtifactsPane />)
+    const shell = container.querySelector('.ap-panel') as HTMLElement
+    fireEvent.transitionEnd(shell, { propertyName: 'transform' })
+    await waitFor(() => expect(browserShow).toHaveBeenCalledTimes(1))
+    const departureHide = deferred<void>()
+    browserHide.mockReturnValueOnce(departureHide.promise)
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        auxSelection: { kind: 'diff', diffId: browserDiff.diffId },
+        auxPaneOpenTick: state.auxPaneOpenTick + 1
+      }))
+    })
+
+    expect(container.querySelector('.ap-panel')).toHaveAttribute('data-panel-kind', 'browser')
+    expect(screen.queryByRole('tablist', { name: 'Review mode' })).toBeNull()
+
+    await act(async () => departureHide.resolve(undefined))
+
+    expect(await screen.findByRole('tablist', { name: 'Review mode' })).toBeInTheDocument()
+    expect(container.querySelector('.ap-panel')).toHaveAttribute('data-panel-kind', 'diff')
+  })
+
+  it('commits only the latest rapid browser retarget after one pending hide settles', async () => {
+    seedBrowserSelection([browserPlan, browserWalkthrough])
+    const { container } = render(<ArtifactsPane />)
+    const shell = container.querySelector('.ap-panel') as HTMLElement
+    fireEvent.transitionEnd(shell, { propertyName: 'transform' })
+    await waitFor(() => expect(browserShow).toHaveBeenCalledTimes(1))
+    const departureHide = deferred<void>()
+    browserHide.mockReturnValueOnce(departureHide.promise)
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        auxSelection: { kind: 'artifact', artifactId: browserPlan.artifactId },
+        auxPaneOpenTick: state.auxPaneOpenTick + 1
+      }))
+      useAppStore.setState((state) => ({
+        auxSelection: { kind: 'artifact', artifactId: browserWalkthrough.artifactId },
+        auxPaneOpenTick: state.auxPaneOpenTick + 1
+      }))
+    })
+
+    expect(container.querySelector('.ap-panel')).toHaveAttribute('data-panel-kind', 'browser')
+    await act(async () => departureHide.resolve(undefined))
+
+    expect(await screen.findAllByText(browserWalkthrough.title)).not.toHaveLength(0)
+    expect(screen.queryAllByText(browserPlan.title)).toHaveLength(0)
+  })
+
+  it('does not commit a stale browser replacement after the pane closes during hide', async () => {
+    seedBrowserSelection([browserPlan])
+    const { container } = render(<ArtifactsPane />)
+    const shell = container.querySelector('.ap-panel') as HTMLElement
+    fireEvent.transitionEnd(shell, { propertyName: 'transform' })
+    await waitFor(() => expect(browserShow).toHaveBeenCalledTimes(1))
+    const departureHide = deferred<void>()
+    browserHide.mockReturnValueOnce(departureHide.promise)
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        auxSelection: { kind: 'artifact', artifactId: browserPlan.artifactId },
+        auxPaneOpenTick: state.auxPaneOpenTick + 1
+      }))
+      useAppStore.getState().closeReview()
+    })
+
+    expect(shell).toHaveAttribute('data-state', 'closing')
+    await act(async () => departureHide.resolve(undefined))
+    expect(screen.queryByText(browserPlan.title)).toBeNull()
+    expect(container.querySelector('.ap-panel')).toHaveAttribute('data-panel-kind', 'browser')
+
+    fireEvent.transitionEnd(shell, { propertyName: 'transform' })
+    expect(container.querySelector('.ap-panel')).toBeNull()
   })
 })
