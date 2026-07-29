@@ -127,6 +127,83 @@ function findRule(css: string, predicate: (rule: CssRule) => boolean): CssRule |
   return extractRules(css).find(predicate)
 }
 
+function splitSelectorList(prelude: string): string[] {
+  const selectors: string[] = []
+  let parentheses = 0
+  let brackets = 0
+  let quote = ''
+  let selectorStart = 0
+
+  for (let index = 0; index < prelude.length; index += 1) {
+    const character = prelude[index]
+
+    if (quote) {
+      if (character === '\\') {
+        index += 1
+      } else if (character === quote) {
+        quote = ''
+      }
+      continue
+    }
+
+    if (character === '"' || character === "'") {
+      quote = character
+    } else if (character === '(') {
+      parentheses += 1
+    } else if (character === ')') {
+      parentheses -= 1
+    } else if (character === '[') {
+      brackets += 1
+    } else if (character === ']') {
+      brackets -= 1
+    } else if (character === ',' && parentheses === 0 && brackets === 0) {
+      selectors.push(normalizeWhitespace(prelude.slice(selectorStart, index)))
+      selectorStart = index + 1
+    }
+  }
+
+  selectors.push(normalizeWhitespace(prelude.slice(selectorStart)))
+  return selectors
+}
+
+function closingParenthesis(value: string, openingIndex: number): number {
+  let depth = 0
+  let quote = ''
+
+  for (let index = openingIndex; index < value.length; index += 1) {
+    const character = value[index]
+
+    if (quote) {
+      if (character === '\\') {
+        index += 1
+      } else if (character === quote) {
+        quote = ''
+      }
+      continue
+    }
+
+    if (character === '"' || character === "'") {
+      quote = character
+    } else if (character === '(') {
+      depth += 1
+    } else if (character === ')') {
+      depth -= 1
+      if (depth === 0) return index
+    }
+  }
+
+  throw new Error('Unbalanced selector parentheses')
+}
+
+function familySelectors(rule: CssRule): string[] {
+  const isIndex = rule.prelude.indexOf(':is(')
+  if (isIndex === -1) return splitSelectorList(rule.prelude)
+
+  const openingIndex = isIndex + ':is'.length
+  const closeIndex = closingParenthesis(rule.prelude, openingIndex)
+  return splitSelectorList(rule.prelude.slice(openingIndex + 1, closeIndex))
+}
+
 function pressableRule(kind: 'base' | 'active'): (rule: CssRule) => boolean {
   const suffix = kind === 'base' ? ')' : '):active:not(:disabled)'
   return ({ prelude }) => prelude.startsWith(':is(') && prelude.endsWith(suffix)
@@ -134,9 +211,9 @@ function pressableRule(kind: 'base' | 'active'): (rule: CssRule) => boolean {
 
 function expectFamilies(rule: CssRule | undefined, families: string[]): void {
   expect(rule).toBeDefined()
-  const prelude = normalizeWhitespace(rule?.prelude ?? '')
+  const selectors = familySelectors(rule as CssRule)
   for (const family of families) {
-    expect(prelude).toContain(normalizeWhitespace(family))
+    expect(selectors).toContain(normalizeWhitespace(family))
   }
 }
 
@@ -158,6 +235,112 @@ const disabledFamilies = [
   '.foot-btn'
 ]
 
+function expectReducedSurfaceRules(css: string): void {
+  const cases = [
+    {
+      selector: '.ap-panel',
+      duration: '--dur-fast',
+      inAppPrelude: ":root[data-motion='reduced'] .ap-panel"
+    },
+    {
+      selector: '.comment-bar',
+      duration: '--dur-menu',
+      inAppPrelude: ":root[data-motion='reduced'] .comment-bar"
+    },
+    {
+      selector: '.plan-resolution-notice',
+      duration: '--dur-fast',
+      inAppPrelude: ":root[data-motion='reduced'] .plan-resolution-notice"
+    }
+  ]
+
+  const osClosingPanelRule = findRule(
+    css,
+    ({ prelude, ancestors }) =>
+      prelude === ".ap-panel[data-state='closing']" && ancestors.join(' > ') === reducedMotionMedia
+  )
+  expectTransformNone(osClosingPanelRule)
+
+  const inAppPanelSelector = ":root[data-motion='reduced'] .ap-panel"
+  const inAppClosingPanelSelector = ":root[data-motion='reduced'] .ap-panel[data-state='closing']"
+  const inAppPanelRule = findRule(
+    css,
+    ({ prelude, ancestors }) =>
+      ancestors.length === 0 && splitSelectorList(prelude).includes(inAppPanelSelector)
+  )
+  expect(inAppPanelRule).toBeDefined()
+  expect(splitSelectorList(inAppPanelRule?.prelude ?? '')).toContain(inAppClosingPanelSelector)
+  expectTransformNone(inAppPanelRule)
+
+  for (const { selector, duration, inAppPrelude } of cases) {
+    const osReducedRule = findRule(
+      css,
+      ({ prelude, ancestors }) =>
+        prelude === selector && ancestors.join(' > ') === reducedMotionMedia
+    )
+    expectTransformNone(osReducedRule)
+    expect(normalizeWhitespace(osReducedRule?.body ?? '')).toContain(`opacity var(${duration})`)
+
+    const osStartingRule = findRule(
+      css,
+      ({ prelude, ancestors }) =>
+        prelude === selector && ancestors.join(' > ') === `${reducedMotionMedia} > ${startingStyle}`
+    )
+    expectTransformNone(osStartingRule)
+
+    const inAppRule = findRule(
+      css,
+      ({ prelude, ancestors }) =>
+        ancestors.length === 0 && splitSelectorList(prelude).includes(inAppPrelude)
+    )
+    expectTransformNone(inAppRule)
+
+    const inAppStartingRule = findRule(
+      css,
+      ({ prelude, ancestors }) =>
+        ancestors.join(' > ') === startingStyle && splitSelectorList(prelude).includes(inAppPrelude)
+    )
+    expectTransformNone(inAppStartingRule)
+  }
+}
+
+function expectEntryCueRules(css: string, selector: string): void {
+  const cues = {
+    '.comment-bar': {
+      duration: '--dur-menu',
+      startingTransform: 'translateY(-4px)'
+    },
+    '.plan-resolution-notice': {
+      duration: '--dur-fast',
+      startingTransform: 'translateY(2px)'
+    }
+  } as const
+  const cue = cues[selector as keyof typeof cues]
+  expect(cue).toBeDefined()
+
+  const baseRule = findRule(
+    css,
+    ({ prelude, ancestors }) => ancestors.length === 0 && prelude === selector
+  )
+  const entryRule = findRule(
+    css,
+    ({ prelude, ancestors }) => ancestors.join(' > ') === startingStyle && prelude === selector
+  )
+
+  expect(baseRule).toBeDefined()
+  expect(entryRule).toBeDefined()
+
+  const baseBody = normalizeWhitespace(baseRule?.body ?? '')
+  expect(baseBody).toContain('opacity: 1')
+  expect(baseBody).toContain('transform: translateY(0)')
+  expect(baseBody).toContain(`opacity var(${cue.duration}) var(--ease-out)`)
+  expect(baseBody).toContain(`transform var(${cue.duration}) var(--ease-out)`)
+
+  const entryBody = normalizeWhitespace(entryRule?.body ?? '')
+  expect(entryBody).toContain('opacity: 0')
+  expect(entryBody).toContain(`transform: ${cue.startingTransform}`)
+}
+
 describe('Artifacts Pane motion CSS contract', () => {
   it('extracts a nested rule body without crossing an at-rule boundary', () => {
     const css = `
@@ -177,6 +360,46 @@ describe('Artifacts Pane motion CSS contract', () => {
     )
 
     expect(rule?.body).toContain('transform: none')
+  })
+
+  it('normalizes selector whitespace before comparing selector-list members', () => {
+    const css = `
+      :is(
+        .ap-actions    button,
+        .ap-tab
+      ) { transform: scale(0.97); }
+    `
+    const rule = findRule(css, pressableRule('base'))
+
+    expect(() => expectFamilies(rule, ['.ap-actions button', '.ap-tab'])).not.toThrow()
+  })
+
+  it('does not accept a lookalike selector as exact family membership', () => {
+    const rule = findRule(
+      ':is(.ap-tab-lookalike, .version-chip) { transform: scale(0.97); }',
+      pressableRule('base')
+    )
+
+    expect(() => expectFamilies(rule, ['.ap-tab'])).toThrow()
+  })
+
+  it('ignores comments containing braces while extracting rules', () => {
+    const css = `
+      /* A removed rule looked like .old { transform: none; } */
+      .target { transform: translateY(2px); }
+    `
+
+    expect(findRule(css, ({ prelude }) => prelude === '.target')?.body).toContain('translateY(2px)')
+  })
+
+  it('ignores quoted braces while balancing a declaration body', () => {
+    const css = `
+      .target { content: "}"; transform: translateY(2px); }
+      .after { content: "{"; opacity: 1; }
+    `
+
+    expect(findRule(css, ({ prelude }) => prelude === '.target')?.body).toContain('translateY(2px)')
+    expect(findRule(css, ({ prelude }) => prelude === '.after')?.body).toContain('opacity: 1')
   })
 
   it('binds every pressable family to the shared base and active rules', () => {
@@ -227,54 +450,54 @@ describe('Artifacts Pane motion CSS contract', () => {
   })
 
   it('keeps reduced-motion panel, comment, and status declarations in their own nested rules', () => {
-    const cases = [
-      {
-        selector: '.ap-panel',
-        duration: '--dur-fast',
-        inAppPrelude: ":root[data-motion='reduced'] .ap-panel"
-      },
-      {
-        selector: '.comment-bar',
-        duration: '--dur-menu',
-        inAppPrelude: ":root[data-motion='reduced'] .comment-bar"
-      },
-      {
-        selector: '.plan-resolution-notice',
-        duration: '--dur-fast',
-        inAppPrelude: ":root[data-motion='reduced'] .plan-resolution-notice"
-      }
-    ]
+    expectReducedSurfaceRules(paneCss)
+  })
 
-    for (const { selector, duration, inAppPrelude } of cases) {
-      const osReducedRule = findRule(
-        paneCss,
-        ({ prelude, ancestors }) =>
-          prelude === selector && ancestors.join(' > ') === reducedMotionMedia
-      )
-      expectTransformNone(osReducedRule)
-      expect(normalizeWhitespace(osReducedRule?.body ?? '')).toContain(`opacity var(${duration})`)
+  it('rejects removal of the exact OS reduced-motion closing-panel rule', () => {
+    const cssWithoutClosingPanelRule = paneCss.replace(
+      "  .ap-panel[data-state='closing'] {\n    transform: none;\n    opacity: 0;\n  }",
+      "  .ap-panel[data-state='closed'] {\n    transform: none;\n    opacity: 0;\n  }"
+    )
+    expect(cssWithoutClosingPanelRule).not.toBe(paneCss)
 
-      const osStartingRule = findRule(
-        paneCss,
-        ({ prelude, ancestors }) =>
-          prelude === selector &&
-          ancestors.join(' > ') === `${reducedMotionMedia} > ${startingStyle}`
-      )
-      expectTransformNone(osStartingRule)
+    expect(() => expectReducedSurfaceRules(cssWithoutClosingPanelRule)).toThrow()
+  })
 
-      const inAppRule = findRule(
-        paneCss,
-        ({ prelude, ancestors }) => ancestors.length === 0 && prelude.includes(inAppPrelude)
-      )
-      expectTransformNone(inAppRule)
+  it('rejects removal of the exact in-app reduced-motion closing-panel selector', () => {
+    const cssWithoutClosingPanelSelector = paneCss.replace(
+      ":root[data-motion='reduced'] .ap-panel[data-state='closing'] {",
+      ":root[data-motion='reduced'] .ap-panel[data-state='closed'] {"
+    )
+    expect(cssWithoutClosingPanelSelector).not.toBe(paneCss)
 
-      const inAppStartingRule = findRule(
-        paneCss,
-        ({ prelude, ancestors }) =>
-          ancestors.join(' > ') === startingStyle && prelude.includes(inAppPrelude)
-      )
-      expectTransformNone(inAppStartingRule)
-    }
+    expect(() => expectReducedSurfaceRules(cssWithoutClosingPanelSelector)).toThrow()
+  })
+
+  it('keeps normal comment and status entry cues bound to their own rules', () => {
+    expectEntryCueRules(paneCss, '.comment-bar')
+    expectEntryCueRules(paneCss, '.plan-resolution-notice')
+  })
+
+  it('rejects a comment entry cue with the wrong normal transform duration', () => {
+    const cssWithWrongDuration = paneCss.replace(
+      'transform var(--dur-menu) var(--ease-out);',
+      'transform var(--dur-fast) var(--ease-out);'
+    )
+    expect(cssWithWrongDuration).not.toBe(paneCss)
+
+    expect(() => expectEntryCueRules(cssWithWrongDuration, '.comment-bar')).toThrow()
+  })
+
+  it('rejects a status entry cue with the wrong starting transform', () => {
+    const cssWithWrongStartingTransform = paneCss.replace(
+      'transform: translateY(2px);',
+      'transform: none;'
+    )
+    expect(cssWithWrongStartingTransform).not.toBe(paneCss)
+
+    expect(() =>
+      expectEntryCueRules(cssWithWrongStartingTransform, '.plan-resolution-notice')
+    ).toThrow()
   })
 
   it('rejects a family removed from the shared rule even when that selector remains elsewhere', () => {
