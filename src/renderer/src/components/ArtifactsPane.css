@@ -316,19 +316,25 @@
 /* --- Plan review header row (Ba2): title + version/status chip + actions --- */
 .artifact-view-title-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
 }
 .artifact-view-title-row .artifact-view-title {
   margin-bottom: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* --- Plan review actions + comments (Ba2) --- */
 .plan-review-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-left: auto;
+  min-width: 0;
+  max-width: 100%;
 }
 .plan-resolution-notice {
   margin-left: auto;

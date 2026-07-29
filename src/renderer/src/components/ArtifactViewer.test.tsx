@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+// @ts-expect-error -- Vitest executes this stylesheet harness in Node; the web tsconfig omits Node types.
+import { readFileSync } from 'node:fs'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BearcodeApi, Event } from '@shared/types'
@@ -13,6 +15,7 @@ const saveMarkdown = vi.fn()
 const originalState = useAppStore.getState()
 const showToast = vi.fn()
 let bearcodeBefore: PropertyDescriptor | undefined
+const artifactPaneStyles = readFileSync('src/renderer/src/components/ArtifactsPane.css', 'utf8')
 
 function controlledPromise<T>(): {
   promise: Promise<T>
@@ -109,6 +112,7 @@ afterEach(() => {
   vi.useRealTimers()
   if (bearcodeBefore) Object.defineProperty(window, 'bearcode', bearcodeBefore)
   else Reflect.deleteProperty(window, 'bearcode')
+  document.querySelector('style[data-test-styles="artifact-viewer-layout"]')?.remove()
   useAppStore.setState({
     resolvePlanReview: originalState.resolvePlanReview,
     loadArtifactComments: originalState.loadArtifactComments,
@@ -118,6 +122,38 @@ afterEach(() => {
 })
 
 describe('ArtifactViewer copy and Markdown export', () => {
+  it('wraps the complete accessible action row at the supported 380px width', () => {
+    const style = document.createElement('style')
+    style.dataset.testStyles = 'artifact-viewer-layout'
+    style.textContent = artifactPaneStyles
+    document.head.append(style)
+    const { container } = renderViewer()
+    const viewer = container.querySelector('.artifact-view')
+    const titleRow = container.querySelector('.artifact-view-title-row')
+    const title = container.querySelector('.artifact-view-title')
+    const actions = container.querySelector('.plan-review-actions')
+
+    expect(viewer).not.toBeNull()
+    expect(titleRow).not.toBeNull()
+    expect(title).not.toBeNull()
+    expect(actions).not.toBeNull()
+    ;(viewer as HTMLElement).style.width = '380px'
+
+    expect(getComputedStyle(titleRow as Element).flexWrap).toBe('wrap')
+    expect(getComputedStyle(title as Element).minWidth).toMatch(/^0(?:px)?$/)
+    expect(getComputedStyle(title as Element).overflowWrap).toBe('anywhere')
+    const actionStyles = getComputedStyle(actions as Element)
+    expect(actionStyles.flexWrap).toBe('wrap')
+    expect(actionStyles.minWidth).toMatch(/^0(?:px)?$/)
+    expect(actionStyles.maxWidth).toBe('100%')
+    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Proceed',
+      'Review',
+      'Copy Markdown',
+      'Export…'
+    ])
+  })
+
   it('copies the exact source Markdown and toasts only after the clipboard write succeeds', async () => {
     const write = controlledPromise<void>()
     writeClipboard.mockReturnValue(write.promise)
