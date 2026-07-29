@@ -16,26 +16,24 @@ function errorMessage(error: unknown): string {
 export function BrowserPane({ visible }: { visible: boolean }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const mountedRef = useRef(true)
-  const statusRevisionRef = useRef(0)
+  const presentationRevisionRef = useRef(0)
   const visibilityAttemptRef = useRef(0)
   const boundsAttemptRef = useRef(0)
+  const [presentationRevision, setPresentationRevision] = useState(0)
+  const [hideConfirmedRevision, setHideConfirmedRevision] = useState<number | null>(null)
   const [status, setStatus] = useState<BrowserStatus | null>(null)
+  const [pendingError, setPendingError] = useState<string | null>(null)
   const [commandError, setCommandError] = useState<string | null>(null)
 
-  const surfaceFailure = useCallback(
-    (error: unknown, isCurrent: () => boolean, hideFirst = true): void => {
-      if (!mountedRef.current || !isCurrent()) return
-      const message = errorMessage(error)
-      if (hideFirst) {
-        const hide = window.bearcode.browser.hide()
-        void hide.catch((hideError: unknown) => {
-          if (mountedRef.current && isCurrent()) setCommandError(errorMessage(hideError))
-        })
-      }
-      setCommandError(message)
-    },
-    []
-  )
+  const queueFailure = useCallback((error: unknown, isCurrent: () => boolean): void => {
+    if (!mountedRef.current || !isCurrent()) return
+    const revision = ++presentationRevisionRef.current
+    visibilityAttemptRef.current += 1
+    setPresentationRevision(revision)
+    setHideConfirmedRevision(null)
+    setPendingError(errorMessage(error))
+    setCommandError(null)
+  }, [])
 
   const measuredBounds = useCallback(() => {
     const rect = ref.current?.getBoundingClientRect()
@@ -53,46 +51,48 @@ export function BrowserPane({ visible }: { visible: boolean }): React.JSX.Elemen
     const bounds = measuredBounds()
     if (!bounds) return
     const attempt = ++boundsAttemptRef.current
-    const revision = statusRevisionRef.current
+    const revision = presentationRevisionRef.current
     void window.bearcode.browser.setBounds(bounds).catch((error: unknown) => {
-      surfaceFailure(
+      queueFailure(
         error,
-        () => attempt === boundsAttemptRef.current && revision === statusRevisionRef.current,
-        true
+        () => attempt === boundsAttemptRef.current && revision === presentationRevisionRef.current
       )
     })
-  }, [measuredBounds, surfaceFailure])
+  }, [measuredBounds, queueFailure])
 
   // Subscribe before invoking status(). A pushed status increments the revision,
   // making any later initial result/rejection stale and therefore harmless.
   useEffect(() => {
     mountedRef.current = true
     const applyStatus = (next: BrowserStatus): void => {
-      statusRevisionRef.current += 1
+      const revision = ++presentationRevisionRef.current
       visibilityAttemptRef.current += 1
+      setPresentationRevision(revision)
+      setHideConfirmedRevision(null)
+      setPendingError(null)
       setCommandError(null)
       setStatus(next)
     }
-    const initialRevision = statusRevisionRef.current
+    const initialRevision = presentationRevisionRef.current
     const unsubscribe = window.bearcode.browser.onStatus(applyStatus)
     void window.bearcode.browser.status().then(
       (initial) => {
-        if (mountedRef.current && statusRevisionRef.current === initialRevision) {
+        if (mountedRef.current && presentationRevisionRef.current === initialRevision) {
           applyStatus(initial)
         }
       },
       (error: unknown) => {
-        surfaceFailure(error, () => statusRevisionRef.current === initialRevision, true)
+        queueFailure(error, () => presentationRevisionRef.current === initialRevision)
       }
     )
     return () => {
       mountedRef.current = false
-      statusRevisionRef.current += 1
+      presentationRevisionRef.current += 1
       visibilityAttemptRef.current += 1
       boundsAttemptRef.current += 1
       unsubscribe()
     }
-  }, [surfaceFailure])
+  }, [queueFailure])
 
   useEffect(() => {
     const el = ref.current
@@ -110,20 +110,34 @@ export function BrowserPane({ visible }: { visible: boolean }): React.JSX.Elemen
     }
   }, [pushBounds])
 
-  // Layout timing ensures hide/show is requested before React yields a painted
-  // lifecycle surface. Ready is the only branch allowed to progress to show,
-  // and setBounds must resolve first so native pixels never use stale geometry.
+  // A feedback revision earns permission to paint only when its own hide invoke
+  // resolves. Rejection leaves the renderer blank: without hide confirmation,
+  // native pixels could still cover an ErrorCard/Loading/EmptyState.
   useLayoutEffect(() => {
     const attempt = ++visibilityAttemptRef.current
-    const revision = statusRevisionRef.current
+    const revision = presentationRevision
     const isCurrent = (): boolean =>
-      attempt === visibilityAttemptRef.current && revision === statusRevisionRef.current
-    const canShow = visible && status?.phase === 'ready' && status.connected
+      mountedRef.current &&
+      attempt === visibilityAttemptRef.current &&
+      revision === presentationRevisionRef.current
+    const commandBlocked = pendingError !== null || commandError !== null
+    const canShow = !commandBlocked && visible && status?.phase === 'ready' && status.connected
 
     if (!canShow) {
-      void window.bearcode.browser.hide().catch((error: unknown) => {
-        surfaceFailure(error, isCurrent, false)
-      })
+      void window.bearcode.browser.hide().then(
+        () => {
+          if (!isCurrent()) return
+          setHideConfirmedRevision(revision)
+          if (pendingError !== null) {
+            setCommandError(pendingError)
+            setPendingError(null)
+          }
+        },
+        () => {
+          // Keep feedback unpainted. A later prop/status change may safely issue
+          // a fresh hide; stale rejection never overwrites newer readiness.
+        }
+      )
       return
     }
 
@@ -132,23 +146,38 @@ export function BrowserPane({ visible }: { visible: boolean }): React.JSX.Elemen
     void (async () => {
       try {
         await window.bearcode.browser.setBounds(bounds)
-        if (!mountedRef.current || !isCurrent()) return
+        if (!isCurrent()) return
         await window.bearcode.browser.show()
       } catch (error) {
-        surfaceFailure(error, isCurrent, true)
+        queueFailure(error, isCurrent)
       }
     })()
-  }, [measuredBounds, status, surfaceFailure, visible])
+  }, [
+    commandError,
+    measuredBounds,
+    pendingError,
+    presentationRevision,
+    queueFailure,
+    status,
+    visible
+  ])
 
+  const mayPaintFeedback = hideConfirmedRevision === presentationRevision
   let feedback: React.ReactNode = null
-  if (commandError) {
-    feedback = <ErrorCard>{commandError}</ErrorCard>
-  } else if (status === null || status.phase === 'starting') {
-    feedback = <Loading label="Preparing browser…" />
-  } else if (status.phase === 'idle') {
-    feedback = <EmptyState title="Browser is not active" />
-  } else if (status.phase === 'error') {
-    feedback = <ErrorCard>{status.message ?? 'The browser could not be started.'}</ErrorCard>
+  if (mayPaintFeedback) {
+    if (commandError) {
+      feedback = <ErrorCard>{commandError}</ErrorCard>
+    } else if (status === null || status.phase === 'starting') {
+      feedback = (
+        <div role="status" aria-live="polite" aria-atomic="true">
+          <Loading label="Preparing browser…" />
+        </div>
+      )
+    } else if (status.phase === 'idle') {
+      feedback = <EmptyState title="Browser is not active" />
+    } else if (status.phase === 'error') {
+      feedback = <ErrorCard>{status.message ?? 'The browser could not be started.'}</ErrorCard>
+    }
   }
 
   return (

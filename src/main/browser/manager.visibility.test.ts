@@ -44,12 +44,16 @@ const mocks = vi.hoisted(() => {
     url: vi.fn(() => loadedUrl),
     emulateMedia: vi.fn(async () => {})
   }
-  const browserHandlers = new Map<string, Handler>()
+  const otherPage = {
+    url: vi.fn(() => 'app://bearcode'),
+    emulateMedia: vi.fn(async () => {})
+  }
+  const browserDisconnectHandlers: Handler[] = []
   const browser = {
-    contexts: vi.fn(() => [{ pages: () => [page] }]),
+    contexts: vi.fn(() => [{ pages: () => [page, otherPage] }]),
     close: vi.fn(async () => {}),
     on: vi.fn((event: string, handler: Handler) => {
-      browserHandlers.set(event, handler)
+      if (event === 'disconnected') browserDisconnectHandlers.push(handler)
     })
   }
   const contentView = {
@@ -62,8 +66,9 @@ const mocks = vi.hoisted(() => {
     WebContentsView,
     views,
     page,
+    otherPage,
     browser,
-    browserHandlers,
+    browserDisconnectHandlers,
     contentView,
     getMainWindow: vi.fn<() => typeof mainWindow | null>(() => mainWindow),
     browserDebuggingEnabled: vi.fn(() => true),
@@ -91,15 +96,21 @@ const { BrowserManager } = await import('./manager')
 
 type Bounds = { x: number; y: number; width: number; height: number }
 
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve!: () => void
-  const promise = new Promise<void>((done) => {
+function deferred<T = void>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (error: unknown) => void
+} {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((done, fail) => {
     resolve = done
+    reject = fail
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 
-function managerWithView(): {
+function managerWithView(ready = false): {
   manager: InstanceType<typeof BrowserManager>
   setBounds: ReturnType<typeof vi.fn<(bounds: Bounds) => void>>
 } {
@@ -110,18 +121,28 @@ function managerWithView(): {
       view: { setBounds: (bounds: Bounds) => void } | null
     }
   ).view = { setBounds }
+  if (ready) {
+    ;(
+      manager as unknown as {
+        page: object | null
+        phase: string
+      }
+    ).page = {}
+    ;(manager as unknown as { phase: string }).phase = 'ready'
+  }
   return { manager, setBounds }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.views.splice(0)
-  mocks.browserHandlers.clear()
+  mocks.browserDisconnectHandlers.splice(0)
   mocks.getMainWindow.mockReturnValue({ contentView: mocks.contentView })
   mocks.browserDebuggingEnabled.mockReturnValue(true)
   mocks.chromiumInstalled.mockReturnValue(true)
   mocks.ensureChromium.mockResolvedValue(undefined)
   mocks.connectOverCDP.mockResolvedValue(mocks.browser)
+  mocks.otherPage.emulateMedia.mockResolvedValue(undefined)
 })
 
 describe('BrowserManager status lifecycle', () => {
@@ -228,6 +249,129 @@ describe('BrowserManager status lifecycle', () => {
 
     expect(statuses).toHaveLength(2)
   })
+
+  it('isolates throwing listeners so later listeners receive every transition', async () => {
+    const manager = new BrowserManager()
+    const throwingListener = vi.fn(() => {
+      throw new Error('listener failed')
+    })
+    const phases: string[] = []
+    manager.onStatus(throwingListener)
+    manager.onStatus((status) => phases.push(status.phase))
+
+    await expect(manager.start('conversation-1')).resolves.toBeUndefined()
+
+    expect(throwingListener).toHaveBeenCalledTimes(2)
+    expect(phases).toEqual(['starting', 'ready'])
+  })
+
+  it.each(['render-process-gone', 'disconnected'] as const)(
+    'does not publish stale ready when %s lands during theme reset',
+    async (failure) => {
+      const manager = new BrowserManager()
+      const themeReset = deferred()
+      mocks.otherPage.emulateMedia.mockReturnValueOnce(themeReset.promise)
+      const phases: string[] = []
+      manager.onStatus((status) => phases.push(status.phase))
+
+      const start = manager.start('conversation-1')
+      await vi.waitFor(() => expect(mocks.otherPage.emulateMedia).toHaveBeenCalledOnce())
+
+      if (failure === 'render-process-gone') {
+        mocks.views[0].webContents.handlers.get('render-process-gone')!()
+      } else {
+        mocks.browserDisconnectHandlers[0]()
+      }
+      themeReset.resolve()
+
+      await expect(start).rejects.toThrow()
+      await vi.waitFor(() => expect(manager.status().phase).toBe('error'))
+      expect(phases).not.toContain('ready')
+    }
+  )
+
+  it('waits for active teardown before starting a replacement session', async () => {
+    const manager = new BrowserManager()
+    await manager.start('conversation-1')
+    mocks.ensureChromium.mockClear()
+    const cleanup = deferred()
+    mocks.browser.close.mockReturnValueOnce(cleanup.promise)
+
+    const teardown = manager.teardown()
+    await vi.waitFor(() => expect(mocks.browser.close).toHaveBeenCalled())
+    const restart = manager.start('conversation-2')
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    expect(mocks.ensureChromium).not.toHaveBeenCalled()
+
+    cleanup.resolve()
+    await teardown
+    await restart
+    expect(manager.status()).toMatchObject({
+      phase: 'ready',
+      conversationId: 'conversation-2'
+    })
+  })
+
+  it('supersedes an in-progress start even when the conversation id is unchanged', async () => {
+    const manager = new BrowserManager()
+    const firstThemeReset = deferred()
+    mocks.otherPage.emulateMedia.mockReturnValueOnce(firstThemeReset.promise)
+    const firstStart = manager.start('conversation-1')
+    await vi.waitFor(() => expect(mocks.otherPage.emulateMedia).toHaveBeenCalledOnce())
+
+    const replacementStart = manager.start('conversation-1')
+    await replacementStart
+
+    expect(mocks.ensureChromium).toHaveBeenCalledTimes(2)
+    expect(manager.status()).toMatchObject({
+      phase: 'ready',
+      conversationId: 'conversation-1'
+    })
+
+    firstThemeReset.resolve()
+    await expect(firstStart).rejects.toThrow('superseded')
+  })
+
+  it('ignores crash and disconnect callbacks captured by an older session', async () => {
+    const manager = new BrowserManager()
+    await manager.start('conversation-1')
+    const oldCrash = mocks.views[0].webContents.handlers.get('render-process-gone')!
+    const oldDisconnect = mocks.browserDisconnectHandlers[0]
+
+    await manager.teardown()
+    await manager.start('conversation-2')
+    oldCrash()
+    oldDisconnect()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(manager.status()).toMatchObject({
+      phase: 'ready',
+      connected: true,
+      conversationId: 'conversation-2'
+    })
+    expect(mocks.views[1].webContents.close).not.toHaveBeenCalled()
+  })
+
+  it('still cleans up and publishes an actionable crash error when hide throws', async () => {
+    const manager = new BrowserManager()
+    await manager.start('conversation-1')
+    mocks.views[0].setBounds.mockImplementationOnce(() => {
+      throw new Error('view already gone')
+    })
+
+    mocks.views[0].webContents.handlers.get('render-process-gone')!()
+
+    await vi.waitFor(() =>
+      expect(manager.status()).toMatchObject({
+        phase: 'error',
+        message: 'The browser view stopped unexpectedly. Start it again.',
+        connected: false
+      })
+    )
+    expect(mocks.views[0].webContents.close).toHaveBeenCalledOnce()
+  })
 })
 
 describe('BrowserManager native-view visibility', () => {
@@ -245,7 +389,7 @@ describe('BrowserManager native-view visibility', () => {
   })
 
   it('shows at the latest stored bounds and hides offscreen', () => {
-    const { manager, setBounds } = managerWithView()
+    const { manager, setBounds } = managerWithView(true)
     const bounds = { x: 40, y: 20, width: 900, height: 700 }
 
     manager.setBounds(bounds)
@@ -262,7 +406,7 @@ describe('BrowserManager native-view visibility', () => {
   })
 
   it('keeps resizing hidden views offscreen until the next show', () => {
-    const { manager, setBounds } = managerWithView()
+    const { manager, setBounds } = managerWithView(true)
     manager.show()
     manager.hide()
 
@@ -279,4 +423,17 @@ describe('BrowserManager native-view visibility', () => {
     manager.show()
     expect(setBounds).toHaveBeenLastCalledWith(latest)
   })
+
+  it.each(['idle', 'starting', 'error'] as const)(
+    'refuses stale show requests while phase is %s',
+    (phase) => {
+      const { manager, setBounds } = managerWithView()
+      ;(manager as unknown as { phase: string }).phase = phase
+      ;(manager as unknown as { page: object | null }).page = {}
+
+      manager.show()
+
+      expect(setBounds).not.toHaveBeenCalled()
+    }
+  )
 })

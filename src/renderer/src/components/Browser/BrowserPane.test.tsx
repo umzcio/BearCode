@@ -85,22 +85,30 @@ describe('BrowserPane lifecycle feedback', () => {
     expect(unsubscribe).toHaveBeenCalledOnce()
   })
 
-  it('shows Preparing browser… while the initial status is checking and while starting', async () => {
+  it('announces Preparing browser… only after the current hide resolves', async () => {
     const initial = deferred<BrowserStatus>()
+    const initialHide = deferred<void>()
     status.mockReturnValueOnce(initial.promise)
+    hide.mockReturnValueOnce(initialHide.promise)
     render(<BrowserPane visible={false} />)
 
-    expect(screen.getByText('Preparing browser…')).toBeInTheDocument()
+    expect(screen.queryByText('Preparing browser…')).not.toBeInTheDocument()
+    initialHide.resolve()
+    expect(await screen.findByRole('status')).toHaveTextContent('Preparing browser…')
+
     act(() => statusListener!({ ...idleStatus, phase: 'starting' }))
 
-    expect(screen.getByText('Preparing browser…')).toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent('Preparing browser…')
     expect(hide).toHaveBeenCalled()
   })
 
-  it('renders shared idle and error states only after requesting native hide', async () => {
+  it('does not paint a pushed error until its current hide resolves', async () => {
+    const initial = deferred<BrowserStatus>()
+    status.mockReturnValueOnce(initial.promise)
     render(<BrowserPane visible={false} />)
-    await screen.findByText('Browser is not active')
-    const idleHideOrder = hide.mock.invocationCallOrder.at(-1)!
+    await screen.findByRole('status')
+    const errorHide = deferred<void>()
+    hide.mockReturnValueOnce(errorHide.promise)
 
     act(() =>
       statusListener!({
@@ -110,9 +118,9 @@ describe('BrowserPane lifecycle feedback', () => {
       })
     )
 
-    const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('Could not attach to the browser.')
-    expect(hide.mock.invocationCallOrder.at(-1)).toBeGreaterThan(idleHideOrder)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    errorHide.resolve()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not attach to the browser.')
   })
 
   it('shows native pixels only for ready + connected + visible', async () => {
@@ -182,20 +190,30 @@ describe('BrowserPane native-view command failures', () => {
 
   it('surfaces a show failure only after requesting hide', async () => {
     status.mockResolvedValueOnce(readyStatus)
+    const failureHide = deferred<void>()
+    hide.mockResolvedValueOnce(undefined).mockReturnValueOnce(failureHide.promise)
     show.mockRejectedValueOnce(new Error('Show unavailable'))
 
     render(<BrowserPane visible />)
 
+    await waitFor(() => expect(show).toHaveBeenCalledOnce())
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    failureHide.resolve()
     expect(await screen.findByRole('alert')).toHaveTextContent('Show unavailable')
-    expect(hide.mock.invocationCallOrder.at(-1)).toBeGreaterThan(show.mock.invocationCallOrder[0])
   })
 
-  it('surfaces a current hide rejection without an unhandled promise', async () => {
+  it('keeps feedback unpainted when the current hide cannot be confirmed', async () => {
+    const initial = deferred<BrowserStatus>()
+    status.mockReturnValueOnce(initial.promise)
     hide.mockRejectedValue(new Error('Hide unavailable'))
 
     render(<BrowserPane visible={false} />)
+    await act(async () => Promise.resolve())
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Hide unavailable')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByText('Browser is not active')).not.toBeInTheDocument()
   })
 
   it('does not let a stale show rejection overwrite a newer starting push', async () => {
@@ -211,6 +229,53 @@ describe('BrowserPane native-view command failures', () => {
     expect(screen.getByText('Preparing browser…')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
+
+  it('hides a visible native view before a bounds error and blocks re-show until new status', async () => {
+    status.mockResolvedValueOnce(readyStatus)
+    const { rerender } = render(<BrowserPane visible />)
+    await waitFor(() => expect(show).toHaveBeenCalledOnce())
+
+    const failureHide = deferred<void>()
+    setBounds.mockRejectedValueOnce(new Error('Resize unavailable'))
+    hide.mockReturnValueOnce(failureHide.promise)
+    window.dispatchEvent(new Event('resize'))
+    await act(async () => Promise.resolve())
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    failureHide.resolve()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Resize unavailable')
+
+    rerender(<BrowserPane visible={false} />)
+    rerender(<BrowserPane visible />)
+    await act(async () => Promise.resolve())
+    expect(show).toHaveBeenCalledOnce()
+
+    act(() => statusListener!(readyStatus))
+    await waitFor(() => expect(show).toHaveBeenCalledTimes(2))
+  })
+
+  it.each(['resolve', 'reject'] as const)(
+    'ignores a stale non-ready hide %s after a newer ready push',
+    async (outcome) => {
+      status.mockResolvedValueOnce(readyStatus)
+      render(<BrowserPane visible />)
+      await waitFor(() => expect(show).toHaveBeenCalledOnce())
+      const staleHide = deferred<void>()
+      hide.mockReturnValueOnce(staleHide.promise)
+
+      act(() => statusListener!({ ...idleStatus, phase: 'starting' }))
+      expect(screen.queryByText('Preparing browser…')).not.toBeInTheDocument()
+      act(() => statusListener!(readyStatus))
+      await waitFor(() => expect(show).toHaveBeenCalledTimes(2))
+
+      if (outcome === 'resolve') staleHide.resolve()
+      else staleHide.reject(new Error('stale hide failure'))
+      await act(async () => Promise.resolve())
+
+      expect(screen.queryByText('Preparing browser…')).not.toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    }
+  )
 })
 
 describe('BrowserPane geometry', () => {
