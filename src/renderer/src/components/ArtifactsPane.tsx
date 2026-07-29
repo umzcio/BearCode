@@ -1,6 +1,7 @@
 import { Suspense, lazy, memo, useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Event, FileDiff, FileDiffFile } from '@shared/types'
+import { defaultsToRenderedPreview, languageForPath } from '@shared/fileClassification'
 import { useAppStore, type AuxSelection, type ReviewComment } from '../state/store'
 import { useCmdHeld } from '../lib/useCmdHeld'
 import { ArtifactViewer } from './ArtifactViewer'
@@ -22,31 +23,6 @@ import './ArtifactsPane.css'
 const MonacoDiff = lazy(() => import('./MonacoDiff'))
 const MonacoCode = lazy(() => import('./MonacoCode'))
 
-const LANG_BY_EXT: Record<string, string> = {
-  html: 'html',
-  htm: 'html',
-  css: 'css',
-  js: 'javascript',
-  jsx: 'javascript',
-  mjs: 'javascript',
-  ts: 'typescript',
-  tsx: 'typescript',
-  json: 'json',
-  md: 'markdown',
-  py: 'python',
-  sh: 'shell',
-  zsh: 'shell',
-  yml: 'yaml',
-  yaml: 'yaml',
-  sql: 'sql',
-  xml: 'xml'
-}
-
-function languageFor(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase() ?? ''
-  return LANG_BY_EXT[ext] ?? 'plaintext'
-}
-
 function baseName(path: string): string {
   return path.split('/').pop() ?? path
 }
@@ -63,17 +39,6 @@ function formatBytes(sizeBytes: number): string {
   const displayed = (value >= 10 ? value.toFixed(0) : value.toFixed(1)).replace(/\.0$/, '')
   return `${displayed} ${unit}`
 }
-
-// Which formats DEFAULT to the rendered Preview instead of the Diff/source
-// view. Only genuinely-binary/rich formats belong here: their raw bytes are
-// meaningless as "source", so rendering is the only sensible default. Code and
-// text formats (html, md, csv, json, ...) DEFAULT to the Diff/Monaco view --
-// this is a code-review pane, and reviewing an html/md artifact means reading
-// the source. Preview is still one click away via the per-file toggle for them.
-// (main isn't importable from the renderer, so this lives here rather than
-// importing src/main/preview/classify.ts, which can still *render* every kind.)
-const isBinaryPreview = (p: string): boolean =>
-  /\.(png|jpe?g|gif|webp|bmp|svg|pdf|docx|xlsx)$/i.test(p)
 
 type BodyView = 'diff' | 'code' | 'preview'
 
@@ -483,7 +448,12 @@ function FilePanel({ path, line }: { path: string; line?: number }): React.JSX.E
           </div>
         ) : (
           <Suspense fallback={<Loading />}>
-            <MonacoCode key={path} value={content} language={languageFor(path)} revealLine={line} />
+            <MonacoCode
+              key={path}
+              value={content}
+              language={languageForPath(path)}
+              revealLine={line}
+            />
           </Suspense>
         )}
       </div>
@@ -587,10 +557,10 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
   const files = diff?.files ?? []
   const activeFile = files.find((f) => f.fileId === activeFileId) ?? files[0]
 
-  // Per-file body view, defaulting binary/rich formats to Preview and
+  // Per-file body view, defaulting rendered formats to Preview and
   // code/text to the red/green Diff (the review default).
   const viewFor = (f: FileDiffFile): BodyView =>
-    bodyView[f.fileId] ?? (isBinaryPreview(f.path) ? 'preview' : 'diff')
+    bodyView[f.fileId] ?? (defaultsToRenderedPreview(f.path) ? 'preview' : 'diff')
 
   const setViewFor = (fileId: string, v: BodyView): void =>
     setBodyView((m) => ({ ...m, [fileId]: v }))
@@ -826,7 +796,7 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
                 <MonacoCode
                   key={activeFile.fileId + ':code'}
                   value={activeFile.afterText}
-                  language={languageFor(activeFile.path)}
+                  language={languageForPath(activeFile.path)}
                   commentedLines={commentedLines(activeFile.path)}
                   onAddComment={addComment(activeFile.path)}
                 />
@@ -837,7 +807,7 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
                   <MonacoCode
                     key={activeFile.fileId + ':diff'}
                     value={activeFile.afterText}
-                    language={languageFor(activeFile.path)}
+                    language={languageForPath(activeFile.path)}
                     commentedLines={commentedLines(activeFile.path)}
                     onAddComment={addComment(activeFile.path)}
                     washAdded
@@ -847,7 +817,7 @@ function DiffPanel({ diffId, rail }: { diffId: string; rail: React.ReactNode }):
                     key={activeFile.fileId + ':diff'}
                     original={activeFile.beforeText}
                     modified={activeFile.afterText}
-                    language={languageFor(activeFile.path)}
+                    language={languageForPath(activeFile.path)}
                     commentedLines={commentedLines(activeFile.path)}
                     onAddComment={addComment(activeFile.path)}
                   />

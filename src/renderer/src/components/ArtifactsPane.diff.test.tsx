@@ -121,6 +121,72 @@ const secondDiff: FileDiff = {
 
 const emptyDiff: FileDiff = { diffId: 'diff_empty', files: [] }
 
+const classificationDiff: FileDiff = {
+  diffId: 'diff_classification',
+  files: [
+    {
+      fileId: 'file_ruby',
+      path: '/workspace/lib/task.rb',
+      status: 'modified',
+      beforeText: 'puts :before\n',
+      afterText: 'puts :after\n',
+      additions: 1,
+      deletions: 1,
+      state: 'applied'
+    },
+    {
+      fileId: 'file_go',
+      path: '/workspace/cmd/main.go',
+      status: 'modified',
+      beforeText: 'package main\n',
+      afterText: 'package main\n',
+      additions: 0,
+      deletions: 0,
+      state: 'applied'
+    },
+    {
+      fileId: 'file_rust',
+      path: '/workspace/src/lib.rs',
+      status: 'modified',
+      beforeText: 'fn before() {}\n',
+      afterText: 'fn after() {}\n',
+      additions: 1,
+      deletions: 1,
+      state: 'applied'
+    },
+    {
+      fileId: 'file_svg',
+      path: '/workspace/assets/icon.svg',
+      status: 'created',
+      beforeText: '',
+      afterText: '<svg />',
+      additions: 1,
+      deletions: 0,
+      state: 'applied'
+    },
+    {
+      fileId: 'file_html',
+      path: '/workspace/pages/index.html',
+      status: 'created',
+      beforeText: '',
+      afterText: '<main>after</main>',
+      additions: 1,
+      deletions: 0,
+      state: 'applied'
+    },
+    {
+      fileId: 'file_markdown',
+      path: '/workspace/docs/notes.md',
+      status: 'created',
+      beforeText: '',
+      afterText: '# after',
+      additions: 1,
+      deletions: 0,
+      state: 'applied'
+    }
+  ]
+}
+
 function conversation(id: string, events: Event[]): Convo {
   return {
     id,
@@ -474,6 +540,32 @@ describe('ArtifactsPane diff review', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /answer\.ts/ }))
     expect(screen.getByTestId('monaco-diff-stub')).toHaveAttribute('data-language', 'typescript')
+  })
+
+  it('uses shared Monaco languages while retaining rendered and source body defaults', async () => {
+    getDiff.mockResolvedValueOnce(classificationDiff)
+    seedDiffReview(classificationDiff)
+    render(<ArtifactsPane />)
+
+    expect(await screen.findByTestId('monaco-diff-stub')).toHaveAttribute('data-language', 'ruby')
+
+    fireEvent.click(screen.getByRole('button', { name: /main\.go/ }))
+    expect(screen.getByTestId('monaco-diff-stub')).toHaveAttribute('data-language', 'go')
+
+    fireEvent.click(screen.getByRole('button', { name: /lib\.rs/ }))
+    expect(screen.getByTestId('monaco-diff-stub')).toHaveAttribute('data-language', 'rust')
+
+    fireEvent.click(screen.getByRole('button', { name: /icon\.svg/ }))
+    expect(screen.getByTestId('file-preview-stub')).toHaveTextContent('file_svg')
+
+    fireEvent.click(screen.getByRole('button', { name: /index\.html/ }))
+    expect(await screen.findByTestId('monaco-code-stub')).toHaveAttribute('data-language', 'html')
+
+    fireEvent.click(screen.getByRole('button', { name: /notes\.md/ }))
+    expect(await screen.findByTestId('monaco-code-stub')).toHaveAttribute(
+      'data-language',
+      'markdown'
+    )
   })
 
   it('remembers Diff, Code, and Preview choices independently for each file', async () => {
