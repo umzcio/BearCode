@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest'
 
 const mainDir = dirname(fileURLToPath(import.meta.url))
 const paneCss = readFileSync(join(mainDir, '../renderer/src/components/ArtifactsPane.css'), 'utf8')
+const browserPaneCss = readFileSync(
+  join(mainDir, '../renderer/src/components/Browser/BrowserPane.css'),
+  'utf8'
+)
 
 const pressableFamilies = [
   '.ap-actions button',
@@ -18,6 +22,7 @@ const pressableFamilies = [
   '.comment-bar-send',
   '.comment-bar-close',
   '.comment-del',
+  '.comment-fab',
   '.foot-btn'
 ]
 
@@ -313,6 +318,14 @@ function expectEntryCueRules(css: string, selector: string): void {
     '.plan-resolution-notice': {
       duration: '--dur-fast',
       startingTransform: 'translateY(2px)'
+    },
+    '.comment-row': {
+      duration: '--dur-fast',
+      startingTransform: 'translateY(2px)'
+    },
+    '.plan-comment-item': {
+      duration: '--dur-fast',
+      startingTransform: 'translateY(2px)'
     }
   } as const
   const cue = cues[selector as keyof typeof cues]
@@ -320,11 +333,15 @@ function expectEntryCueRules(css: string, selector: string): void {
 
   const baseRule = findRule(
     css,
-    ({ prelude, ancestors }) => ancestors.length === 0 && prelude === selector
+    ({ prelude, body, ancestors }) =>
+      ancestors.length === 0 &&
+      splitSelectorList(prelude).includes(selector) &&
+      normalizeWhitespace(body).includes('opacity: 1')
   )
   const entryRule = findRule(
     css,
-    ({ prelude, ancestors }) => ancestors.join(' > ') === startingStyle && prelude === selector
+    ({ prelude, ancestors }) =>
+      ancestors.join(' > ') === startingStyle && splitSelectorList(prelude).includes(selector)
   )
 
   expect(baseRule).toBeDefined()
@@ -339,6 +356,38 @@ function expectEntryCueRules(css: string, selector: string): void {
   const entryBody = normalizeWhitespace(entryRule?.body ?? '')
   expect(entryBody).toContain('opacity: 0')
   expect(entryBody).toContain(`transform: ${cue.startingTransform}`)
+}
+
+function expectReducedEntryCueRules(css: string, selector: string): void {
+  const osRule = findRule(
+    css,
+    ({ prelude, ancestors }) =>
+      ancestors.join(' > ') === reducedMotionMedia && splitSelectorList(prelude).includes(selector)
+  )
+  const osStartingRule = findRule(
+    css,
+    ({ prelude, ancestors }) =>
+      ancestors.join(' > ') === `${reducedMotionMedia} > ${startingStyle}` &&
+      splitSelectorList(prelude).includes(selector)
+  )
+  const inAppSelector = `:root[data-motion='reduced'] ${selector}`
+  const inAppRule = findRule(
+    css,
+    ({ prelude, ancestors }) =>
+      ancestors.length === 0 && splitSelectorList(prelude).includes(inAppSelector)
+  )
+  const inAppStartingRule = findRule(
+    css,
+    ({ prelude, ancestors }) =>
+      ancestors.join(' > ') === startingStyle && splitSelectorList(prelude).includes(inAppSelector)
+  )
+
+  const osBody = normalizeWhitespace(osRule?.body ?? '')
+  expect(osBody).toContain('transform: none')
+  expect(osBody).toContain('transition: opacity var(--dur-fast) var(--ease-out)')
+  expect(normalizeWhitespace(osStartingRule?.body ?? '')).toContain('transform: none')
+  expectTransformNone(inAppRule)
+  expectTransformNone(inAppStartingRule)
 }
 
 describe('Artifacts Pane motion CSS contract', () => {
@@ -449,8 +498,57 @@ describe('Artifacts Pane motion CSS contract', () => {
     expectTransformNone(inAppReducedActiveRule)
   })
 
+  it('reserves the comment button transform for press feedback', () => {
+    const allowedTransforms = new Set(['scale(0.97)', 'none'])
+    const fabRules = extractRules(paneCss).filter((rule) =>
+      familySelectors(rule).includes('.comment-fab')
+    )
+
+    expect(fabRules.length).toBeGreaterThan(0)
+    for (const rule of fabRules) {
+      const declarations = rule.body.matchAll(/(?:^|;)\s*transform\s*:\s*([^;]+)/g)
+      for (const declaration of declarations) {
+        expect(allowedTransforms).toContain(declaration[1].trim())
+      }
+    }
+  })
+
   it('keeps reduced-motion panel, comment, and status declarations in their own nested rules', () => {
     expectReducedSurfaceRules(paneCss)
+  })
+
+  it('fades browser feedback only after mount and removes that transition under reduced motion', () => {
+    const baseRule = findRule(
+      browserPaneCss,
+      ({ prelude, ancestors }) => prelude === '.browser-pane-state' && ancestors.length === 0
+    )
+    const startingRule = findRule(
+      browserPaneCss,
+      ({ prelude, ancestors }) =>
+        prelude === '.browser-pane-state' && ancestors.join(' > ') === startingStyle
+    )
+    const osReducedRule = findRule(
+      browserPaneCss,
+      ({ prelude, ancestors }) =>
+        prelude === '.browser-pane-state' && ancestors.join(' > ') === reducedMotionMedia
+    )
+    const inAppReducedRule = findRule(
+      browserPaneCss,
+      ({ prelude, ancestors }) =>
+        prelude === ":root[data-motion='reduced'] .browser-pane-state" && ancestors.length === 0
+    )
+
+    const baseBody = normalizeWhitespace(baseRule?.body ?? '')
+    expect(baseBody).toContain('opacity: 1')
+    expect(baseBody).toContain('transition: opacity var(--dur-fast) var(--ease-out)')
+    expect(baseBody).not.toContain('transform')
+
+    const startingBody = normalizeWhitespace(startingRule?.body ?? '')
+    expect(startingBody).toContain('opacity: 0')
+    expect(startingBody).not.toContain('transform')
+
+    expect(normalizeWhitespace(osReducedRule?.body ?? '')).toContain('transition: none')
+    expect(normalizeWhitespace(inAppReducedRule?.body ?? '')).toContain('transition: none')
   })
 
   it('rejects removal of the exact OS reduced-motion closing-panel rule', () => {
@@ -476,6 +574,50 @@ describe('Artifacts Pane motion CSS contract', () => {
   it('keeps normal comment and status entry cues bound to their own rules', () => {
     expectEntryCueRules(paneCss, '.comment-bar')
     expectEntryCueRules(paneCss, '.plan-resolution-notice')
+  })
+
+  it('cues newly inserted comment rows without movement under reduced motion', () => {
+    for (const selector of ['.comment-row', '.plan-comment-item']) {
+      expectEntryCueRules(paneCss, selector)
+      expectReducedEntryCueRules(paneCss, selector)
+    }
+  })
+
+  it('limits the comment tooltip hover to fine pointers and mirrors it for keyboard focus', () => {
+    const tooltipRule = findRule(
+      paneCss,
+      ({ prelude, ancestors }) => prelude === '.comment-fab::before' && ancestors.length === 0
+    )
+    const hoverRule = findRule(
+      paneCss,
+      ({ prelude, ancestors }) =>
+        prelude === '.comment-fab:hover::before' &&
+        ancestors.join(' > ') === '@media (hover: hover) and (pointer: fine)'
+    )
+    const broadHoverRule = findRule(
+      paneCss,
+      ({ prelude, ancestors }) => prelude === '.comment-fab:hover::before' && ancestors.length === 0
+    )
+    const focusRule = findRule(
+      paneCss,
+      ({ prelude, ancestors }) => prelude === '.comment-fab:focus-visible' && ancestors.length === 0
+    )
+    const focusTooltipRule = findRule(
+      paneCss,
+      ({ prelude, ancestors }) =>
+        prelude === '.comment-fab:focus-visible::before' && ancestors.length === 0
+    )
+
+    expect(normalizeWhitespace(tooltipRule?.body ?? '')).toContain(
+      'transition: opacity var(--dur-fast) ease'
+    )
+    expect(hoverRule).toBeDefined()
+    expect(normalizeWhitespace(hoverRule?.body ?? '')).toContain('opacity: 1')
+    expect(broadHoverRule).toBeUndefined()
+    expect(normalizeWhitespace(focusRule?.body ?? '')).toContain(
+      'outline: 2px solid var(--ap-accent-blue)'
+    )
+    expect(normalizeWhitespace(focusTooltipRule?.body ?? '')).toContain('opacity: 1')
   })
 
   it('rejects a comment entry cue with the wrong normal transform duration', () => {

@@ -2,6 +2,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('monaco-editor', () => ({
+  KeyMod: {
+    CtrlCmd: 2048,
+    Alt: 512
+  },
+  KeyCode: {
+    KeyC: 33
+  },
   Range: class {
     constructor(
       readonly startLineNumber: number,
@@ -29,6 +36,13 @@ interface FakeZone {
   afterLineNumber: number
   heightInPx: number
   domNode: HTMLElement
+}
+
+interface FakeAction {
+  id: string
+  label: string
+  keybindings?: number[]
+  run: () => void
 }
 
 function frameHarness(): {
@@ -73,6 +87,12 @@ function fakeEditor(): {
   layoutZone: ReturnType<typeof vi.fn>
   removeZone: ReturnType<typeof vi.fn>
   mouseDown: (line: number) => void
+  mouseMove: (line: number) => void
+  action: () => FakeAction | undefined
+  actionDispose: ReturnType<typeof vi.fn>
+  getTopForLineNumber: ReturnType<typeof vi.fn>
+  scroll: () => void
+  setCursorLine: (line: number | undefined) => void
   setScrollTop: (top: number) => void
 } {
   const container = document.createElement('div')
@@ -80,14 +100,25 @@ function fakeEditor(): {
   const zones: FakeZone[] = []
   const layoutZone = vi.fn()
   const removeZone = vi.fn()
+  const actionDispose = vi.fn()
+  const getTopForLineNumber = vi.fn((line: number) => line * 22)
   let onMouseDown: ((event: never) => void) | undefined
+  let onMouseMove: ((event: never) => void) | undefined
+  let onDidScrollChange: (() => void) | undefined
+  let registeredAction: FakeAction | undefined
+  let cursorLine: number | undefined
   let scrollTop = 0
 
   const editor = {
     getContainerDomNode: () => container,
     getBottomForLineNumber: (line: number) => line * 22,
-    getTopForLineNumber: (line: number) => line * 22,
+    getTopForLineNumber,
     getScrollTop: () => scrollTop,
+    getPosition: () => (cursorLine === undefined ? null : { lineNumber: cursorLine, column: 1 }),
+    addAction: (action: FakeAction) => {
+      registeredAction = action
+      return { dispose: actionDispose }
+    },
     createDecorationsCollection: () => ({ clear: vi.fn() }),
     changeViewZones: (
       callback: (accessor: {
@@ -109,8 +140,14 @@ function fakeEditor(): {
       onMouseDown = callback
       return { dispose: vi.fn() }
     },
-    onMouseMove: () => ({ dispose: vi.fn() }),
-    onDidScrollChange: () => ({ dispose: vi.fn() })
+    onMouseMove: (callback: (event: never) => void) => {
+      onMouseMove = callback
+      return { dispose: vi.fn() }
+    },
+    onDidScrollChange: (callback: () => void) => {
+      onDidScrollChange = callback
+      return { dispose: vi.fn() }
+    }
   } as unknown as Parameters<typeof attachCommenting>[0]
 
   return {
@@ -126,6 +163,20 @@ function fakeEditor(): {
           position: { lineNumber: line }
         }
       } as never)
+    },
+    mouseMove: (line) => {
+      onMouseMove?.({
+        target: {
+          position: { lineNumber: line }
+        }
+      } as never)
+    },
+    action: () => registeredAction,
+    actionDispose,
+    getTopForLineNumber,
+    scroll: () => onDidScrollChange?.(),
+    setCursorLine: (line) => {
+      cursorLine = line
     },
     setScrollTop: (top) => {
       scrollTop = top
@@ -325,5 +376,91 @@ describe('attachCommenting view-zone motion', () => {
     expect(frames.pending()).toBe(0)
     expect(fake.removeZone).toHaveBeenCalledWith('zone-1')
     expect(fake.container.querySelector('.comment-zone-inline')).toBeNull()
+  })
+})
+
+describe('attachCommenting accessibility', () => {
+  it('opens the composer at the current cursor line through a scoped editor action', () => {
+    frameHarness()
+    const fake = fakeEditor()
+    fake.setCursorLine(4)
+    const commenting = attachCommenting(fake.editor, vi.fn())
+
+    expect(fake.action()).toMatchObject({
+      id: 'artifacts.addReviewComment',
+      label: 'Add review comment',
+      keybindings: [2593]
+    })
+
+    fake.action()?.run()
+    expect(fake.zones.at(-1)?.afterLineNumber).toBe(4)
+
+    fake.setCursorLine(9)
+    fake.action()?.run()
+    expect(fake.zones.at(-1)?.afterLineNumber).toBe(9)
+
+    commenting.dispose()
+    expect(fake.actionDispose).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not open a composer when the keyboard action has no cursor position', () => {
+    frameHarness()
+    const fake = fakeEditor()
+    attachCommenting(fake.editor, vi.fn())
+
+    fake.action()?.run()
+
+    expect(fake.zones).toHaveLength(0)
+  })
+
+  it('gives the visible floating button an accessible line label and shortcut metadata', () => {
+    const fake = fakeEditor()
+    attachCommenting(fake.editor, vi.fn())
+
+    fake.mouseMove(6)
+
+    const fab = fake.container.querySelector('.comment-fab')
+    expect(fab).toHaveAttribute('type', 'button')
+    expect(fab).toHaveAttribute('aria-label', 'Comment on line 6')
+    expect(fab).toHaveAttribute('aria-keyshortcuts', 'Control+Alt+C Meta+Alt+C')
+  })
+})
+
+describe('attachCommenting floating button positioning', () => {
+  it('reads and writes geometry only when the visible hovered line changes', () => {
+    const fake = fakeEditor()
+    attachCommenting(fake.editor, vi.fn())
+
+    fake.mouseMove(5)
+    fake.mouseMove(5)
+    fake.mouseMove(5)
+
+    const fab = fake.container.querySelector('.comment-fab') as HTMLButtonElement
+    expect(fake.getTopForLineNumber).toHaveBeenCalledTimes(1)
+    expect(fab.style.top).toBe('110px')
+
+    fake.mouseMove(6)
+
+    expect(fake.getTopForLineNumber).toHaveBeenCalledTimes(2)
+    expect(fab.style.top).toBe('132px')
+    expect(fab).toHaveAttribute('aria-label', 'Comment on line 6')
+  })
+
+  it('recomputes the same line after scrolling invalidates its position', () => {
+    const fake = fakeEditor()
+    attachCommenting(fake.editor, vi.fn())
+
+    fake.mouseMove(7)
+    const fab = fake.container.querySelector('.comment-fab') as HTMLButtonElement
+    expect(fake.getTopForLineNumber).toHaveBeenCalledTimes(1)
+
+    fake.setScrollTop(22)
+    fake.scroll()
+    expect(fab.style.display).toBe('none')
+
+    fake.mouseMove(7)
+    expect(fake.getTopForLineNumber).toHaveBeenCalledTimes(2)
+    expect(fab.style.top).toBe('132px')
+    expect(fab.style.display).toBe('flex')
   })
 })

@@ -260,6 +260,10 @@
 .comment-fab:hover {
   background: var(--accent);
 }
+.comment-fab:focus-visible {
+  outline: 2px solid var(--ap-accent-blue);
+  outline-offset: 2px;
+}
 .comment-fab svg {
   width: 14px;
   height: 14px;
@@ -283,7 +287,12 @@
   pointer-events: none;
   transition: opacity var(--dur-fast) ease;
 }
-.comment-fab:hover::before {
+@media (hover: hover) and (pointer: fine) {
+  .comment-fab:hover::before {
+    opacity: 1;
+  }
+}
+.comment-fab:focus-visible::before {
   opacity: 1;
 }
 
@@ -398,6 +407,21 @@
   margin: 10px 0;
   font-size: 12.5px;
   color: var(--text-mid);
+}
+.comment-row,
+.plan-comment-item {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+@starting-style {
+  .comment-row,
+  .plan-comment-item {
+    opacity: 0;
+    transform: translateY(2px);
+  }
 }
 .plan-comment-quote {
   margin: 0 0 6px;
@@ -941,6 +965,7 @@
   .comment-bar-send,
   .comment-bar-close,
   .comment-del,
+  .comment-fab,
   .foot-btn
 ) {
   transition:
@@ -962,6 +987,7 @@
     .comment-bar-send,
     .comment-bar-close,
     .comment-del,
+    .comment-fab,
     .foot-btn
   ):active:not(:disabled) {
   transform: scale(0.97);
@@ -998,6 +1024,7 @@
       .comment-bar-send,
       .comment-bar-close,
       .comment-del,
+      .comment-fab,
       .foot-btn
     ):active:not(:disabled) {
     transform: none;
@@ -1017,6 +1044,7 @@
     .comment-bar-send,
     .comment-bar-close,
     .comment-del,
+    .comment-fab,
     .foot-btn
   ):active:not(:disabled) {
   transform: none;
@@ -1060,6 +1088,32 @@
 }
 @starting-style {
   :root[data-motion='reduced'] .plan-resolution-notice {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comment-row,
+  .plan-comment-item {
+    transform: none;
+    transition: opacity var(--dur-fast) var(--ease-out);
+  }
+  @starting-style {
+    .comment-row,
+    .plan-comment-item {
+      opacity: 0;
+      transform: none;
+    }
+  }
+}
+
+:root[data-motion='reduced'] .comment-row,
+:root[data-motion='reduced'] .plan-comment-item {
+  transform: none;
+}
+@starting-style {
+  :root[data-motion='reduced'] .comment-row,
+  :root[data-motion='reduced'] .plan-comment-item {
     transform: none;
   }
 }

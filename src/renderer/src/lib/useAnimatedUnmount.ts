@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { prefersReducedMotion } from './prefersReducedMotion'
+import { usePrefersReducedMotion } from './prefersReducedMotion'
 
 // Matches --dur-modal in styles/tokens.css.
 const DEFAULT_DURATION_MS = 220
@@ -32,6 +32,7 @@ export function useAnimatedUnmount(
   const durationMs = opts?.durationMs ?? DEFAULT_DURATION_MS
   const immediate = opts?.immediate ?? false
   const exitCompletion = opts?.exitCompletion ?? 'timer'
+  const reducedMotion = usePrefersReducedMotion()
   const [s, setS] = useState<InternalState>(() => ({ open, mounted: open, phase: 'open' }))
 
   // Adjust state during render when `open` flips -- the React-endorsed
@@ -47,15 +48,15 @@ export function useAnimatedUnmount(
       // toggle -- see prefersReducedMotion.ts), skip the exit transition and
       // unmount now instead of waiting for a CSS transition that tokens.css
       // has already collapsed to ~0 under the in-app toggle.
-      const skipExit = immediate || prefersReducedMotion()
+      const skipExit = immediate || reducedMotion
       setS({ open, mounted: !skipExit, phase: 'closing' })
     }
+  } else if (reducedMotion && s.phase === 'closing' && s.mounted) {
+    setS({ ...s, mounted: false })
   }
 
   const completeExit = useCallback(() => {
-    setS((prev) =>
-      prev.phase === 'closing' && prev.mounted ? { ...prev, mounted: false } : prev
-    )
+    setS((prev) => (prev.phase === 'closing' && prev.mounted ? { ...prev, mounted: false } : prev))
   }, [])
 
   // Genuine side effect: timer mode defines an existing consumer's visible

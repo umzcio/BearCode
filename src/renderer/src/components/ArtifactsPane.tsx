@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useAppStore, type AuxSelection } from '../state/store'
 import { useAnimatedUnmount } from '../lib/useAnimatedUnmount'
-import { prefersReducedMotion } from '../lib/prefersReducedMotion'
+import { usePrefersReducedMotion } from '../lib/prefersReducedMotion'
 import { ArtifactsPaneContent } from './artifactsPane/ArtifactsPaneContent'
 import './ArtifactsPane.css'
 
@@ -66,6 +66,7 @@ export function ArtifactsPane(): React.JSX.Element | null {
   const target = useAppStore((s) => s.auxSelection)
   const auxPaneWidth = useAppStore((s) => s.auxPaneWidth)
   const open = Boolean(target)
+  const reducedMotion = usePrefersReducedMotion()
   const { mounted, state, completeExit } = useAnimatedUnmount(open, {
     exitCompletion: 'signal'
   })
@@ -108,21 +109,37 @@ export function ArtifactsPane(): React.JSX.Element | null {
   // offscreen until their final bounds are stable.
   const [motion, setMotion] = useState(() => ({
     open,
-    settled: open && prefersReducedMotion()
+    settled: open && reducedMotion
   }))
   if (motion.open !== open) {
-    setMotion({ open, settled: open && prefersReducedMotion() })
+    setMotion({ open, settled: open && reducedMotion })
+  } else if (open && reducedMotion && !motion.settled) {
+    setMotion({ open: true, settled: true })
   }
 
   const renderedTarget = nextPresentation.displayed
   if (!mounted || !renderedTarget) return null
-  const onTransitionEnd = (event: React.TransitionEvent<HTMLDivElement>): void => {
-    if (event.target !== event.currentTarget || event.propertyName !== 'transform') return
+  const completePanelMotion = (): void => {
     if (state === 'closing') {
       completeExit()
     } else {
       setMotion({ open: true, settled: true })
     }
+  }
+  const isPanelTransformEvent = (event: React.TransitionEvent<HTMLDivElement>): boolean => {
+    return event.target === event.currentTarget && event.propertyName === 'transform'
+  }
+  const onTransitionEnd = (event: React.TransitionEvent<HTMLDivElement>): void => {
+    if (!isPanelTransformEvent(event)) return
+    completePanelMotion()
+  }
+  const onTransitionCancel = (event: React.TransitionEvent<HTMLDivElement>): void => {
+    if (!reducedMotion || !isPanelTransformEvent(event)) return
+    completePanelMotion()
+  }
+  const transitionHandlers: React.HTMLAttributes<HTMLDivElement> = {
+    onTransitionEnd,
+    onTransitionCancel
   }
 
   return (
@@ -131,7 +148,7 @@ export function ArtifactsPane(): React.JSX.Element | null {
       data-state={state}
       data-panel-kind={renderedTarget.kind}
       style={{ flexBasis: auxPaneWidth }}
-      onTransitionEnd={onTransitionEnd}
+      {...transitionHandlers}
     >
       <ArtifactsPaneContent
         target={renderedTarget}

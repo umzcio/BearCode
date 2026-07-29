@@ -124,7 +124,7 @@ const X_SVG =
 // lives INSIDE a Monaco view zone, so it displaces the lines below rather than
 // floating over them -- the code stays readable around it (design 2026-07-06).
 export function attachCommenting(
-  ed: monaco.editor.ICodeEditor,
+  ed: monaco.editor.IStandaloneCodeEditor,
   onAdd: (line: number, text: string) => void
 ): monaco.IDisposable {
   const container = ed.getContainerDomNode()
@@ -294,24 +294,45 @@ export function attachCommenting(
       openComposer(t.position.lineNumber)
     }
   })
+  const commentAction = ed.addAction({
+    id: 'artifacts.addReviewComment',
+    label: 'Add review comment',
+    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyC],
+    run: () => {
+      const lineNumber = ed.getPosition()?.lineNumber
+      if (lineNumber !== undefined) openComposer(lineNumber)
+    }
+  })
 
   // Floating Comment button pinned to the right edge of the hovered line.
   const fab = document.createElement('button')
+  fab.type = 'button'
   fab.className = 'comment-fab'
+  fab.setAttribute('aria-keyshortcuts', 'Control+Alt+C Meta+Alt+C')
   fab.innerHTML = FAB_SVG
   fab.style.display = 'none'
   container.appendChild(fab)
   let fabLine = 0
+  let fabVisible = false
 
   const hideFab = (): void => {
+    if (!fabVisible) return
+    fabVisible = false
     fab.style.display = 'none'
   }
-  const move = ed.onMouseMove((e) => {
-    const pos = e.target.position
-    if (!pos) return
-    fabLine = pos.lineNumber
-    fab.style.top = `${ed.getTopForLineNumber(fabLine) - ed.getScrollTop()}px`
+  const showFabForLine = (lineNumber: number): void => {
+    if (fabVisible && fabLine === lineNumber) return
+
+    fabLine = lineNumber
+    fab.style.top = `${ed.getTopForLineNumber(lineNumber) - ed.getScrollTop()}px`
     fab.style.display = 'flex'
+    fabVisible = true
+    fab.setAttribute('aria-label', `Comment on line ${lineNumber}`)
+  }
+  const move = ed.onMouseMove((e) => {
+    const lineNumber = e.target.position?.lineNumber
+    if (lineNumber === undefined) return
+    showFabForLine(lineNumber)
   })
   const leave = (ev: MouseEvent): void => {
     if (!container.contains(ev.relatedTarget as Node)) hideFab()
@@ -336,6 +357,7 @@ export function attachCommenting(
       activeLine = null
       removeComposerStructure()
       mouse.dispose()
+      commentAction.dispose()
       move.dispose()
       scroll.dispose()
       container.removeEventListener('mouseleave', leave)

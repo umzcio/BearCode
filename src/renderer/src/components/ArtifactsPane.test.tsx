@@ -47,6 +47,39 @@ class ResizeObserverStub {
   disconnect = vi.fn()
 }
 
+function stubMutableMatchMedia(initialReduced = false): {
+  setReduced: (reduced: boolean) => void
+} {
+  let reduced = initialReduced
+  const listeners = new Set<(event: MediaQueryListEvent) => void>()
+  const query = '(prefers-reduced-motion: reduce)'
+  const media = {
+    get matches() {
+      return reduced
+    },
+    media: query,
+    addEventListener: vi.fn((type: string, listener: (event: MediaQueryListEvent) => void) => {
+      if (type === 'change') listeners.add(listener)
+    }),
+    removeEventListener: vi.fn((type: string, listener: (event: MediaQueryListEvent) => void) => {
+      if (type === 'change') listeners.delete(listener)
+    })
+  } as unknown as MediaQueryList
+
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => media)
+  )
+
+  return {
+    setReduced: (nextReduced) => {
+      reduced = nextReduced
+      const event = { matches: reduced, media: query } as MediaQueryListEvent
+      for (const listener of listeners) listener(event)
+    }
+  }
+}
+
 const returnedAttachment = {
   type: 'assistant_attachment',
   id: 'event_123',
@@ -249,6 +282,7 @@ afterEach(() => {
   if (bearcodeBefore) Object.defineProperty(window, 'bearcode', bearcodeBefore)
   else Reflect.deleteProperty(window, 'bearcode')
   vi.unstubAllGlobals()
+  document.documentElement.removeAttribute('data-motion')
   useAppStore.setState({
     showToast: realShowToast,
     loadArtifactComments: realLoadArtifactComments
@@ -596,6 +630,36 @@ describe('ArtifactsPane motion lifecycle', () => {
     fireEvent.transitionEnd(shell, { propertyName: 'transform' })
 
     await waitFor(() => expect(browserShow).toHaveBeenCalledTimes(1))
+  })
+
+  it('settles an opening native browser when OS reduced motion turns on', async () => {
+    const media = stubMutableMatchMedia()
+    useAppStore.setState({
+      auxSelection: { kind: 'browser', conversationId: 'conv_123' },
+      auxPaneOpenTick: 0,
+      auxPaneWidth: 560
+    })
+    render(<ArtifactsPane />)
+
+    expect(browserSetBounds).toHaveBeenCalled()
+    expect(browserShow).not.toHaveBeenCalled()
+
+    act(() => media.setReduced(true))
+
+    await waitFor(() => expect(browserShow).toHaveBeenCalledTimes(1))
+  })
+
+  it('ignores a panel transition cancellation while normal motion remains active', () => {
+    stubMutableMatchMedia()
+    seedAttachmentSelection()
+    const { container } = render(<ArtifactsPane />)
+    const shell = container.querySelector('.ap-panel') as HTMLElement
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+    fireEvent.transitionCancel(shell, { propertyName: 'transform' })
+
+    expect(container.querySelector('.ap-panel')).toBe(shell)
+    expect(shell).toHaveAttribute('data-state', 'closing')
   })
 
   it('shows browser immediately when selected in an already-settled shell and hides on close', async () => {

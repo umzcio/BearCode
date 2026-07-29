@@ -15,6 +15,39 @@ function stubMatchMedia(reduce: boolean): void {
   )
 }
 
+function stubMutableMatchMedia(initialReduced = false): {
+  setReduced: (reduced: boolean) => void
+} {
+  let reduced = initialReduced
+  const listeners = new Set<(event: MediaQueryListEvent) => void>()
+  const query = '(prefers-reduced-motion: reduce)'
+  const media = {
+    get matches() {
+      return reduced
+    },
+    media: query,
+    addEventListener: vi.fn((type: string, listener: (event: MediaQueryListEvent) => void) => {
+      if (type === 'change') listeners.add(listener)
+    }),
+    removeEventListener: vi.fn((type: string, listener: (event: MediaQueryListEvent) => void) => {
+      if (type === 'change') listeners.delete(listener)
+    })
+  } as unknown as MediaQueryList
+
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => media)
+  )
+
+  return {
+    setReduced: (nextReduced) => {
+      reduced = nextReduced
+      const event = { matches: reduced, media: query } as MediaQueryListEvent
+      for (const listener of listeners) listener(event)
+    }
+  }
+}
+
 beforeEach(() => {
   vi.useFakeTimers()
   stubMatchMedia(false)
@@ -186,6 +219,38 @@ describe('useAnimatedUnmount', () => {
     )
 
     rerender({ open: false })
+
+    expect(result.current).toMatchObject({ mounted: false, state: 'closing' })
+  })
+
+  it('unmounts an active signal-completed exit when OS reduced motion turns on', () => {
+    const media = stubMutableMatchMedia()
+    const { result, rerender } = renderHook(
+      ({ open }) => useAnimatedUnmount(open, { exitCompletion: 'signal' }),
+      { initialProps: { open: true } }
+    )
+
+    rerender({ open: false })
+    expect(result.current).toMatchObject({ mounted: true, state: 'closing' })
+
+    act(() => media.setReduced(true))
+
+    expect(result.current).toMatchObject({ mounted: false, state: 'closing' })
+  })
+
+  it('unmounts an active signal-completed exit when in-app reduced motion turns on', async () => {
+    const { result, rerender } = renderHook(
+      ({ open }) => useAnimatedUnmount(open, { exitCompletion: 'signal' }),
+      { initialProps: { open: true } }
+    )
+
+    rerender({ open: false })
+    expect(result.current).toMatchObject({ mounted: true, state: 'closing' })
+
+    await act(async () => {
+      document.documentElement.setAttribute('data-motion', 'reduced')
+      await Promise.resolve()
+    })
 
     expect(result.current).toMatchObject({ mounted: false, state: 'closing' })
   })
