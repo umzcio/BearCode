@@ -22,8 +22,8 @@ executor should read the entire linked plan before editing and update this table
 | [012](012-add-headed-browser-harness.md) | Add a headed Electron native-browser gate | P2 | L | 007 | DONE |
 | [013](013-centralize-file-classification.md) | Centralize file-kind and language classification | P2 | M | 001 | DONE |
 | [014](014-add-keyboard-review-navigation.md) | Add keyboard review navigation | P2 | M | 002, 003 | DONE |
-| [015](015-surface-browser-readiness.md) | Surface browser readiness and failure states | P2 | L | 007, 012 | IN PROGRESS |
-| [016](016-add-artifact-copy-export.md) | Add artifact copy and export actions | P2 | L | 005, 007 | TODO |
+| [015](015-surface-browser-readiness.md) | Surface browser readiness and failure states | P2 | L | 007, 012 | DONE |
+| [016](016-add-artifact-copy-export.md) | Add artifact copy and export actions | P2 | L | 005, 007 | IN PROGRESS |
 | [017](017-split-artifacts-pane-module.md) | Split the Artifacts Pane into bounded modules | P3 | L | 002–005, 008–009, 011, 013–016 | TODO |
 | [018](018-reconcile-artifacts-documentation.md) | Reconcile implementation records with shipped behavior | P3 | S | 001–017 | TODO |
 
