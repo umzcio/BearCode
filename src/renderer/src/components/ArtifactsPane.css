@@ -658,6 +658,15 @@
 }
 
 /* --- Body: Monaco (diff/code) or FilePreview --- */
+.ap-rail-content,
+.ap-mode-content,
+.ap-body-view-content {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
 .ap-body {
   flex: 1;
   min-height: 0;
@@ -682,7 +691,7 @@
   display: flex;
 }
 .ap-body .file-preview.html .file-preview-frame,
-.ap-body > .file-preview-frame.pdf,
+.ap-body .file-preview-frame.pdf,
 .ap-body .preview-entry > .file-preview-frame.pdf {
   flex: 1;
   height: auto;

@@ -249,6 +249,52 @@ describe('ArtifactsPane attachment mode', () => {
 })
 
 describe('ArtifactsPane motion lifecycle', () => {
+  it('leaves actual plan feedback textarea arrow keys outside rail navigation', () => {
+    const plan = {
+      type: 'artifact',
+      id: 'event-plan',
+      artifactId: 'plan-1',
+      artifactType: 'plan',
+      version: 1,
+      title: 'Implementation plan',
+      status: 'pending-review',
+      body: '# Implementation plan'
+    } satisfies Extract<Event, { type: 'artifact' }>
+    const walkthrough = {
+      type: 'artifact',
+      id: 'event-walkthrough',
+      artifactId: 'walkthrough-1',
+      artifactType: 'walkthrough',
+      version: 1,
+      title: 'Walkthrough',
+      status: 'pending-review',
+      body: '# Walkthrough'
+    } satisfies Extract<Event, { type: 'artifact' }>
+    const pendingCall = {
+      type: 'tool_call',
+      id: 'call-plan',
+      tool: 'submit_plan',
+      input: { artifactId: 'plan-1' },
+      approvalState: 'pending'
+    } satisfies Extract<Event, { type: 'tool_call' }>
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'conv_123' },
+      conversations: {
+        conv_123: conversation('conv_123', [plan, walkthrough, pendingCall])
+      },
+      auxSelection: { kind: 'artifact', artifactId: 'plan-1' },
+      auxPaneOpenTick: 0
+    })
+    render(<ArtifactsPane />)
+
+    const selectedRailTab = screen
+      .getAllByRole('tab', { name: /Implementation Plan v1|Walkthrough v1/ })
+      .find((tab) => tab.getAttribute('aria-selected') === 'true')!
+    fireEvent.keyDown(screen.getByPlaceholderText('Feedback for the agent…'), { key: 'ArrowRight' })
+
+    expect(selectedRailTab).toHaveAttribute('aria-selected', 'true')
+  })
+
   it('removes plan actions when submit_plan is re-emitted as approved', () => {
     const plan = {
       type: 'artifact',

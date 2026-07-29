@@ -577,6 +577,18 @@ describe('ArtifactsPane diff review', () => {
     expect(diffView).toHaveAttribute('aria-selected', 'true')
     expect(diffView).toHaveAttribute('tabindex', '0')
 
+    for (const tablist of [rail, reviewMode, fileTabs, fileView]) {
+      const tabs = within(tablist).getAllByRole('tab')
+      for (const tab of tabs) {
+        expect(tab).toHaveAttribute('id')
+        const panel = document.getElementById(tab.getAttribute('aria-controls') ?? '')
+        expect(panel).toHaveAttribute('role', 'tabpanel')
+      }
+      const selectedTab = tabs.find((tab) => tab.getAttribute('aria-selected') === 'true')!
+      const selectedPanel = document.getElementById(selectedTab.getAttribute('aria-controls')!)!
+      expect(selectedPanel).toHaveAttribute('aria-labelledby', selectedTab.id)
+    }
+
     fireEvent.keyDown(diffMode, { key: 'ArrowRight' })
     expect(overview).toHaveFocus()
     expect(overview).toHaveAttribute('aria-selected', 'true')
@@ -634,6 +646,44 @@ describe('ArtifactsPane diff review', () => {
       ).toHaveFocus()
     )
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' })
+  })
+
+  it('keeps rail focus when keyboard navigation switches between artifact and diff content', async () => {
+    seedDiffReview()
+    useAppStore.setState({ loadArtifactComments: vi.fn(() => Promise.resolve()) } as never)
+    render(<ArtifactsPane />)
+    await screen.findByTestId('monaco-diff-stub')
+    const artifact = {
+      type: 'artifact',
+      id: 'event-plan',
+      artifactId: 'plan-1',
+      artifactType: 'plan',
+      version: 1,
+      title: 'Implementation plan',
+      status: 'pending-review',
+      body: '# Plan'
+    } satisfies Extract<Event, { type: 'artifact' }>
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        conversations: {
+          ...state.conversations,
+          conv_123: mergeConvoEvent(state.conversations.conv_123, artifact)
+        }
+      }))
+    })
+
+    const rail = screen.getByRole('tablist', { name: 'Artifacts' })
+    const changes = within(rail).getByRole('tab', { name: /Changes/ })
+    fireEvent.keyDown(changes, { key: 'ArrowLeft' })
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /Implementation Plan v1/ })).toHaveFocus()
+    )
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: /Implementation Plan v1/ }), {
+      key: 'ArrowRight'
+    })
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Changes/ })).toHaveFocus())
   })
 
   it('uses shared Monaco languages while retaining rendered and source body defaults', async () => {
