@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow, type WebContentsView } from 'electron'
 import { REMOTE_DEBUG_PORT, setBrowserDebuggingEnabled, setMainWindow } from '../mainWindow'
+import { chromiumInstalled } from './install'
 import { BrowserManager } from './manager'
 
 // Run with `npm run test:electron:browser`. This is a headed gate: it requires
@@ -21,6 +22,7 @@ class HarnessFailure extends Error {
 }
 
 const timeoutMs = 45_000
+const cleanupWatchdogMs = 5_000
 let manager: BrowserManager | null = null
 let window: BrowserWindow | null = null
 let exiting = false
@@ -53,11 +55,18 @@ async function finish(code: number, failure?: HarnessFailure): Promise<void> {
   if (exiting) return
   exiting = true
   clearTimeout(timeout)
+  const cleanupWatchdog = setTimeout(() => {
+    if (failure) console.error(`FAIL ${failure.assertion}: ${failure.message}`)
+    else console.error(`FAIL cleanup: exceeded ${cleanupWatchdogMs}ms`)
+    app.exit(1)
+  }, cleanupWatchdogMs)
   try {
     await cleanup()
   } catch (error) {
     if (!failure) failure = new HarnessFailure('cleanup', error)
     code = 1
+  } finally {
+    clearTimeout(cleanupWatchdog)
   }
   if (failure) console.error(`FAIL ${failure.assertion}: ${failure.message}`)
   app.exit(code)
@@ -65,6 +74,11 @@ async function finish(code: number, failure?: HarnessFailure): Promise<void> {
 
 async function run(): Promise<void> {
   await app.whenReady()
+  if (!chromiumInstalled()) {
+    throw new Error(
+      'Playwright Chromium is not installed. Run `npx playwright install chromium` before this headed gate.'
+    )
+  }
 
   window = new BrowserWindow({
     width: 960,
@@ -120,7 +134,15 @@ async function run(): Promise<void> {
   await check('navigation/read', async () => {
     const expectedText = 'Deterministic headed browser content'
     const html = `<!doctype html><title>Harness page</title><main>${expectedText}</main>`
-    await manager!.navigate(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    const result = await manager!.navigate(
+      `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
+    )
+    const nativeUrl = view.webContents.getURL()
+    assert.equal(
+      result.url,
+      nativeUrl,
+      'BrowserManager navigation result did not match the native view'
+    )
     assert.match(await manager!.read('text'), new RegExp(expectedText))
   })
 
@@ -132,9 +154,12 @@ async function run(): Promise<void> {
 
   await check('teardown destroys view', async () => {
     const childContents = view.webContents
-    const destroyed = childContents.isDestroyed()
-      ? Promise.resolve()
-      : new Promise<void>((resolve) => childContents.once('destroyed', resolve))
+    assert.equal(
+      childContents.isDestroyed(),
+      false,
+      'child WebContents was destroyed before teardown'
+    )
+    const destroyed = new Promise<void>((resolve) => childContents.once('destroyed', resolve))
     await manager!.teardown()
     assert.equal(window!.contentView.children.includes(view), false)
     await destroyed
