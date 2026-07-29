@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { BearcodeApi, Event } from '@shared/types'
+import type { BearcodeApi, BrowserStatus, Event } from '@shared/types'
 import { mergeConvoEvent, useAppStore, type Convo } from '../state/store'
 import { projectAuxEvents } from '../lib/auxEvents'
 import { ArtifactsPane } from './ArtifactsPane'
@@ -21,10 +21,22 @@ const showToast = vi.fn()
 const browserSetBounds = vi.fn().mockResolvedValue(undefined)
 const browserShow = vi.fn().mockResolvedValue(undefined)
 const browserHide = vi.fn().mockResolvedValue(undefined)
+const browserStatus: BrowserStatus = {
+  phase: 'ready',
+  message: null,
+  installed: true,
+  connected: true,
+  conversationId: 'conv_123',
+  debuggingEnabled: true
+}
+const browserGetStatus = vi.fn<() => Promise<BrowserStatus>>()
+const browserUnsubscribe = vi.fn()
+const browserOnStatus = vi.fn<(listener: (status: BrowserStatus) => void) => () => void>()
 const readFile = vi.fn(() => new Promise<string>(() => {}))
 const realShowToast = useAppStore.getState().showToast
 const realLoadArtifactComments = useAppStore.getState().loadArtifactComments
 const loadArtifactComments = vi.fn(() => Promise.resolve())
+let bearcodeBefore: PropertyDescriptor | undefined
 
 class ResizeObserverStub {
   observe = vi.fn()
@@ -101,6 +113,7 @@ function seedAttachmentSelection(events: Event[] = [returnedAttachment]): void {
 }
 
 beforeEach(() => {
+  bearcodeBefore = Object.getOwnPropertyDescriptor(window, 'bearcode')
   attachmentPreviewRender.mockClear()
   preview.mockReset()
   preview.mockResolvedValue({ kind: 'text', text: 'Verified preview body' })
@@ -110,12 +123,22 @@ beforeEach(() => {
   browserSetBounds.mockClear()
   browserShow.mockClear()
   browserHide.mockClear()
+  browserGetStatus.mockReset()
+  browserGetStatus.mockResolvedValue(browserStatus)
+  browserUnsubscribe.mockClear()
+  browserOnStatus.mockReset()
+  browserOnStatus.mockImplementation((listener) => {
+    listener(browserStatus)
+    return browserUnsubscribe
+  })
   readFile.mockClear()
   loadArtifactComments.mockClear()
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
     attachments: { preview, save },
     browser: {
+      status: browserGetStatus,
+      onStatus: browserOnStatus,
       setBounds: browserSetBounds,
       show: browserShow,
       hide: browserHide
@@ -127,6 +150,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  if (bearcodeBefore) Object.defineProperty(window, 'bearcode', bearcodeBefore)
+  else Reflect.deleteProperty(window, 'bearcode')
   vi.unstubAllGlobals()
   useAppStore.setState({
     showToast: realShowToast,
@@ -460,7 +485,7 @@ describe('ArtifactsPane motion lifecycle', () => {
     expect(shell).toHaveAttribute('data-state', 'open')
   })
 
-  it('keeps native browser pixels hidden until an opening shell settles', () => {
+  it('keeps native browser pixels hidden until an opening shell settles', async () => {
     useAppStore.setState({
       auxSelection: { kind: 'browser', conversationId: 'conv_123' },
       auxPaneOpenTick: 0,
@@ -474,10 +499,10 @@ describe('ArtifactsPane motion lifecycle', () => {
 
     fireEvent.transitionEnd(shell, { propertyName: 'transform' })
 
-    expect(browserShow).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(browserShow).toHaveBeenCalledTimes(1))
   })
 
-  it('shows browser immediately when selected in an already-settled shell and hides on close', () => {
+  it('shows browser immediately when selected in an already-settled shell and hides on close', async () => {
     seedAttachmentSelection()
     const { container } = render(<ArtifactsPane />)
     const shell = container.querySelector('.ap-panel') as HTMLElement
@@ -491,7 +516,7 @@ describe('ArtifactsPane motion lifecycle', () => {
     })
 
     expect(container.querySelector('.ap-panel')).toBe(shell)
-    expect(browserShow).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(browserShow).toHaveBeenCalledTimes(1))
 
     fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
     expect(browserHide).toHaveBeenCalled()
