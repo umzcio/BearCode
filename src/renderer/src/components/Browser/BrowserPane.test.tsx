@@ -203,17 +203,18 @@ describe('BrowserPane native-view command failures', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Show unavailable')
   })
 
-  it('keeps feedback unpainted when the current hide cannot be confirmed', async () => {
+  it('surfaces a current authoritative hide rejection as an ErrorCard', async () => {
     const initial = deferred<BrowserStatus>()
     status.mockReturnValueOnce(initial.promise)
-    hide.mockRejectedValue(new Error('Hide unavailable'))
+    hide.mockRejectedValue(
+      new Error('Could not safely hide the browser view. The browser session was closed.')
+    )
 
     render(<BrowserPane visible={false} />)
-    await act(async () => Promise.resolve())
 
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
-    expect(screen.queryByText('Browser is not active')).not.toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not safely hide the browser view. The browser session was closed.'
+    )
   })
 
   it('does not let a stale show rejection overwrite a newer starting push', async () => {

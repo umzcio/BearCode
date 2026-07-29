@@ -333,6 +333,56 @@ describe('BrowserManager status lifecycle', () => {
     await expect(firstStart).rejects.toThrow('superseded')
   })
 
+  it('does not retry or close the replacement when a superseded connect rejects', async () => {
+    const manager = new BrowserManager()
+    const staleConnect = deferred<Awaited<ReturnType<typeof mocks.connectOverCDP>>>()
+    mocks.connectOverCDP
+      .mockReturnValueOnce(staleConnect.promise)
+      .mockResolvedValueOnce(mocks.browser)
+    const firstStart = manager.start('conversation-1')
+    await vi.waitFor(() => expect(mocks.connectOverCDP).toHaveBeenCalledOnce())
+
+    await manager.start('conversation-2')
+    staleConnect.reject(new Error('old connect rejected'))
+    await expect(firstStart).rejects.toThrow('superseded')
+
+    expect(mocks.connectOverCDP).toHaveBeenCalledTimes(2)
+    expect(mocks.browser.close).not.toHaveBeenCalled()
+    expect(manager.status()).toMatchObject({
+      phase: 'ready',
+      connected: true,
+      conversationId: 'conversation-2'
+    })
+  })
+
+  it('closes a superseded successful connect locally without assigning or leaking it', async () => {
+    const manager = new BrowserManager()
+    const staleConnect = deferred<Awaited<ReturnType<typeof mocks.connectOverCDP>>>()
+    const staleBrowser = {
+      contexts: vi.fn(() => []),
+      close: vi.fn(async () => {}),
+      on: vi.fn()
+    }
+    mocks.connectOverCDP
+      .mockReturnValueOnce(staleConnect.promise)
+      .mockResolvedValueOnce(mocks.browser)
+    const firstStart = manager.start('conversation-1')
+    await vi.waitFor(() => expect(mocks.connectOverCDP).toHaveBeenCalledOnce())
+
+    await manager.start('conversation-2')
+    staleConnect.resolve(staleBrowser)
+    await expect(firstStart).rejects.toThrow('superseded')
+
+    expect(staleBrowser.close).toHaveBeenCalledOnce()
+    expect(staleBrowser.contexts).not.toHaveBeenCalled()
+    expect(mocks.browser.close).not.toHaveBeenCalled()
+    expect(manager.status()).toMatchObject({
+      phase: 'ready',
+      connected: true,
+      conversationId: 'conversation-2'
+    })
+  })
+
   it('ignores crash and disconnect callbacks captured by an older session', async () => {
     const manager = new BrowserManager()
     await manager.start('conversation-1')
@@ -371,6 +421,35 @@ describe('BrowserManager status lifecycle', () => {
       })
     )
     expect(mocks.views[0].webContents.close).toHaveBeenCalledOnce()
+  })
+
+  it('detaches and closes the native view before an offscreen hide failure rejects', async () => {
+    const manager = new BrowserManager()
+    await manager.start('conversation-1')
+    const cleanup = deferred()
+    mocks.browser.close.mockReturnValueOnce(cleanup.promise)
+    mocks.views[0].setBounds.mockImplementationOnce(() => {
+      throw new Error('offscreen move failed')
+    })
+
+    const hide = manager.hide()
+    let rejected = false
+    void hide.catch(() => {
+      rejected = true
+    })
+
+    expect(mocks.contentView.removeChildView).toHaveBeenCalledWith(mocks.views[0])
+    expect(mocks.views[0].webContents.close).toHaveBeenCalledOnce()
+    expect(rejected).toBe(false)
+
+    cleanup.resolve()
+    await expect(hide).rejects.toThrow('safely hide')
+    expect(manager.status()).toMatchObject({
+      phase: 'error',
+      message: 'Could not safely hide the browser view. The browser session was closed.',
+      connected: false,
+      conversationId: null
+    })
   })
 })
 

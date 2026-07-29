@@ -133,9 +133,13 @@ export function BrowserPane({ visible }: { visible: boolean }): React.JSX.Elemen
             setPendingError(null)
           }
         },
-        () => {
-          // Keep feedback unpainted. A later prop/status change may safely issue
-          // a fresh hide; stale rejection never overwrites newer readiness.
+        (error: unknown) => {
+          if (!isCurrent()) return
+          // Main rejects only after it has detached/closed the native view, so
+          // this revision is safe to paint as an actionable command error.
+          setHideConfirmedRevision(revision)
+          setPendingError(null)
+          setCommandError(errorMessage(error))
         }
       )
       return

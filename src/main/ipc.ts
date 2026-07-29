@@ -1071,7 +1071,7 @@ export function registerIpc(): void {
   })
   ipcMain.handle('bearcode:browser:hide', (event) => {
     requireBrowserControlWindow(event)
-    browserManager.hide()
+    return browserManager.hide()
   })
 
   // Embedded Terminal (2026-07-25 design): TerminalManager is a main-side

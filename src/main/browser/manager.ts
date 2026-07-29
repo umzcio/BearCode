@@ -241,7 +241,7 @@ export class BrowserManager {
     const sanitized = sanitizedError(message)
     try {
       try {
-        this.hide()
+        this.moveNativeOffscreen()
       } catch {
         // The view may already be dead. Cleanup still owns detachment/close and
         // the actionable lifecycle error must still reach observers.
@@ -262,20 +262,26 @@ export class BrowserManager {
   private async connectAndResolve(token: string, generation: number): Promise<Page> {
     let lastErr: unknown
     for (let attempt = 0; attempt < 2; attempt++) {
+      this.assertCurrentGeneration(generation)
+      let localBrowser: Browser | null = null
       try {
-        // Discard a browser handle left over from a failed prior attempt.
-        try {
-          await this.browser?.close()
-        } catch {
-          /* already gone */
-        }
+        localBrowser = await chromium.connectOverCDP(`http://127.0.0.1:${REMOTE_DEBUG_PORT}`)
         this.assertCurrentGeneration(generation)
-        const browser = await chromium.connectOverCDP(`http://127.0.0.1:${REMOTE_DEBUG_PORT}`)
+        const page = await this.resolvePage(localBrowser, token, generation)
         this.assertCurrentGeneration(generation)
-        this.browser = browser
-        return await this.resolvePage(token, generation)
+        this.browser = localBrowser
+        return page
       } catch (err) {
-        if (err instanceof BrowserSessionSupersededError) throw err
+        const superseded =
+          generation !== this.sessionGeneration || err instanceof BrowserSessionSupersededError
+        if (localBrowser) {
+          try {
+            await localBrowser.close()
+          } catch {
+            /* failed/stale local handle is already gone */
+          }
+        }
+        if (superseded) throw new BrowserSessionSupersededError()
         lastErr = err
       }
     }
@@ -287,11 +293,11 @@ export class BrowserManager {
   // SECURITY-CRITICAL: select the CDP page carrying our unique session token —
   // never positionally. No match → throw; we refuse to drive any other target
   // (the app's own renderer, another instance, a squatter, a stale zombie).
-  private async resolvePage(token: string, generation: number): Promise<Page> {
+  private async resolvePage(browser: Browser, token: string, generation: number): Promise<Page> {
     this.assertCurrentGeneration(generation)
-    if (!this.browser) throw new Error('Browser not started.')
     const find = (): Page | null => {
-      const pages = this.browser!.contexts().flatMap((c) => c.pages())
+      this.assertCurrentGeneration(generation)
+      const pages = browser.contexts().flatMap((c) => c.pages())
       const idx = indexOfPageWithToken(
         pages.map((p) => p.url()),
         token
@@ -390,9 +396,27 @@ export class BrowserManager {
     this.visible = true
     this.view?.setBounds(this.bounds)
   }
-  hide(): void {
+  private moveNativeOffscreen(): void {
     this.visible = false
     this.view?.setBounds(hiddenBounds(this.bounds))
+  }
+  async hide(): Promise<void> {
+    try {
+      this.moveNativeOffscreen()
+    } catch {
+      const failure = new Error(
+        'Could not safely hide the browser view. The browser session was closed.'
+      )
+      const failureGeneration = ++this.sessionGeneration
+      try {
+        await this.teardownSession()
+      } finally {
+        if (failureGeneration === this.sessionGeneration) {
+          this.transition('error', failure.message)
+        }
+      }
+      throw failure
+    }
   }
   async clearSession(): Promise<void> {
     await this.view?.webContents.session.clearStorageData()
@@ -417,25 +441,26 @@ export class BrowserManager {
       this.page = null
       this.view = null
       this.convId = null
+      if (view) {
+        const win = getMainWindow()
+        try {
+          win?.contentView.removeChildView(view)
+        } catch {
+          /* detached */
+        }
+        // finding 3: removeChildView only DETACHES — the webContents lives until
+        // GC, leaking a renderer process and lingering as a CDP data-url target
+        // the next start() could ambiguously attach to. Destroy it explicitly.
+        try {
+          view.webContents.close()
+        } catch {
+          /* already destroyed */
+        }
+      }
       try {
         await browser?.close()
       } catch {
         /* already gone */
-      }
-      if (!view) return
-      const win = getMainWindow()
-      try {
-        win?.contentView.removeChildView(view)
-      } catch {
-        /* detached */
-      }
-      // finding 3: removeChildView only DETACHES — the webContents lives until
-      // GC, leaking a renderer process and lingering as a CDP data-url target
-      // the next start() could ambiguously attach to. Destroy it explicitly.
-      try {
-        view.webContents.close()
-      } catch {
-        /* already destroyed */
       }
     })()
     this.teardownPromise = cleanup

@@ -262,6 +262,36 @@ describe('browser-control IPC authorization', () => {
 
     expectNoManagerCalls()
   })
+
+  it('waits for authoritative hide completion before settling the IPC invoke', async () => {
+    let finishHide!: () => void
+    const hide = new Promise<void>((resolve) => {
+      finishHide = resolve
+    })
+    browserManager.hide.mockReturnValueOnce(hide)
+
+    const call = invoke('bearcode:browser:hide', eventFor())
+    let settled = false
+    void call.then(() => {
+      settled = true
+    })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const settledBeforeHide = settled
+
+    finishHide()
+    await call
+    expect(settledBeforeHide).toBe(false)
+  })
+
+  it('propagates authoritative hide rejection after manager safety cleanup', async () => {
+    const hide = Promise.reject(new Error('Could not safely hide browser'))
+    void hide.catch(() => {})
+    browserManager.hide.mockReturnValueOnce(hide)
+
+    await expect(invoke('bearcode:browser:hide', eventFor())).rejects.toThrow(
+      'Could not safely hide browser'
+    )
+  })
 })
 
 describe('browser status push routing', () => {
