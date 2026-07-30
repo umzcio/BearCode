@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type {
-  AttachmentRef,
-  CommandEntry,
-  CommandRef,
-  MentionRef,
-  PickedAttachmentWire
-} from '@shared/types'
+import type { AttachmentRef, CommandEntry, CommandRef, MentionRef } from '@shared/types'
 import { HERMES_MODEL_REF, URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 import { ModelPicker } from '../ModelPicker/ModelPicker'
 import { ModePicker } from '../ModePicker/ModePicker'
@@ -44,6 +38,8 @@ import {
   parseMentionQuery,
   type MentionRow
 } from './mentionQuery'
+import { useComposerDraft } from './useComposerDraft'
+import type { ComposerDraft } from '../../lib/composerDraft'
 import './Composer.css'
 
 interface ComposerProps {
@@ -52,12 +48,15 @@ interface ComposerProps {
     command: CommandRef | null,
     mentions: MentionRef[],
     attachments: AttachmentRef[]
-  ): void
+  ): Promise<boolean>
   running?: boolean
   onStop?(): void
   showEnvRow?: boolean
   autoFocus?: boolean
   conversationId?: string
+  initialDraft?: ComposerDraft
+  onAccepted?(remainingDraft: ComposerDraft): void
+  onInitialDraftConsumed?(): void
 }
 
 export function Composer({
@@ -66,7 +65,10 @@ export function Composer({
   onStop,
   showEnvRow = false,
   autoFocus = false,
-  conversationId
+  conversationId,
+  initialDraft,
+  onAccepted,
+  onInitialDraftConsumed
 }: ComposerProps): React.JSX.Element {
   const providers = useAppStore((s) => s.providers)
   const modelRef = useAppStore((s) => s.modelRef)
@@ -115,9 +117,17 @@ export function Composer({
   const showToast = useAppStore((s) => s.showToast)
   const composerEnvironment = useAppStore((s) => s.composerEnvironment)
   const setComposerEnvironment = useAppStore((s) => s.setComposerEnvironment)
-  const [value, setValue] = useState('')
-  const [command, setCommand] = useState<CommandRef | null>(null)
-  const [mentions, setMentions] = useState<MentionRef[]>([])
+  const {
+    draft,
+    snapshot,
+    setText: setValue,
+    setCommand,
+    setMentions,
+    setAttachments,
+    claimInitialDraftIfEmpty,
+    subtractSubmittedSnapshot
+  } = useComposerDraft(initialDraft)
+  const { text: value, command, mentions, attachments } = draft
   const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
   // After a category pick rewrites the composer text, park the caret just past
@@ -131,7 +141,11 @@ export function Composer({
   const [highlightedIndex, setHighlightedIndex] = useState(0)
   const [envOpen, setEnvOpen] = useState(false)
   const [addMenuOpen, setAddMenuOpen] = useState(false)
-  const [attachments, setAttachments] = useState<PickedAttachmentWire[]>([])
+  const [sending, setSending] = useState(false)
+  const sendingRef = useRef(false)
+  const contextMutationTailRef = useRef<Promise<void>>(Promise.resolve())
+  const initialClaimedRef = useRef(false)
+  const initialDraftSeededAtMountRef = useRef(initialDraft !== undefined)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const envTriggerRef = useRef<HTMLButtonElement>(null)
   const addMenuBtnRef = useRef<HTMLButtonElement>(null)
@@ -179,7 +193,12 @@ export function Composer({
   // directly is a second, independent entry point -- runHermes never forwards
   // commands (only plain text), so it must stay suppressed here too.
   const menuOpen =
-    command === null && !menuDismissed && !resumePickerOpen && value.length > 0 && value[0] === '/' && !isHermesConvo
+    command === null &&
+    !menuDismissed &&
+    !resumePickerOpen &&
+    value.length > 0 &&
+    value[0] === '/' &&
+    !isHermesConvo
   const filtered = menuOpen ? filterSlashCommands(value.slice(1), commands) : []
   const safeIndex = Math.min(highlightedIndex, Math.max(0, filtered.length - 1))
 
@@ -222,6 +241,15 @@ export function Composer({
         }[mentionParsed.category]
       : null
   const safeMentionIndex = Math.min(mentionIndex, Math.max(0, mentionRows.length - 1))
+
+  useEffect(() => {
+    if (!initialDraft || initialClaimedRef.current) return
+    if (!initialDraftSeededAtMountRef.current && !claimInitialDraftIfEmpty(initialDraft)) {
+      return
+    }
+    initialClaimedRef.current = true
+    onInitialDraftConsumed?.()
+  }, [draft, initialDraft, claimInitialDraftIfEmpty, onInitialDraftConsumed])
 
   useEffect(() => {
     const ta = taRef.current
@@ -321,11 +349,37 @@ export function Composer({
   // Mentions opens the @ menu; Actions opens the / menu; Browser drops the
   // /browser command chip. The @/ menus already key off the textarea contents (mentionQuery /
   // value[0] === '/'), so those two just seed + focus.
-  const onMedia = async (): Promise<void> => {
+  const trackContextMutation = (
+    mutate: () => Promise<void>,
+    fallbackError: string
+  ): Promise<void> => {
+    let operation: Promise<void>
+    try {
+      operation = mutate()
+    } catch (error) {
+      operation = Promise.reject(error)
+    }
+    const normalized = operation.catch((error: unknown) => {
+      showToast(error instanceof Error ? error.message : fallbackError)
+    })
+    const tracked = contextMutationTailRef.current.then(
+      () => normalized,
+      () => normalized
+    )
+    contextMutationTailRef.current = tracked
+    return tracked
+  }
+
+  const onMedia = (): Promise<void> => {
     setAddMenuOpen(false)
-    const { picked, errors } = await pickAttachments(attachments.length)
-    if (picked.length > 0) setAttachments((cur) => [...cur, ...picked])
-    if (errors.length > 0) showToast(errors[0])
+    // Start the external picker immediately, then append its normalized draft
+    // mutation to a stable settlement chain. Accepted submission waits until
+    // this chain stops changing, including operations added while it waits.
+    return trackContextMutation(async () => {
+      const { picked, errors } = await pickAttachments(snapshot().attachments.length)
+      if (picked.length > 0) setAttachments((cur) => [...cur, ...picked])
+      if (errors.length > 0) showToast(errors[0])
+    }, 'Could not pick attachments')
   }
   const onMentions = (): void => {
     setAddMenuOpen(false)
@@ -389,10 +443,13 @@ export function Composer({
   // closure over `value` can't clobber text typed while recording.
   const insertTranscript = (text: string): void => {
     const ta = taRef.current
-    const cur = ta ? ta.value : value
-    const caret = ta?.selectionStart ?? cur.length
-    const next = cur.slice(0, caret) + text + cur.slice(caret)
-    setValue(next)
+    if (!ta) {
+      setValue((current) => current + text)
+      return
+    }
+    const cur = ta.value
+    const caret = ta.selectionStart
+    setValue(cur.slice(0, caret) + text + cur.slice(caret))
     setMenuDismissed(false)
     setPendingCaret(caret + text.length)
   }
@@ -402,26 +459,44 @@ export function Composer({
   const toggleRecord = (): void => {
     if (voice.status === 'transcribing') return
     if (voice.status === 'recording') {
-      void voice.stop().then((text) => {
+      void trackContextMutation(async () => {
+        const text = await voice.stop()
         if (text && text.trim() !== '') insertTranscript(text)
-      })
+      }, 'Could not transcribe recording')
     } else {
       void voice.start()
     }
   }
 
   const submit = (): void => {
-    if (!hasContent || running || !modelReady) return
-    const text = value.trim()
-    const sentCommand = command
-    const sentMentions = mentions
-    const sentAttachments = attachments.map((a) => a.ref)
-    setValue('')
-    setCommand(null)
-    setMentions([])
-    setAttachments([])
-    setMentionQuery(null)
-    onSend(text, sentCommand, sentMentions, sentAttachments)
+    if (!hasContent || running || sendingRef.current || !modelReady) return
+    const sentDraft = snapshot()
+    const sentMentionQuery = mentionQuery
+    const text = sentDraft.text.trim()
+    const sentAttachments = sentDraft.attachments.map((attachment) => attachment.ref)
+    sendingRef.current = true
+    setSending(true)
+    void (async () => {
+      try {
+        const accepted = await onSend(text, sentDraft.command, sentDraft.mentions, sentAttachments)
+        if (!accepted) return
+        // Observe the tail again after each settlement. A Media operation may
+        // have been initiated while acceptance was already waiting.
+        while (true) {
+          const observed = contextMutationTailRef.current
+          await observed
+          if (contextMutationTailRef.current === observed) break
+        }
+        const remainingDraft = subtractSubmittedSnapshot(sentDraft)
+        setMentionQuery((current) => (current === sentMentionQuery ? null : current))
+        onAccepted?.(remainingDraft)
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Could not send message')
+      } finally {
+        sendingRef.current = false
+        setSending(false)
+      }
+    })()
   }
 
   return (
@@ -756,7 +831,12 @@ export function Composer({
             </Hint>
           ) : hasContent && modelReady ? (
             <Hint label="Send" side="top">
-              <button className="icon-btn send-btn" aria-label="Send" onClick={submit}>
+              <button
+                className="icon-btn send-btn"
+                aria-label="Send"
+                onClick={submit}
+                disabled={sending}
+              >
                 <IconArrowUp />
               </button>
             </Hint>

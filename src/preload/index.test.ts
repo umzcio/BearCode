@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import type { BrowserStatus } from '../shared/types'
 
 // index.ts calls contextBridge.exposeInMainWorld('bearcode', bearcode) at
 // module load time. Mock 'electron' so we can capture the real bearcode
@@ -130,6 +131,35 @@ describe('preload updater bridge', () => {
   })
 })
 
+describe('preload browser status bridge', () => {
+  it('subscribes to typed status pushes and removes the exact listener on cleanup', async () => {
+    const { ipcRenderer } = await import('electron')
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      browser: { onStatus: (cb: (status: BrowserStatus) => void) => () => void }
+    }
+    const status: BrowserStatus = {
+      phase: 'ready',
+      message: null,
+      installed: true,
+      connected: true,
+      conversationId: 'conversation-1',
+      debuggingEnabled: true
+    }
+    const cb = vi.fn()
+
+    const unsubscribe = bearcode.browser.onStatus(cb)
+    const listener = vi.mocked(ipcRenderer.on).mock.calls.at(-1)![1]
+    listener({} as Electron.IpcRendererEvent, status)
+
+    expect(ipcRenderer.on).toHaveBeenCalledWith('bearcode:browser:status', listener)
+    expect(cb).toHaveBeenCalledExactlyOnceWith(status)
+
+    unsubscribe()
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith('bearcode:browser:status', listener)
+  })
+})
+
 describe('preload native Hermes interaction bridge', () => {
   it('forwards mode-specific health checks and credential writes without exposing stored secrets', async () => {
     await import('./index')
@@ -255,5 +285,24 @@ describe('preload attachment save bridge', () => {
     await bearcode.attachments.save('conv_123', 'att_123')
 
     expect(invoke).toHaveBeenCalledWith('bearcode:attachments:save', 'conv_123', 'att_123')
+  })
+})
+
+describe('preload artifact Markdown export bridge', () => {
+  it('forwards only the opaque artifact ID to native Save As', async () => {
+    await import('./index')
+    const bearcode = exposed as unknown as {
+      artifacts: {
+        saveMarkdown: (artifactId: string) => Promise<'saved' | 'cancelled'>
+      }
+    }
+    invoke.mockClear()
+
+    await bearcode.artifacts.saveMarkdown('provider:opaque/artifact id')
+
+    expect(invoke).toHaveBeenCalledExactlyOnceWith(
+      'bearcode:artifacts:save-markdown',
+      'provider:opaque/artifact id'
+    )
   })
 })

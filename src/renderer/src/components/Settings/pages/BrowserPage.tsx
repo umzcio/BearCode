@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
+import type { BrowserStatus } from '@shared/types'
 import { useAppStore } from '../../../state/store'
 import { Toggle } from '../../Toggle'
 import { IconClose } from '../../icons'
@@ -92,13 +93,6 @@ function DomainListEditor({
       )}
     </div>
   )
-}
-
-type BrowserStatus = {
-  installed: boolean
-  connected: boolean
-  conversationId: string | null
-  debuggingEnabled: boolean
 }
 
 export function BrowserPage(): JSX.Element | null {

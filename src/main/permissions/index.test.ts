@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { PermissionRule } from '../../shared/types'
+import type { PermissionMode, PermissionRule } from '../../shared/types'
+import { makeConversationMeta } from '../test/fixtures'
 
 // The db module loads native better-sqlite3 (Electron ABI); it MUST be mocked
 // so this pure-resolver test runs under plain-Node vitest. Same posture as
@@ -32,17 +33,14 @@ import { getConversationMeta } from '../db'
 import { getEffectiveRules } from './store'
 import { evaluateCommandForConversation, evaluateEditForConversation } from './index'
 
-const asMode = (permissionMode: string): void => {
-  vi.mocked(getConversationMeta).mockReturnValue({
-    id: 'c1',
-    projectPath: '/tmp/p',
-    title: null,
-    modelRef: null,
-    createdAt: 0,
-    updatedAt: 0,
-    permissionMode: permissionMode as never,
-    activeRules: []
-  })
+const asMode = (permissionMode: PermissionMode): void => {
+  vi.mocked(getConversationMeta).mockReturnValue(
+    makeConversationMeta({
+      id: 'c1',
+      projectPath: '/tmp/p',
+      permissionMode
+    })
+  )
 }
 
 beforeEach(() => {

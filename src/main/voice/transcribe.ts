@@ -21,7 +21,8 @@ export async function transcribeOpenAI(audio: Buffer, mimeType: string): Promise
   }
 
   const form = new FormData()
-  form.append('file', new Blob([audio], { type: mimeType }), 'audio.webm')
+  const ownedBytes = new Uint8Array(audio)
+  form.append('file', new Blob([ownedBytes], { type: mimeType }), 'audio.webm')
   form.append('model', 'whisper-1')
 
   const res = await fetch(OPENAI_TRANSCRIPTIONS_URL, {

@@ -69,7 +69,7 @@ describe('listMemory', () => {
     const list = listMemory(proj)
     expect(list.project.entries.map((e) => e.text)).toEqual(['a', 'b'])
     expect(list.project.sizeBytes).toBeGreaterThan(0)
-    expect(list.global.entries).toEqual([])
+    expect(list.global.entries).toEqual(loadMemory(null, { trusted: true }).global)
   })
 })
 

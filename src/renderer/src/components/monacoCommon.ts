@@ -2,6 +2,9 @@
 // used by both the diff view and the plain code view.
 import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/editor/editor.worker.js?worker'
+import { createHeightAnimator } from '../lib/heightAnimator'
+import { readCssCubicBezier, readCssTimeMs } from '../lib/motionTokens'
+import { prefersReducedMotion } from '../lib/prefersReducedMotion'
 
 self.MonacoEnvironment = {
   getWorker: () => new editorWorker()
@@ -121,7 +124,7 @@ const X_SVG =
 // lives INSIDE a Monaco view zone, so it displaces the lines below rather than
 // floating over them -- the code stays readable around it (design 2026-07-06).
 export function attachCommenting(
-  ed: monaco.editor.ICodeEditor,
+  ed: monaco.editor.IStandaloneCodeEditor,
   onAdd: (line: number, text: string) => void
 ): monaco.IDisposable {
   const container = ed.getContainerDomNode()
@@ -131,6 +134,9 @@ export function attachCommenting(
   let overlay: HTMLElement | null = null
   let overlayLine = 0
   let activeLine: monaco.editor.IEditorDecorationsCollection | null = null
+  let generation = 0
+  let closing = false
+  let focusTimer: number | null = null
 
   // Pin the overlay to the top of the reserved gap (just under the commented
   // line), tracking scroll.
@@ -139,21 +145,61 @@ export function attachCommenting(
     overlay.style.top = `${ed.getBottomForLineNumber(overlayLine) - ed.getScrollTop()}px`
   }
 
-  const closeComposer = (): void => {
-    activeLine?.clear()
-    activeLine = null
+  const removeComposerStructure = (): void => {
+    const id = zoneId
+    closing = false
+    zoneId = null
+    zone = null
     overlay?.remove()
     overlay = null
-    if (zoneId) {
-      const id = zoneId
-      zoneId = null
-      zone = null
-      ed.changeViewZones((acc) => acc.removeZone(id))
+    if (id) ed.changeViewZones((acc) => acc.removeZone(id))
+  }
+
+  const animator = createHeightAnimator({
+    initialHeight: 0,
+    durationMs: readCssTimeMs('--dur-menu'),
+    curve: readCssCubicBezier('--ease-out'),
+    reduced: prefersReducedMotion,
+    apply: (height) => {
+      if (!zoneId || !zone) return
+      zone.heightInPx = height
+      ed.changeViewZones((acc) => acc.layoutZone(zoneId as string))
+      positionOverlay()
     }
+  })
+
+  const closeComposer = (): void => {
+    if (closing) return
+    activeLine?.clear()
+    activeLine = null
+    if (focusTimer !== null) {
+      window.clearTimeout(focusTimer)
+      focusTimer = null
+    }
+    if (!zoneId) return
+    closing = true
+    const closingGeneration = ++generation
+    animator.retarget(0, () => {
+      if (closingGeneration === generation) removeComposerStructure()
+    })
   }
 
   const openComposer = (line: number): void => {
-    closeComposer()
+    const openingHeight = animator.current()
+    animator.cancel()
+    generation += 1
+    closing = false
+    if (focusTimer !== null) {
+      window.clearTimeout(focusTimer)
+      focusTimer = null
+    }
+    activeLine?.clear()
+    activeLine = null
+    const previousZoneId = zoneId
+    overlay?.remove()
+    overlay = null
+    zoneId = null
+    zone = null
     overlayLine = line
     // Highlight the line being commented on while the composer is open.
     activeLine = ed.createDecorationsCollection([
@@ -192,8 +238,9 @@ export function attachCommenting(
 
     // Empty spacer view zone reserves the vertical room so code shifts down.
     const spacer = document.createElement('div')
-    zone = { afterLineNumber: line, heightInPx: 56, domNode: spacer }
+    zone = { afterLineNumber: line, heightInPx: openingHeight, domNode: spacer }
     ed.changeViewZones((acc) => {
+      if (previousZoneId) acc.removeZone(previousZoneId)
       zoneId = acc.addZone(zone as monaco.editor.IViewZone)
     })
 
@@ -202,8 +249,8 @@ export function attachCommenting(
       ta.style.height = 'auto'
       ta.style.height = `${ta.scrollHeight}px`
       if (zoneId && zone) {
-        zone.heightInPx = bar.offsetHeight + 12
-        ed.changeViewZones((acc) => acc.layoutZone(zoneId as string))
+        const nextHeight = bar.offsetHeight + 12
+        animator.retarget(nextHeight)
       }
       positionOverlay()
     }
@@ -230,9 +277,10 @@ export function attachCommenting(
     }
 
     positionOverlay()
-    window.setTimeout(() => {
+    relayout()
+    focusTimer = window.setTimeout(() => {
+      focusTimer = null
       ta.focus()
-      relayout()
     }, 30)
   }
 
@@ -246,24 +294,45 @@ export function attachCommenting(
       openComposer(t.position.lineNumber)
     }
   })
+  const commentAction = ed.addAction({
+    id: 'artifacts.addReviewComment',
+    label: 'Add review comment',
+    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyC],
+    run: () => {
+      const lineNumber = ed.getPosition()?.lineNumber
+      if (lineNumber !== undefined) openComposer(lineNumber)
+    }
+  })
 
   // Floating Comment button pinned to the right edge of the hovered line.
   const fab = document.createElement('button')
+  fab.type = 'button'
   fab.className = 'comment-fab'
+  fab.setAttribute('aria-keyshortcuts', 'Control+Alt+C Meta+Alt+C')
   fab.innerHTML = FAB_SVG
   fab.style.display = 'none'
   container.appendChild(fab)
   let fabLine = 0
+  let fabVisible = false
 
   const hideFab = (): void => {
+    if (!fabVisible) return
+    fabVisible = false
     fab.style.display = 'none'
   }
-  const move = ed.onMouseMove((e) => {
-    const pos = e.target.position
-    if (!pos) return
-    fabLine = pos.lineNumber
-    fab.style.top = `${ed.getTopForLineNumber(fabLine) - ed.getScrollTop()}px`
+  const showFabForLine = (lineNumber: number): void => {
+    if (fabVisible && fabLine === lineNumber) return
+
+    fabLine = lineNumber
+    fab.style.top = `${ed.getTopForLineNumber(lineNumber) - ed.getScrollTop()}px`
     fab.style.display = 'flex'
+    fabVisible = true
+    fab.setAttribute('aria-label', `Comment on line ${lineNumber}`)
+  }
+  const move = ed.onMouseMove((e) => {
+    const lineNumber = e.target.position?.lineNumber
+    if (lineNumber === undefined) return
+    showFabForLine(lineNumber)
   })
   const leave = (ev: MouseEvent): void => {
     if (!container.contains(ev.relatedTarget as Node)) hideFab()
@@ -280,8 +349,15 @@ export function attachCommenting(
 
   return {
     dispose: () => {
-      closeComposer()
+      generation += 1
+      if (focusTimer !== null) window.clearTimeout(focusTimer)
+      focusTimer = null
+      animator.cancel()
+      activeLine?.clear()
+      activeLine = null
+      removeComposerStructure()
       mouse.dispose()
+      commentAction.dispose()
       move.dispose()
       scroll.dispose()
       container.removeEventListener('mouseleave', leave)

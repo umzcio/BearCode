@@ -16,8 +16,10 @@ describe('FilePreview', () => {
   it('loads and renders the requested file preview', async () => {
     const previewFile = vi.fn(() => Promise.resolve({ kind: 'text', text: 'HELLO' }))
     vi.stubGlobal('window', { bearcode: { diffs: { previewFile } } })
-    const { findByText } = render(<FilePreview fileId="f1" />)
+    const { container, findByText } = render(<FilePreview fileId="f1" />)
+    expect(container.querySelector('.preview-entry')).toBeNull()
     expect(await findByText('HELLO')).toBeTruthy()
+    expect(container.querySelectorAll('.preview-entry')).toHaveLength(1)
     expect(previewFile).toHaveBeenCalledWith('f1')
   })
 
@@ -40,7 +42,7 @@ describe('FilePreview', () => {
       )
     vi.stubGlobal('window', { bearcode: { diffs: { previewFile } } })
 
-    const { rerender } = render(<FilePreview fileId="first" />)
+    const { container, rerender } = render(<FilePreview fileId="first" />)
     rerender(<FilePreview fileId="second" />)
 
     await act(async () => {
@@ -49,10 +51,12 @@ describe('FilePreview', () => {
 
     expect(screen.getByText('Loading preview…')).toBeInTheDocument()
     expect(screen.queryByText('STALE')).not.toBeInTheDocument()
+    expect(container.querySelector('.preview-entry')).toBeNull()
 
     await act(async () => {
       resolveSecond?.({ kind: 'text', text: 'CURRENT' })
     })
     expect(screen.getByText('CURRENT')).toBeInTheDocument()
+    expect(container.querySelectorAll('.preview-entry')).toHaveLength(1)
   })
 })

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { PreviewPayload } from '@shared/types'
 import { PreviewContent } from '../FilePreview/PreviewContent'
+import { PreviewEntry } from '../FilePreview/PreviewEntry'
 import './AttachmentPreview.css'
 
 interface LoadedPreview {
@@ -47,5 +48,9 @@ export function AttachmentPreview({
   if (!payload) {
     return <div className="attachment-preview-loading">Loading preview…</div>
   }
-  return <PreviewContent payload={payload} />
+  return (
+    <PreviewEntry>
+      <PreviewContent payload={payload} />
+    </PreviewEntry>
+  )
 }

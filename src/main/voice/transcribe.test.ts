@@ -7,8 +7,13 @@ vi.mock('../keys', () => ({ getKey: vi.fn() }))
 // transcribeLocal resolves synchronously to a canned transcript. vi.hoisted so
 // the mocks exist when the hoisted vi.mock factory runs.
 const { mockTranscriber, mockPipeline } = vi.hoisted(() => {
-  const transcriber = vi.fn(async () => ({ text: '  local transcript  ' }))
-  return { mockTranscriber: transcriber, mockPipeline: vi.fn(async () => transcriber) }
+  const transcriber = vi.fn<(audio: Float32Array) => Promise<{ text: string }>>(async () => ({
+    text: '  local transcript  '
+  }))
+  return {
+    mockTranscriber: transcriber,
+    mockPipeline: vi.fn<() => Promise<typeof transcriber>>(async () => transcriber)
+  }
 })
 vi.mock('@xenova/transformers', () => ({
   pipeline: mockPipeline,
@@ -35,7 +40,7 @@ describe('transcribeOpenAI', () => {
 
   it('throws a friendly error before fetch when the key is missing', async () => {
     mockGetKey.mockReturnValue(undefined)
-    const fetchSpy = vi.fn()
+    const fetchSpy = vi.fn<(url: string, init: RequestInit) => Promise<Response>>()
     vi.stubGlobal('fetch', fetchSpy)
 
     await expect(transcribeOpenAI(Buffer.from('x'), 'audio/webm')).rejects.toThrow(
@@ -46,18 +51,16 @@ describe('transcribeOpenAI', () => {
 
   it('builds the request with model + auth header and parses { text }', async () => {
     mockGetKey.mockReturnValue('sk-test-123')
-    const fetchSpy = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ text: 'hello world' })
-    }))
-    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const fetchSpy = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(
+      async () => new Response(JSON.stringify({ text: 'hello world' }), { status: 200 })
+    )
+    vi.stubGlobal('fetch', fetchSpy)
 
     const result = await transcribeOpenAI(Buffer.from('audio-bytes'), 'audio/webm')
     expect(result).toEqual({ text: 'hello world' })
 
     expect(fetchSpy).toHaveBeenCalledTimes(1)
-    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
+    const [url, init] = fetchSpy.mock.calls[0]
     expect(url).toBe('https://api.openai.com/v1/audio/transcriptions')
     expect(init.method).toBe('POST')
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer sk-test-123')
@@ -69,12 +72,10 @@ describe('transcribeOpenAI', () => {
 
   it('maps a non-OK (401) response to a friendly error including the status', async () => {
     mockGetKey.mockReturnValue('sk-test-123')
-    const fetchSpy = vi.fn(async () => ({
-      ok: false,
-      status: 401,
-      json: async () => ({})
-    }))
-    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const fetchSpy = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(
+      async () => new Response(null, { status: 401 })
+    )
+    vi.stubGlobal('fetch', fetchSpy)
 
     await expect(transcribeOpenAI(Buffer.from('x'), 'audio/webm')).rejects.toThrow(
       'OpenAI transcription failed (401)'
@@ -94,7 +95,7 @@ describe('transcribe dispatch (routes on meta.kind)', () => {
   })
 
   it("routes a 'pcm' payload to the local (mocked) Whisper pipeline, not fetch", async () => {
-    const fetchSpy = vi.fn()
+    const fetchSpy = vi.fn<(url: string, init: RequestInit) => Promise<Response>>()
     vi.stubGlobal('fetch', fetchSpy)
 
     const result = await transcribe(pcmBuffer(), { kind: 'pcm', sampleRate: 16000 })
@@ -108,12 +109,10 @@ describe('transcribe dispatch (routes on meta.kind)', () => {
 
   it("routes a 'webm' payload to OpenAI (mocked fetch), not the local pipeline", async () => {
     mockGetKey.mockReturnValue('sk-test-123')
-    const fetchSpy = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ text: 'routed' })
-    }))
-    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const fetchSpy = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(
+      async () => new Response(JSON.stringify({ text: 'routed' }), { status: 200 })
+    )
+    vi.stubGlobal('fetch', fetchSpy)
 
     const result = await transcribe(new ArrayBuffer(4), { kind: 'webm', mimeType: 'audio/webm' })
 

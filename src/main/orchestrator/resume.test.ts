@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ConversationMeta } from '../../shared/types'
 import type { RunSink } from '../sink'
+import { makeConversationMeta } from '../test/fixtures'
 
 // resumeInterruptedRuns' detection must not depend on any event's message
 // string (see the fix for the reviewer finding on Task 7): it consumes the
@@ -32,7 +33,8 @@ vi.mock('../db', () => ({
   getLastResolvedModelRef: vi.fn(() => null),
   getUrsaPipeline: (...args: [string]) => getUrsaPipeline(...args),
   advanceUrsaPipeline: vi.fn(),
-  setUrsaPipelineStatus: (...args: unknown[]) => setUrsaPipelineStatus(...(args as [string, string])),
+  setUrsaPipelineStatus: (...args: unknown[]) =>
+    setUrsaPipelineStatus(...(args as [string, string])),
   setModelRef: vi.fn()
 }))
 
@@ -57,16 +59,7 @@ vi.mock('./checkpointer', () => ({
 import { resumeInterruptedRuns, selectDanglingConversations } from './index'
 
 function meta(id: string, modelRef: string | null = 'anthropic/claude-sonnet-5'): ConversationMeta {
-  return {
-    id,
-    projectPath: null,
-    title: null,
-    modelRef,
-    createdAt: 0,
-    updatedAt: 0,
-    permissionMode: 'accept-edits',
-    activeRules: []
-  }
+  return makeConversationMeta({ id, modelRef })
 }
 
 function makeSink(): RunSink & {

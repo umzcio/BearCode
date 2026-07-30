@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { PermissionRule } from '../../shared/types'
+import { makeAppSettings } from '../test/fixtures'
 
 vi.mock('../db', () => ({
   insertRule: vi.fn(),
@@ -7,13 +8,7 @@ vi.mock('../db', () => ({
   deleteRule: vi.fn()
 }))
 vi.mock('../settings', () => ({
-  getSettings: vi.fn(() => ({
-    ollamaBaseUrl: '',
-    defaultModelRef: null,
-    defaultPermissionMode: 'accept-edits',
-    disabledBuiltins: [] as string[],
-    artifactReviewPolicy: 'request-review' as const
-  })),
+  getSettings: vi.fn(),
   setSettings: vi.fn()
 }))
 
@@ -49,6 +44,7 @@ const p = (match: string, projectPath: string): PermissionRule => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(getSettings).mockReturnValue(makeAppSettings())
 })
 
 describe('mergeRules', () => {
@@ -131,25 +127,17 @@ describe('toggleDisabledBuiltin', () => {
 
 describe('settings-backed manager surface', () => {
   it('getEffectiveRules threads the live disabledBuiltins into the merge', () => {
-    vi.mocked(getSettings).mockReturnValue({
-      ollamaBaseUrl: '',
-      defaultModelRef: null,
-      defaultPermissionMode: 'accept-edits',
-      disabledBuiltins: ['builtin:curl-pipe-sh'],
-      artifactReviewPolicy: 'request-review'
-    })
+    vi.mocked(getSettings).mockReturnValue(
+      makeAppSettings({ disabledBuiltins: ['builtin:curl-pipe-sh'] })
+    )
     const out = getEffectiveRules(null)
     expect(out.some((r) => r.id === 'builtin:curl-pipe-sh')).toBe(false)
     expect(out.filter((r) => r.source === 'builtin')).toHaveLength(BUILTIN_RULES.length - 1)
   })
   it('listRulesInfo pairs every builtin with its disabled flag and returns user rules verbatim', () => {
-    vi.mocked(getSettings).mockReturnValue({
-      ollamaBaseUrl: '',
-      defaultModelRef: null,
-      defaultPermissionMode: 'accept-edits',
-      disabledBuiltins: ['builtin:fork-bomb'],
-      artifactReviewPolicy: 'request-review'
-    })
+    vi.mocked(getSettings).mockReturnValue(
+      makeAppSettings({ disabledBuiltins: ['builtin:fork-bomb'] })
+    )
     vi.mocked(listRules).mockReturnValue([g('git *')])
     const info = listRulesInfo()
     expect(info.userRules).toEqual([g('git *')])
@@ -197,13 +185,7 @@ describe('settings-backed manager surface', () => {
   it('setBuiltinDisabled persists the toggled list for a known id', () => {
     // Explicit stub: vi.clearAllMocks clears calls but keeps a prior test's
     // mockReturnValue, so pin the starting settings here.
-    vi.mocked(getSettings).mockReturnValue({
-      ollamaBaseUrl: '',
-      defaultModelRef: null,
-      defaultPermissionMode: 'accept-edits',
-      disabledBuiltins: [],
-      artifactReviewPolicy: 'request-review'
-    })
+    vi.mocked(getSettings).mockReturnValue(makeAppSettings())
     setBuiltinDisabled('builtin:curl-pipe-sh', true)
     expect(setSettings).toHaveBeenCalledWith({ disabledBuiltins: ['builtin:curl-pipe-sh'] })
   })
@@ -215,13 +197,7 @@ describe('settings-backed manager surface', () => {
     expect(setSettings).not.toHaveBeenCalled()
   })
   it('disabling an edit builtin leaves command evaluation unaffected, and vice versa (no cross-wire)', () => {
-    vi.mocked(getSettings).mockReturnValue({
-      ollamaBaseUrl: '',
-      defaultModelRef: null,
-      defaultPermissionMode: 'accept-edits',
-      disabledBuiltins: [],
-      artifactReviewPolicy: 'request-review'
-    })
+    vi.mocked(getSettings).mockReturnValue(makeAppSettings())
     setBuiltinDisabled('builtin:edit-env-root', true)
     const [afterEditDisabled] = vi.mocked(setSettings).mock.calls[0]
     expect(afterEditDisabled.disabledBuiltins).toEqual(['builtin:edit-env-root'])
@@ -234,13 +210,7 @@ describe('settings-backed manager surface', () => {
     ).toBe('block')
 
     vi.mocked(setSettings).mockClear()
-    vi.mocked(getSettings).mockReturnValue({
-      ollamaBaseUrl: '',
-      defaultModelRef: null,
-      defaultPermissionMode: 'accept-edits',
-      disabledBuiltins: [],
-      artifactReviewPolicy: 'request-review'
-    })
+    vi.mocked(getSettings).mockReturnValue(makeAppSettings())
     setBuiltinDisabled('builtin:curl-pipe-sh', true)
     const [afterCommandDisabled] = vi.mocked(setSettings).mock.calls[0]
     expect(afterCommandDisabled.disabledBuiltins).toEqual(['builtin:curl-pipe-sh'])

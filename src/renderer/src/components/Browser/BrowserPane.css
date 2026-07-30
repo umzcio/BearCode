@@ -6,3 +6,25 @@
   height: 100%;
   background: var(--wash);
 }
+
+.browser-pane-state {
+  padding: 14px 16px;
+  opacity: 1;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+@starting-style {
+  .browser-pane-state {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browser-pane-state {
+    transition: none;
+  }
+}
+
+:root[data-motion='reduced'] .browser-pane-state {
+  transition: none;
+}

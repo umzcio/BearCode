@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import { act, StrictMode } from 'react'
+import { flushSync } from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { PreviewContent } from './PreviewContent'
@@ -11,9 +14,24 @@ vi.mock('../MonacoCode', () => ({
   )
 }))
 
+let createdUrls: string[]
+let revokedUrls: string[]
+let lifecycle: Array<{ action: 'create' | 'revoke'; url: string }>
+
 beforeEach(() => {
-  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:preview')
-  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  createdUrls = []
+  revokedUrls = []
+  lifecycle = []
+  vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
+    const url = `blob:preview-${createdUrls.length + 1}`
+    createdUrls.push(url)
+    lifecycle.push({ action: 'create', url })
+    return url
+  })
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation((url) => {
+    revokedUrls.push(url)
+    lifecycle.push({ action: 'revoke', url })
+  })
 })
 
 afterEach(() => {
@@ -46,11 +64,86 @@ describe('PreviewContent', () => {
     expect(code).toHaveAttribute('data-language', 'typescript')
   })
 
+  it('omits the iframe source while new HTML awaits its committed resource', async () => {
+    const host = document.createElement('div')
+    const root = createRoot(host)
+
+    flushSync(() => {
+      root.render(<PreviewContent payload={{ kind: 'html', html: '<h1>First</h1>' }} />)
+    })
+    await act(async () => {})
+    expect(host.querySelector('iframe')).toHaveAttribute('src', 'blob:preview-1')
+
+    flushSync(() => {
+      root.render(<PreviewContent payload={{ kind: 'html', html: '<h1>Second</h1>' }} />)
+    })
+    expect(host.querySelector('iframe')).not.toHaveAttribute('src')
+
+    flushSync(() => root.unmount())
+  })
+
+  it('pairs every committed HTML blob URL with one revocation in StrictMode', () => {
+    const { unmount } = render(
+      <StrictMode>
+        <PreviewContent payload={{ kind: 'html', html: '<h1>Hello</h1>' }} />
+      </StrictMode>
+    )
+
+    unmount()
+
+    expect(createdUrls.length).toBeGreaterThan(0)
+    expect(revokedUrls).toEqual(expect.arrayContaining(createdUrls))
+    for (const url of createdUrls) {
+      expect(revokedUrls.filter((revoked) => revoked === url)).toHaveLength(1)
+    }
+
+    const created = new Set<string>()
+    for (const { action, url } of lifecycle) {
+      if (action === 'create') created.add(url)
+      else expect(created).toContain(url)
+    }
+  })
+
+  it('replaces an HTML preview URL after its HTML changes in StrictMode', () => {
+    const { rerender } = render(
+      <StrictMode>
+        <PreviewContent payload={{ kind: 'html', html: '<h1>First</h1>' }} />
+      </StrictMode>
+    )
+
+    const priorUrl = screen.getByTitle('preview').getAttribute('src')
+
+    rerender(
+      <StrictMode>
+        <PreviewContent payload={{ kind: 'html', html: '<h1>Second</h1>' }} />
+      </StrictMode>
+    )
+
+    const currentUrl = screen.getByTitle('preview').getAttribute('src')
+    expect(currentUrl).not.toBe(priorUrl)
+    expect(createdUrls).toContain(currentUrl)
+    expect(revokedUrls).toContain(priorUrl)
+  })
+
+  it('does not allocate an HTML blob URL for non-HTML payloads in StrictMode', () => {
+    render(
+      <StrictMode>
+        <PreviewContent payload={{ kind: 'text', text: 'Plain text contents' }} />
+      </StrictMode>
+    )
+
+    expect(createdUrls).toHaveLength(0)
+  })
+
   it('renders HTML strings in an opaque sandbox that allows scripts', () => {
-    render(<PreviewContent payload={{ kind: 'html', html: '<h1>Hello</h1>' }} />)
+    render(
+      <StrictMode>
+        <PreviewContent payload={{ kind: 'html', html: '<h1>Hello</h1>' }} />
+      </StrictMode>
+    )
 
     const frame = screen.getByTitle('preview')
-    expect(frame).toHaveAttribute('src', 'blob:preview')
+    expect(frame).toHaveAttribute('src', expect.stringMatching(/^blob:preview-/))
     expect(frame).toHaveAttribute('sandbox', 'allow-scripts')
     expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin')
   })

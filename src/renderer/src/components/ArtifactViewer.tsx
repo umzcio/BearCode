@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Event } from '@shared/types'
 import { useAppStore } from '../state/store'
 import { Markdown } from '../lib/markdown'
+import { describeError } from '../lib/errors'
 import { ARTIFACT_STATUS_LABELS } from './events/ArtifactCard'
 import './ArtifactsPane.css'
 import './events/events.css'
@@ -56,10 +57,23 @@ export function ArtifactViewer({
   const artifactPaneFocusFeedback = useAppStore((s) => s.artifactPaneFocusFeedback)
   const loadArtifactComments = useAppStore((s) => s.loadArtifactComments)
   const addArtifactComment = useAppStore((s) => s.addArtifactComment)
+  const showToast = useAppStore((s) => s.showToast)
   const resolvePlanReview = useAppStore((s) => s.resolvePlanReview)
   const [draftQuote, setDraftQuote] = useState<string | null>(null)
   const [draftBody, setDraftBody] = useState('')
   const [feedbackText, setFeedbackText] = useState('')
+  const [inserting, setInserting] = useState(false)
+  const [resolving, setResolving] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [resolutionNotice, setResolutionNotice] = useState<'Approved' | 'Feedback sent' | null>(
+    null
+  )
+  const resolutionRun = useRef(0)
+  const insertionRun = useRef(0)
+  const insertionSubmitting = useRef(false)
+  const exportRun = useRef(0)
+  const exportSubmitting = useRef(false)
+  const selectedArtifactIdRef = useRef(selected.artifactId)
   const feedbackRef = useRef<HTMLTextAreaElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
 
@@ -82,13 +96,41 @@ export function ArtifactViewer({
     setDraftQuote(null)
     setDraftBody('')
     setFeedbackText('')
+    setInserting(false)
+    setResolving(false)
+    setExporting(false)
+    setResolutionNotice(null)
   }
+
+  useLayoutEffect(() => {
+    selectedArtifactIdRef.current = selected.artifactId
+    insertionRun.current += 1
+    insertionSubmitting.current = false
+    resolutionRun.current += 1
+    exportRun.current += 1
+    exportSubmitting.current = false
+  }, [selected.artifactId])
 
   // Reload comments whenever the selected artifact changes.
   useEffect(() => {
     void loadArtifactComments(selected.artifactId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected.artifactId])
+
+  useEffect(() => {
+    if (!resolutionNotice) return
+    const timer = window.setTimeout(() => setResolutionNotice(null), 1200)
+    return () => window.clearTimeout(timer)
+  }, [resolutionNotice])
+
+  useEffect(
+    () => () => {
+      insertionRun.current += 1
+      resolutionRun.current += 1
+      exportRun.current += 1
+    },
+    []
+  )
 
   // Focus + scroll the feedback textarea when the pending card's "Send
   // feedback" action ticks this counter. Consumes the tick only once the
@@ -107,7 +149,7 @@ export function ArtifactViewer({
   const unsentCount = comments.filter((c) => c.sentAt === null).length
 
   const onBodyMouseUp = (): void => {
-    if (!pendingCall) return
+    if (!pendingCall || inserting) return
     const sel = window.getSelection()
     if (!sel || sel.isCollapsed || !bodyRef.current) return
     if (!bodyRef.current.contains(sel.anchorNode)) return
@@ -124,11 +166,30 @@ export function ArtifactViewer({
   // the re-emitted tool_call event clears pendingCall and the composer both
   // hides and refuses to submit -- a resolved plan's comment set is final, so
   // no orphaned never-deliverable draft can be added after the fact.
-  const submitDraft = (): void => {
-    if (!pendingCall || draftBody.trim() === '') return
-    void addArtifactComment(selected.artifactId, draftQuote, draftBody.trim())
-    setDraftQuote(null)
-    setDraftBody('')
+  const submitDraft = async (): Promise<void> => {
+    if (!pendingCall || insertionSubmitting.current || draftBody.trim() === '') return
+    const artifactId = selected.artifactId
+    const quote = draftQuote
+    const body = draftBody.trim()
+    const run = insertionRun.current + 1
+    insertionRun.current = run
+    insertionSubmitting.current = true
+    setInserting(true)
+    try {
+      await addArtifactComment(artifactId, quote, body)
+      if (insertionRun.current !== run || selectedArtifactIdRef.current !== artifactId) return
+      setDraftQuote(null)
+      setDraftBody('')
+    } catch (error) {
+      if (insertionRun.current === run && selectedArtifactIdRef.current === artifactId) {
+        showToast(describeError(error))
+      }
+    } finally {
+      if (insertionRun.current === run && selectedArtifactIdRef.current === artifactId) {
+        insertionSubmitting.current = false
+        setInserting(false)
+      }
+    }
   }
 
   const clearDraft = (): void => {
@@ -136,27 +197,72 @@ export function ArtifactViewer({
     setDraftBody('')
   }
 
+  const resolveReview = async (
+    approved: boolean,
+    feedback: string | undefined,
+    notice: 'Approved' | 'Feedback sent'
+  ): Promise<void> => {
+    if (!pendingCall || resolving) return
+    const run = resolutionRun.current + 1
+    resolutionRun.current = run
+    setResolving(true)
+    try {
+      const ok =
+        feedback === undefined
+          ? await resolvePlanReview(pendingCall.id, approved)
+          : await resolvePlanReview(pendingCall.id, approved, feedback)
+      if (resolutionRun.current !== run) return
+      setResolving(false)
+      if (!ok) return
+      // Resolution is already complete. The notice only acknowledges it; it
+      // never gates the tool call or the resumed run.
+      clearDraft()
+      if (!approved) setFeedbackText('')
+      setResolutionNotice(notice)
+      void loadArtifactComments(selected.artifactId)
+    } catch {
+      if (resolutionRun.current === run) setResolving(false)
+    }
+  }
+
   const proceed = (): void => {
-    if (!pendingCall) return
-    void resolvePlanReview(pendingCall.id, true).then((ok) => {
-      if (ok) {
-        // The review is resolved: drop any half-typed draft immediately rather
-        // than waiting for the re-emitted event to hide the composer.
-        clearDraft()
-        void loadArtifactComments(selected.artifactId)
-      }
-    })
+    void resolveReview(true, undefined, 'Approved')
   }
 
   const requestReview = (): void => {
-    if (!pendingCall) return
-    void resolvePlanReview(pendingCall.id, false, feedbackText.trim() || undefined).then((ok) => {
-      if (ok) {
-        clearDraft()
-        setFeedbackText('')
-        void loadArtifactComments(selected.artifactId)
+    void resolveReview(false, feedbackText.trim() || undefined, 'Feedback sent')
+  }
+
+  const copyMarkdown = async (): Promise<void> => {
+    try {
+      await window.bearcode.clipboard.write(selected.body)
+      showToast('Markdown copied')
+    } catch {
+      showToast('Could not copy Markdown')
+    }
+  }
+
+  const exportMarkdown = async (): Promise<void> => {
+    if (exportSubmitting.current) return
+    const artifactId = selected.artifactId
+    const run = exportRun.current + 1
+    exportRun.current = run
+    exportSubmitting.current = true
+    setExporting(true)
+    try {
+      const result = await window.bearcode.artifacts.saveMarkdown(artifactId)
+      if (exportRun.current !== run || selectedArtifactIdRef.current !== artifactId) return
+      if (result === 'saved') showToast('Artifact exported')
+    } catch {
+      if (exportRun.current === run && selectedArtifactIdRef.current === artifactId) {
+        showToast('Could not export artifact')
       }
-    })
+    } finally {
+      if (exportRun.current === run && selectedArtifactIdRef.current === artifactId) {
+        exportSubmitting.current = false
+        setExporting(false)
+      }
+    }
   }
 
   return (
@@ -168,21 +274,37 @@ export function ArtifactViewer({
           <span className={'artifact-status ' + selected.status}>
             {ARTIFACT_STATUS_LABELS[selected.status]}
           </span>
-          {pendingCall ? (
-            <div className="plan-review-actions">
-              <button className="plan-proceed" onClick={proceed}>
-                Proceed
-              </button>
-              <button
-                className="plan-request-review"
-                disabled={unsentCount === 0 && feedbackText.trim() === ''}
-                title="Needs at least one comment or a message"
-                onClick={requestReview}
-              >
-                Review
-              </button>
-            </div>
-          ) : null}
+          <div className="plan-review-actions">
+            {resolutionNotice ? (
+              <div className="plan-resolution-notice" role="status" aria-live="polite">
+                {resolutionNotice}
+              </div>
+            ) : pendingCall ? (
+              <>
+                <button className="plan-proceed" disabled={resolving} onClick={proceed}>
+                  Proceed
+                </button>
+                <button
+                  className="plan-request-review"
+                  disabled={resolving || (unsentCount === 0 && feedbackText.trim() === '')}
+                  title="Needs at least one comment or a message"
+                  onClick={requestReview}
+                >
+                  Review
+                </button>
+              </>
+            ) : null}
+            <button className="plan-request-review" onClick={() => void copyMarkdown()}>
+              Copy Markdown
+            </button>
+            <button
+              className="plan-request-review"
+              disabled={exporting}
+              onClick={() => void exportMarkdown()}
+            >
+              Export…
+            </button>
+          </div>
         </div>
         {versions.length > 1 ? (
           <div className="artifact-version-history">
@@ -216,6 +338,7 @@ export function ArtifactViewer({
             <blockquote className="plan-comment-quote">{draftQuote}</blockquote>
             <textarea
               value={draftBody}
+              disabled={inserting}
               onChange={(e) => setDraftBody(e.target.value)}
               placeholder="Add a comment…"
               autoFocus
@@ -223,12 +346,12 @@ export function ArtifactViewer({
             <div className="comment-composer-actions">
               <button
                 className="plan-request-review"
-                disabled={draftBody.trim() === ''}
-                onClick={submitDraft}
+                disabled={inserting || draftBody.trim() === ''}
+                onClick={() => void submitDraft()}
               >
                 Add comment
               </button>
-              <button className="plan-request-review" onClick={clearDraft}>
+              <button className="plan-request-review" disabled={inserting} onClick={clearDraft}>
                 Cancel
               </button>
             </div>

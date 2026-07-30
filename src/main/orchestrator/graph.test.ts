@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { makeConversationMeta } from '../test/fixtures'
 
 // graph.ts imports ../db and ./checkpointer, which touch electron/sqlite at
 // call time; mock them (same pattern as resume.test.ts) so importing the
@@ -173,11 +174,7 @@ import {
   __parkForTest,
   type ApprovalItem
 } from './graph'
-import {
-  resolveUrsaModelRef,
-  resolveSubagentModelRefs,
-  resolveDeepResearchPipeline
-} from './ursa'
+import { resolveUrsaModelRef, resolveSubagentModelRefs, resolveDeepResearchPipeline } from './ursa'
 import {
   URSUS_MODEL_REF,
   resolveUrsusModelRef,
@@ -200,7 +197,7 @@ import {
 import type { PlanReviewResolution, SkillProposalResolution } from './tools'
 import { browserManager } from '../browser/manager'
 import type { RunSink } from '../sink'
-import type { AttachmentRef } from '../../shared/types'
+import type { AttachmentRef, ConversationMeta } from '../../shared/types'
 
 describe('citationsFromMetadata (Perplexity web sources)', () => {
   it('prefers rich search_results over bare citations urls', () => {
@@ -1971,16 +1968,9 @@ describe('persistRuleMentions', () => {
   })
 
   it('unions mentioned rule names with existing activeRules and persists', () => {
-    vi.mocked(getConversationMeta).mockReturnValue({
-      id: 'c1',
-      projectPath: '/p',
-      title: null,
-      modelRef: null,
-      createdAt: 0,
-      updatedAt: 0,
-      permissionMode: 'accept-edits',
-      activeRules: ['style']
-    })
+    vi.mocked(getConversationMeta).mockReturnValue(
+      makeConversationMeta({ id: 'c1', projectPath: '/p', activeRules: ['style'] })
+    )
     persistRuleMentions('c1', [
       { kind: 'rule', name: 'style' },
       { kind: 'rule', name: 'security' }
@@ -2158,27 +2148,14 @@ describe('runGraph — Ursa Modes: council dispatch (Task 4)', () => {
   })
 
   const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
-  const metaWith = (ursaMode: 'code' | 'council' | 'deep-research') => ({
-    id: 'c1',
-    projectPath: null,
-    title: null,
-    modelRef: 'ursa/auto',
-    createdAt: 0,
-    updatedAt: 0,
-    permissionMode: 'accept-edits' as const,
-    activeRules: [],
-    effort: 'medium' as const,
-    thinking: false,
-    webSearch: false,
-    ursaMode,
-    projectId: null,
-    pinned: false,
-    archived: false,
-    environment: 'local' as const,
-    worktrees: [],
-    hermesSessionId: null,
-    hermesMode: 'legacy' as const
-  })
+  const metaWith = (ursaMode: 'code' | 'council' | 'deep-research'): ConversationMeta =>
+    makeConversationMeta({
+      id: 'c1',
+      modelRef: 'ursa/auto',
+      effort: 'medium',
+      thinking: false,
+      ursaMode
+    })
 
   it("routes an Ursa turn to runCouncil (no classifier, no agent) when mode is 'council'", async () => {
     vi.mocked(getConversationMeta).mockReturnValue(metaWith('council'))
@@ -2306,27 +2283,14 @@ describe('runGraph — Ursa Modes: deep research (Task 6)', () => {
   })
 
   const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
-  const metaWith = (ursaMode: 'code' | 'council' | 'deep-research') => ({
-    id: 'c1',
-    projectPath: null,
-    title: null,
-    modelRef: 'ursa/auto',
-    createdAt: 0,
-    updatedAt: 0,
-    permissionMode: 'accept-edits' as const,
-    activeRules: [],
-    effort: 'medium' as const,
-    thinking: false,
-    webSearch: false,
-    ursaMode,
-    projectId: null,
-    pinned: false,
-    archived: false,
-    environment: 'local' as const,
-    worktrees: [],
-    hermesSessionId: null,
-    hermesMode: 'legacy' as const
-  })
+  const metaWith = (ursaMode: 'code' | 'council' | 'deep-research'): ConversationMeta =>
+    makeConversationMeta({
+      id: 'c1',
+      modelRef: 'ursa/auto',
+      effort: 'medium',
+      thinking: false,
+      ursaMode
+    })
 
   it('auto-starts the preset pipeline (running, no consent card) and parks paused:true', async () => {
     vi.mocked(getConversationMeta).mockReturnValue(metaWith('deep-research'))
@@ -2462,27 +2426,14 @@ describe('runGraph — Ursa Modes: review dispatch (Task 4)', () => {
   })
 
   const makeSink = (): RunSink => ({ emit: vi.fn(), setState: vi.fn(), metaChanged: vi.fn() })
-  const metaWith = (ursaMode: 'code' | 'council' | 'deep-research' | 'review') => ({
-    id: 'c1',
-    projectPath: null,
-    title: null,
-    modelRef: 'ursa/auto',
-    createdAt: 0,
-    updatedAt: 0,
-    permissionMode: 'accept-edits' as const,
-    activeRules: [],
-    effort: 'medium' as const,
-    thinking: false,
-    webSearch: false,
-    ursaMode,
-    projectId: null,
-    pinned: false,
-    archived: false,
-    environment: 'local' as const,
-    worktrees: [],
-    hermesSessionId: null,
-    hermesMode: 'legacy' as const
-  })
+  const metaWith = (ursaMode: 'code' | 'council' | 'deep-research' | 'review'): ConversationMeta =>
+    makeConversationMeta({
+      id: 'c1',
+      modelRef: 'ursa/auto',
+      effort: 'medium',
+      thinking: false,
+      ursaMode
+    })
 
   it('review mode with a resolved lens+scope routes to runReview (Ursa panel)', async () => {
     const { resolveReviewRequest, runReview, URSA_REVIEW_PANEL } = await import('./review')
@@ -2522,8 +2473,9 @@ describe('runGraph — Ursa Modes: review dispatch (Task 4)', () => {
     expect(res).toEqual({ paused: false })
     expect(runReview).not.toHaveBeenCalled()
     const evs = vi.mocked(sink.emit).mock.calls.map((c) => c[1])
-    const clar = evs.find((e) => e.type === 'review_clarify') as any
-    expect(clar).toBeTruthy()
+    const clar = evs.find((e) => e.type === 'review_clarify')
+    if (!clar || clar.type !== 'review_clarify')
+      throw new Error('Expected a review clarification event')
     expect(clar.askLens).toBe(true)
     expect(clar.askScope).toBe(false)
   })
@@ -2775,7 +2727,11 @@ describe('buildSubagents (Ursa Arc 2 subagent-level routing)', () => {
       researcher: 'anthropic/claude-sonnet-5',
       browser: 'openai/gpt-5.6-luna'
     })
-    const [researcher, browser] = buildSubagents(undefined, 'anthropic/claude-sonnet-5', browserTools)
+    const [researcher, browser] = buildSubagents(
+      undefined,
+      'anthropic/claude-sonnet-5',
+      browserTools
+    )
 
     expect(researcher).not.toHaveProperty('model')
     expect(browser).not.toHaveProperty('model')
@@ -2786,7 +2742,11 @@ describe('buildSubagents (Ursa Arc 2 subagent-level routing)', () => {
 
   it('adds no model field when the resolver returns an empty map (no keyed roles)', () => {
     vi.mocked(resolveSubagentModelRefs).mockReturnValue({})
-    const [researcher, browser] = buildSubagents('reviewer', 'anthropic/claude-sonnet-5', browserTools)
+    const [researcher, browser] = buildSubagents(
+      'reviewer',
+      'anthropic/claude-sonnet-5',
+      browserTools
+    )
 
     expect(researcher).not.toHaveProperty('model')
     expect(browser).not.toHaveProperty('model')
@@ -2798,7 +2758,11 @@ describe('buildSubagents (Ursa Arc 2 subagent-level routing)', () => {
     vi.mocked(resolveSubagentModelRefs).mockReturnValue({
       researcher: 'anthropic/claude-sonnet-5'
     })
-    const [researcher, browser] = buildSubagents('architect', 'anthropic/claude-sonnet-5', browserTools)
+    const [researcher, browser] = buildSubagents(
+      'architect',
+      'anthropic/claude-sonnet-5',
+      browserTools
+    )
 
     expect(researcher.model).toEqual({ __fakeModel: 'anthropic/claude-sonnet-5' })
     expect(browser).not.toHaveProperty('model')

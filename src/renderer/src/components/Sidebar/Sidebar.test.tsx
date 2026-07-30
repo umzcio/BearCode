@@ -25,6 +25,7 @@ const BASE_CONVO: Convo = {
   createdAt: 0,
   loaded: true,
   events: [],
+  auxEvents: [],
   runState: 'idle',
   environment: 'local',
   worktrees: []

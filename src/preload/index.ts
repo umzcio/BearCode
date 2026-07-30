@@ -6,6 +6,7 @@ import type {
   ArtifactComment,
   AttachmentRef,
   BearcodeApi,
+  BrowserStatus,
   CommandRef,
   ConversationMeta,
   EffortLevel,
@@ -291,7 +292,9 @@ const bearcode: BearcodeApi = {
     ): Promise<ArtifactComment> =>
       ipcRenderer.invoke('bearcode:artifacts:add-comment', artifactId, quote, body),
     listComments: (artifactId: string): Promise<ArtifactComment[]> =>
-      ipcRenderer.invoke('bearcode:artifacts:list-comments', artifactId)
+      ipcRenderer.invoke('bearcode:artifacts:list-comments', artifactId),
+    saveMarkdown: (artifactId: string): Promise<'saved' | 'cancelled'> =>
+      ipcRenderer.invoke('bearcode:artifacts:save-markdown', artifactId)
   },
   voice: {
     transcribe: (audio: ArrayBuffer, meta: TranscribeMeta) =>
@@ -323,12 +326,12 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:worktree:available', path)
   },
   browser: {
-    status: (): Promise<{
-      installed: boolean
-      connected: boolean
-      conversationId: string | null
-      debuggingEnabled: boolean
-    }> => ipcRenderer.invoke('bearcode:browser:status'),
+    status: (): Promise<BrowserStatus> => ipcRenderer.invoke('bearcode:browser:status'),
+    onStatus: (cb) => {
+      const listener = (_e: Electron.IpcRendererEvent, status: BrowserStatus): void => cb(status)
+      ipcRenderer.on('bearcode:browser:status', listener)
+      return () => ipcRenderer.removeListener('bearcode:browser:status', listener)
+    },
     clearSession: (): Promise<void> => ipcRenderer.invoke('bearcode:browser:clear-session'),
     setBounds: (b: { x: number; y: number; width: number; height: number }): Promise<void> =>
       ipcRenderer.invoke('bearcode:browser:set-bounds', b),

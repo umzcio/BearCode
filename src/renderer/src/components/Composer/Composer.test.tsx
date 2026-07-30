@@ -10,13 +10,13 @@ afterEach(cleanup)
 describe('Composer — Ursa glow', () => {
   it('applies the composer--ursa class when modelRef is the Ursa sentinel', () => {
     useAppStore.setState({ modelRef: URSA_MODEL_REF, providers: [] } as never)
-    const { container } = render(<Composer onSend={() => {}} />)
+    const { container } = render(<Composer onSend={async () => true} />)
     expect(container.querySelector('.composer')?.className).toContain('composer--ursa')
   })
 
   it('does not apply the class for a concrete model', () => {
     useAppStore.setState({ modelRef: 'anthropic/claude-sonnet-5', providers: [] } as never)
-    const { container } = render(<Composer onSend={() => {}} />)
+    const { container } = render(<Composer onSend={async () => true} />)
     expect(container.querySelector('.composer')?.className).not.toContain('composer--ursa')
   })
 })
@@ -24,14 +24,14 @@ describe('Composer — Ursa glow', () => {
 describe('Composer — picker swap (Ursa vs concrete model)', () => {
   it('renders the Ursa ModePicker (not EffortPicker) when the model is Ursa', () => {
     useAppStore.setState({ modelRef: URSA_MODEL_REF, providers: [] } as never)
-    const { container } = render(<Composer onSend={() => {}} />)
+    const { container } = render(<Composer onSend={async () => true} />)
     expect(container.querySelector('.ursa-mode-picker')).toBeTruthy()
     expect(container.querySelector('.effort-picker')).toBeNull()
   })
 
   it('renders EffortPicker (not the Ursa ModePicker) for a concrete model', () => {
     useAppStore.setState({ modelRef: 'anthropic/claude-sonnet-5', providers: [] } as never)
-    const { container } = render(<Composer onSend={() => {}} />)
+    const { container } = render(<Composer onSend={async () => true} />)
     expect(container.querySelector('.effort-picker')).toBeTruthy()
     expect(container.querySelector('.ursa-mode-picker')).toBeNull()
   })
@@ -40,7 +40,7 @@ describe('Composer — picker swap (Ursa vs concrete model)', () => {
 describe('Composer — Hermes lean mode (Task 11)', () => {
   it('hides the model, mode, and effort/web-search picker controls for a Hermes conversation', () => {
     useAppStore.setState({ modelRef: HERMES_MODEL_REF, providers: [] } as never)
-    const { container } = render(<Composer onSend={() => {}} />)
+    const { container } = render(<Composer onSend={async () => true} />)
     expect(container.querySelector('.model-picker')).toBeNull()
     expect(container.querySelector('.mode-picker')).toBeNull()
     expect(container.querySelector('.effort-picker')).toBeNull()
@@ -49,7 +49,7 @@ describe('Composer — Hermes lean mode (Task 11)', () => {
 
   it('keeps the model, mode, and effort picker controls for a normal conversation', () => {
     useAppStore.setState({ modelRef: 'anthropic/claude-sonnet-5', providers: [] } as never)
-    const { container } = render(<Composer onSend={() => {}} />)
+    const { container } = render(<Composer onSend={async () => true} />)
     expect(container.querySelector('.model-picker')).toBeTruthy()
     expect(container.querySelector('.mode-picker')).toBeTruthy()
     expect(container.querySelector('.effort-picker')).toBeTruthy()
@@ -69,7 +69,7 @@ describe('Composer — Hermes lean mode (Task 11)', () => {
       }
     } as never)
     const { container } = render(
-      <Composer conversationId="native" onSend={() => {}} />
+      <Composer conversationId="native" onSend={async () => true} />
     )
     expect(screen.getByLabelText('Add context')).toBeInTheDocument()
     expect(container.querySelector('.mic-btn')).toBeTruthy()
@@ -91,7 +91,7 @@ describe('Composer — Hermes lean mode (Task 11)', () => {
         }
       }
     } as never)
-    const { container } = render(<Composer onSend={() => {}} />)
+    const { container } = render(<Composer onSend={async () => true} />)
     expect(container.querySelector('.add-context')).toBeNull()
     expect(container.querySelector('.mic-btn')).toBeTruthy()
     expect(container.querySelector('textarea')).toBeTruthy()
@@ -99,7 +99,7 @@ describe('Composer — Hermes lean mode (Task 11)', () => {
 
   it('still shows the add-context picker for a normal conversation', () => {
     useAppStore.setState({ modelRef: 'anthropic/claude-sonnet-5', providers: [] } as never)
-    const { container } = render(<Composer onSend={() => {}} />)
+    const { container } = render(<Composer onSend={async () => true} />)
     expect(container.querySelector('.add-context')).toBeTruthy()
   })
 
@@ -108,7 +108,7 @@ describe('Composer — Hermes lean mode (Task 11)', () => {
     // typing "@" directly is detected by the textarea's own onChange. That
     // path must be suppressed too, or the same silent-drop bug survives it.
     useAppStore.setState({ modelRef: HERMES_MODEL_REF, providers: [] } as never)
-    const { container } = render(<Composer onSend={() => {}} />)
+    const { container } = render(<Composer onSend={async () => true} />)
     const textarea = container.querySelector('textarea') as HTMLTextAreaElement
     fireEvent.change(textarea, { target: { value: '@' } })
     expect(container.querySelector('.mention-menu')).toBeNull()
@@ -122,7 +122,7 @@ describe('Composer — Hermes lean mode (Task 11)', () => {
     // sent message, and have it silently vanish (runHermes never forwards
     // commands, only plain text). Same silent-drop bug class as @-mentions.
     useAppStore.setState({ modelRef: HERMES_MODEL_REF, providers: [] } as never)
-    const { container } = render(<Composer onSend={() => {}} />)
+    const { container } = render(<Composer onSend={async () => true} />)
     const textarea = container.querySelector('textarea') as HTMLTextAreaElement
     fireEvent.change(textarea, { target: { value: '/' } })
     expect(container.querySelector('.slash-menu')).toBeNull()
@@ -146,7 +146,9 @@ describe('Composer — Hermes lean mode (Task 11)', () => {
         }
       }
     } as never)
-    const { container } = render(<Composer onSend={() => {}} conversationId="c1" />)
+    const { container } = render(
+      <Composer onSend={async () => true} conversationId="c1" />
+    )
     expect(container.querySelector('.model-picker')).toBeNull()
     expect(container.querySelector('.mode-picker')).toBeNull()
     expect(container.querySelector('.effort-picker')).toBeNull()

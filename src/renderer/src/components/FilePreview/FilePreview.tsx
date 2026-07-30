@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { PreviewPayload } from '@shared/types'
 import { PreviewContent } from './PreviewContent'
+import { PreviewEntry } from './PreviewEntry'
 
 export function FilePreview({ fileId }: { fileId: string }): React.JSX.Element {
   const [loaded, setLoaded] = useState<{ fileId: string; payload: PreviewPayload } | null>(null)
@@ -27,5 +28,9 @@ export function FilePreview({ fileId }: { fileId: string }): React.JSX.Element {
   const payload = loaded?.fileId === fileId ? loaded.payload : null
 
   if (!payload) return <div className="file-preview loading">Loading preview…</div>
-  return <PreviewContent payload={payload} />
+  return (
+    <PreviewEntry>
+      <PreviewContent payload={payload} />
+    </PreviewEntry>
+  )
 }

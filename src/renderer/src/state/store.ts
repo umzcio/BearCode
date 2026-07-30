@@ -41,7 +41,9 @@ import { applyAppearance, watchSystemTheme } from '../lib/appearance'
 import { initWindowFocusTracking } from '../lib/windowFocus'
 import { describeError } from '../lib/errors'
 import { mergeEvent } from '../lib/mergeEvent'
+import { mergeAuxEvent, projectAuxEvents, type AuxEvent } from '../lib/auxEvents'
 import { resolveProjectDefaults } from '@shared/projectDefaults'
+import { hasComposerDraftContent, type ComposerDraft } from '../lib/composerDraft'
 
 export type ConvoRunState = RunState | 'idle'
 
@@ -64,6 +66,7 @@ export interface Convo {
   createdAt: number
   loaded: boolean
   events: Event[]
+  auxEvents: AuxEvent[]
   runState: ConvoRunState
   // F3: execution environment, chosen at creation and locked at first run.
   // 'local' runs in the project folder; 'worktree' runs in isolated git
@@ -94,6 +97,13 @@ export type TerminalTabMeta = {
   id: string
   title: string
   exited: boolean
+}
+
+export interface ReviewComment {
+  id: string
+  path: string
+  line: number
+  text: string
 }
 
 // The Artifacts pane's target (Ba4 unification). ONE field for the ONE side
@@ -251,10 +261,19 @@ function fromMeta(meta: ConversationMeta): Convo {
     createdAt: meta.createdAt,
     loaded: false,
     events: [],
+    auxEvents: [],
     runState: 'idle',
     environment: meta.environment,
     worktrees: meta.worktrees ?? [],
     preview: meta.preview ?? null
+  }
+}
+
+export function mergeConvoEvent(convo: Convo, event: Event): Convo {
+  return {
+    ...convo,
+    events: mergeEvent(convo.events, event),
+    auxEvents: mergeAuxEvent(convo.auxEvents, event)
   }
 }
 
@@ -326,6 +345,12 @@ interface AppState {
   reviewFocusPath: string | null
   // Drafted/sent comments per artifact id, loaded lazily by the pane.
   artifactComments: Record<string, ArtifactComment[]>
+  // Session-only review drafts, keyed by diff id. These intentionally do not
+  // participate in persistence or IPC.
+  diffReviewComments: Record<string, ReviewComment[]>
+  // Session-level pending flags so rail navigation/remounts cannot duplicate a
+  // review send for the same diff.
+  diffReviewSending: Record<string, boolean>
   // Tick: the pane focuses its feedback box when this increments (the pending
   // card's "Send feedback" action).
   artifactPaneFocusFeedback: number
@@ -354,8 +379,20 @@ interface AppState {
   // placeholder id (crypto.randomUUID()) lazily set by ensureDraftConvoId the
   // first time Home's Media is used, then handed to conversations.create as
   // the id to create so already-picked attachments line up with the real
-  // conversation. Cleared on goHome / after a successful startFromHome.
+  // conversation. Cleared on goHome / after Composer completes an accepted Home start.
   draftConvoId: string | null
+  // Owns the entire async Home start, from synchronous ID reservation through
+  // accepted Composer handoff completion. While set, Home navigation and
+  // duplicate first-run dispatches are blocked.
+  pendingHomeConvoId: string | null
+  // Distinguishes successive ownership attempts that happen to reuse the same
+  // conversation id. Async continuations must match both fields before they
+  // publish state, so deletion can permanently retire an in-flight attempt.
+  pendingHomeAttempt: number | null
+  // A successfully accepted Home start remains owned by the Home composer until
+  // it transfers any post-submit edits to the mounted conversation composer.
+  acceptedHomeConvoId: string | null
+  conversationDraftHandoff: { conversationId: string; draft: ComposerDraft } | null
   // F1 Conversation History: the event a content-search hit should jump to in
   // the freshly-opened conversation. Transient -- set by openConvo(id, {focusEventId})
   // and consumed by ConversationView, which scrolls to + highlights the match.
@@ -367,6 +404,10 @@ interface AppState {
   // display order. Drives the "N of M" jump navigator; stepFocus walks it. Empty
   // (or length 1) hides the navigator -- a lone hit needs no next/prev.
   focusMatches: string[]
+  // Identity for the current view/focus owner. This changes even when a newer
+  // search installs values identical to the previous search, allowing an older
+  // accepted send to clear only the focus state it actually dispatched under.
+  focusRevision: number
   // F3: the environment drafted in the Home composer's Local/New-Worktree
   // picker, applied to the conversation at create (before its first run) and
   // then locked. Reset to 'local' on goHome.
@@ -411,7 +452,9 @@ interface AppState {
     command?: CommandRef | null,
     mentions?: MentionRef[] | null,
     attachments?: AttachmentRef[] | null
-  ): void
+  ): Promise<boolean>
+  completeHomeStart(remainingDraft: ComposerDraft): void
+  consumeConversationDraftHandoff(conversationId: string): void
   deleteConvo(id: string): void
   send(
     convoId: string,
@@ -419,7 +462,7 @@ interface AppState {
     command?: CommandRef | null,
     mentions?: MentionRef[] | null,
     attachments?: AttachmentRef[] | null
-  ): void
+  ): Promise<boolean>
   cancelRun(convoId: string): void
   approveTool(callId: string, approved: boolean): void
   // Ursa Phase 2: approve/deny a proposed pipeline (the synthetic 'ursa_pipeline'
@@ -528,6 +571,11 @@ interface AppState {
   openBrowserPane(conversationId: string): void
   loadArtifactComments(artifactId: string): Promise<void>
   addArtifactComment(artifactId: string, quote: string | null, body: string): Promise<void>
+  addDiffReviewComment(diffId: string, comment: Omit<ReviewComment, 'id'>): void
+  removeDiffReviewComment(diffId: string, commentId: string): void
+  clearDiffReviewComments(diffId: string, commentIds?: readonly string[]): void
+  beginDiffReviewSend(diffId: string): boolean
+  finishDiffReviewSend(diffId: string): void
   resolvePlanReview(callId: string, proceed: boolean, message?: string): Promise<boolean>
   resolveSkillProposal(callId: string, resolution: SkillProposalResolution): Promise<void>
   closeReview(): void
@@ -547,6 +595,8 @@ interface AppState {
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 let initialized = false
+let nextReviewCommentId = 1
+let nextHomeAttempt = 1
 
 // "1 rule" / "3 rules" — used by the import-summary toast (final review
 // Finding 3). Every noun it is applied to takes a plain -s plural.
@@ -605,6 +655,11 @@ export function refConfigured(providers: ProviderModels[], ref: ModelRef | null)
 }
 
 export const useAppStore = create<AppState>((set, get) => {
+  function ownsHomeAttempt(conversationId: string, attempt: number): boolean {
+    const state = get()
+    return state.pendingHomeConvoId === conversationId && state.pendingHomeAttempt === attempt
+  }
+
   // Resolves the "active project" for @-menu / commands lookups: the open
   // conversation's project, or the Home composer's picked workspace when
   // there is no conversation yet.
@@ -627,8 +682,12 @@ export const useAppStore = create<AppState>((set, get) => {
     set((s) => {
       const convo = s.conversations[convoId]
       if (!convo) return s
-      const events = mergeEvent(convo.events, event)
-      return { conversations: { ...s.conversations, [convoId]: { ...convo, events } } }
+      return {
+        conversations: {
+          ...s.conversations,
+          [convoId]: mergeConvoEvent(convo, event)
+        }
+      }
     })
   }
 
@@ -719,6 +778,8 @@ export const useAppStore = create<AppState>((set, get) => {
     activeTerminalTab: {},
     reviewFocusPath: null,
     artifactComments: {},
+    diffReviewComments: {},
+    diffReviewSending: {},
     artifactPaneFocusFeedback: 0,
     auxPaneOpenTick: 0,
     toast: null,
@@ -729,8 +790,13 @@ export const useAppStore = create<AppState>((set, get) => {
     mcpConnectors: [],
     manualSkills: [],
     draftConvoId: null,
+    pendingHomeConvoId: null,
+    pendingHomeAttempt: null,
+    acceptedHomeConvoId: null,
+    conversationDraftHandoff: null,
     focusEventId: null,
     focusMatches: [],
+    focusRevision: 0,
     composerEnvironment: 'local',
     conflict: null,
 
@@ -914,7 +980,7 @@ export const useAppStore = create<AppState>((set, get) => {
     setAuxPaneWidth: (w, options) => {
       const c = Math.min(AUX_MAX, Math.max(AUX_MIN, Math.round(w)))
       if (options?.persist !== false) writeStoredWidth('bearcode.auxPaneWidth', c)
-      set({ auxPaneWidth: c })
+      set((s) => (s.auxPaneWidth === c ? s : { auxPaneWidth: c }))
     },
     toggleModelMenu: () => set((s) => ({ modelMenuTick: s.modelMenuTick + 1 })),
     goHome: () =>
@@ -924,28 +990,33 @@ export const useAppStore = create<AppState>((set, get) => {
       // conversation. An explicit pick on the home composer afterward still
       // wins, and close the pane -- its contents belong to the conversation
       // being left.
-      set((s) => ({
-        view: { kind: 'home' },
-        // A Hermes conversation just left behind must not leak its sentinel
-        // modelRef into the next new conversation's composer (it would render
-        // in Hermes-lean mode with no model/mode pickers) -- reset it here
-        // alongside the other draft state below.
-        modelRef: s.settings?.defaultModelRef ?? URSA_MODEL_REF,
-        permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
-        effort: s.settings?.defaultEffort ?? 'adaptive',
-        thinking: s.settings?.defaultThinking ?? true,
-        // Ursa Mode has no settings default -- a fresh Home composer is Code.
-        ursaMode: 'code',
-        auxSelection: null,
-        reviewFocusPath: null,
-        // Abandoning Home drops any attachments already picked under the draft
-        // id (a minor on-disk orphan, acceptable for v1 -- see D4 design note);
-        // the next Home visit mints a fresh draft id on first Media use.
-        draftConvoId: null,
-        // F3: a New-Worktree pick belongs to the conversation being left; the
-        // next new conversation starts back at Local unless re-chosen.
-        composerEnvironment: 'local'
-      })),
+      set((s) => {
+        if (s.pendingHomeConvoId || s.pendingHomeAttempt !== null) return s
+        return {
+          view: { kind: 'home' },
+          // A Hermes conversation just left behind must not leak its sentinel
+          // modelRef into the next new conversation's composer (it would render
+          // in Hermes-lean mode with no model/mode pickers) -- reset it here
+          // alongside the other draft state below.
+          modelRef: s.settings?.defaultModelRef ?? URSA_MODEL_REF,
+          permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
+          effort: s.settings?.defaultEffort ?? 'adaptive',
+          thinking: s.settings?.defaultThinking ?? true,
+          // Ursa Mode has no settings default -- a fresh Home composer is Code.
+          ursaMode: 'code',
+          auxSelection: null,
+          reviewFocusPath: null,
+          // Abandoning Home drops any attachments already picked under the draft
+          // id (a minor on-disk orphan, acceptable for v1 -- see D4 design note);
+          // the next Home visit mints a fresh draft id on first Media use.
+          draftConvoId: null,
+          acceptedHomeConvoId: null,
+          conversationDraftHandoff: null,
+          // F3: a New-Worktree pick belongs to the conversation being left; the
+          // next new conversation starts back at Local unless re-chosen.
+          composerEnvironment: 'local'
+        }
+      }),
     openHistory: () =>
       set({ view: { kind: 'history' }, auxSelection: null, reviewFocusPath: null }),
     openTerminalView: (path: string) => {
@@ -998,8 +1069,14 @@ export const useAppStore = create<AppState>((set, get) => {
         }
       }))
     },
-    clearFocusEvent: () => set({ focusEventId: null, focusMatches: [] }),
-    setFocusMatches: (ids) => set({ focusMatches: ids }),
+    clearFocusEvent: () =>
+      set((state) => ({
+        focusEventId: null,
+        focusMatches: [],
+        focusRevision: state.focusRevision + 1
+      })),
+    setFocusMatches: (ids) =>
+      set((state) => ({ focusMatches: ids, focusRevision: state.focusRevision + 1 })),
     // Walk the current match set (from a content-search jump) by one step,
     // clamped to the ends, and re-point focusEventId so ConversationView
     // re-scrolls + re-highlights. No-op when there's no match set.
@@ -1008,7 +1085,10 @@ export const useAppStore = create<AppState>((set, get) => {
       if (focusMatches.length === 0) return
       const cur = focusEventId ? focusMatches.indexOf(focusEventId) : -1
       const next = Math.min(focusMatches.length - 1, Math.max(0, cur + dir))
-      set({ focusEventId: focusMatches[next] })
+      set((state) => ({
+        focusEventId: focusMatches[next],
+        focusRevision: state.focusRevision + 1
+      }))
     },
     openConvo: (id, opts) => {
       const prev = get().view
@@ -1018,7 +1098,7 @@ export const useAppStore = create<AppState>((set, get) => {
       // conversation's diff. Re-clicking the already-open conversation keeps
       // the pane.
       const switching = !(prev.kind === 'conversation' && prev.id === id)
-      set({
+      set((state) => ({
         view: { kind: 'conversation', id },
         // F1: a content-search hit passes the event to jump to; a plain open
         // (no opts) clears any stale pending focus so it can't fire later.
@@ -1027,8 +1107,9 @@ export const useAppStore = create<AppState>((set, get) => {
         // focused event (no navigator) when the caller doesn't supply one, and
         // clears entirely on a plain open.
         focusMatches: opts?.focusMatches ?? (opts?.focusEventId ? [opts.focusEventId] : []),
+        focusRevision: state.focusRevision + 1,
         ...(switching ? { auxSelection: null, reviewFocusPath: null } : {})
-      })
+      }))
       const convo = get().conversations[id]
       if (!convo) return
       // Restore the model the conversation last used.
@@ -1057,6 +1138,7 @@ export const useAppStore = create<AppState>((set, get) => {
             const pending = last && last.type === 'tool_call' && last.approvalState === 'pending'
             patchConvo(id, {
               events,
+              auxEvents: projectAuxEvents(events),
               loaded: true,
               ...(pending ? { runState: 'awaiting-approval' as const } : {})
             })
@@ -1070,17 +1152,42 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
-    startFromHome: (text, command, mentions, attachments) => {
-      const { modelRef, workspacePath, draftConvoId } = get()
-      if (!modelRef) return
-      void (async () => {
+    startFromHome: async (text, command, mentions, attachments) => {
+      const { modelRef, workspacePath, pendingHomeConvoId, pendingHomeAttempt } = get()
+      if (!modelRef || pendingHomeConvoId || pendingHomeAttempt !== null) return false
+      const reservedDraftConvoId = get().ensureDraftConvoId()
+      const attempt = nextHomeAttempt++
+      set((state) => ({
+        pendingHomeConvoId: reservedDraftConvoId,
+        pendingHomeAttempt: attempt,
+        ...(state.acceptedHomeConvoId ? { acceptedHomeConvoId: null } : {})
+      }))
+      try {
         // If Media was used on Home first, attachments are already on disk
-        // under draftConvoId -- create the conversation AS that id so they
+        // under reservedDraftConvoId -- create the conversation AS that id so they
         // line up, instead of minting a second, unrelated id.
-        const meta = await window.bearcode.conversations.create(
-          workspacePath,
-          draftConvoId ?? undefined
-        )
+        // A prior rejected first dispatch leaves its created conversation as
+        // the Home draft, so retry that exact id instead of orphaning it (and
+        // any attachments already stored beneath it).
+        let draftConvo = get().conversations[reservedDraftConvoId]
+        if (!draftConvo) {
+          const meta = await window.bearcode.conversations.create(
+            workspacePath,
+            reservedDraftConvoId
+          )
+          if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
+          const createdConvo = fromMeta(meta)
+          draftConvo = createdConvo
+          set((s) => {
+            const conversations = { ...s.conversations, [meta.id]: createdConvo }
+            return {
+              conversations,
+              convoOrder: orderByRecency(conversations),
+              draftConvoId: meta.id
+            }
+          })
+        }
+        const convoId = draftConvo.id
         // F9 (folder = project) inheritance on the PRIMARY entry point: a folder's
         // per-folder default model/effort/mode is the folder's opinion for
         // conversations that start in it. create() seeds a new folder's row from
@@ -1091,6 +1198,7 @@ export const useAppStore = create<AppState>((set, get) => {
         // unusable folder model falls back to the composer model — never start a
         // run on an unconfigured model.
         if (workspacePath) await get().refreshProjectSettings()
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
         const folder = workspacePath
           ? (get().folderSettings.find((f) => f.path === workspacePath) ?? null)
           : null
@@ -1105,7 +1213,7 @@ export const useAppStore = create<AppState>((set, get) => {
           wantModel && refConfigured(get().providers, wantModel) ? wantModel : modelRef
         const provisional = text.length > 42 ? text.slice(0, 42) + '…' : text
         const convo = {
-          ...fromMeta(meta),
+          ...draftConvo,
           title: provisional,
           loaded: true,
           modelRef: runModel,
@@ -1116,12 +1224,11 @@ export const useAppStore = create<AppState>((set, get) => {
           ursaMode
         }
         set((s) => {
-          const conversations = { ...s.conversations, [meta.id]: convo }
+          const conversations = { ...s.conversations, [convoId]: convo }
           return {
             conversations,
             convoOrder: orderByRecency(conversations),
-            view: { kind: 'conversation', id: meta.id },
-            draftConvoId: null,
+            draftConvoId: convoId,
             // Reflect the folder's inherited defaults in the composer for this
             // new session (mirrors newConversationInProject).
             modelRef: runModel,
@@ -1133,24 +1240,31 @@ export const useAppStore = create<AppState>((set, get) => {
         // Persist the mode before the run starts so the very first run_command
         // resolves the right mode. Await rather than fire-and-forget: do not rely
         // on IPC ordering for a security-sensitive default.
-        await window.bearcode.conversations.setMode(meta.id, permissionMode)
-        await window.bearcode.conversations.setEffort(meta.id, effort)
-        await window.bearcode.conversations.setThinking(meta.id, thinking)
-        await window.bearcode.conversations.setWebSearch(meta.id, webSearch)
-        await window.bearcode.conversations.setUrsaMode(meta.id, ursaMode)
+        await window.bearcode.conversations.setMode(convoId, permissionMode)
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
+        await window.bearcode.conversations.setEffort(convoId, effort)
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
+        await window.bearcode.conversations.setThinking(convoId, thinking)
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
+        await window.bearcode.conversations.setWebSearch(convoId, webSearch)
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
+        await window.bearcode.conversations.setUrsaMode(convoId, ursaMode)
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
         // F3: lock the chosen environment before the first run. Worktree
         // provisioning happens main-side; a non-git folder degrades to local.
         const env = get().composerEnvironment
         if (env === 'worktree') {
           try {
-            const updated = await window.bearcode.conversations.setEnvironment(meta.id, 'worktree')
-            patchConvo(meta.id, { environment: updated.environment })
+            const updated = await window.bearcode.conversations.setEnvironment(convoId, 'worktree')
+            if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
+            patchConvo(convoId, { environment: updated.environment })
           } catch (e) {
+            if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
             get().showToast(e instanceof Error ? e.message : 'Could not create worktree')
           }
         }
         await window.bearcode.run.start(
-          meta.id,
+          convoId,
           text,
           runModel,
           workspacePath,
@@ -1158,8 +1272,49 @@ export const useAppStore = create<AppState>((set, get) => {
           mentions ?? null,
           attachments ?? null
         )
-      })()
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return true
+        set((state) =>
+          state.pendingHomeConvoId === reservedDraftConvoId &&
+          state.pendingHomeAttempt === attempt &&
+          state.conversations[convoId]
+            ? { acceptedHomeConvoId: convoId }
+            : state
+        )
+        return true
+      } catch (error) {
+        if (!ownsHomeAttempt(reservedDraftConvoId, attempt)) return false
+        set((state) =>
+          state.pendingHomeConvoId === reservedDraftConvoId && state.pendingHomeAttempt === attempt
+            ? { pendingHomeConvoId: null, pendingHomeAttempt: null }
+            : state
+        )
+        get().showToast(describeError(error))
+        return false
+      }
     },
+
+    completeHomeStart: (remainingDraft) =>
+      set((state) => {
+        const conversationId = state.acceptedHomeConvoId
+        if (!conversationId || !state.conversations[conversationId]) return state
+        return {
+          view: { kind: 'conversation', id: conversationId },
+          draftConvoId: null,
+          pendingHomeConvoId: null,
+          pendingHomeAttempt: null,
+          acceptedHomeConvoId: null,
+          conversationDraftHandoff: hasComposerDraftContent(remainingDraft)
+            ? { conversationId, draft: remainingDraft }
+            : null
+        }
+      }),
+
+    consumeConversationDraftHandoff: (conversationId) =>
+      set((state) =>
+        state.conversationDraftHandoff?.conversationId === conversationId
+          ? { conversationDraftHandoff: null }
+          : state
+      ),
 
     deleteConvo: (id) => {
       void window.bearcode.conversations.delete(id).then(() => {
@@ -1173,6 +1328,12 @@ export const useAppStore = create<AppState>((set, get) => {
             conversations,
             convoOrder: orderByRecency(conversations),
             view,
+            draftConvoId: s.draftConvoId === id ? null : s.draftConvoId,
+            pendingHomeConvoId: s.pendingHomeConvoId === id ? null : s.pendingHomeConvoId,
+            pendingHomeAttempt: s.pendingHomeConvoId === id ? null : s.pendingHomeAttempt,
+            acceptedHomeConvoId: s.acceptedHomeConvoId === id ? null : s.acceptedHomeConvoId,
+            conversationDraftHandoff:
+              s.conversationDraftHandoff?.conversationId === id ? null : s.conversationDraftHandoff,
             // Landing back on home (deleted the active conversation): reset the
             // composer to the configured default so the next new conversation
             // starts there, not in the deleted conversation's mode.
@@ -1192,23 +1353,50 @@ export const useAppStore = create<AppState>((set, get) => {
       })
     },
 
-    send: (convoId, text, command, mentions, attachments) => {
-      const { modelRef, conversations } = get()
-      if (!modelRef) return
-      // A new turn must never stay pinned to a prior history-search jump: clear
-      // the focus target + match set so the follow-up run's streamed events
-      // don't fight auto-follow (F1).
-      set({ focusEventId: null, focusMatches: [] })
-      patchConvo(convoId, { modelRef })
-      void window.bearcode.run.start(
-        convoId,
-        text,
+    send: async (convoId, text, command, mentions, attachments) => {
+      const {
         modelRef,
-        conversations[convoId].projectPath,
-        command ?? null,
-        mentions ?? null,
-        attachments ?? null
-      )
+        conversations,
+        pendingHomeConvoId,
+        pendingHomeAttempt,
+        view,
+        focusRevision
+      } = get()
+      const convo = conversations[convoId]
+      const provisionalHomeOwner = pendingHomeConvoId === convoId && pendingHomeAttempt !== null
+      if (!modelRef || !convo || provisionalHomeOwner) return false
+      const ownsFocus = view.kind === 'conversation' && view.id === convoId
+      try {
+        await window.bearcode.run.start(
+          convoId,
+          text,
+          modelRef,
+          convo.projectPath,
+          command ?? null,
+          mentions ?? null,
+          attachments ?? null
+        )
+        // A new turn must never stay pinned to a prior history-search jump: clear
+        // the focus target + match set so the accepted follow-up run's streamed
+        // events don't fight auto-follow (F1).
+        set((state) =>
+          ownsFocus &&
+          state.focusRevision === focusRevision &&
+          state.view.kind === 'conversation' &&
+          state.view.id === convoId
+            ? {
+                focusEventId: null,
+                focusMatches: [],
+                focusRevision: state.focusRevision + 1
+              }
+            : state
+        )
+        patchConvo(convoId, { modelRef })
+        return true
+      } catch (error) {
+        get().showToast(describeError(error))
+        return false
+      }
     },
 
     cancelRun: (convoId) => {
@@ -1704,6 +1892,11 @@ export const useAppStore = create<AppState>((set, get) => {
         conversations: {},
         convoOrder: [],
         view: { kind: 'home' },
+        draftConvoId: null,
+        pendingHomeConvoId: null,
+        pendingHomeAttempt: null,
+        acceptedHomeConvoId: null,
+        conversationDraftHandoff: null,
         permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
         auxSelection: null,
         reviewFocusPath: null
@@ -1784,6 +1977,58 @@ export const useAppStore = create<AppState>((set, get) => {
       await window.bearcode.artifacts.addComment(artifactId, quote, body)
       await get().loadArtifactComments(artifactId)
     },
+
+    addDiffReviewComment: (diffId, comment) =>
+      set((s) => ({
+        diffReviewComments: {
+          ...s.diffReviewComments,
+          [diffId]: [
+            ...(s.diffReviewComments[diffId] ?? []),
+            { id: `review-comment-${nextReviewCommentId++}`, ...comment }
+          ]
+        }
+      })),
+
+    removeDiffReviewComment: (diffId, commentId) =>
+      set((s) => ({
+        diffReviewComments: {
+          ...s.diffReviewComments,
+          [diffId]: (s.diffReviewComments[diffId] ?? []).filter(
+            (comment) => comment.id !== commentId
+          )
+        }
+      })),
+
+    clearDiffReviewComments: (diffId, commentIds) =>
+      set((s) => {
+        const diffReviewComments = { ...s.diffReviewComments }
+        if (commentIds === undefined) {
+          delete diffReviewComments[diffId]
+        } else {
+          const ids = new Set(commentIds)
+          const remaining = (diffReviewComments[diffId] ?? []).filter(
+            (comment) => !ids.has(comment.id)
+          )
+          if (remaining.length === 0) delete diffReviewComments[diffId]
+          else diffReviewComments[diffId] = remaining
+        }
+        return { diffReviewComments }
+      }),
+
+    beginDiffReviewSend: (diffId) => {
+      if (get().diffReviewSending[diffId]) return false
+      set((s) => ({
+        diffReviewSending: { ...s.diffReviewSending, [diffId]: true }
+      }))
+      return true
+    },
+
+    finishDiffReviewSend: (diffId) =>
+      set((s) => {
+        const diffReviewSending = { ...s.diffReviewSending }
+        delete diffReviewSending[diffId]
+        return { diffReviewSending }
+      }),
 
     // Plan reviews resolve over their own channel, never tools.approve
     // (main-side kind cross-guards make the wires mutually exclusive). The

@@ -1,8 +1,21 @@
-import { useEffect, useState } from 'react'
-import { prefersReducedMotion } from './prefersReducedMotion'
+import { useCallback, useEffect, useState } from 'react'
+import { usePrefersReducedMotion } from './prefersReducedMotion'
 
 // Matches --dur-modal in styles/tokens.css.
 const DEFAULT_DURATION_MS = 220
+const SIGNAL_FAILSAFE_MS = 2000
+
+interface AnimatedUnmountOptions {
+  durationMs?: number
+  immediate?: boolean
+  exitCompletion?: 'timer' | 'signal'
+}
+
+interface AnimatedUnmountResult {
+  mounted: boolean
+  state: 'open' | 'closing'
+  completeExit: () => void
+}
 
 interface InternalState {
   open: boolean
@@ -14,10 +27,12 @@ interface InternalState {
 // Returns whether to render, and the state to drive CSS ([data-state]).
 export function useAnimatedUnmount(
   open: boolean,
-  opts?: { durationMs?: number; immediate?: boolean }
-): { mounted: boolean; state: 'open' | 'closing' } {
+  opts?: AnimatedUnmountOptions
+): AnimatedUnmountResult {
   const durationMs = opts?.durationMs ?? DEFAULT_DURATION_MS
   const immediate = opts?.immediate ?? false
+  const exitCompletion = opts?.exitCompletion ?? 'timer'
+  const reducedMotion = usePrefersReducedMotion()
   const [s, setS] = useState<InternalState>(() => ({ open, mounted: open, phase: 'open' }))
 
   // Adjust state during render when `open` flips -- the React-endorsed
@@ -33,21 +48,26 @@ export function useAnimatedUnmount(
       // toggle -- see prefersReducedMotion.ts), skip the exit transition and
       // unmount now instead of waiting for a CSS transition that tokens.css
       // has already collapsed to ~0 under the in-app toggle.
-      const skipExit = immediate || prefersReducedMotion()
+      const skipExit = immediate || reducedMotion
       setS({ open, mounted: !skipExit, phase: 'closing' })
     }
+  } else if (reducedMotion && s.phase === 'closing' && s.mounted) {
+    setS({ ...s, mounted: false })
   }
 
-  // Genuine side effect: schedule the deferred unmount for the animated
-  // (non-reduced-motion) closing case. The setState that follows lives
-  // inside the timer callback, not the effect body.
+  const completeExit = useCallback(() => {
+    setS((prev) => (prev.phase === 'closing' && prev.mounted ? { ...prev, mounted: false } : prev))
+  }, [])
+
+  // Genuine side effect: timer mode defines an existing consumer's visible
+  // duration. Signal mode only uses a conservative fail-safe so a missing
+  // platform transition event cannot retain the element indefinitely.
   useEffect(() => {
     if (s.phase !== 'closing' || !s.mounted) return
-    const id = window.setTimeout(() => {
-      setS((prev) => (prev.phase === 'closing' ? { ...prev, mounted: false } : prev))
-    }, durationMs)
+    const waitMs = exitCompletion === 'signal' ? SIGNAL_FAILSAFE_MS : durationMs
+    const id = window.setTimeout(completeExit, waitMs)
     return () => window.clearTimeout(id)
-  }, [s.phase, s.mounted, durationMs])
+  }, [completeExit, durationMs, exitCompletion, s.mounted, s.phase])
 
-  return { mounted: s.mounted, state: s.phase }
+  return { mounted: s.mounted, state: s.phase, completeExit }
 }

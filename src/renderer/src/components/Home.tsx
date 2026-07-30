@@ -14,6 +14,7 @@ function shorten(path: string): string {
 
 export function Home(): React.JSX.Element {
   const startFromHome = useAppStore((s) => s.startFromHome)
+  const completeHomeStart = useAppStore((s) => s.completeHomeStart)
   const pickWorkspace = useAppStore((s) => s.pickWorkspace)
   const setWorkspace = useAppStore((s) => s.setWorkspace)
   const workspacePath = useAppStore((s) => s.workspacePath)
@@ -105,7 +106,7 @@ export function Home(): React.JSX.Element {
           <span className="composer-perch" aria-hidden="true">
             <PixelBear scale={3} settle />
           </span>
-          <Composer onSend={startFromHome} showEnvRow autoFocus />
+          <Composer onSend={startFromHome} onAccepted={completeHomeStart} showEnvRow autoFocus />
         </div>
       </div>
     </div>
