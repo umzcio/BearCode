@@ -3,6 +3,13 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { useAppStore } from '../../state/store'
 import { TERMINAL_FONT } from './termGeometry'
+// REQUIRED, not cosmetic. xterm ships internal helper elements -- a character
+// measurement probe (whose text content is literally '%' x32) and an offscreen
+// input textarea -- and relies on THIS stylesheet to hide and position them.
+// Without it they render as visible page content in normal flow, which is
+// exactly the "%%%%%%%" line and the stray box that appeared above every
+// prompt. It also supplies the viewport/rows positioning xterm assumes.
+import '@xterm/xterm/css/xterm.css'
 import './TerminalPane.css'
 
 function xtermTheme(): {
