@@ -10,6 +10,7 @@ import type {
   CommandEntry,
   ConversationMeta,
   DiscoveredMcpServer,
+  TerminalSize,
   Event,
   GithubDeviceStart,
   HistoryHit,
@@ -143,7 +144,12 @@ import { loadHooks } from './hooks/loader'
 import { setHookActive } from './hooks/state'
 import { writeGlobalHook, updateGlobalHook, deleteGlobalHook } from './hooks/authoring'
 import { validateHookEvent, validateHookName } from './hooks/validate'
-import { COMMAND_NAME_PATTERN, HERMES_MODEL_REF } from '../shared/types'
+import {
+  COMMAND_NAME_PATTERN,
+  E_PROJECT_UNAVAILABLE,
+  HERMES_MODEL_REF,
+  TERMINAL_MAX_DIMENSION
+} from '../shared/types'
 import { scanImportableConfig, shouldShowImportBanner } from './configImport/scan'
 import { buildCandidateViews } from './configImport/candidateViews'
 import { buildMcpCandidates } from './configImport/mcpCandidates'
@@ -1118,11 +1124,40 @@ export function registerIpc(): void {
     }
     return db.getProjectSettings(path) != null || db.hasConversationForProject(path)
   }
+  // NOTE: the guard itself (isKnownProjectPath) is deliberately unchanged and
+  // stays strict -- it is what stops a compromised renderer from spawning a
+  // shell in an arbitrary directory. Only the *reporting* changed: the thrown
+  // message is now a stable, path-free code. Echoing the requested path back
+  // leaked filesystem layout into renderer-side error text (and into whatever
+  // logs or UI surfaces render it), and a "does this path exist" oracle is
+  // exactly what this guard exists to withhold. The renderer only needs to
+  // know the project is unavailable, not which of the two checks refused it.
   const reqTerminalProjectPath = (p: unknown): string => {
     if (typeof p !== 'string' || p.length === 0 || !isKnownProjectPath(p)) {
-      throw new Error(`Unknown or invalid project path: ${String(p)}`)
+      throw new Error(E_PROJECT_UNAVAILABLE)
     }
     return p
+  }
+  // Pty geometry crossing the process boundary. `Number.isFinite` alone let
+  // through non-integers and arbitrarily large values (1e9, 2.5); node-pty
+  // allocates against these, so bound them. Rejecting -- rather than silently
+  // clamping -- keeps a buggy caller loud instead of quietly mis-sized.
+  const reqTerminalDimension = (n: unknown, label: string): number => {
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > TERMINAL_MAX_DIMENSION) {
+      throw new Error(`Invalid terminal ${label}: ${String(n)}`)
+    }
+    return n
+  }
+  // Optional at the boundary: callers that cannot measure yet omit it and get
+  // the manager's fallback. Anything present but malformed is a caller bug.
+  const optTerminalSize = (s: unknown): TerminalSize | undefined => {
+    if (s === undefined || s === null) return undefined
+    if (typeof s !== 'object') throw new Error(`Invalid terminal size: ${String(s)}`)
+    const { cols, rows } = s as { cols?: unknown; rows?: unknown }
+    return {
+      cols: reqTerminalDimension(cols, 'cols'),
+      rows: reqTerminalDimension(rows, 'rows')
+    }
   }
   const reqTerminalId = (id: unknown): string => {
     if (typeof id !== 'string' || id.length === 0) {
@@ -1130,8 +1165,8 @@ export function registerIpc(): void {
     }
     return id
   }
-  ipcMain.handle('bearcode:terminal:create', (_e, projectPath: unknown) =>
-    terminalManager.create(reqTerminalProjectPath(projectPath))
+  ipcMain.handle('bearcode:terminal:create', (_e, projectPath: unknown, size: unknown) =>
+    terminalManager.create(reqTerminalProjectPath(projectPath), optTerminalSize(size))
   )
   ipcMain.handle('bearcode:terminal:write', (_e, id: unknown, data: unknown) => {
     const sid = reqTerminalId(id)
@@ -1140,10 +1175,7 @@ export function registerIpc(): void {
   })
   ipcMain.handle('bearcode:terminal:resize', (_e, id: unknown, cols: unknown, rows: unknown) => {
     const sid = reqTerminalId(id)
-    if (!Number.isFinite(cols) || !Number.isFinite(rows)) {
-      throw new Error(`Invalid terminal size: ${String(cols)}x${String(rows)}`)
-    }
-    terminalManager.resize(sid, cols as number, rows as number)
+    terminalManager.resize(sid, reqTerminalDimension(cols, 'cols'), reqTerminalDimension(rows, 'rows'))
   })
   ipcMain.handle('bearcode:terminal:close', (_e, id: unknown) => {
     terminalManager.close(reqTerminalId(id))

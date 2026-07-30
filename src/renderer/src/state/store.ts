@@ -32,6 +32,7 @@ import type {
   SettingsInfo,
   SkillInfo,
   SkillProposalResolution,
+  TerminalSize,
   UpdaterStatus,
   UrsaMode,
   WorktreeInfo
@@ -436,7 +437,7 @@ interface AppState {
   openProjectPage(path: string | null): void
   openProjectsIndex(): void
   openModelsPage(): void
-  createTerminalTab(path: string): Promise<void>
+  createTerminalTab(path: string, size?: TerminalSize): Promise<void>
   closeTerminalTab(path: string, id: string): Promise<void>
   setActiveTerminalTab(path: string, id: string): void
   markTerminalTabExited(path: string, id: string): void
@@ -1031,8 +1032,12 @@ export const useAppStore = create<AppState>((set, get) => {
     openModelsPage: () => {
       set({ view: { kind: 'models' }, auxSelection: null, reviewFocusPath: null })
     },
-    createTerminalTab: async (path: string) => {
-      const view = await window.bearcode.terminal.create(path)
+    // `size` is the caller's measured viewport geometry; passing it spawns the
+    // pty at the right width so the shell's first prompt is drawn correctly
+    // (see TerminalSize in shared/types). Omitting it is supported but leaves
+    // the pty on the main-process fallback geometry.
+    createTerminalTab: async (path: string, size?: TerminalSize) => {
+      const view = await window.bearcode.terminal.create(path, size)
       set((s) => {
         const existing = s.terminalTabs[path] ?? []
         return {

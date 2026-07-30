@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import * as pty from 'node-pty'
 import type { IPty } from 'node-pty'
-import type { TerminalSessionView } from '../../shared/types'
+import type { TerminalSessionView, TerminalSize } from '../../shared/types'
 
 interface TerminalSession {
   id: string
@@ -65,13 +65,22 @@ class TerminalManager {
     return () => this.exitListeners.delete(listener)
   }
 
-  create(projectPath: string): TerminalSessionView {
+  // `size` is the renderer's measured viewport geometry. It matters that this
+  // is applied at SPAWN and not left to the first resize(): the shell prints
+  // its first prompt immediately, and zsh's PROMPT_EOL_MARK is padded to
+  // exactly one terminal width and then erased with `\r`-space-`\r`. If the
+  // shell starts at a width the view doesn't share, that erase lands on the
+  // wrong line -- leaving a stray mark and desynchronizing zsh's cursor model
+  // from the display for the rest of the session (garbled redraws while
+  // typing, not just one bad line). The 80x24 fallback is only for callers
+  // that genuinely cannot measure yet.
+  create(projectPath: string, size?: TerminalSize): TerminalSessionView {
     const id = randomUUID()
     const shell = defaultShell()
     const child = pty.spawn(shell, ['-l'], {
       name: 'xterm-256color',
-      cols: 80,
-      rows: 24,
+      cols: size?.cols ?? 80,
+      rows: size?.rows ?? 24,
       cwd: projectPath,
       env: cleanEnv(process.env)
     })

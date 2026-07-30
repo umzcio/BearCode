@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { useAppStore } from '../../state/store'
+import { TERMINAL_FONT } from './termGeometry'
 import './TerminalPane.css'
 
 function xtermTheme(): {
@@ -42,7 +43,10 @@ export function TerminalPane({
     const container = containerRef.current
     if (!container) return
 
-    const term = new Terminal({ theme: xtermTheme(), fontFamily: 'Menlo, monospace', fontSize: 12 })
+    // TERMINAL_FONT is shared with termGeometry's pre-spawn probe -- the two
+    // must construct identically or the measured geometry won't match what
+    // this pane actually renders.
+    const term = new Terminal({ theme: xtermTheme(), ...TERMINAL_FONT })
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
     term.open(container)

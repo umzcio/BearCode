@@ -7,10 +7,22 @@ import { ErrorCard } from '../ui/ErrorCard'
 import { EmptyState } from '../ui/EmptyState'
 import { Hint } from '../Hint'
 import { prefersReducedMotion } from '../../lib/prefersReducedMotion'
+import { measureTerminalSize } from './termGeometry'
+import { E_PROJECT_UNAVAILABLE } from '@shared/types'
 import './TerminalView.css'
 
 function toErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
+}
+
+// The main process refuses a terminal for any path that is not a known project
+// with a live directory, and reports it as a stable path-free code. That is an
+// ordinary condition -- the folder was deleted, renamed, or lives on an
+// unmounted volume -- not an internal failure, so it gets its own empty state
+// rather than a raw "Error invoking remote method ..." card. Electron wraps
+// thrown main-process errors in its own prose, so match on substring.
+function isProjectUnavailable(err: unknown): boolean {
+  return toErrorMessage(err).includes(E_PROJECT_UNAVAILABLE)
 }
 
 export function TerminalView({ path }: { path: string }): React.JSX.Element {
@@ -37,6 +49,15 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
   // because this path already had tabs).
   const [error, setError] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
+  // Tracked separately from `error`: an unavailable project is an expected
+  // state with its own copy, not a failure to report verbatim.
+  const [unavailable, setUnavailable] = useState(false)
+
+  // The pane container. Measured (before any session exists) so the pty can be
+  // spawned at the real viewport geometry -- see termGeometry.ts.
+  const panesRef = useRef<HTMLDivElement | null>(null)
+  const newTabSize = (): ReturnType<typeof measureTerminalSize> =>
+    panesRef.current ? measureTerminalSize(panesRef.current) : undefined
 
   // Matches --dur-fast in styles/tokens.css. Tab close is deferred by this
   // long so the fade/scale-out transition below can finish playing before
@@ -124,12 +145,14 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
           // one-tick window where `hydrated` is true and `tabs` is still
           // empty (this create hasn't landed in the store yet), which would
           // flash the empty state during the normal one-shot auto-create.
-          createTerminalTab(path)
+          createTerminalTab(path, newTabSize())
             .then(() => {
               if (!cancelled) setError(null)
             })
             .catch((err: unknown) => {
-              if (!cancelled) setError(toErrorMessage(err))
+              if (cancelled) return
+              if (isProjectUnavailable(err)) setUnavailable(true)
+              else setError(toErrorMessage(err))
             })
             .finally(() => {
               if (!cancelled) setHydrated(true)
@@ -147,7 +170,8 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
       },
       (err: unknown) => {
         if (cancelled) return
-        setError(toErrorMessage(err))
+        if (isProjectUnavailable(err)) setUnavailable(true)
+        else setError(toErrorMessage(err))
         setHydrated(true)
       }
     )
@@ -202,9 +226,12 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
           className="terminal-tab-new"
           aria-label="New terminal tab"
           onClick={() => {
-            createTerminalTab(path)
+            createTerminalTab(path, newTabSize())
               .then(() => setError(null))
-              .catch((err: unknown) => setError(toErrorMessage(err)))
+              .catch((err: unknown) => {
+                if (isProjectUnavailable(err)) setUnavailable(true)
+                else setError(toErrorMessage(err))
+              })
           }}
         >
           <IconPlus size={13} />
@@ -216,9 +243,15 @@ export function TerminalView({ path }: { path: string }): React.JSX.Element {
           <span className="terminal-sandbox-notice">Unsandboxed</span>
         </Hint>
       </div>
-      {error ? <ErrorCard>{error}</ErrorCard> : null}
-      <div className="terminal-panes">
-        {hydrated && !error && tabs.length === 0 ? (
+      {error && !unavailable ? <ErrorCard>{error}</ErrorCard> : null}
+      <div className="terminal-panes" ref={panesRef}>
+        {unavailable ? (
+          <EmptyState
+            title="This project's folder isn't available"
+            hint="It may have been moved, renamed, deleted, or live on a drive that isn't mounted. Reconnect or remove the project to clear this."
+          />
+        ) : null}
+        {hydrated && !error && !unavailable && tabs.length === 0 ? (
           <EmptyState
             title="No terminal sessions"
             hint="Click the + button above to open a new terminal."

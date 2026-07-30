@@ -1478,6 +1478,27 @@ export interface TerminalSessionView {
   exited: boolean
 }
 
+// Pty geometry. Supplied at CREATE time (not just via a follow-up resize) so
+// the shell draws its very first prompt at the real viewport width: zsh pads
+// its PROMPT_EOL_MARK to exactly one terminal width and then erases it, so a
+// shell that starts at the wrong width leaves stray marks and keeps a
+// desynchronized cursor model for the rest of the session.
+export interface TerminalSize {
+  cols: number
+  rows: number
+}
+
+// Upper bound on pty geometry accepted over IPC. The renderer is trusted-ish
+// but this is the process boundary: bound the values so a compromised or buggy
+// renderer cannot ask the pty layer to allocate absurd row/column buffers.
+export const TERMINAL_MAX_DIMENSION = 1000
+
+// Stable, path-free code thrown when a terminal is requested for a project
+// path that is not a known project or whose folder no longer exists. The two
+// cases are deliberately NOT distinguished over IPC (and the path is not
+// echoed back) -- the renderer only needs to know the project is unavailable.
+export const E_PROJECT_UNAVAILABLE = 'E_PROJECT_UNAVAILABLE'
+
 export type BrowserPhase = 'idle' | 'starting' | 'ready' | 'error'
 
 export interface BrowserStatus {
@@ -1748,7 +1769,10 @@ export interface BearcodeApi {
   // onTerminalExit (below, alongside the other on* subscriptions) push
   // incremental output -- never buffered through this invoke surface.
   terminal: {
-    create(projectPath: string): Promise<TerminalSessionView>
+    // `size` is optional for backwards compatibility, but callers should pass
+    // the measured viewport geometry -- see TerminalSize's note on why the
+    // first prompt must be drawn at the real width.
+    create(projectPath: string, size?: TerminalSize): Promise<TerminalSessionView>
     write(id: string, data: string): Promise<void>
     resize(id: string, cols: number, rows: number): Promise<void>
     close(id: string): Promise<void>

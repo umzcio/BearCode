@@ -54,6 +54,7 @@ import type {
   SkillSaveResult,
   SmitheryHit,
   TerminalSessionView,
+  TerminalSize,
   TranscribeMeta,
   UpdateCheck,
   UpdaterStatus,
@@ -339,8 +340,8 @@ const bearcode: BearcodeApi = {
     hide: (): Promise<void> => ipcRenderer.invoke('bearcode:browser:hide')
   },
   terminal: {
-    create: (projectPath: string): Promise<TerminalSessionView> =>
-      ipcRenderer.invoke('bearcode:terminal:create', projectPath),
+    create: (projectPath: string, size?: TerminalSize): Promise<TerminalSessionView> =>
+      ipcRenderer.invoke('bearcode:terminal:create', projectPath, size),
     write: (id: string, data: string): Promise<void> =>
       ipcRenderer.invoke('bearcode:terminal:write', id, data),
     resize: (id: string, cols: number, rows: number): Promise<void> =>

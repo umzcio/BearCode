@@ -117,7 +117,7 @@ describe('bearcode:terminal:* IPC surface', () => {
     vi.mocked(terminalManager.create).mockReturnValue(view)
     const handler = handlers.get('bearcode:terminal:create')!
     expect(handler(null, '/proj')).toEqual(view)
-    expect(terminalManager.create).toHaveBeenCalledWith('/proj')
+    expect(terminalManager.create).toHaveBeenCalledWith('/proj', undefined)
   })
 
   it('write() delegates to terminalManager.write with id and data', () => {
@@ -147,7 +147,7 @@ describe('bearcode:terminal:* IPC surface', () => {
 
   it('list() rejects a path that is not absolute', () => {
     const handler = handlers.get('bearcode:terminal:list')!
-    expect(() => handler(null, 'relative/path')).toThrow(/Unknown or invalid project path/)
+    expect(() => handler(null, 'relative/path')).toThrow(/E_PROJECT_UNAVAILABLE/)
     expect(terminalManager.list).not.toHaveBeenCalled()
   })
 
@@ -155,7 +155,7 @@ describe('bearcode:terminal:* IPC surface', () => {
     vi.mocked(db.getProjectSettings).mockReturnValue(null)
     vi.mocked(db.hasConversationForProject).mockReturnValue(false)
     const handler = handlers.get('bearcode:terminal:list')!
-    expect(() => handler(null, '/proj/unknown')).toThrow(/Unknown or invalid project path/)
+    expect(() => handler(null, '/proj/unknown')).toThrow(/E_PROJECT_UNAVAILABLE/)
     expect(terminalManager.list).not.toHaveBeenCalled()
   })
 
@@ -165,8 +165,47 @@ describe('bearcode:terminal:* IPC surface', () => {
     })
     vi.mocked(db.hasConversationForProject).mockReturnValue(true)
     const handler = handlers.get('bearcode:terminal:list')!
-    expect(() => handler(null, '/proj/gone')).toThrow(/Unknown or invalid project path/)
+    expect(() => handler(null, '/proj/gone')).toThrow(/E_PROJECT_UNAVAILABLE/)
     expect(terminalManager.list).not.toHaveBeenCalled()
+  })
+
+  // --- pty geometry validation at the process boundary ---
+
+  it('create() forwards a valid measured size to the manager', () => {
+    const handler = handlers.get('bearcode:terminal:create')!
+    handler(null, '/proj', { cols: 45, rows: 20 })
+    expect(terminalManager.create).toHaveBeenCalledWith('/proj', { cols: 45, rows: 20 })
+  })
+
+  it('create() rejects a size with non-integer dimensions', () => {
+    const handler = handlers.get('bearcode:terminal:create')!
+    expect(() => handler(null, '/proj', { cols: 2.5, rows: 20 })).toThrow(/Invalid terminal cols/)
+    expect(terminalManager.create).not.toHaveBeenCalled()
+  })
+
+  it('create() rejects a size beyond the allowed bound', () => {
+    const handler = handlers.get('bearcode:terminal:create')!
+    expect(() => handler(null, '/proj', { cols: 1e9, rows: 20 })).toThrow(/Invalid terminal cols/)
+    expect(() => handler(null, '/proj', { cols: 80, rows: 0 })).toThrow(/Invalid terminal rows/)
+    expect(terminalManager.create).not.toHaveBeenCalled()
+  })
+
+  it('resize() rejects non-integer and out-of-bounds dimensions', () => {
+    const handler = handlers.get('bearcode:terminal:resize')!
+    expect(() => handler(null, 'x', 2.5, 20)).toThrow(/Invalid terminal cols/)
+    expect(() => handler(null, 'x', 1e9, 20)).toThrow(/Invalid terminal cols/)
+    expect(() => handler(null, 'x', 80, -1)).toThrow(/Invalid terminal rows/)
+    expect(() => handler(null, 'x', NaN, 20)).toThrow(/Invalid terminal cols/)
+    expect(terminalManager.resize).not.toHaveBeenCalled()
+  })
+
+  it('never echoes the requested path back in the rejection message', () => {
+    const handler = handlers.get('bearcode:terminal:list')!
+    vi.mocked(db.getProjectSettings).mockReturnValue(null)
+    vi.mocked(db.hasConversationForProject).mockReturnValue(false)
+    expect(() => handler(null, '/secret/place')).toThrow(
+      expect.objectContaining({ message: expect.not.stringContaining('/secret/place') })
+    )
   })
 
   it('wires terminalManager.onData/onExit exactly once per registerIpc() call', () => {
@@ -176,7 +215,7 @@ describe('bearcode:terminal:* IPC surface', () => {
 
   it('create() rejects a path that is not absolute', () => {
     const handler = handlers.get('bearcode:terminal:create')!
-    expect(() => handler(null, 'relative/path')).toThrow(/Unknown or invalid project path/)
+    expect(() => handler(null, 'relative/path')).toThrow(/E_PROJECT_UNAVAILABLE/)
     expect(terminalManager.create).not.toHaveBeenCalled()
   })
 
@@ -184,7 +223,7 @@ describe('bearcode:terminal:* IPC surface', () => {
     vi.mocked(db.getProjectSettings).mockReturnValue(null)
     vi.mocked(db.hasConversationForProject).mockReturnValue(false)
     const handler = handlers.get('bearcode:terminal:create')!
-    expect(() => handler(null, '/proj/unknown')).toThrow(/Unknown or invalid project path/)
+    expect(() => handler(null, '/proj/unknown')).toThrow(/E_PROJECT_UNAVAILABLE/)
     expect(terminalManager.create).not.toHaveBeenCalled()
   })
 
@@ -194,7 +233,7 @@ describe('bearcode:terminal:* IPC surface', () => {
     })
     vi.mocked(db.hasConversationForProject).mockReturnValue(true)
     const handler = handlers.get('bearcode:terminal:create')!
-    expect(() => handler(null, '/proj/gone')).toThrow(/Unknown or invalid project path/)
+    expect(() => handler(null, '/proj/gone')).toThrow(/E_PROJECT_UNAVAILABLE/)
   })
 
   it('create() accepts a path known via an existing conversation, even with no project_settings row', () => {
@@ -217,10 +256,10 @@ describe('bearcode:terminal:* IPC surface', () => {
     expect(() => handler(null, 12345, 'ls\n')).toThrow(/Invalid terminal id/)
   })
 
-  it('resize() rejects non-finite cols/rows', () => {
+  it('resize() rejects non-finite / non-numeric cols/rows', () => {
     const handler = handlers.get('bearcode:terminal:resize')!
-    expect(() => handler(null, 'x', NaN, 40)).toThrow(/Invalid terminal size/)
-    expect(() => handler(null, 'x', 120, 'forty')).toThrow(/Invalid terminal size/)
+    expect(() => handler(null, 'x', NaN, 40)).toThrow(/Invalid terminal cols/)
+    expect(() => handler(null, 'x', 120, 'forty')).toThrow(/Invalid terminal rows/)
     expect(terminalManager.resize).not.toHaveBeenCalled()
   })
 
