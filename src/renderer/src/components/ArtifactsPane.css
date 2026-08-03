@@ -398,6 +398,16 @@
   min-height: 60px;
   resize: vertical;
 }
+.plan-feedback-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+.plan-feedback-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
 .plan-comment-list {
   border-top: 1px solid var(--border-soft);
   margin-top: 14px;

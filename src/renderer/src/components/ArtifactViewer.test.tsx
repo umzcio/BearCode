@@ -150,7 +150,8 @@ describe('ArtifactViewer copy and Markdown export', () => {
       'Proceed',
       'Review',
       'Copy Markdown',
-      'Export…'
+      'Export…',
+      'Send feedback'
     ])
   })
 
@@ -380,6 +381,48 @@ describe('ArtifactViewer plan resolution feedback', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(feedback).toHaveValue('Keep this text')
     expect(screen.getByRole('button', { name: 'Proceed' })).not.toBeDisabled()
+  })
+
+  it('submits typed feedback from the Send feedback button beside the feedback box', async () => {
+    resolvePlanReview.mockResolvedValue(true)
+    renderViewer()
+    const feedback = screen.getByPlaceholderText('Feedback for the agent…')
+    fireEvent.change(feedback, { target: { value: 'Use the real CLI docs' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send feedback' }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(resolvePlanReview).toHaveBeenCalledWith('call-one', false, 'Use the real CLI docs')
+    expect(screen.getByRole('status')).toHaveTextContent('Feedback sent')
+  })
+
+  it('disables Send feedback until there is a message or draft comment', () => {
+    renderViewer()
+    const send = screen.getByRole('button', { name: 'Send feedback' })
+    expect(send).toBeDisabled()
+
+    const feedback = screen.getByPlaceholderText('Feedback for the agent…')
+    fireEvent.change(feedback, { target: { value: 'now sendable' } })
+    expect(send).not.toBeDisabled()
+  })
+
+  it('submits feedback on Cmd+Enter in the feedback box and ignores it when empty', async () => {
+    resolvePlanReview.mockResolvedValue(true)
+    renderViewer()
+    const feedback = screen.getByPlaceholderText('Feedback for the agent…')
+
+    fireEvent.keyDown(feedback, { key: 'Enter', metaKey: true })
+    expect(resolvePlanReview).not.toHaveBeenCalled()
+
+    fireEvent.change(feedback, { target: { value: 'Tighten the hero copy' } })
+    fireEvent.keyDown(feedback, { key: 'Enter', metaKey: true })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(resolvePlanReview).toHaveBeenCalledWith('call-one', false, 'Tighten the hero copy')
   })
 
   it('clears acknowledgment immediately when the selected artifact changes', async () => {

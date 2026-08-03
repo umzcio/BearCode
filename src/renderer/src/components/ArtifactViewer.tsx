@@ -325,13 +325,33 @@ export function ArtifactViewer({
           <Markdown text={selected.body} />
         </div>
         {pendingCall ? (
-          <textarea
-            ref={feedbackRef}
-            className="plan-feedback-box"
-            placeholder="Feedback for the agent…"
-            value={feedbackText}
-            onChange={(e) => setFeedbackText(e.target.value)}
-          />
+          <>
+            <textarea
+              ref={feedbackRef}
+              className="plan-feedback-box"
+              placeholder="Feedback for the agent…"
+              value={feedbackText}
+              onChange={(e) => setFeedbackText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return
+                e.preventDefault()
+                if (unsentCount === 0 && feedbackText.trim() === '') return
+                requestReview()
+              }}
+            />
+            <div className="plan-feedback-actions">
+              <button
+                className="plan-request-review"
+                disabled={resolving || (unsentCount === 0 && feedbackText.trim() === '')}
+                onClick={requestReview}
+              >
+                Send feedback
+              </button>
+              <span className="plan-feedback-hint">
+                ⌘↩ sends your message and any draft comments to the agent
+              </span>
+            </div>
+          </>
         ) : null}
         {pendingCall && draftQuote !== null ? (
           <div className="comment-composer">
