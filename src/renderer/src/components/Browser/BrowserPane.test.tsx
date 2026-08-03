@@ -62,6 +62,10 @@ beforeEach(() => {
   unsubscribe.mockClear()
   statusListener = null
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+  // jsdom rects are all-zero, which the pane now correctly skips as a
+  // degenerate measurement. Give every element a realistic in-window rect;
+  // geometry tests override the pane instance directly.
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 800, 600))
   ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
     browser: { status, onStatus, setBounds, show, hide }
   } as unknown as BearcodeApi
@@ -70,6 +74,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 describe('BrowserPane lifecycle feedback', () => {
@@ -294,6 +299,46 @@ describe('BrowserPane geometry', () => {
       width: 800,
       height: 599
     })
+  })
+
+  it('clamps a mid-animation rect that overhangs the window edge instead of pushing it raw', () => {
+    render(<BrowserPane visible={false} />)
+    const pane = document.querySelector<HTMLDivElement>('.browser-pane')!
+    // The pane's entrance slides in via translateX(100%): the rect hangs past
+    // the window's right edge, which the main-process guard hard-rejects.
+    vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue(new DOMRect(900, 48, 800, 600))
+    setBounds.mockClear()
+
+    window.dispatchEvent(new Event('resize'))
+
+    expect(setBounds).toHaveBeenCalledExactlyOnceWith({
+      x: 900,
+      y: 48,
+      width: 124,
+      height: 600
+    })
+  })
+
+  it('skips the push entirely for a zero-size rect', () => {
+    render(<BrowserPane visible={false} />)
+    const pane = document.querySelector<HTMLDivElement>('.browser-pane')!
+    vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 0, 0))
+    setBounds.mockClear()
+
+    window.dispatchEvent(new Event('resize'))
+
+    expect(setBounds).not.toHaveBeenCalled()
+  })
+
+  it('skips the push for a rect fully outside the window', () => {
+    render(<BrowserPane visible={false} />)
+    const pane = document.querySelector<HTMLDivElement>('.browser-pane')!
+    vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue(new DOMRect(1030, 48, 800, 600))
+    setBounds.mockClear()
+
+    window.dispatchEvent(new Event('resize'))
+
+    expect(setBounds).not.toHaveBeenCalled()
   })
 
   it('hides again on unmount', async () => {

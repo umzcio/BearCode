@@ -40,9 +40,15 @@ const mocks = vi.hoisted(() => {
     }
   }
 
+  const cdpSession = {
+    send: vi.fn(async () => {}),
+    detach: vi.fn(async () => {})
+  }
   const page = {
     url: vi.fn(() => loadedUrl),
-    emulateMedia: vi.fn(async () => {})
+    emulateMedia: vi.fn(async () => {}),
+    setViewportSize: vi.fn(async () => {}),
+    context: vi.fn(() => ({ newCDPSession: vi.fn(async () => cdpSession) }))
   }
   const otherPage = {
     url: vi.fn(() => 'app://bearcode'),
@@ -65,6 +71,7 @@ const mocks = vi.hoisted(() => {
   return {
     WebContentsView,
     views,
+    cdpSession,
     page,
     otherPage,
     browser,
@@ -501,6 +508,33 @@ describe('BrowserManager native-view visibility', () => {
 
     manager.show()
     expect(setBounds).toHaveBeenLastCalledWith(latest)
+  })
+
+  it('emulates the pending bounds at start so a never-shown view can screenshot', async () => {
+    const manager = new BrowserManager()
+    manager.setBounds({ x: 12, y: 8, width: 901, height: 655 })
+
+    await manager.start('conversation-1')
+
+    expect(mocks.page.setViewportSize).toHaveBeenCalledExactlyOnceWith({
+      width: 901,
+      height: 655
+    })
+    expect(mocks.cdpSession.send).not.toHaveBeenCalled()
+  })
+
+  it('clears the hidden-viewport emulation once the view is shown', async () => {
+    const manager = new BrowserManager()
+    await manager.start('conversation-1')
+
+    manager.show()
+
+    await vi.waitFor(() => {
+      expect(mocks.cdpSession.send).toHaveBeenCalledExactlyOnceWith(
+        'Emulation.clearDeviceMetricsOverride'
+      )
+      expect(mocks.cdpSession.detach).toHaveBeenCalledTimes(1)
+    })
   })
 
   it.each(['idle', 'starting', 'error'] as const)(

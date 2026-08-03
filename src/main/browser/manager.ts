@@ -62,6 +62,9 @@ export class BrowserManager {
   // exists. Bounds may keep updating while hidden without exposing native
   // pixels or input above a moving DOM shell.
   private visible = false
+  // True while the hidden view's page runs under an emulated viewport (set at
+  // start, cleared on show) so tools work before the pane ever shows it.
+  private hiddenViewportEmulated = false
   private phase: BrowserPhase = 'idle'
   private message: string | null = null
   private statusListeners = new Set<(status: BrowserStatus) => void>()
@@ -215,6 +218,19 @@ export class BrowserManager {
         // must escape this best-effort block rather than becoming stale ready.
         this.assertCurrentGeneration(generation)
       }
+      this.assertCurrentGeneration(generation)
+      // A view that has never intersected the window has a 0×0 render widget
+      // (verified empirically): Page.captureScreenshot fails with "Cannot take
+      // screenshot with 0 width" and element geometry is degenerate, so every
+      // browser tool that needs layout breaks while the pane is closed. New
+      // sessions always start hidden — emulate the pending bounds as the
+      // viewport; show() clears the override so real widget geometry governs
+      // on screen.
+      await this.page.setViewportSize({
+        width: this.bounds.width,
+        height: this.bounds.height
+      })
+      this.hiddenViewportEmulated = true
       this.assertCurrentGeneration(generation)
       this.transition('ready')
     } catch (error) {
@@ -395,6 +411,26 @@ export class BrowserManager {
     if (this.phase !== 'ready' || !this.page) return
     this.visible = true
     this.view?.setBounds(this.bounds)
+    void this.clearHiddenViewport()
+  }
+  // Clears the hidden-viewport emulation once the on-screen widget provides
+  // real geometry. Best-effort and fire-and-forget: until it lands the page
+  // just renders at the emulated size (≈ the shown bounds); on failure the
+  // flag stays set so the next show retries.
+  private async clearHiddenViewport(): Promise<void> {
+    const page = this.page
+    if (!this.hiddenViewportEmulated || !page) return
+    this.hiddenViewportEmulated = false
+    try {
+      const session = await page.context().newCDPSession(page)
+      try {
+        await session.send('Emulation.clearDeviceMetricsOverride')
+      } finally {
+        await session.detach()
+      }
+    } catch {
+      this.hiddenViewportEmulated = true
+    }
   }
   private moveNativeOffscreen(): void {
     this.visible = false
@@ -434,6 +470,7 @@ export class BrowserManager {
     if (this.teardownPromise) return this.teardownPromise
     const cleanup = (async (): Promise<void> => {
       this.visible = false
+      this.hiddenViewportEmulated = false
       this.screenshots.clear()
       const browser = this.browser
       const view = this.view

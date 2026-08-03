@@ -257,6 +257,10 @@ beforeEach(() => {
   readFile.mockClear()
   loadArtifactComments.mockClear()
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+  // jsdom rects are all-zero, which BrowserPane now correctly skips as a
+  // degenerate measurement; give elements a realistic in-window rect so the
+  // motion-lifecycle tests still see bounds pushes.
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 800, 600))
   ;(window as unknown as { bearcode: BearcodeApi }).bearcode = {
     attachments: { preview, save },
     browser: {
@@ -282,6 +286,7 @@ afterEach(() => {
   if (bearcodeBefore) Object.defineProperty(window, 'bearcode', bearcodeBefore)
   else Reflect.deleteProperty(window, 'bearcode')
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   document.documentElement.removeAttribute('data-motion')
   useAppStore.setState({
     showToast: realShowToast,

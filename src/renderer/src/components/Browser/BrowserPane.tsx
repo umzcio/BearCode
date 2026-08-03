@@ -43,16 +43,21 @@ export function BrowserPane({
     setCommandError(null)
   }, [])
 
+  // Clamped into the window: during the pane's entrance the shell is
+  // transform-translated partially past the window edge (and fractional zoom
+  // coordinates can round 1px past it), and the main-process bounds guard
+  // hard-rejects any out-of-window rect — one rejection wedges the pane in an
+  // ErrorCard. A degenerate result (zero-size / fully outside) returns null so
+  // the push is skipped; the settle-gated effect re-measures at rest.
   const measuredBounds = useCallback(() => {
     const rect = ref.current?.getBoundingClientRect()
-    return rect
-      ? {
-          x: Math.round(rect.x),
-          y: Math.round(rect.y),
-          width: Math.round(rect.width),
-          height: Math.round(rect.height)
-        }
-      : null
+    if (!rect) return null
+    const x = Math.min(Math.max(0, Math.round(rect.x)), window.innerWidth)
+    const y = Math.min(Math.max(0, Math.round(rect.y)), window.innerHeight)
+    const width = Math.min(Math.round(rect.width), window.innerWidth - x)
+    const height = Math.min(Math.round(rect.height), window.innerHeight - y)
+    if (width < 1 || height < 1) return null
+    return { x, y, width, height }
   }, [])
 
   const pushBounds = useCallback((): void => {

@@ -114,6 +114,14 @@ async function run(): Promise<void> {
     })
   })
 
+  await check('screenshot while never shown', async () => {
+    // Regression gate: a view that has never intersected the window has a 0×0
+    // render widget; without the hidden-viewport emulation this fails with
+    // "Cannot take screenshot with 0 width".
+    const screenshot = await manager!.screenshot()
+    assert.match(screenshot, /^data:image\/png;base64,[A-Za-z0-9+/=]+$/)
+  })
+
   await check('show latest bounds', () => {
     manager!.show()
     assert.deepEqual(view.getBounds(), initialBounds)
