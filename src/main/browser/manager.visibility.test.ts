@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
       handlers: Map<string, Handler>
     }
   }> = []
+  const viewOptions: unknown[] = []
   let loadedUrl = 'about:blank'
 
   class WebContentsView {
@@ -35,7 +36,8 @@ const mocks = vi.hoisted(() => {
       handlers: new Map<string, Handler>()
     }
 
-    constructor() {
+    constructor(options?: unknown) {
+      viewOptions.push(options)
       views.push(this)
     }
   }
@@ -71,6 +73,7 @@ const mocks = vi.hoisted(() => {
   return {
     WebContentsView,
     views,
+    viewOptions,
     cdpSession,
     page,
     otherPage,
@@ -508,6 +511,15 @@ describe('BrowserManager native-view visibility', () => {
 
     manager.show()
     expect(setBounds).toHaveBeenLastCalledWith(latest)
+  })
+
+  it('creates the view with focusOnNavigation disabled so agent browsing never activates the app', async () => {
+    const manager = new BrowserManager()
+    await manager.start('conversation-1')
+
+    expect(mocks.viewOptions.at(-1)).toMatchObject({
+      webPreferences: { sandbox: true, focusOnNavigation: false }
+    })
   })
 
   it('emulates the pending bounds at start so a never-shown view can screenshot', async () => {

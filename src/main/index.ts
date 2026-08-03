@@ -88,7 +88,10 @@ function createWindow(): void {
   setMainWindow(win)
 
   win.on('ready-to-show', () => {
-    win.show()
+    // ready-to-show re-fires on renderer reloads (see devSmoke). win.show()
+    // on an already-visible window is a macOS app activation — it would yank
+    // focus from whatever the user is doing — so only show the first time.
+    if (!win.isVisible()) win.show()
     runBootResumeOnce()
     runDevSmoke(win)
     initUpdater(win)

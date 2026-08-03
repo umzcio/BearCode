@@ -150,7 +150,16 @@ export class BrowserManager {
       // squatter's fake endpoint. Any of those yields no token match → we refuse.
       const token = randomUUID()
       this.view = new WebContentsView({
-        webPreferences: { sandbox: true, partition: `browser:${conversationId}` }
+        // focusOnNavigation:false — agent-driven navigations in this embedded
+        // view must never focus the view or activate the app over whatever the
+        // user is doing (Electron gives navigations focus by default; upstream
+        // added this opt-out for exactly the embedded-browser case). Real user
+        // clicks inside the pane still focus it.
+        webPreferences: {
+          sandbox: true,
+          partition: `browser:${conversationId}`,
+          focusOnNavigation: false
+        }
       })
       win.contentView.addChildView(this.view)
       this.view.setBounds(hiddenBounds(this.bounds))
