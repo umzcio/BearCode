@@ -1,0 +1,42 @@
+diff --git a/node_modules/@langchain/core/dist/messages/base.cjs b/node_modules/@langchain/core/dist/messages/base.cjs
+index 48313c0..51fbca1 100644
+--- a/node_modules/@langchain/core/dist/messages/base.cjs
++++ b/node_modules/@langchain/core/dist/messages/base.cjs
+@@ -255,6 +255,20 @@ function hasMergeableId(value) {
+ 	return id != null && id !== "";
+ }
+ function getMergeableTypeBase(type) {
++	// BearCode patch (patches/@langchain+core+*.patch): Anthropic's tool-call
++	// argument delta is named "input_json_delta", not "tool_use_delta" -- it
++	// doesn't follow the "<parentType>_delta" convention every other Anthropic
++	// delta type does (text_delta->text, thinking_delta->thinking,
++	// signature_delta->signature). Stripping "_delta" naively yields
++	// "input_json", which never matches the parent "tool_use" block, so
++	// _findMergeTarget rejects the merge and the delta is appended as its own
++	// unmerged content-block entry instead of being folded into the tool_use
++	// block's `input`. That unmerged block then gets persisted verbatim to
++	// the LangGraph checkpoint and replayed as history on the next turn --
++	// harmless to Anthropic (which seems to tolerate/reconstruct it) but
++	// rejected outright by OpenAI's stricter content-block validation
++	// ("400 Invalid value: 'input_json_delta'...").
++	if (type === "input_json_delta") return "tool_use";
+ 	return type.endsWith("_delta") ? type.slice(0, -6) : type;
+ }
+ function hasMismatchedMergeableType(left, right) {
+diff --git a/node_modules/@langchain/core/dist/messages/base.js b/node_modules/@langchain/core/dist/messages/base.js
+index 000b9c9..16eb6f8 100644
+--- a/node_modules/@langchain/core/dist/messages/base.js
++++ b/node_modules/@langchain/core/dist/messages/base.js
+@@ -255,6 +255,12 @@ function hasMergeableId(value) {
+ 	return id != null && id !== "";
+ }
+ function getMergeableTypeBase(type) {
++	// BearCode patch (patches/@langchain+core+*.patch): see base.cjs for the
++	// full explanation -- Anthropic's "input_json_delta" tool-call-argument
++	// delta doesn't follow the "<parentType>_delta" naming convention every
++	// other Anthropic delta type does, so it never merges into its parent
++	// "tool_use" block without this special case.
++	if (type === "input_json_delta") return "tool_use";
+ 	return type.endsWith("_delta") ? type.slice(0, -6) : type;
+ }
+ function hasMismatchedMergeableType(left, right) {
