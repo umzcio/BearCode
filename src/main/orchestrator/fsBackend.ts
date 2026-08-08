@@ -219,6 +219,7 @@ export class DiffFsBackend implements BackendProtocolV2 {
     pattern: string,
     path?: string | null,
     glob?: string | null,
+    maxCount?: number | null,
     allowOutsideRead = false
   ): Promise<GrepResult> {
     try {
@@ -231,7 +232,7 @@ export class DiffFsBackend implements BackendProtocolV2 {
       const matches = stdout
         .split('\n')
         .filter(Boolean)
-        .slice(0, 200)
+        .slice(0, Math.min(maxCount ?? 200, 200))
         .map((line) => {
           const m = /^(.*?):(\d+):(.*)$/.exec(line)
           return m
@@ -644,11 +645,16 @@ export class GatedDiffFsBackend implements BackendProtocolV2 {
     return result
   }
 
-  async grep(pattern: string, path?: string | null, glob?: string | null): Promise<GrepResult> {
+  async grep(
+    pattern: string,
+    path?: string | null,
+    glob?: string | null,
+    maxCount?: number | null
+  ): Promise<GrepResult> {
     const hookInput = { pattern, path, glob }
     const g = await this.guardRead(path ?? undefined, 'grep', hookInput)
     if ('error' in g) return { error: g.error }
-    const result = await this.shared.grep(pattern, path, glob, g.allowOutside)
+    const result = await this.shared.grep(pattern, path, glob, maxCount, g.allowOutside)
     this.hookPost('grep', hookInput, !result.error, result)
     return result
   }

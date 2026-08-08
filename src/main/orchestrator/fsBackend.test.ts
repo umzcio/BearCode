@@ -289,7 +289,7 @@ describe('GatedDiffFsBackend', () => {
     await gated.readRaw('a/b.txt')
     expect(shared.readRaw).toHaveBeenCalledWith('a/b.txt', false)
     await gated.grep('needle', 'a', '*.txt')
-    expect(shared.grep).toHaveBeenCalledWith('needle', 'a', '*.txt', false)
+    expect(shared.grep).toHaveBeenCalledWith('needle', 'a', '*.txt', undefined, false)
     await gated.glob('**/*.txt', 'a')
     expect(shared.glob).toHaveBeenCalledWith('**/*.txt', 'a', false)
     // None of the read-side delegations consult the edit/write rules engine.
