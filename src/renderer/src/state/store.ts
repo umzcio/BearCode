@@ -1007,6 +1007,12 @@ export const useAppStore = create<AppState>((set, get) => {
           permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
           effort: s.settings?.defaultEffort ?? 'adaptive',
           thinking: s.settings?.defaultThinking ?? true,
+          // Web search is opt-out: a fresh conversation always starts ON. This
+          // reset is load-bearing -- startFromHome PERSISTS the live value, so
+          // without it a just-viewed searchless conversation writes an explicit
+          // 0 into every new conversation it seeds (the 2026-08-12 "still says
+          // no web search" contamination chain).
+          webSearch: true,
           // Ursa Mode has no settings default -- a fresh Home composer is Code.
           ursaMode: 'code',
           auxSelection: null,
