@@ -249,9 +249,18 @@ export async function fetchPerplexityModels(apiKey: string): Promise<LiveDiscove
     })
     if (!res.ok) return null
     const body = (await res.json()) as PerplexityModelsResponse
+    // The endpoint returns the AGENT API catalog, which namespaces ids by
+    // vendor and includes third-party models Perplexity proxies
+    // ("anthropic/claude-…", "openai/gpt-…") that are NOT drivable through
+    // the chat-completions path BearCode speaks (verified live 2026-08-12).
+    // Keep only Perplexity's own namespace (their hosted models), stripped
+    // of the prefix, plus any bare legacy ids; drop other vendors' entries.
     const models: ModelInfo[] = (body.data ?? [])
       .filter((entry) => entry.id)
-      .map((entry) => ({ id: entry.id, label: labelFromId(entry.id) }))
+      .map((entry) => entry.id)
+      .filter((id) => !id.includes('/') || id.startsWith('perplexity/'))
+      .map((id) => id.replace(/^perplexity\//, ''))
+      .map((id) => ({ id, label: labelFromId(id) }))
     return { models, capabilities: {} }
   } catch {
     return null

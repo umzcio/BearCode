@@ -282,14 +282,20 @@ export const REGISTRY: ProviderRegistryEntry[] = [
     displayName: 'Perplexity',
     color: '#20B8CD',
     requiresKey: true,
-    listModels: async () => ({ models: PERPLEXITY_MODELS, reachable: true })
+    listModels: async () => {
+      await ensureLiveDiscovery('perplexity')
+      return { models: knownModels('perplexity'), reachable: true }
+    }
   },
   {
     id: 'xai',
     displayName: 'xAI',
     color: '#9aa0a6',
     requiresKey: true,
-    listModels: async () => ({ models: XAI_MODELS, reachable: true })
+    listModels: async () => {
+      await ensureLiveDiscovery('xai')
+      return { models: knownModels('xai'), reachable: true }
+    }
   },
   {
     id: 'ollama',
@@ -374,7 +380,9 @@ export function allKnownModelRefs(): string[] {
 // time it (or listAllModels) is called this process lifetime.
 export async function listManageableModels(): Promise<ManageableProvider[]> {
   await Promise.all(
-    (['anthropic', 'google', 'openai'] as ProviderId[]).map((id) => ensureLiveDiscovery(id))
+    (['anthropic', 'google', 'openai', 'xai', 'perplexity'] as ProviderId[]).map((id) =>
+      ensureLiveDiscovery(id)
+    )
   )
   const { customModels = [], disabledModels = [], enabledLiveModels = [] } = getSettings()
   const disabledSet = new Set(disabledModels)
