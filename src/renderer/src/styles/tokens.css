@@ -113,6 +113,12 @@
     1
   ); /* iOS-like drawer (already used by sidebar FLIP) */
   --ease-link: cubic-bezier(0.16, 1, 0.3, 1); /* underline/link micro-transitions */
+  /* BUI standard curve: color/hover feedback only — structural movement keeps
+     --ease-out/--ease-in-out. */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-hover: 100ms; /* hover color feedback (BUI transition-colors duration-100) */
+  --dur-reveal: 300ms; /* collapsible grid-rows + fade-up entrances */
+  --dur-reveal-lg: 400ms; /* large collapsibles (diff bodies, source panels) */
   --dur-press: 140ms; /* button press */
   --dur-press-release: 100ms; /* button release response */
   --dur-fast: 150ms; /* hover, small */
