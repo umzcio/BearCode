@@ -89,6 +89,11 @@
   --danger: var(--red);
   --amber: var(--orange);
 
+  /* Ink on accent/semantic fills (BUI text-white: white in both themes) and
+     the modal scrim (BUI black/55 in both themes) — theme-independent. */
+  --accent-fg: #ffffff;
+  --scrim: rgba(0, 0, 0, 0.55);
+
   /* Keyboard focus ring: accent ring with an inner gap in the window bg so it
      reads on any surface (raised chrome, sidebar rows, inputs). */
   --focus: var(--accent);
