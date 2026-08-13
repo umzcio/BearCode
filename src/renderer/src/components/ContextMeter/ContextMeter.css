@@ -1,5 +1,7 @@
 /* A small circular usage ring (like the AI providers show next to the model)
-   with a click-to-open details popover, styled to match the app's menus. */
+   with a click-to-open details popover styled as a BUI metric card
+   (ContextCards/RecommendationCard): 13px/500 labels in --ink, tabular-nums
+   on every live number, --ink-3 captions, Meter-style bars. */
 
 .context-meter-wrap {
   position: relative;
@@ -16,20 +18,20 @@
   height: 24px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-chip);
   background: transparent;
   color: var(--accent);
   cursor: pointer;
   transition: background var(--dur-fast) ease;
 }
 .context-ring:hover {
-  background: var(--wash);
+  background: var(--hover);
 }
 .context-ring.near {
-  color: var(--amber);
+  color: var(--orange);
 }
 .context-ring.over {
-  color: var(--danger, var(--red));
+  color: var(--red);
 }
 /* Window unknown (e.g. a local Ollama model): the ring is an empty track --
    usage is known, capacity isn't. Dashed to read as "no reading available"
@@ -41,7 +43,7 @@
 
 .context-ring .ring-track {
   fill: none;
-  stroke: var(--border);
+  stroke: var(--line-strong);
   stroke-width: 2.5;
 }
 .context-ring .ring-fill {
@@ -59,7 +61,7 @@
 
 /* The dropdown itself is portaled + positioned + animated by Popover (see
    Popover.tsx / shared.css `.menu`/`.menu--in-popover`); this is content
-   styling only -- a fixed-width card. */
+   styling only -- a fixed-width metric card. */
 .context-popover {
   width: 280px;
   padding: 14px 16px;
@@ -77,19 +79,21 @@
 }
 .context-pop-label {
   font-size: 13px;
-  color: var(--text);
+  font-weight: 500;
+  color: var(--ink);
 }
 .context-pop-pct {
-  font-size: 13px;
-  color: var(--text-mid);
+  font-size: 12.5px;
+  color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
 
-/* Thin progress bar. */
+/* Meter-style bar: accent fill on a --field track (BUI Meter). */
 .context-pop-bar {
   height: 5px;
   border-radius: 3px;
-  background: var(--wash-strong);
+  background: var(--field);
+  box-shadow: var(--shadow-hairline);
   overflow: hidden;
 }
 .context-pop-bar-fill {
@@ -106,22 +110,23 @@
   }
 }
 .context-pop-bar-fill.near {
-  background: var(--amber);
+  background: var(--orange);
 }
 .context-pop-bar-fill.over {
-  background: var(--danger, var(--red));
+  background: var(--red);
 }
 
+/* Caption line under the bar: tertiary ink, tabular numbers. */
 .context-pop-sub {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
 
 /* Per-model breakdown + cost, appended below the token line once usage exists. */
 .context-pop-divider {
   height: 1px;
-  background: var(--border-soft, var(--border));
+  background: var(--line);
   margin: 2px 0;
 }
 
@@ -132,7 +137,8 @@
 }
 .context-pop-models-head {
   font-size: 11px;
-  color: var(--text-dim);
+  font-weight: 500;
+  color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -142,29 +148,30 @@
   justify-content: space-between;
   gap: 8px;
   font-size: 12px;
-  color: var(--text-mid);
+  color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
 .context-pop-model-name {
-  color: var(--text);
+  color: var(--ink);
   flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .context-pop-model-toks {
-  color: var(--text-dim);
+  color: var(--ink-3);
   margin-left: auto;
 }
 .context-pop-model-cost {
-  color: var(--text-mid);
+  color: var(--ink-2);
   min-width: 44px;
   text-align: right;
 }
 
 /* Per-role spend (router-driven turns). Accented with the app accent
-   (--accent), NOT a router's brand colour -- this row renders for Ursa and
-   Ursus alike, so it deliberately does not follow either mascot's palette. */
+   (--accent-ink for AA text contrast on --surface), NOT a router's brand
+   colour -- this row renders for Ursa and Ursus alike, so it deliberately
+   does not follow either mascot's palette. */
 .context-pop-role-row {
   display: flex;
   align-items: baseline;
@@ -174,14 +181,14 @@
   font-variant-numeric: tabular-nums;
 }
 .context-pop-role-name {
-  color: #4c8dff;
+  color: var(--accent-ink);
   flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .context-pop-role-cost {
-  color: var(--text-mid);
+  color: var(--ink-2);
   min-width: 44px;
   text-align: right;
 }
@@ -194,6 +201,7 @@
 }
 .context-pop-total-amt {
   font-size: 13px;
-  color: var(--text);
+  font-weight: 500;
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
 }

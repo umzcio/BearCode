@@ -12,14 +12,15 @@
 .effort-menu {
   min-width: 264px;
 }
+/* Menu footnote (BUI: 11px tertiary ink). */
 .effort-help {
   padding: 0 10px 6px;
   font-size: 11px;
   line-height: 1.4;
-  color: var(--text-dim);
+  color: var(--ink-3);
 }
 .effort-unsupported {
-  color: var(--amber);
+  color: var(--orange);
 }
 .effort-menu .effort-item {
   display: flex;
@@ -33,10 +34,10 @@
   gap: 6px;
 }
 .effort-default {
-  color: var(--text-dim);
+  color: var(--ink-3);
 }
 .effort-info {
-  color: var(--text-dim);
+  color: var(--ink-3);
   font-size: 11px;
   cursor: default;
 }
@@ -46,7 +47,7 @@
 }
 .effort-sep {
   height: 1px;
-  background: var(--border);
+  background: var(--line);
   margin: 5px 6px;
 }
 .effort-thinking {
@@ -64,14 +65,16 @@
 }
 .effort-thinking-sub {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--ink-3);
 }
+/* Toggle: --line-strong track, accent when on; the knob is --ink so it holds
+   contrast on both track states in both themes. */
 .effort-switch {
   flex: none;
   width: 30px;
   height: 17px;
   border-radius: 9px;
-  background: var(--border);
+  background: var(--line-strong);
   position: relative;
   transition: background var(--dur-fast) ease;
 }
@@ -83,7 +86,7 @@
   width: 13px;
   height: 13px;
   border-radius: 50%;
-  background: var(--text);
+  background: var(--ink);
   transition: transform var(--dur-fast) var(--ease-out);
 }
 .effort-switch.on {

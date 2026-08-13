@@ -4,7 +4,8 @@
 
 /* The dropdown itself is portaled + positioned + animated by Popover (see
    Popover.tsx / shared.css `.menu`/`.menu--in-popover`); no dropdown
-   positioning lives here anymore. */
+   positioning lives here anymore. Row anatomy: 13px label in --ink,
+   shortcut hints in tertiary ink (BUI menu rows). */
 .mode-menu {
   min-width: 256px;
 }
@@ -22,7 +23,7 @@
   white-space: nowrap;
 }
 .mode-menu .mode-key {
-  color: var(--text-dim);
+  color: var(--ink-3);
   font-size: 12px;
   text-align: right;
 }
@@ -37,11 +38,11 @@
   align-items: center;
   padding: 3px 10px 6px;
   font-size: 13px;
-  color: var(--text);
+  color: var(--ink);
   white-space: nowrap;
 }
 .mode-menu .mode-current .mode-default {
-  color: var(--text-dim);
+  color: var(--ink-3);
 }
 .mode-menu .mode-current .check {
   margin-left: auto;
@@ -51,23 +52,30 @@
 }
 .mode-menu .mode-sep {
   height: 1px;
-  background: var(--border);
+  background: var(--line);
   margin: 0 6px 5px;
 }
 .pill-btn.bypass-active {
-  color: var(--danger, var(--red));
-  border-color: var(--danger, var(--red));
+  color: var(--red);
+  border-color: var(--red);
 }
-/* Auto mode gets a distinct amber chip on the composer pill (matches CC). */
+/* Keep the danger ink through hover (the composer's quiet-chip hover skin
+   would otherwise repaint it as plain ink). */
+.pill-btn.bypass-active:hover {
+  color: var(--red);
+  background: var(--red-tint);
+}
+/* Auto mode: semantic chip -- orange on its tint fill (matches CC's amber). */
 .pill-btn.auto-active {
-  color: var(--amber);
-  background: rgba(224, 181, 104, 0.16);
+  color: var(--orange);
+  background: var(--orange-tint);
 }
 .pill-btn.auto-active:hover {
-  background: rgba(224, 181, 104, 0.24);
+  background: color-mix(in srgb, var(--orange) 24%, var(--orange-tint));
+  color: var(--orange);
 }
 .mode-menu .bypass-item .mode-key {
-  color: var(--danger, var(--red));
+  color: var(--red);
 }
 .bypass-confirm {
   padding: 12px;
@@ -76,7 +84,7 @@
 .bypass-confirm-text {
   font-size: 12px;
   line-height: 1.4;
-  color: var(--text-dim);
+  color: var(--ink-2);
   margin-bottom: 10px;
 }
 .bypass-confirm-actions {

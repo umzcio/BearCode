@@ -21,15 +21,17 @@
   max-width: 420px;
 }
 
+/* Search input seated on --field with the inset-field shadow (BUI input). */
 .menu-search {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 2px 6px 4px;
   padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-dim);
+  background: var(--field);
+  box-shadow: var(--shadow-inset-field);
+  border-radius: var(--radius-control);
+  color: var(--ink-3);
 }
 .menu-search svg {
   width: 13px;
@@ -40,7 +42,7 @@
   background: none;
   border: none;
   outline: none;
-  color: var(--text);
+  color: var(--ink);
   font-family: inherit;
   font-size: 13px;
   width: 100%;
@@ -51,15 +53,15 @@
   border-radius: 4px;
 }
 .menu-search input::placeholder {
-  color: var(--text-dim);
+  color: var(--ink-3);
 }
 
 .menu-item.add-key {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .ursa-entry {
-  font-weight: 600;
+  font-weight: 500;
 }
 .ursa-entry.disabled {
   opacity: 0.5;
@@ -67,7 +69,7 @@
 }
 .ursa-hint {
   font-size: 11.5px;
-  color: var(--text-dim);
+  color: var(--ink-3);
   margin-left: 8px;
 }
 .ursa-icon {
@@ -79,7 +81,7 @@
 
 .menu-group-label .group-icon {
   display: flex;
-  color: var(--text);
+  color: var(--ink-2);
 }
 .pill-btn svg:first-child {
   width: 15px;

@@ -22,11 +22,11 @@
   font-size: 13px;
 }
 .ursa-mode-default {
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 .ursa-mode-sub {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 .ursa-mode-menu .check {
   flex: none;
