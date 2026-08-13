@@ -10,7 +10,9 @@
   flex-direction: column;
   position: relative;
   min-width: 0;
-  background: var(--bg-window);
+  /* Main content sits on --canvas so the --page sidebar separates by tone
+     plus the hairline between them. */
+  background: var(--canvas);
 }
 
 /* Brief crossfade when the primary view swaps (Home / History / Conversation). */
@@ -38,12 +40,12 @@
   min-height: 52px;
   -webkit-app-region: drag;
   /* .topbar and the view below it (e.g. ProjectPage's .pp-head) share the
-     same --bg-window background and, in the collapsed-sidebar case, .topbar
+     same --canvas background and, in the collapsed-sidebar case, .topbar
      may have no breadcrumb -- so without a border the reserved chrome strip
      is numerically real but invisible, and the bordered header directly below
      reads as if it starts flush at the top edge. Keep this boundary visible
      whether or not the fixed window controls have adjacent content. */
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--line);
 }
 
 /* Electron resolves draggable regions before normal DOM pointer dispatch.
@@ -71,11 +73,12 @@
   gap: 12px;
   margin: 0 18px 12px;
   padding: 9px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--amber-border, rgba(224, 168, 0, 0.35));
-  background: var(--amber-wash, rgba(224, 168, 0, 0.1));
+  /* Semantic banner = color-on-tint (BUI): orange tint fill under a hairline. */
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line);
+  background: var(--orange-tint);
   font-size: 12.5px;
-  color: var(--text);
+  color: var(--ink);
   transition:
     opacity var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
@@ -125,7 +128,7 @@
 .trust-banner .pill-btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
 }
 .trust-banner .pill-btn.primary:hover {
   background: var(--accent-strong, var(--accent));
@@ -142,14 +145,17 @@
   gap: 8px;
   margin: 0 18px 12px;
   padding: 9px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--amber-border, rgba(224, 168, 0, 0.35));
-  background: var(--amber-wash, rgba(224, 168, 0, 0.1));
+  /* Semantic banner = color-on-tint (BUI): orange tint fill under a hairline. */
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line);
+  background: var(--orange-tint);
   font-size: 12.5px;
-  color: var(--text);
+  color: var(--ink);
 }
 .outside-access-title {
   font-weight: 600;
+  color: var(--orange);
+  font-size: 12px;
 }
 .outside-access-row {
   display: flex;
@@ -176,7 +182,7 @@
 .outside-access-card .pill-btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
 }
 .outside-access-card .pill-btn.primary:hover {
   background: var(--accent-strong, var(--accent));
@@ -186,20 +192,22 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13.5px;
-  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
   overflow: hidden;
   white-space: nowrap;
   -webkit-app-region: no-drag;
 }
 .breadcrumb .crumb {
-  color: var(--text-mid);
+  color: var(--ink-2);
 }
 .breadcrumb .crumb.current {
-  color: var(--text);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .breadcrumb .sep {
-  color: var(--text-dim);
+  /* Separator glyphs only -- ink-3 is allowed at glyph scale. */
+  color: var(--ink-3);
 }
