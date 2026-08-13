@@ -285,7 +285,7 @@ export function ArtifactViewer({
                   Proceed
                 </button>
                 <button
-                  className="plan-request-review"
+                  className="plan-request-review plan-deny"
                   disabled={resolving || (unsentCount === 0 && feedbackText.trim() === '')}
                   title="Needs at least one comment or a message"
                   onClick={requestReview}
