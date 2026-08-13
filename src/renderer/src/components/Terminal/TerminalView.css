@@ -5,13 +5,16 @@
   min-height: 0;
 }
 
+/* BUI: the tab/header bar is an inset strip separated by a hairline; tabs are
+   chips (radius-chip), the active one lifted onto --surface with a hairline
+   ring. */
 .terminal-tabstrip {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--line);
+  background: var(--inset);
   flex-shrink: 0;
 }
 
@@ -20,15 +23,17 @@
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-chip);
   border: none;
   background: transparent;
-  color: var(--text-mid);
+  color: var(--ink-2);
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   transition:
     background var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
     opacity var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
   opacity: 1;
@@ -50,6 +55,7 @@
     transition:
       background var(--dur-fast) var(--ease-out),
       color var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) var(--ease-out),
       opacity var(--dur-fast) var(--ease-out);
   }
   @starting-style {
@@ -65,23 +71,25 @@
 .terminal-sandbox-notice {
   margin-left: auto;
   padding: 2px 8px;
-  color: var(--text-dim);
-  font-size: 11px;
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 500;
   cursor: default;
   white-space: nowrap;
 }
 
 .terminal-tab:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 
 .terminal-tab.active {
-  background: var(--bg-active);
-  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--shadow-hairline);
+  color: var(--ink);
 }
 
 .terminal-tab.exited {
-  color: var(--text-dim);
+  color: var(--ink-3);
 }
 
 .terminal-tab-close {
@@ -90,13 +98,15 @@
   padding: 2px;
   background: none;
   border: none;
+  color: var(--ink-3);
   transition:
     background var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out);
 }
 
 .terminal-tab-close:hover {
-  background: var(--bg-hover);
+  background: var(--hover-2);
+  color: var(--ink-2);
 }
 
 .terminal-tab-new {
@@ -104,10 +114,10 @@
   align-items: center;
   justify-content: center;
   padding: 4px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-chip);
   border: none;
   background: transparent;
-  color: var(--text-mid);
+  color: var(--ink-2);
   cursor: pointer;
   transition:
     background var(--dur-fast) var(--ease-out),
@@ -115,7 +125,8 @@
 }
 
 .terminal-tab-new:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
+  color: var(--ink);
 }
 
 .terminal-tab:focus-visible,
@@ -123,6 +134,11 @@
 .terminal-tab-close:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
+}
+/* Keep the active tab's hairline ring under the focus ring instead of losing
+   it while focused. */
+.terminal-tab.active:focus-visible {
+  box-shadow: var(--shadow-hairline), var(--focus-ring);
 }
 
 .terminal-panes {

@@ -1,13 +1,12 @@
 /* F3: the Monaco conflict resolver modal. Reuses the shared `.modal-overlay`
-   scrim + `.content-close`; the panel mirrors the Settings panel chrome so it
-   reads as the same modal family, sized for a code editor. */
+   scrim + `.content-close`; the panel is a BUI overlay surface (--surface,
+   radius-overlay, hairline-ring shadow), sized for a code editor. */
 .conflict-panel {
   width: min(980px, calc(100% - 56px));
   height: min(720px, calc(100% - 56px));
-  background: var(--bg-window);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.7);
+  background: var(--surface);
+  border-radius: var(--radius-overlay);
+  box-shadow: var(--shadow-overlay);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -56,21 +55,21 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
 .conflict-title {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--ink);
 }
 .conflict-title svg {
   width: 15px;
   height: 15px;
-  color: var(--text-mid);
+  color: var(--ink-2);
 }
 /* Neutralize Settings' absolute positioning: here Close sits in the flex head. */
 .conflict-head .content-close {
@@ -82,44 +81,50 @@
   flex-wrap: wrap;
   gap: 6px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
+/* File chips: mono path chips on --field with a hairline ring; the current
+   one is a semantic chip (accent on its tint), resolved ones go quiet. */
 .conflict-chip {
-  font-size: 12px;
+  font-size: 11.5px;
+  font-weight: 500;
   font-family: var(--mono, ui-monospace, monospace);
   padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border-soft);
-  color: var(--text-mid);
-  background: var(--wash);
+  border-radius: var(--radius-chip);
+  color: var(--ink-2);
+  background: var(--field);
+  box-shadow: var(--shadow-hairline);
   max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .conflict-chip.current {
-  border-color: var(--accent);
-  color: var(--accent-strong, var(--accent));
+  background: var(--accent-tint);
+  box-shadow: none;
+  color: var(--accent-ink);
 }
 .conflict-chip.resolved {
-  color: var(--text-dim);
+  color: var(--ink-3);
+  background: transparent;
+  box-shadow: none;
   text-decoration: line-through;
-  opacity: 0.7;
 }
 
 .conflict-file {
   padding: 8px 16px;
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 12.5px;
-  color: var(--text-mid);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
   flex-shrink: 0;
 }
 .conflict-editor {
   flex: 1;
   min-height: 0;
   position: relative;
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--line);
 }
 .conflict-editor .monaco-host {
   position: absolute;
@@ -127,13 +132,13 @@
 }
 .conflict-loading {
   padding: 16px;
-  color: var(--text-dim);
+  color: var(--ink-2);
   font-size: 13px;
 }
 
 .conflict-error {
   padding: 16px;
-  color: var(--danger, #e5534b);
+  color: var(--red);
   font-size: 13px;
   word-break: break-word;
 }
@@ -146,11 +151,11 @@
   justify-content: center;
   text-align: center;
   gap: 4px;
-  color: var(--text);
+  color: var(--ink);
   font-size: 15px;
 }
 .conflict-done-sub {
-  color: var(--text-mid);
+  color: var(--ink-2);
   font-size: 13px;
 }
 
@@ -159,22 +164,33 @@
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--line);
   flex-shrink: 0;
 }
 .conflict-actions-spacer {
   flex: 1;
 }
+/* Buttons here sit on the surface, so they get the raised-button ring. */
 .conflict-actions .pill-btn {
-  border: 1px solid var(--border-soft);
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+}
+.conflict-actions .pill-btn:hover {
+  background: var(--hover);
+}
+.conflict-actions .pill-btn:focus-visible {
+  box-shadow: var(--focus-ring);
 }
 .conflict-actions .pill-btn.primary {
   background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  box-shadow: none;
+  color: var(--accent-fg);
 }
 .conflict-actions .pill-btn.primary:hover {
-  background: var(--accent-strong, var(--accent));
+  background: var(--accent-ink);
+}
+.conflict-actions .pill-btn.primary:focus-visible {
+  box-shadow: var(--focus-ring);
 }
 .conflict-actions .pill-btn:disabled {
   opacity: 0.5;
