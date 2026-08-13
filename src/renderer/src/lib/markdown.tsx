@@ -4,7 +4,7 @@
 // (amber chips). No raw HTML ever touches the DOM.
 // `trailing` (the streaming cursor) is appended inside the last block.
 
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 
 // Inline code that names a workspace file, e.g. `index.html`, `src/app.ts`, or
 // an absolute path with spaces. Still requires a trailing .ext so prose isn't matched.
@@ -18,6 +18,19 @@ export interface CitationRef {
   title?: string
 }
 
+// Per-render document-order counter for citation chips. Each chip carries
+// --ms-i (capped at 6) so .cite-ref's pop-in staggers 80ms per chip when a
+// source set arrives (BUI grammar rule 3). Deterministic across re-renders:
+// the counter resets per Markdown render and chips are emitted in document
+// order, so a given chip always gets the same index (a changed index would
+// re-trigger the finished animation via its animation-delay).
+type ChipOrder = { n: number }
+
+function chipStagger(chipOrder?: ChipOrder): CSSProperties | undefined {
+  if (!chipOrder) return undefined
+  return { '--ms-i': Math.min(chipOrder.n++, 6) } as CSSProperties
+}
+
 // [n] citation markers against the turn's citations list: [3] becomes a small
 // anchor to citations[2] (1-based). Out-of-range or citation-less markers stay
 // text -- models also write [1] in non-citation contexts.
@@ -26,7 +39,8 @@ function pushCiteMarkers(
   text: string,
   citations: CitationRef[] | undefined,
   nextKey: () => number,
-  citationNumbers?: Map<number, number>
+  citationNumbers?: Map<number, number>,
+  chipOrder?: ChipOrder
 ): void {
   if (!citations || citations.length === 0) {
     out.push(text)
@@ -44,6 +58,7 @@ function pushCiteMarkers(
       <a
         key={nextKey()}
         className="cite-ref"
+        style={chipStagger(chipOrder)}
         href={cite.url}
         target="_blank"
         rel="noreferrer"
@@ -70,19 +85,28 @@ function pushProse(
   text: string,
   citations: CitationRef[] | undefined,
   nextKey: () => number,
-  citationNumbers?: Map<number, number>
+  citationNumbers?: Map<number, number>,
+  chipOrder?: ChipOrder
 ): void {
   LINK_RE.lastIndex = 0
   let last = 0
   let m: RegExpExecArray | null
   while ((m = LINK_RE.exec(text)) !== null) {
     if (m.index > last)
-      pushCiteMarkers(out, text.slice(last, m.index), citations, nextKey, citationNumbers)
+      pushCiteMarkers(
+        out,
+        text.slice(last, m.index),
+        citations,
+        nextKey,
+        citationNumbers,
+        chipOrder
+      )
     if (m[1]) {
       out.push(
         <a
           key={nextKey()}
           className="cite-ref"
+          style={chipStagger(chipOrder)}
           href={m[2]}
           target="_blank"
           rel="noreferrer"
@@ -100,6 +124,7 @@ function pushProse(
           <a
             key={nextKey()}
             className="cite-ref"
+            style={chipStagger(chipOrder)}
             href={url}
             target="_blank"
             rel="noreferrer"
@@ -117,7 +142,7 @@ function pushProse(
     last = m.index + m[0].length
   }
   if (last < text.length)
-    pushCiteMarkers(out, text.slice(last), citations, nextKey, citationNumbers)
+    pushCiteMarkers(out, text.slice(last), citations, nextKey, citationNumbers, chipOrder)
 }
 
 function renderInline(
@@ -125,7 +150,8 @@ function renderInline(
   onFileClick?: (path: string) => void,
   onFileOpen?: (path: string) => void,
   citations?: CitationRef[],
-  citationNumbers?: Map<number, number>
+  citationNumbers?: Map<number, number>,
+  chipOrder?: ChipOrder
 ): ReactNode[] {
   const out: ReactNode[] = []
   const re = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g
@@ -135,7 +161,7 @@ function renderInline(
   const nextKey = (): number => key++
   while ((m = re.exec(text)) !== null) {
     if (m.index > last)
-      pushProse(out, text.slice(last, m.index), citations, nextKey, citationNumbers)
+      pushProse(out, text.slice(last, m.index), citations, nextKey, citationNumbers, chipOrder)
     const tok = m[0]
     if (tok.startsWith('`')) {
       const inner = tok.slice(1, -1)
@@ -170,16 +196,17 @@ function renderInline(
       }
     } else if (tok.startsWith('**')) {
       const children: ReactNode[] = []
-      pushProse(children, tok.slice(2, -2), citations, nextKey, citationNumbers)
+      pushProse(children, tok.slice(2, -2), citations, nextKey, citationNumbers, chipOrder)
       out.push(<b key={nextKey()}>{children}</b>)
     } else {
       const children: ReactNode[] = []
-      pushProse(children, tok.slice(1, -1), citations, nextKey, citationNumbers)
+      pushProse(children, tok.slice(1, -1), citations, nextKey, citationNumbers, chipOrder)
       out.push(<i key={nextKey()}>{children}</i>)
     }
     last = m.index + tok.length
   }
-  if (last < text.length) pushProse(out, text.slice(last), citations, nextKey, citationNumbers)
+  if (last < text.length)
+    pushProse(out, text.slice(last), citations, nextKey, citationNumbers, chipOrder)
   return out
 }
 
@@ -294,11 +321,13 @@ function parseBlocks(text: string): Block[] {
 function CodeBlock({
   lang,
   text,
-  tail
+  tail,
+  className
 }: {
   lang: string
   text: string
   tail: ReactNode
+  className?: string
 }): React.JSX.Element {
   const [copied, setCopied] = useState(false)
   const copy = (): void => {
@@ -310,7 +339,7 @@ function CodeBlock({
       })
   }
   return (
-    <div className="code-card">
+    <div className={className ? `code-card ${className}` : 'code-card'}>
       <div className="code-card-head">
         <span className="code-card-lang">{lang || 'code'}</span>
         <button
@@ -337,7 +366,9 @@ function List({
   onFileClick,
   onFileOpen,
   citations,
-  citationNumbers
+  citationNumbers,
+  chipOrder,
+  className
 }: {
   ordered: boolean
   items: string[]
@@ -346,14 +377,16 @@ function List({
   onFileOpen?: (path: string) => void
   citations?: CitationRef[]
   citationNumbers?: Map<number, number>
+  chipOrder?: ChipOrder
+  className?: string
 }): React.JSX.Element {
   const rows = items.map((item, j) => (
     <li key={j}>
-      {renderInline(item, onFileClick, onFileOpen, citations, citationNumbers)}
+      {renderInline(item, onFileClick, onFileOpen, citations, citationNumbers, chipOrder)}
       {j === items.length - 1 ? tail : null}
     </li>
   ))
-  return ordered ? <ol>{rows}</ol> : <ul>{rows}</ul>
+  return ordered ? <ol className={className}>{rows}</ol> : <ul className={className}>{rows}</ul>
 }
 
 export function Markdown({
@@ -373,14 +406,30 @@ export function Markdown({
 }): React.JSX.Element {
   const blocks = useMemo(() => parseBlocks(text), [text])
   const lastIndex = blocks.length - 1
+  // Document-order stagger counter for citation chips, reset every render so
+  // a given chip's --ms-i is stable across re-renders (see chipStagger).
+  const chipOrder: ChipOrder = { n: 0 }
   return (
     <>
       {blocks.map((block, i) => {
         const tail = trailing && i === lastIndex ? trailing : null
+        // BUI streamed-text materialization: while streaming (`trailing` is
+        // the cursor), ONLY the block currently receiving text carries
+        // .ms-stream-in (events.css). Earlier blocks lose the class when a
+        // new block starts, so they never re-animate; settled history
+        // (no trailing) renders with no animation at all.
+        const enter = trailing && i === lastIndex ? 'ms-stream-in' : undefined
         if (block.kind === 'h5')
           return (
-            <h5 key={i}>
-              {renderInline(block.text, onFileClick, onFileOpen, citations, citationNumbers)}
+            <h5 key={i} className={enter}>
+              {renderInline(
+                block.text,
+                onFileClick,
+                onFileOpen,
+                citations,
+                citationNumbers,
+                chipOrder
+              )}
             </h5>
           )
         if (block.kind === 'ol')
@@ -394,6 +443,8 @@ export function Markdown({
               onFileOpen={onFileOpen}
               citations={citations}
               citationNumbers={citationNumbers}
+              chipOrder={chipOrder}
+              className={enter}
             />
           )
         if (block.kind === 'ul')
@@ -407,19 +458,30 @@ export function Markdown({
               onFileOpen={onFileOpen}
               citations={citations}
               citationNumbers={citationNumbers}
+              chipOrder={chipOrder}
+              className={enter}
             />
           )
         if (block.kind === 'code')
-          return <CodeBlock key={i} lang={block.lang} text={block.text} tail={tail} />
+          return (
+            <CodeBlock key={i} lang={block.lang} text={block.text} tail={tail} className={enter} />
+          )
         if (block.kind === 'table')
           return (
-            <div key={i} className="md-table-wrap">
+            <div key={i} className={enter ? `md-table-wrap ${enter}` : 'md-table-wrap'}>
               <table className="md-table">
                 <thead>
                   <tr>
                     {block.headers.map((h, k) => (
                       <th key={k}>
-                        {renderInline(h, onFileClick, onFileOpen, citations, citationNumbers)}
+                        {renderInline(
+                          h,
+                          onFileClick,
+                          onFileOpen,
+                          citations,
+                          citationNumbers,
+                          chipOrder
+                        )}
                       </th>
                     ))}
                   </tr>
@@ -434,7 +496,8 @@ export function Markdown({
                             onFileClick,
                             onFileOpen,
                             citations,
-                            citationNumbers
+                            citationNumbers,
+                            chipOrder
                           )}
                         </td>
                       ))}
@@ -446,11 +509,11 @@ export function Markdown({
             </div>
           )
         return (
-          <p key={i}>
+          <p key={i} className={enter}>
             {block.lines.map((line, li) => (
               <Fragment key={li}>
                 {li > 0 ? <br /> : null}
-                {renderInline(line, onFileClick, onFileOpen, citations, citationNumbers)}
+                {renderInline(line, onFileClick, onFileOpen, citations, citationNumbers, chipOrder)}
               </Fragment>
             ))}
             {tail}

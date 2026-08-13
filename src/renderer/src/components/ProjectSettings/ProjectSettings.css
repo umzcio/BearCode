@@ -53,6 +53,11 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  /* BUI hover color grammar: 100ms standard curve. */
+  transition:
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
+    box-shadow var(--dur-hover) var(--ease-standard);
 }
 .ps-icon:hover {
   color: var(--ink);

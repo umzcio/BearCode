@@ -140,12 +140,18 @@
   cursor: pointer;
   flex-shrink: 0;
   line-height: 1.4;
+  /* BUI hover color grammar: 100ms standard curve. */
+  transition:
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
+    box-shadow var(--dur-hover) var(--ease-standard);
 }
 .rail-item svg {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
   color: var(--ink-3);
+  transition: color var(--dur-hover) var(--ease-standard);
 }
 .rail-item span {
   overflow: hidden;
@@ -188,6 +194,16 @@
   overflow-y: auto;
   padding: 28px 36px 32px;
 }
+/* Switching rail sections re-mounts the page's content (each page renders
+   conditionally), so the body fades up as one unit on every section switch --
+   BUI ApprovalCard's question-swap choreography. Covers SettingsModal and
+   ProjectSettingsModal alike; the shared keyframe carries reduced motion. */
+.settings-content .page-title,
+.settings-content .page-sub,
+.settings-content .set-group-title,
+.settings-content .set-card {
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
+}
 .content-close {
   position: absolute;
   top: 18px;
@@ -199,6 +215,10 @@
   padding: 5px;
   border-radius: var(--radius-chip);
   display: flex;
+  /* BUI hover color grammar: 100ms standard curve. */
+  transition:
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
 }
 .content-close:hover {
   background: var(--hover);
@@ -435,6 +455,8 @@
   box-shadow: var(--shadow-btn);
   color: var(--ink);
   flex-shrink: 0;
+  /* BUI hover color grammar: 100ms standard curve. */
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .small-btn:hover {
   background: var(--hover);
@@ -459,6 +481,8 @@
   background: var(--red-tint);
   color: var(--red);
   flex-shrink: 0;
+  /* BUI hover color grammar: 100ms standard curve. */
+  transition: box-shadow var(--dur-hover) var(--ease-standard);
 }
 .danger-btn:hover {
   box-shadow: 0 0 0 1px var(--red);
@@ -692,7 +716,8 @@
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
-  transition: background var(--dur-press) ease;
+  /* Track color keeps the knob's timing; standard curve for the color. */
+  transition: background-color var(--dur-press) var(--ease-standard);
   -webkit-app-region: no-drag;
 }
 .toggle.on {
@@ -785,6 +810,10 @@
   border-radius: 999px;
   flex-shrink: 0;
   padding: 0;
+  /* BUI hover color grammar: 100ms standard curve. */
+  transition:
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
 }
 .domain-chip-x:hover {
   color: var(--red);

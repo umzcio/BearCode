@@ -22,7 +22,8 @@
   border: none;
   font-family: inherit;
   text-align: left;
-  transition: color var(--dur-fast) var(--ease-out);
+  /* BUI hover color grammar: 100ms standard curve. */
+  transition: color var(--dur-hover) var(--ease-standard);
 }
 .workspace-row:hover {
   color: var(--ink);

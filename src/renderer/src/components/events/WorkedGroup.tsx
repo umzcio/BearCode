@@ -47,6 +47,14 @@ function WorkedGroupImpl({
 }: WorkedGroupProps): React.JSX.Element {
   const [collapsed, setCollapsed] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  // BUI cascade (ToolChips/TaskRows): rows entering a LIVE run fade-up with an
+  // 80ms stagger. Each row key is assigned its position WITHIN ITS MOUNT BATCH
+  // exactly once (capped at 6) and keeps it forever, so a re-render can never
+  // re-animate an already-settled row, and a row streaming in alone gets no
+  // artificial delay. Historical (non-live) renders never animate at all.
+  // Held in useState (never set) so the memo cache is render-readable; an
+  // already-assigned key is a no-op on StrictMode's double render.
+  const [enterIndex] = useState(() => new Map<string, number>())
 
   useEffect(() => {
     if (!live || !startedAt) return undefined
@@ -80,17 +88,20 @@ function WorkedGroupImpl({
     }
   }
 
-  const rows: React.JSX.Element[] = []
+  const rows: { key: string; node: React.JSX.Element }[] = []
   for (let i = 0; i < steps.length; i++) {
     const ev = steps[i]
     if (ev.type === 'ursa_step') {
-      rows.push(<UrsaStepDivider key={ev.id} event={ev} />)
+      rows.push({ key: ev.id, node: <UrsaStepDivider event={ev} /> })
     } else if (ev.type === 'thinking') {
-      rows.push(
-        <AgentAttributed key={ev.id} event={ev}>
-          <ThinkingStep text={ev.text} durationMs={ev.durationMs} />
-        </AgentAttributed>
-      )
+      rows.push({
+        key: ev.id,
+        node: (
+          <AgentAttributed event={ev}>
+            <ThinkingStep text={ev.text} durationMs={ev.durationMs} />
+          </AgentAttributed>
+        )
+      })
     } else if (ev.type === 'tool_call') {
       const result = resultsByCallId.get(ev.id)
       // F1 jump-to-match anchor: a content-search hit can land on the tool_call
@@ -99,41 +110,62 @@ function WorkedGroupImpl({
       // space-joined -- ConversationView's focus scan matches either id. Without
       // this, tool/tool_result hits jump nowhere (their rows had no data-event-id).
       const anchorIds = result && result.type === 'tool_result' ? `${ev.id} ${result.id}` : ev.id
-      rows.push(
-        <div key={ev.id} data-event-id={anchorIds}>
-          <AgentAttributed event={ev}>
-            <ToolStep
-              call={ev}
-              result={result && result.type === 'tool_result' ? result : undefined}
-              convoId={convoId}
-            />
-          </AgentAttributed>
-        </div>
-      )
+      rows.push({
+        key: ev.id,
+        node: (
+          <div data-event-id={anchorIds}>
+            <AgentAttributed event={ev}>
+              <ToolStep
+                call={ev}
+                result={result && result.type === 'tool_result' ? result : undefined}
+                convoId={convoId}
+              />
+            </AgentAttributed>
+          </div>
+        )
+      })
     } else if (ev.type === 'hermes_tool_call') {
       const calls = hermesCallsById.get(ev.id) ?? []
       const results = hermesResultsByCallId.get(ev.id) ?? []
       const result = calls.length === 1 && results.length === 1 ? results[0] : undefined
       const anchorIds = result ? `${ev.id} ${result.id}` : ev.id
-      rows.push(
-        <div key={`${ev.id}:${i}`} data-event-id={anchorIds}>
-          <AgentAttributed event={ev}>
-            <HermesToolStep call={ev} result={result} convoId={convoId} />
-          </AgentAttributed>
-        </div>
-      )
+      rows.push({
+        key: `${ev.id}:${i}`,
+        node: (
+          <div data-event-id={anchorIds}>
+            <AgentAttributed event={ev}>
+              <HermesToolStep call={ev} result={result} convoId={convoId} />
+            </AgentAttributed>
+          </div>
+        )
+      })
     } else if (ev.type === 'hermes_tool_result') {
       const calls = hermesCallsById.get(ev.callId) ?? []
       const results = hermesResultsByCallId.get(ev.callId) ?? []
       if (calls.length === 1 && results.length === 1) continue
-      rows.push(
-        <div key={`${ev.id}:${i}`} data-event-id={ev.id}>
-          <AgentAttributed event={ev}>
-            <HermesUnmatchedResult result={ev} />
-          </AgentAttributed>
-        </div>
-      )
+      rows.push({
+        key: `${ev.id}:${i}`,
+        node: (
+          <div data-event-id={ev.id}>
+            <AgentAttributed event={ev}>
+              <HermesUnmatchedResult result={ev} />
+            </AgentAttributed>
+          </div>
+        )
+      })
     }
+  }
+
+  // Assign each new key its position within this render's mount batch. Called
+  // in row order below, so a batch that mounts together cascades 0..6.
+  let newInBatch = 0
+  const staggerFor = (key: string): number => {
+    const assigned = enterIndex.get(key)
+    if (assigned !== undefined) return assigned
+    const idx = Math.min(newInBatch, 6)
+    newInBatch += 1
+    enterIndex.set(key, idx)
+    return idx
   }
 
   return (
@@ -149,7 +181,25 @@ function WorkedGroupImpl({
           <IconChevronDown />
         </span>
       </div>
-      <div className={'steps' + (collapsed ? ' collapsed' : '')}>{rows}</div>
+      {/* BUI collapsible grammar: the grid wrapper animates 0fr<->1fr while the
+          inner .steps clips — no display:none snap. */}
+      <div className={'steps-reveal' + (collapsed ? ' collapsed' : '')}>
+        <div className={'steps' + (live ? ' live' : '')}>
+          {rows.map(({ key, node }) =>
+            live ? (
+              <div
+                key={key}
+                className="step-enter"
+                style={{ '--i': staggerFor(key) } as React.CSSProperties}
+              >
+                {node}
+              </div>
+            ) : (
+              <div key={key}>{node}</div>
+            )
+          )}
+        </div>
+      </div>
     </>
   )
 }

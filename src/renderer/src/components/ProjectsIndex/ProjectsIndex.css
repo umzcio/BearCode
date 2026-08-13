@@ -61,9 +61,10 @@
   padding: 9px 10px;
   border-radius: var(--radius-chip);
   cursor: pointer;
+  /* BUI hover color grammar: 100ms standard curve. */
   transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
 }
 .pidx-row:hover {
   background: var(--hover);
@@ -121,7 +122,8 @@
   gap: 4px;
   flex-shrink: 0;
   opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-out);
+  /* Hover reveal = hover feedback: 100ms. */
+  transition: opacity var(--dur-hover) var(--ease-standard);
 }
 .pidx-row:hover .pidx-rowact,
 .pidx-row:focus-within .pidx-rowact {

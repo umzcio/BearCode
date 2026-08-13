@@ -25,7 +25,7 @@
   background: var(--field);
   box-shadow: var(--shadow-inset-field), var(--shadow-hairline);
   color: var(--ink-3);
-  transition: box-shadow var(--dur-fast) var(--ease-out);
+  transition: box-shadow var(--dur-fast) var(--ease-standard);
 }
 .pt-search:focus-within {
   box-shadow:
@@ -86,7 +86,8 @@
   color: var(--ink);
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
-  transition: background-color var(--dur-fast) var(--ease-out);
+  /* Row hover: 100ms standard curve (BUI table grammar). */
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .pricing-table tbody tr:last-child td {
   border-bottom: none;

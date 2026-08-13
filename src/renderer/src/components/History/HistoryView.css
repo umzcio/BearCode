@@ -21,7 +21,7 @@
   background: var(--field);
   box-shadow: var(--shadow-inset-field), var(--shadow-hairline);
   color: var(--ink-3);
-  transition: box-shadow var(--dur-fast) var(--ease-out);
+  transition: box-shadow var(--dur-fast) var(--ease-standard);
 }
 /* Focus indication lives on the row (the input fills it edge-to-edge). */
 .history-search-row:focus-within {
@@ -70,7 +70,15 @@
   padding: 9px 10px;
   border-radius: var(--radius-control);
   cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease-out);
+  /* Row hover: 100ms standard curve (BUI table grammar). */
+  transition: background-color var(--dur-hover) var(--ease-standard);
+}
+/* Search results cascade in as the query filters: BUI fade-up, 80ms per-row
+   stagger via --i (set inline by HistoryView, capped). Browse mode stays
+   static -- no entrance decoration on a page that is simply there. */
+.history-hit {
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * var(--dur-stagger));
 }
 .history-row {
   flex-direction: row;

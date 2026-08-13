@@ -6,10 +6,7 @@ import { Markdown } from './markdown'
 afterEach(cleanup)
 
 describe('Markdown citation markers', () => {
-  const citations = [
-    { url: 'https://one.example', title: 'One' },
-    { url: 'https://two.example' }
-  ]
+  const citations = [{ url: 'https://one.example', title: 'One' }, { url: 'https://two.example' }]
 
   it('linkifies in-range [n] markers against the citations list (1-based)', () => {
     render(<Markdown text="A fact.[2] Another **bold[1]** claim.[7]" citations={citations} />)
@@ -91,6 +88,63 @@ describe('Markdown paragraph line breaks', () => {
     const p = container.querySelector('p')
     expect(p!.querySelectorAll('br')).toHaveLength(2)
     expect(p!.textContent).toBe('Before---After')
+  })
+})
+
+describe('Markdown streamed-block materialization', () => {
+  it('marks only the last block ms-stream-in while streaming', () => {
+    const { container } = render(
+      <Markdown text={'First para\n\nSecond para'} trailing={<span className="cursor" />} />
+    )
+    const paragraphs = container.querySelectorAll('p')
+    expect(paragraphs).toHaveLength(2)
+    expect(paragraphs[0].className).not.toContain('ms-stream-in')
+    expect(paragraphs[1].className).toContain('ms-stream-in')
+  })
+
+  it('renders settled history (no trailing) with no stream-in class anywhere', () => {
+    const { container } = render(
+      <Markdown text={'First para\n\n- item\n\n```\ncode\n```\n\nLast para'} />
+    )
+    expect(container.querySelector('.ms-stream-in')).toBeNull()
+  })
+
+  it('moves the class to the newly appended block and clears it when streaming settles', () => {
+    const { container, rerender } = render(
+      <Markdown text="Alpha" trailing={<span className="cursor" />} />
+    )
+    expect(container.querySelector('p')!.className).toContain('ms-stream-in')
+    rerender(<Markdown text={'Alpha\n\nBeta'} trailing={<span className="cursor" />} />)
+    const paragraphs = container.querySelectorAll('p')
+    expect(paragraphs[0].className).not.toContain('ms-stream-in')
+    expect(paragraphs[1].className).toContain('ms-stream-in')
+    rerender(<Markdown text={'Alpha\n\nBeta'} />)
+    expect(container.querySelector('.ms-stream-in')).toBeNull()
+  })
+
+  it('marks a streaming code block via its code-card root', () => {
+    const { container } = render(
+      <Markdown text={'Intro\n\n```ts\nconst a = 1\n```'} trailing={<span className="cursor" />} />
+    )
+    const card = container.querySelector('.code-card')!
+    expect(card.className).toContain('ms-stream-in')
+    expect(container.querySelector('p')!.className).not.toContain('ms-stream-in')
+  })
+})
+
+describe('Markdown citation chip stagger', () => {
+  it('assigns document-order --ms-i to cite chips, capped at 6', () => {
+    const citations = Array.from({ length: 9 }, (_, i) => ({ url: `https://e.example/${i + 1}` }))
+    const text = 'a[1] b[2] c[3] d[4] e[5] f[6] g[7] h[8] i[9]'
+    render(<Markdown text={text} citations={citations} />)
+    const refs = screen.getAllByRole('link')
+    expect(refs).toHaveLength(9)
+    expect(refs[0].style.getPropertyValue('--ms-i')).toBe('0')
+    expect(refs[1].style.getPropertyValue('--ms-i')).toBe('1')
+    expect(refs[5].style.getPropertyValue('--ms-i')).toBe('5')
+    // 7th chip onward stays at the 6-step cap
+    expect(refs[6].style.getPropertyValue('--ms-i')).toBe('6')
+    expect(refs[8].style.getPropertyValue('--ms-i')).toBe('6')
   })
 })
 

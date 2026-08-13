@@ -298,7 +298,7 @@
   box-shadow: var(--shadow-overlay);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--dur-fast) ease;
+  transition: opacity var(--dur-fast) var(--ease-standard);
 }
 @media (hover: hover) and (pointer: fine) {
   .comment-fab:hover::before {
@@ -357,6 +357,7 @@
   margin-left: auto;
   min-width: 0;
   max-width: 100%;
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
 }
 .plan-resolution-notice {
   margin-left: auto;
@@ -431,6 +432,8 @@
   font-size: 12.5px;
   min-height: 60px;
   resize: vertical;
+  /* Approval-card body mounts with the pending review: BUI ApprovalCard fade-up. */
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
 }
 .plan-feedback-box::placeholder {
   color: var(--ink-3);
@@ -440,6 +443,8 @@
   align-items: center;
   gap: 10px;
   margin: 0 0 12px;
+  /* Mounts with the feedback box above: same fade-up. */
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
 }
 .plan-feedback-hint {
   font-size: 11px;
@@ -455,20 +460,12 @@
   font-size: 12.5px;
   color: var(--ink-2);
 }
+/* Review-comment rows cascade in: BUI fade-up with the per-row stagger
+   (--i set inline by the renderer, capped ~6; rows without it just fade up). */
 .comment-row,
 .plan-comment-item {
-  opacity: 1;
-  transform: translateY(0);
-  transition:
-    opacity var(--dur-fast) var(--ease-out),
-    transform var(--dur-fast) var(--ease-out);
-}
-@starting-style {
-  .comment-row,
-  .plan-comment-item {
-    opacity: 0;
-    transform: translateY(2px);
-  }
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * var(--dur-stagger));
 }
 /* Quoted plan excerpt = the ApprovalCard command/preview region: monospace on
    --inset behind a hairline. */
@@ -1068,10 +1065,11 @@
   .comment-fab,
   .foot-btn
 ) {
+  /* BUI hover color grammar: 100ms standard curve. */
   transition:
-    background-color var(--dur-fast) ease,
-    color var(--dur-fast) ease,
-    border-color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
+    border-color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 
@@ -1092,9 +1090,9 @@
   ):active:not(:disabled) {
   transform: scale(0.97);
   transition:
-    background-color var(--dur-fast) ease,
-    color var(--dur-fast) ease,
-    border-color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
+    border-color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press) var(--ease-out);
 }
 
@@ -1192,28 +1190,5 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .comment-row,
-  .plan-comment-item {
-    transform: none;
-    transition: opacity var(--dur-fast) var(--ease-out);
-  }
-  @starting-style {
-    .comment-row,
-    .plan-comment-item {
-      opacity: 0;
-      transform: none;
-    }
-  }
-}
-
-:root[data-motion='reduced'] .comment-row,
-:root[data-motion='reduced'] .plan-comment-item {
-  transform: none;
-}
-@starting-style {
-  :root[data-motion='reduced'] .comment-row,
-  :root[data-motion='reduced'] .plan-comment-item {
-    transform: none;
-  }
-}
+/* .comment-row/.plan-comment-item reduced-motion handling lives in the shared
+   fade-up keyframe's transform-free variant (shared.css). */

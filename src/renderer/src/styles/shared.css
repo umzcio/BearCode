@@ -25,9 +25,11 @@
   border-radius: var(--radius-chip);
   display: flex;
   -webkit-app-region: no-drag;
+  /* BUI hover grammar: color feedback at --dur-hover/--ease-standard;
+     the press transform keeps its own press tokens (structural motion). */
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .chrome-btn:hover {
@@ -37,8 +39,8 @@
 .chrome-btn:active {
   transform: scale(0.97);
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press) var(--ease-out);
 }
 .chrome-btn svg {
@@ -67,8 +69,8 @@
   justify-content: center;
   font-family: inherit;
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .icon-btn:hover {
@@ -78,8 +80,8 @@
 .icon-btn:active {
   transform: scale(0.97);
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press) var(--ease-out);
 }
 .icon-btn svg {
@@ -109,8 +111,8 @@
   cursor: pointer;
   font-family: inherit;
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .pill-btn:hover {
@@ -119,8 +121,8 @@
 .pill-btn:active {
   transform: scale(0.97);
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press) var(--ease-out);
 }
 .pill-btn .chev {
@@ -196,8 +198,8 @@
   font-size: 13px;
   color: var(--ink-2);
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 /* Leading `MenuItem.icon` (unsized inline icons render at native SVG
@@ -229,8 +231,8 @@
 .menu-item:active {
   transform: scale(0.97);
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press) var(--ease-out);
 }
 /* Two-line rows (title + description), e.g. Antigravity-style rich dropdowns. */
@@ -399,7 +401,7 @@ code.tok {
   box-shadow: var(--shadow-btn);
   color: var(--ink);
   cursor: pointer;
-  transition: background var(--dur-fast) ease;
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .toast-btn:hover {
   background: var(--hover);

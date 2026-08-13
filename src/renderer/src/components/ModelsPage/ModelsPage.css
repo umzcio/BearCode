@@ -40,8 +40,9 @@
   cursor: pointer;
   border-bottom: 2px solid transparent;
   margin-right: 18px;
+  /* BUI hover color grammar: 100ms standard curve. */
   transition:
-    color var(--dur-fast) var(--ease-out),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .mp-tab:hover {

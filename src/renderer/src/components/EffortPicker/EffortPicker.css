@@ -76,7 +76,8 @@
   border-radius: 9px;
   background: var(--line-strong);
   position: relative;
-  transition: background var(--dur-fast) ease;
+  /* Toggle state color: 150ms standard curve (BUI). */
+  transition: background-color var(--dur-fast) var(--ease-standard);
 }
 .effort-switch::after {
   content: '';

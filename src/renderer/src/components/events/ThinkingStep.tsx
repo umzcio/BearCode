@@ -23,8 +23,12 @@ export function ThinkingStep({
           <IconChevronRightSmall />
         </span>
       </div>
-      <div className="step-body md">
-        <Markdown text={text} />
+      <div className="step-reveal">
+        <div className="step-reveal-clip">
+          <div className="step-body md">
+            <Markdown text={text} />
+          </div>
+        </div>
       </div>
     </div>
   )

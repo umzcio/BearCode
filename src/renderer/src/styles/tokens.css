@@ -119,6 +119,7 @@
   --dur-hover: 100ms; /* hover color feedback (BUI transition-colors duration-100) */
   --dur-reveal: 300ms; /* collapsible grid-rows + fade-up entrances */
   --dur-reveal-lg: 400ms; /* large collapsibles (diff bodies, source panels) */
+  --dur-stagger: 80ms; /* per-row entrance cascade delay (BUI fade-up/pop-in sets) */
   --dur-press: 140ms; /* button press */
   --dur-press-release: 100ms; /* button release response */
   --dur-fast: 150ms; /* hover, small */

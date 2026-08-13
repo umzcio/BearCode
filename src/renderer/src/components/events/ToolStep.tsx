@@ -510,12 +510,16 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
             <IconChevronRightSmall />
           </span>
         </div>
-        <div className="step-body">
-          {isScreenshot ? (
-            <img className="browser-shot" src={output} alt="Browser screenshot" />
-          ) : (
-            (output ?? 'Working…')
-          )}
+        <div className="step-reveal">
+          <div className="step-reveal-clip">
+            <div className="step-body">
+              {isScreenshot ? (
+                <img className="browser-shot" src={output} alt="Browser screenshot" />
+              ) : (
+                (output ?? 'Working…')
+              )}
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -568,7 +572,11 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
             <IconChevronRightSmall />
           </span>
         </div>
-        <div className="step-body">{result ? result.output : 'Working…'}</div>
+        <div className="step-reveal">
+          <div className="step-reveal-clip">
+            <div className="step-body">{result ? result.output : 'Working…'}</div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -615,7 +623,11 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
             <IconChevronRightSmall />
           </span>
         </div>
-        <div className="step-body">{result ? result.output : 'Working…'}</div>
+        <div className="step-reveal">
+          <div className="step-reveal-clip">
+            <div className="step-body">{result ? result.output : 'Working…'}</div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -667,20 +679,25 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
             <IconChevronRightSmall />
           </span>
         </div>
-        <div className="step-body term">
-          {result ? result.output : 'Running…'}
-          {result && result.exitCode !== undefined ? (
-            <>
-              {'\n'}
-              <span className="ok">exit code {result.exitCode}</span>
-            </>
-          ) : null}
-          {sandboxed && nonZero ? (
-            <div className="sandbox-hint" role="note">
-              This command may have been blocked by the sandbox. Ask the agent to re-run it outside
-              the sandbox to check.
+        {/* Terminal output is a large body: --dur-reveal-lg per the BUI grammar. */}
+        <div className="step-reveal step-reveal-lg">
+          <div className="step-reveal-clip">
+            <div className="step-body term">
+              {result ? result.output : 'Running…'}
+              {result && result.exitCode !== undefined ? (
+                <>
+                  {'\n'}
+                  <span className="ok">exit code {result.exitCode}</span>
+                </>
+              ) : null}
+              {sandboxed && nonZero ? (
+                <div className="sandbox-hint" role="note">
+                  This command may have been blocked by the sandbox. Ask the agent to re-run it
+                  outside the sandbox to check.
+                </div>
+              ) : null}
             </div>
-          ) : null}
+          </div>
         </div>
       </div>
     )
@@ -695,7 +712,11 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
           <IconChevronRightSmall />
         </span>
       </div>
-      <div className="step-body">{result ? result.output : 'Working…'}</div>
+      <div className="step-reveal">
+        <div className="step-reveal-clip">
+          <div className="step-body">{result ? result.output : 'Working…'}</div>
+        </div>
+      </div>
     </div>
   )
 }

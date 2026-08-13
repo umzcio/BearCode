@@ -49,9 +49,10 @@
   width: 100%;
   text-align: left;
   font-family: inherit;
+  /* BUI hover color grammar: 100ms standard curve. */
   transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
 }
 .nav-item:hover {
   background: var(--hover);
@@ -95,9 +96,11 @@
   color: var(--ink-2);
   cursor: pointer;
   font-family: inherit;
+  /* Segmented control = slightly larger surface: 150ms colors (BUI FilterTable
+     chips), standard curve. */
   transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .seg-toggle button:hover {
@@ -106,8 +109,8 @@
 .seg-toggle button:active {
   transform: scale(0.97);
   transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
     transform var(--dur-press) var(--ease-out);
 }
 .seg-toggle button.active {
@@ -156,9 +159,10 @@
   cursor: pointer;
   text-align: left;
   font-family: inherit;
+  /* BUI hover color grammar: 100ms standard curve. */
   transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
 }
 .sb-flatrow:hover {
   background: var(--hover);
@@ -228,7 +232,8 @@
   margin-left: auto;
   flex-shrink: 0;
   opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-out);
+  /* Hover reveal = hover feedback: 100ms (BUI SidebarNav's plus affordance). */
+  transition: opacity var(--dur-hover) var(--ease-standard);
 }
 .sb-flatrow:hover .sb-rowact,
 .sb-flatrow:focus-within .sb-rowact {

@@ -379,8 +379,14 @@ export function ArtifactViewer({
         ) : null}
         {comments.length > 0 ? (
           <div className="plan-comment-list">
-            {comments.map((c) => (
-              <div key={c.id} className="plan-comment-item">
+            {comments.map((c, i) => (
+              <div
+                key={c.id}
+                className="plan-comment-item"
+                // BUI stagger: 80ms per row via --i, capped so long lists
+                // don't queue forever (ArtifactsPane.css animation-delay).
+                style={{ '--i': Math.min(i, 5) } as React.CSSProperties}
+              >
                 {c.quote ? <blockquote className="plan-comment-quote">{c.quote}</blockquote> : null}
                 <div>{c.body}</div>
                 <span className={'plan-comment-chip' + (c.sentAt === null ? ' draft' : '')}>

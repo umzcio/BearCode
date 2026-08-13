@@ -41,9 +41,10 @@
   background: transparent;
   color: var(--ink-2);
   cursor: pointer;
+  /* BUI hover color grammar: 100ms standard curve. */
   transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .mdp-icon-btn:hover {
@@ -53,7 +54,7 @@
 .mdp-icon-btn:active {
   transform: scale(0.97);
   transition:
-    background var(--dur-fast) var(--ease-out),
+    background-color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press) var(--ease-out);
 }
 .mdp-icon-btn.active {

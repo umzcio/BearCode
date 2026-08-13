@@ -20,7 +20,10 @@
   width: fit-content;
   border-radius: var(--radius-control);
   user-select: none;
-  transition: background var(--dur-fast) var(--ease-out);
+  /* BUI hover grammar: color feedback at 100ms on the standard curve. */
+  transition:
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
 }
 .worked-head:hover {
   color: var(--ink);
@@ -48,7 +51,8 @@
 .worked-head .chev {
   display: flex;
   color: var(--ink-3);
-  transition: transform var(--dur-menu) var(--ease-out);
+  /* 200ms: BUI disclosure-chevron constant (no token). */
+  transition: transform 200ms var(--ease-out);
 }
 .worked-head .chev svg {
   width: 13px;
@@ -58,6 +62,29 @@
   transform: rotate(-90deg);
 }
 
+/* BUI collapsible grammar (ThinkingState/ToolChips): the wrapper grid animates
+   grid-template-rows 0fr<->1fr + opacity; the inner .steps clips. Never a
+   display:none snap. The trailing visibility flip keeps collapsed content out
+   of the tab order without cutting the exit animation short. */
+.steps-reveal {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    grid-template-rows var(--dur-reveal) var(--ease-out),
+    opacity var(--dur-reveal) var(--ease-out),
+    visibility 0s;
+}
+.steps-reveal.collapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--dur-reveal) var(--ease-out),
+    opacity var(--dur-reveal) var(--ease-out),
+    visibility 0s linear var(--dur-reveal);
+}
 .steps {
   display: flex;
   flex-direction: column;
@@ -66,20 +93,22 @@
   padding-left: 12px;
   border-left: 1px solid var(--line);
   overflow: hidden;
-  transition:
-    opacity var(--dur-fast) var(--ease-out),
-    transform var(--dur-fast) var(--ease-out);
-  opacity: 1;
-  transform: translateY(0);
+  min-height: 0;
 }
-.steps.collapsed {
-  display: none;
+
+/* BUI cascade: rows joining a LIVE run rise in, staggered 80ms by their
+   position within their mount batch (--i set inline by WorkedGroup, capped
+   at 6). Settled/historical renders carry no .live -- no animation at all. */
+.steps.live .step-enter {
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * var(--dur-stagger));
 }
-@starting-style {
-  .steps {
-    opacity: 0;
-    transform: translateY(-2px);
-  }
+/* BUI status swap (TaskRows): spinner -> check/cross fades in. 200ms is the
+   BUI status-badge constant (no token). Live runs only -- a historical
+   transcript mounts its glyphs already settled. */
+.steps.live .step-status.done,
+.steps.live .step-status.error {
+  animation: fade-in 200ms var(--ease-out) both;
 }
 
 .step {
@@ -98,7 +127,10 @@
   user-select: none;
   width: fit-content;
   max-width: 100%;
-  transition: background var(--dur-fast) var(--ease-out);
+  /* BUI hover grammar: 100ms standard-curve color feedback. */
+  transition:
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
 }
 .step-row:hover {
   background: var(--hover);
@@ -186,7 +218,8 @@
   display: flex;
   color: var(--ink-3);
   flex-shrink: 0;
-  transition: transform var(--dur-menu) var(--ease-out);
+  /* 200ms: BUI disclosure-chevron constant (no token). */
+  transition: transform 200ms var(--ease-out);
 }
 .step-row .chev svg {
   width: 12px;
@@ -219,8 +252,45 @@
   margin-top: 6px;
 }
 
+/* BUI collapsible grammar for expandable step bodies (ToolChips detail):
+   grid wrapper 0fr<->1fr + opacity, inner clip element. .step-reveal-lg is
+   the large-body variant (terminal output) at --dur-reveal-lg. */
+.step-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--dur-reveal) var(--ease-out),
+    opacity var(--dur-reveal) var(--ease-out),
+    visibility 0s linear var(--dur-reveal);
+}
+.step.open .step-reveal {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    grid-template-rows var(--dur-reveal) var(--ease-out),
+    opacity var(--dur-reveal) var(--ease-out),
+    visibility 0s;
+}
+.step-reveal.step-reveal-lg {
+  transition:
+    grid-template-rows var(--dur-reveal-lg) var(--ease-out),
+    opacity var(--dur-reveal-lg) var(--ease-out),
+    visibility 0s linear var(--dur-reveal-lg);
+}
+.step.open .step-reveal.step-reveal-lg {
+  transition:
+    grid-template-rows var(--dur-reveal-lg) var(--ease-out),
+    opacity var(--dur-reveal-lg) var(--ease-out),
+    visibility 0s;
+}
+.step-reveal-clip {
+  overflow: hidden;
+  min-height: 0;
+}
 .step-body {
-  display: none;
   margin: 4px 0 8px 8px;
   border-left: 1px solid var(--line);
   padding: 6px 14px;
@@ -228,20 +298,6 @@
   color: var(--ink-2);
   line-height: 1.6;
   white-space: pre-line;
-  transition:
-    opacity var(--dur-fast) var(--ease-out),
-    transform var(--dur-fast) var(--ease-out);
-  opacity: 1;
-  transform: translateY(0);
-}
-.step.open .step-body {
-  display: block;
-}
-@starting-style {
-  .step-body {
-    opacity: 0;
-    transform: translateY(-2px);
-  }
 }
 .step-body.md {
   white-space: normal;
@@ -346,7 +402,8 @@
 .diff-head .chev {
   display: flex;
   color: var(--ink-3);
-  transition: transform var(--dur-menu) var(--ease-out);
+  /* 200ms: BUI disclosure-chevron constant (no token). */
+  transition: transform 200ms var(--ease-out);
 }
 .diff-head .chev svg {
   width: 12px;
@@ -370,7 +427,7 @@
   border-radius: var(--radius-control);
   cursor: pointer;
   font-family: inherit;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .review-btn:hover {
   background: var(--hover);
@@ -380,11 +437,33 @@
   height: 14px;
 }
 
-.diff-files {
-  border-top: 1px solid var(--line);
+/* BUI collapsible grammar: the file list is a large body (--dur-reveal-lg).
+   The hairline moves to the first row so the closed card keeps no residue. */
+.diff-reveal {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    grid-template-rows var(--dur-reveal-lg) var(--ease-out),
+    opacity var(--dur-reveal-lg) var(--ease-out),
+    visibility 0s;
 }
-.diff-card.closed .diff-files {
-  display: none;
+.diff-card.closed .diff-reveal {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--dur-reveal-lg) var(--ease-out),
+    opacity var(--dur-reveal-lg) var(--ease-out),
+    visibility 0s linear var(--dur-reveal-lg);
+}
+.diff-files {
+  overflow: hidden;
+  min-height: 0;
+}
+.diff-file:first-child {
+  border-top: 1px solid var(--line);
 }
 .diff-file {
   display: flex;
@@ -393,7 +472,7 @@
   padding: 9px 14px;
   font-size: 12.5px;
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .diff-file:nth-child(even) {
   background: var(--stripe);
@@ -473,7 +552,7 @@
   border-radius: var(--radius-control);
   cursor: pointer;
   font-family: inherit;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .retry-btn:hover {
   background: var(--hover);
@@ -486,7 +565,8 @@
   gap: 2px;
   padding-top: 6px;
   opacity: 0;
-  transition: opacity var(--dur-fast) ease;
+  /* BUI hover-reveal (ToolChips row affordances): opacity swap at 150ms. */
+  transition: opacity var(--dur-fast) var(--ease-standard);
 }
 .agent-turn:hover .msg-actions {
   opacity: 1;
@@ -516,7 +596,7 @@
   cursor: pointer;
   border: none;
   flex-shrink: 0;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .approve-btn.run {
   background: var(--green-tint);
@@ -582,8 +662,8 @@
   color: var(--ink-3);
   cursor: pointer;
   transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
 }
 .code-copy:hover {
   background: var(--hover);
@@ -740,7 +820,7 @@
   color: var(--ink);
   padding: 8px 10px;
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .approval-opt:hover {
   background: var(--hover);
@@ -850,15 +930,19 @@
   .diff-head .chev {
     transition: none;
   }
-  .steps,
-  .step-body {
-    transition: opacity var(--dur-fast) ease;
-  }
-  @starting-style {
-    .steps,
-    .step-body {
-      transform: none;
-    }
+  /* Collapsibles must still resolve open/closed -- collapse the transition to
+     imperceptible (never a display:none snap), and drop the visibility delay
+     so the tab-order flip is immediate. */
+  .steps-reveal,
+  .steps-reveal.collapsed,
+  .step-reveal,
+  .step.open .step-reveal,
+  .step-reveal.step-reveal-lg,
+  .step.open .step-reveal.step-reveal-lg,
+  .diff-reveal,
+  .diff-card.closed .diff-reveal {
+    transition-duration: 0.001ms;
+    transition-delay: 0s;
   }
   /* NOTE: the late-in-file reduced-motion overrides (.finding-head .chev,
      .finding-detail, .lens-chip:active, .artifact-card .chev) live in a SECOND
@@ -884,8 +968,8 @@
   font-size: 12.5px;
   cursor: pointer;
   transition:
-    color var(--dur-fast) var(--ease-out),
-    box-shadow var(--dur-fast) var(--ease-out);
+    color var(--dur-hover) var(--ease-standard),
+    box-shadow var(--dur-hover) var(--ease-standard);
 }
 .allow-cell:hover {
   color: var(--ink);
@@ -907,6 +991,7 @@
   gap: 10px;
   padding: 10px 14px;
   cursor: pointer;
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .artifact-head:hover {
   background: var(--hover);
@@ -966,7 +1051,9 @@
   padding: 3px 9px;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition:
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
 }
 .artifact-pane-btn:hover {
   background: var(--hover);
@@ -975,7 +1062,8 @@
 .artifact-card .chev {
   color: var(--text-dim);
   display: flex;
-  transition: transform var(--dur-menu) var(--ease-out);
+  /* 200ms: BUI disclosure-chevron constant (no token). */
+  transition: transform 200ms var(--ease-out);
 }
 .artifact-card.open .chev {
   transform: rotate(90deg);
@@ -1227,8 +1315,8 @@
   color: var(--ink-2);
   font-size: 12px;
   transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
 }
 .sources-item:hover {
   background: var(--hover);
@@ -1282,9 +1370,14 @@
   text-decoration: none;
   vertical-align: 2px;
   transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out),
-    box-shadow var(--dur-fast) var(--ease-out);
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
+    box-shadow var(--dur-hover) var(--ease-standard);
+  /* BUI SourceChip entrance: chips pop in when the source set arrives,
+     staggered 80ms in document order (--ms-i set inline by lib/markdown.tsx,
+     capped at 6 there). */
+  animation: pop-in 250ms var(--ease-out) both;
+  animation-delay: calc(var(--ms-i, 0) * var(--dur-stagger));
 }
 .cite-ref:hover {
   background: var(--hover);
@@ -1398,6 +1491,7 @@
   border-radius: 8px;
   cursor: pointer;
   user-select: none;
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .finding-head:hover {
   background: var(--hover);
@@ -1425,7 +1519,8 @@
   display: flex;
   color: var(--text-dim);
   flex-shrink: 0;
-  transition: transform var(--dur-menu) var(--ease-out);
+  /* 200ms: BUI disclosure-chevron constant (no token). */
+  transition: transform 200ms var(--ease-out);
 }
 .finding-head .chev svg {
   width: 12px;
@@ -1510,9 +1605,9 @@
   color: var(--ink);
   cursor: pointer;
   transition:
-    background var(--dur-fast) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-hover) var(--ease-standard),
+    border-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press) var(--ease-out);
 }
 .lens-chip:hover {
@@ -1575,4 +1670,83 @@
 .clarify-card .approval-actions .pill-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* ── W3 motion: streamed markdown + sources panel (ms- prefix) ──────────
+   New choreography rules only -- keyframes live in styles/shared.css. */
+
+/* Streamed-text materialization (BUI StreamingText): while a message is
+   streaming, lib/markdown.tsx puts this class on ONLY the block currently
+   receiving text; earlier blocks drop it (no re-trigger) and settled history
+   never gets it. 420ms + curve are the BUI stream-in constants (no token). */
+.ms-stream-in {
+  animation: stream-in 420ms cubic-bezier(0.22, 0.61, 0.25, 1) both;
+  will-change: filter, opacity;
+}
+
+/* Sources panel disclosure (BUI StreamingText "10 sources" toggle). The
+   title row is a quiet button; the list collapses via the grid-rows trick. */
+.ms-sources-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: none;
+  padding: 2px 6px 2px 4px;
+  margin: 0 0 4px -4px;
+  border-radius: var(--radius-chip);
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
+}
+.ms-sources-toggle:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.ms-sources-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+/* 200ms: BUI disclosure-chevron constant (no token). */
+.ms-sources-chevron {
+  flex: 0 0 auto;
+  transform: rotate(-90deg);
+  transition: transform 200ms var(--ease-out);
+}
+.ms-sources-chevron.is-open {
+  transform: rotate(0deg);
+}
+.ms-sources-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--dur-reveal) var(--ease-out),
+    opacity var(--dur-reveal) var(--ease-out);
+}
+.ms-sources-reveal.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.ms-sources-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+/* Arrival: the panel mounts open when the turn's source set lands, so let it
+   expand from 0fr instead of teleporting in. */
+@starting-style {
+  .ms-sources-reveal.is-open {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Collapsible must still resolve its open/closed state -- collapse the
+     transition to imperceptible rather than snapping via display:none. */
+  .ms-sources-reveal,
+  .ms-sources-chevron {
+    transition-duration: 0.001ms;
+  }
 }

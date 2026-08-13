@@ -25,7 +25,10 @@
   color: var(--ink-2);
   cursor: pointer;
   border-radius: var(--radius-chip);
-  transition: transform var(--dur-press-release) var(--ease-out);
+  /* BUI hover color grammar: 100ms standard curve. */
+  transition:
+    color var(--dur-hover) var(--ease-standard),
+    transform var(--dur-press-release) var(--ease-out);
 }
 .amp-close:hover {
   color: var(--ink);

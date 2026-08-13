@@ -21,7 +21,7 @@
   background: var(--field);
   box-shadow: var(--shadow-inset-field), var(--shadow-hairline);
   color: var(--ink-3);
-  transition: box-shadow var(--dur-fast) var(--ease-out);
+  transition: box-shadow var(--dur-fast) var(--ease-standard);
 }
 .ct-search:focus-within {
   box-shadow:
@@ -63,7 +63,8 @@
   gap: 10px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
-  transition: background-color var(--dur-fast) var(--ease-out);
+  /* Row hover: 100ms standard curve (BUI table grammar). */
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .ct-row:last-child {
   border-bottom: none;
@@ -104,7 +105,7 @@
   cursor: pointer;
   flex-shrink: 0;
   transition:
-    background-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .ct-enable:hover {

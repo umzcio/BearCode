@@ -12,7 +12,8 @@
   border-radius: var(--radius-card);
   position: relative;
   box-shadow: var(--shadow-card);
-  transition: box-shadow var(--dur-fast) ease;
+  /* Whole-card focus feedback: 150ms, standard curve (BUI grammar). */
+  transition: box-shadow var(--dur-fast) var(--ease-standard);
   /* Controls respond to the COMPOSER's width (which the Artifacts-pane drag
      changes), not the window's -- so use a container query, not a media query. */
   container-type: inline-size;
@@ -391,27 +392,9 @@
   padding: 4px 6px 4px 8px;
   border-radius: var(--radius-chip);
   max-width: 260px;
-  transition:
-    opacity var(--dur-fast) var(--ease-out),
-    transform var(--dur-fast) var(--ease-out);
-  opacity: 1;
-  transform: scale(1);
-}
-@starting-style {
-  .attachment-pill {
-    opacity: 0;
-    transform: scale(0.96);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .attachment-pill {
-    transition: opacity var(--dur-fast) ease;
-  }
-  @starting-style {
-    .attachment-pill {
-      transform: none;
-    }
-  }
+  /* Chip entrance: BUI pop-in, 250ms (shared keyframe carries the
+     reduced-motion transform-free variant). */
+  animation: pop-in 250ms var(--ease-out) both;
 }
 .attachment-pill-file {
   padding-left: 6px;
@@ -478,7 +461,11 @@
   border-radius: 4px;
   flex: none;
   opacity: 0;
-  transition: opacity var(--dur-fast) ease;
+  /* BUI hover color grammar: 100ms standard curve. */
+  transition:
+    opacity var(--dur-hover) var(--ease-standard),
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
 }
 .attachment-pill:hover .pill-x,
 .attachment-pill .pill-x:focus-visible {

@@ -19,7 +19,8 @@
   padding: 7px 12px;
   cursor: pointer;
   text-align: left;
-  transition: background var(--dur-fast) ease;
+  /* BUI hover grammar: color feedback at --dur-hover/--ease-standard. */
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .app-select-trigger:hover {
   background: var(--hover);

@@ -20,8 +20,12 @@
   color: var(--tooltip-fg);
   white-space: nowrap;
 }
+/* BUI tooltip enter: a pure 150ms fade (no scale) -- `fade-in` is the shared
+   entrance keyframe library in styles/shared.css (transform-free, so it needs
+   no OS reduced-motion swap; the in-app data-motion blanket collapses the
+   duration). */
 .hint-surface.hint-enter {
-  animation: hint-in var(--dur-fast) var(--ease-out);
+  animation: fade-in var(--dur-fast) var(--ease-out) both;
 }
 .hint-bubble.right {
   transform: translateY(-50%);
@@ -32,15 +36,6 @@
 .hint-bubble.top {
   transform: translate(-50%, -100%);
 }
-.hint-bubble.right .hint-surface {
-  transform-origin: left center;
-}
-.hint-bubble.bottom .hint-surface {
-  transform-origin: center top;
-}
-.hint-bubble.top .hint-surface {
-  transform-origin: center bottom;
-}
 
 .hint-keys {
   color: var(--tooltip-muted);
@@ -50,32 +45,3 @@
   letter-spacing: 1px;
 }
 
-@keyframes hint-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes hint-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .hint-surface.hint-enter {
-    animation-name: hint-fade-in;
-  }
-}
-
-:root[data-motion='reduced'] .hint-surface.hint-enter {
-  animation-name: hint-fade-in;
-}

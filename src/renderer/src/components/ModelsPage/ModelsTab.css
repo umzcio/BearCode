@@ -22,7 +22,7 @@
   background: var(--field);
   box-shadow: var(--shadow-inset-field), var(--shadow-hairline);
   color: var(--ink-3);
-  transition: box-shadow var(--dur-fast) var(--ease-out);
+  transition: box-shadow var(--dur-fast) var(--ease-standard);
 }
 .mt-search:focus-within {
   box-shadow:
@@ -77,7 +77,8 @@
   padding: 9px 12px;
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
-  transition: background-color var(--dur-fast) var(--ease-out);
+  /* Row hover: 100ms standard curve (BUI table grammar). */
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .mt-table tbody tr:last-child td {
   border-bottom: none;
@@ -167,8 +168,8 @@
   color: var(--ink-3);
   cursor: pointer;
   transition:
-    background-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .mt-fav:hover,
@@ -201,7 +202,7 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .mt-pagination button:hover:not(:disabled) {
@@ -222,7 +223,7 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .mt-bulk-btn:hover {
@@ -241,8 +242,8 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .mt-add-model::before {

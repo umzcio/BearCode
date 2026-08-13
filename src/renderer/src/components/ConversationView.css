@@ -96,6 +96,9 @@
   line-height: 1.55;
   user-select: text;
   white-space: pre-wrap;
+  /* BUI entrance grammar: cards rise in on mount (keyframes in shared.css;
+     the reduced-motion variant there drops the transform). */
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
 }
 .msg-command-pill {
   display: inline-block;
@@ -169,7 +172,8 @@
   height: 24px;
   padding-right: 4px;
   opacity: 0;
-  transition: opacity var(--dur-fast) ease;
+  /* BUI hover-reveal (ToolChips row affordances): opacity swap at 150ms. */
+  transition: opacity var(--dur-fast) var(--ease-standard);
 }
 .msg-user-wrap:hover .msg-user-meta,
 .msg-user-meta:focus-within {
@@ -190,7 +194,7 @@
   font-size: 12px;
   color: var(--ink-3);
   opacity: 0;
-  transition: opacity var(--dur-fast) ease;
+  transition: opacity var(--dur-fast) var(--ease-standard);
 }
 .agent-turn:hover .msg-ursa-badge,
 .msg-ursa-badge:focus-within {
@@ -221,6 +225,8 @@
   margin-bottom: 8px;
   max-height: 40vh;
   overflow-y: auto;
+  /* BUI entrance grammar: the pinned card rises in when an approval lands. */
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
 }
 /* The pinned copy re-renders the whole ToolStep; its step row and waiting
    note are the transcript's job -- only the card itself belongs here. */
