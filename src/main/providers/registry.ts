@@ -14,7 +14,13 @@ import type {
 import { getKey, keyStatus } from '../keys'
 import { getSettings } from '../settings'
 import type { ModelMetadata } from '../../shared/pricing'
-import { fetchAnthropicModels, fetchGoogleModels, fetchOpenAIModels } from './liveDiscovery'
+import {
+  fetchAnthropicModels,
+  fetchGoogleModels,
+  fetchOpenAIModels,
+  fetchPerplexityModels,
+  fetchXaiModels
+} from './liveDiscovery'
 
 interface ProviderRegistryEntry {
   id: ProviderId
@@ -207,9 +213,7 @@ async function fetchOllamaContextWindow(base: string, id: string): Promise<numbe
 // Callers that only need the model LIST (per-turn eligibility checks) leave it
 // off and keep the single-request fast path; the catalog that feeds the
 // renderer (and therefore the context meter) turns it on.
-export async function listOllamaModels(
-  opts: { withContextWindows?: boolean } = {}
-): Promise<{
+export async function listOllamaModels(opts: { withContextWindows?: boolean } = {}): Promise<{
   models: ModelInfo[]
   reachable: boolean
   note?: string
@@ -427,12 +431,12 @@ const STATIC_MODELS: Partial<Record<ProviderId, ModelInfo[]>> = {
   xai: XAI_MODELS
 }
 
-// Per-provider live-discovered model list (Anthropic/Google/OpenAI only --
-// see liveDiscovery.ts), populated lazily by ensureLiveDiscovery(). Empty
-// until that provider's first successful live fetch this process lifetime;
-// knownModels() falls back to STATIC_MODELS for any provider with no cache
-// entry -- every provider, until Task 6 wires in the real fetchers, and
-// permanently for xAI/Perplexity/OpenRouter (no discovery mechanism exists).
+// Per-provider live-discovered model list (Anthropic/Google/OpenAI/xAI/
+// Perplexity -- see liveDiscovery.ts), populated lazily by
+// ensureLiveDiscovery(). Empty until that provider's first successful live
+// fetch this process lifetime; knownModels() falls back to STATIC_MODELS for
+// any provider with no cache entry, and permanently for OpenRouter (its
+// full catalog is dynamic and handled by its own provider entry).
 const liveModelCache = new Map<ProviderId, ModelInfo[]>()
 
 // Per-ref live-discovered capability patch. Merged on top of LiteLLM's
@@ -449,7 +453,9 @@ export function knownModels(provider: ProviderId): ModelInfo[] {
   return liveModelCache.get(provider) ?? STATIC_MODELS[provider] ?? []
 }
 
-export function liveCapabilitiesFor(ref: string): Partial<ModelMetadata['capabilities']> | undefined {
+export function liveCapabilitiesFor(
+  ref: string
+): Partial<ModelMetadata['capabilities']> | undefined {
   return liveCapabilityCache.get(ref)
 }
 
@@ -516,7 +522,10 @@ const OPENAI_NON_CHAT_SUBSTRINGS = [
   'codex'
 ]
 
-function isKnownOpenAIChatModel(id: string, metadata: Record<string, { mode?: string }> | undefined): boolean {
+function isKnownOpenAIChatModel(
+  id: string,
+  metadata: Record<string, { mode?: string }> | undefined
+): boolean {
   const ref = `openai/${id}`
   if (metadata?.[ref]) return metadata[ref].mode === 'chat'
   return !OPENAI_NON_CHAT_SUBSTRINGS.some((s) => id.includes(s))
@@ -552,14 +561,17 @@ async function ensureLiveDiscovery(provider: ProviderId): Promise<void> {
     else if (provider === 'openai') {
       const metadata = getSettings().modelMetadata
       result = await fetchOpenAIModels(apiKey, (id) => isKnownOpenAIChatModel(id, metadata))
-    }
+    } else if (provider === 'xai') result = await fetchXaiModels(apiKey)
+    else if (provider === 'perplexity') result = await fetchPerplexityModels(apiKey)
   } catch {
     return
   }
   if (!result) return
 
   const merged = mergeLiveWithStatic(result.models, STATIC_MODELS[provider] ?? [], {
-    preferStaticLabel: provider === 'openai'
+    // OpenAI's list has no display names at all; xAI/Perplexity get generated
+    // labels ("Grok 4.6") that a curated static label should still beat.
+    preferStaticLabel: provider === 'openai' || provider === 'xai' || provider === 'perplexity'
   })
   liveModelCache.set(provider, merged)
   for (const [id, caps] of Object.entries(result.capabilities)) {

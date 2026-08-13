@@ -1,7 +1,12 @@
 import { useState } from 'react'
 import type { ProviderId } from '@shared/types'
 import { useAppStore } from '../../state/store'
-import { buildModelRows, CAPABILITY_LABEL, type CapabilityKey, type ModelRow } from '../../lib/modelRows'
+import {
+  buildModelRows,
+  CAPABILITY_LABEL,
+  type CapabilityKey,
+  type ModelRow
+} from '../../lib/modelRows'
 import { EmptyState } from '../ui/EmptyState'
 import { ProviderIcon } from '../ProviderIcon'
 import { Select, type SelectOption } from '../Select'
@@ -21,13 +26,21 @@ const SORT_OPTIONS: SelectOption<'vendor' | 'name'>[] = [
   { value: 'name', label: 'Name (A–Z)' }
 ]
 
-function Row({ row, onEnable }: { row: ModelRow; onEnable: (ref: string) => void }): React.JSX.Element {
+function Row({
+  row,
+  onEnable
+}: {
+  row: ModelRow
+  onEnable: (ref: string) => void
+}): React.JSX.Element {
   return (
     <div className="ct-row" key={row.ref}>
       <ProviderIcon provider={row.providerId} size={16} />
       <div className="ct-row-text">
         <span className="ct-row-name">{row.label}</span>
-        {row.catalog?.description ? <span className="ct-row-desc">{row.catalog.description}</span> : null}
+        {row.catalog?.description ? (
+          <span className="ct-row-desc">{row.catalog.description}</span>
+        ) : null}
       </div>
       <button type="button" className="ct-enable" onClick={() => onEnable(row.ref)}>
         Enable
@@ -73,7 +86,11 @@ export function CatalogTab(): React.JSX.Element {
 
   const filtered = disabled.filter((row) => {
     const q = search.trim().toLowerCase()
-    if (q && !row.label.toLowerCase().includes(q) && !row.providerDisplayName.toLowerCase().includes(q))
+    if (
+      q &&
+      !row.label.toLowerCase().includes(q) &&
+      !row.providerDisplayName.toLowerCase().includes(q)
+    )
       return false
     if (vendorFilter !== 'all' && row.providerId !== vendorFilter) return false
     if (capabilityFilter !== 'all' && !(row.metadata?.capabilities[capabilityFilter] ?? false))
@@ -115,7 +132,10 @@ export function CatalogTab(): React.JSX.Element {
     return (
       <div className="catalog-tab">
         {toolbar}
-        <EmptyState title="No models match these filters" />
+        <EmptyState
+          title="No models match these filters"
+          hint="The catalog lists only models you can still enable — anything already enabled lives on the Models tab."
+        />
       </div>
     )
   }

@@ -176,3 +176,84 @@ export async function fetchOpenAIModels(
     return null
   }
 }
+
+// "grok-4.6" -> "Grok 4.6"; "sonar-reasoning-pro" -> "Sonar Reasoning Pro".
+// xAI and Perplexity list endpoints return bare ids with no display name;
+// registry.ts prefers the curated static label on id collision, so this only
+// names models we have never seen before.
+function labelFromId(id: string): string {
+  return id
+    .split('-')
+    .map((part) => (/^\d/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join(' ')
+}
+
+interface XaiModelEntry {
+  id: string
+  input_modalities?: string[]
+  // Field name differs across doc revisions; accept either, omit when absent.
+  context_window?: number
+  max_prompt_length?: number
+}
+interface XaiModelsResponse {
+  models?: XaiModelEntry[]
+}
+
+// /v1/language-models (not /v1/models): the richer variant that carries
+// modalities, and only lists chat + image-understanding models, so no
+// chat-model filter is needed (verified against docs.x.ai, 2026-08-12).
+const XAI_MODELS_URL = 'https://api.x.ai/v1/language-models'
+
+export async function fetchXaiModels(apiKey: string): Promise<LiveDiscoveryResult | null> {
+  try {
+    const res = await fetch(XAI_MODELS_URL, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+    })
+    if (!res.ok) return null
+    const body = (await res.json()) as XaiModelsResponse
+    const models: ModelInfo[] = []
+    const capabilities: Record<string, Partial<ModelMetadata['capabilities']>> = {}
+    for (const entry of body.models ?? []) {
+      if (!entry.id) continue
+      const window = entry.context_window ?? entry.max_prompt_length
+      models.push({
+        id: entry.id,
+        label: labelFromId(entry.id),
+        ...(typeof window === 'number' && window > 0 ? { contextWindow: window } : {})
+      })
+      // Only claim vision when modalities were actually present in the
+      // response (same "absent stays undefined" rule as fetchAnthropicModels).
+      if (Array.isArray(entry.input_modalities)) {
+        capabilities[entry.id] = { vision: entry.input_modalities.includes('image') }
+      }
+    }
+    return { models, capabilities }
+  } catch {
+    return null
+  }
+}
+
+interface PerplexityModelsResponse {
+  data?: { id: string }[]
+}
+
+// OpenAI List Models format (verified against docs.perplexity.ai, 2026-08-12).
+const PERPLEXITY_MODELS_URL = 'https://api.perplexity.ai/v1/models'
+
+export async function fetchPerplexityModels(apiKey: string): Promise<LiveDiscoveryResult | null> {
+  try {
+    const res = await fetch(PERPLEXITY_MODELS_URL, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+    })
+    if (!res.ok) return null
+    const body = (await res.json()) as PerplexityModelsResponse
+    const models: ModelInfo[] = (body.data ?? [])
+      .filter((entry) => entry.id)
+      .map((entry) => ({ id: entry.id, label: labelFromId(entry.id) }))
+    return { models, capabilities: {} }
+  } catch {
+    return null
+  }
+}
