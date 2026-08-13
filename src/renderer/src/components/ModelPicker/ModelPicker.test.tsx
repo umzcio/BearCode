@@ -217,3 +217,126 @@ describe('ModelPicker — closes on Settings open', () => {
     expect(screen.queryByRole('listbox')).toBeNull()
   })
 })
+
+describe('ModelPicker — favorites-first picker', () => {
+  const twoProviders = [
+    usableProvider,
+    {
+      id: 'xai',
+      displayName: 'xAI',
+      color: '#9aa0a6',
+      requiresKey: true,
+      keyConfigured: true,
+      reachable: true,
+      models: [
+        { id: 'grok-4.6', label: 'Grok 4.6' },
+        { id: 'grok-4.5', label: 'Grok 4.5', contextWindow: 500_000 }
+      ]
+    }
+  ]
+
+  it('opens on the Favorites tab with Modes on top and starred models listed', () => {
+    useAppStore.setState({
+      providers: twoProviders as never,
+      modelRef: 'anthropic/claude-sonnet-5',
+      conversations: {} as never,
+      settings: { ursaEnabled: false, favoriteModels: ['xai/grok-4.6'] } as never
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button', { name: /claude sonnet 5/i }))
+    expect(screen.getByRole('tab', { name: /favorites/i }).className).toContain('on')
+    expect(screen.getByText('Modes')).toBeInTheDocument()
+    // Starred model + the current (unstarred) model are both visible (the
+    // trigger button also carries the current model's name, hence getAllBy).
+    expect(screen.getByText('Grok 4.6')).toBeInTheDocument()
+    expect(screen.getAllByText('Claude Sonnet 5').length).toBeGreaterThan(1)
+    // Non-favorited, non-current models stay off the default view.
+    expect(screen.queryByText('Grok 4.5')).not.toBeInTheDocument()
+  })
+
+  it('shows the teaching empty state when nothing is starred', () => {
+    useAppStore.setState({
+      providers: twoProviders as never,
+      modelRef: null,
+      conversations: {} as never,
+      settings: { ursaEnabled: false, favoriteModels: [] } as never
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    expect(screen.getByText(/no favorites yet/i)).toBeInTheDocument()
+  })
+
+  it('search filters the whole catalog from any tab and ignores tab scoping', () => {
+    useAppStore.setState({
+      providers: twoProviders as never,
+      modelRef: null,
+      conversations: {} as never,
+      settings: { ursaEnabled: false, favoriteModels: [] } as never
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.change(screen.getByPlaceholderText(/search models/i), {
+      target: { value: 'grok' }
+    })
+    expect(screen.getByText('Grok 4.6')).toBeInTheDocument()
+    expect(screen.getByText('Grok 4.5')).toBeInTheDocument()
+    expect(screen.queryByText('Claude Sonnet 5')).not.toBeInTheDocument()
+    // Tabs hide while searching (results replace the tabbed views).
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+  })
+
+  it('star toggle persists through saveSettings({ favoriteModels })', () => {
+    const saveSettings = vi.fn().mockResolvedValue(undefined)
+    useAppStore.setState({
+      providers: twoProviders as never,
+      modelRef: null,
+      conversations: {} as never,
+      saveSettings: saveSettings as never,
+      settings: { ursaEnabled: false, favoriteModels: ['anthropic/claude-sonnet-5'] } as never
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByRole('button', { name: /unfavorite claude sonnet 5/i }))
+    expect(saveSettings).toHaveBeenCalledWith({ favoriteModels: [] })
+  })
+
+  it('Recent tab lists distinct models from conversation history, newest first', () => {
+    useAppStore.setState({
+      providers: twoProviders as never,
+      modelRef: null,
+      conversations: {
+        a: { modelRef: 'xai/grok-4.5', updatedAt: 300 },
+        b: { modelRef: 'anthropic/claude-sonnet-5', updatedAt: 200 },
+        c: { modelRef: 'xai/grok-4.5', updatedAt: 100 }
+      } as never,
+      settings: { ursaEnabled: false, favoriteModels: [] } as never
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByRole('tab', { name: /recent/i }))
+    const rows = screen
+      .getAllByRole('option')
+      .map((o) => o.textContent ?? '')
+      .filter((t) => t.includes('Grok') || t.includes('Claude'))
+    expect(rows[0]).toContain('Grok 4.5')
+    expect(rows[1]).toContain('Claude Sonnet 5')
+    expect(rows).toHaveLength(2)
+  })
+
+  it('shows context-window and cost tags on informed rows', () => {
+    useAppStore.setState({
+      providers: twoProviders as never,
+      modelRef: null,
+      conversations: {} as never,
+      settings: {
+        ursaEnabled: false,
+        favoriteModels: ['xai/grok-4.5'],
+        modelPricing: { 'xai/grok-4.5': { inputPer1M: 3, outputPer1M: 15 } }
+      } as never
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    expect(screen.getByText('500K')).toBeInTheDocument()
+    expect(screen.getByText('$$')).toBeInTheDocument()
+  })
+})

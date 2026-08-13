@@ -942,6 +942,10 @@ export interface ModelInfo {
   // Approximate context window in tokens (E11). Optional: dynamic/unknown
   // models (ollama, openrouter) omit it and the context meter stays hidden.
   contextWindow?: number
+  // Curated strengths line for the model picker's informed rows ("code ·
+  // research"). Attached by listAllModels from the registry's CAPABILITIES
+  // table; absent for discovered/custom/dynamic models.
+  strengths?: string[]
 }
 
 // A model reference is "provider/modelId"; the modelId itself may contain

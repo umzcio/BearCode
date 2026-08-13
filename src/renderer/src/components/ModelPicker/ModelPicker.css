@@ -87,3 +87,138 @@
   width: 15px;
   height: 15px;
 }
+
+/* ── Favorites-first picker (approved prototype 2026-08-13) ── */
+.model-menu {
+  width: 380px;
+}
+.mp-search {
+  margin: 4px 6px 6px;
+}
+/* Segmented tabs on the --field track, active segment raised (BUI pattern,
+   same as the sidebar seg-toggle). */
+.mp-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 0 6px 4px;
+  background: var(--field);
+  border-radius: var(--radius-control);
+  padding: 3px;
+}
+.mp-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+  padding: 4px 0;
+  border-radius: var(--radius-chip);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
+}
+.mp-tab:hover {
+  color: var(--ink);
+}
+.mp-tab.on {
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+  color: var(--ink);
+}
+.mp-scroll {
+  max-height: 384px;
+  overflow-y: auto;
+}
+/* Informed rows: name (+ optional strengths line), star, ctx/cost tags. */
+.mp-row {
+  gap: 9px;
+}
+.mp-nm {
+  flex: 1;
+  min-width: 0;
+}
+.mp-nm b {
+  display: block;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mp-nm small {
+  display: block;
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mp-star {
+  border: none;
+  background: none;
+  font-family: inherit;
+  width: 20px;
+  padding: 0;
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 13px;
+  flex-shrink: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
+}
+.mp-row:hover .mp-star,
+.mp-row.active .mp-star {
+  opacity: 1;
+}
+.mp-star.on {
+  opacity: 1;
+  color: var(--orange);
+}
+.mp-star:hover {
+  color: var(--orange);
+}
+.mp-tags {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  align-items: center;
+}
+.mp-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
+  border-radius: 5px;
+  padding: 3px 5px;
+}
+.mp-tag.g {
+  color: var(--green);
+  background: var(--green-tint);
+  box-shadow: none;
+}
+.mp-tag.o {
+  color: var(--orange);
+  background: var(--orange-tint);
+  box-shadow: none;
+}
+.mp-empty {
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  padding: 26px 24px;
+  line-height: 1.6;
+}
+.mp-empty b {
+  display: block;
+  color: var(--ink-2);
+  font-weight: 500;
+}

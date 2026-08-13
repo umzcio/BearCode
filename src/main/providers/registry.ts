@@ -687,7 +687,13 @@ export async function listAllModels(): Promise<ProviderModels[]> {
         requiresKey: entry.requiresKey,
         keyConfigured: entry.requiresKey ? status[entry.id] : true,
         reachable,
-        models: merged,
+        // Informed picker rows: curated strengths ride along when the
+        // CAPABILITIES table knows the ref (absent otherwise, renderer hides
+        // the line).
+        models: merged.map((m) => {
+          const caps = capabilitiesFor(`${entry.id}/${m.id}`)
+          return caps?.strengths ? { ...m, strengths: caps.strengths } : m
+        }),
         note
       }
     })
