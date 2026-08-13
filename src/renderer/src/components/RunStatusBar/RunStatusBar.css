@@ -1,14 +1,15 @@
 .run-status-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 6px 12px;
   margin: 0 0 6px;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  background: var(--bg-raised);
+  border: none;
+  box-shadow: var(--shadow-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface);
   font-size: 13px;
-  color: var(--text-mid);
+  color: var(--ink-2);
   transition:
     opacity var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
@@ -43,8 +44,8 @@
   }
 }
 .run-status-bar.attention {
-  border-color: var(--accent);
-  color: var(--text);
+  box-shadow: 0 0 0 1px var(--accent);
+  color: var(--ink);
   cursor: pointer;
 }
 .rsb-label {
@@ -53,23 +54,119 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
+}
+/* BUI LoadingState: the working label shimmers — a gradient sweep clipped to
+   the text — while the elapsed timer ticks beside it. */
+.rsb-label.working {
+  background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: rsb-shimmer 1.4s linear infinite;
+}
+@keyframes rsb-shimmer {
+  0% {
+    background-position: 150%;
+  }
+  100% {
+    background-position: -50%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rsb-label.working {
+    animation: none;
+    background-image: none;
+    color: var(--ink-2);
+  }
 }
 .rsb-elapsed {
-  color: var(--text-dim);
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 .rsb-stop {
-  border: 1px solid var(--border-soft);
+  border: none;
+  box-shadow: var(--shadow-hairline);
   background: transparent;
-  color: var(--text-mid);
-  border-radius: 6px;
+  color: var(--ink-2);
+  border-radius: var(--radius-chip);
   padding: 2px 8px;
   font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
   cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .rsb-stop:hover {
-  color: var(--text);
+  background: var(--hover);
+  color: var(--ink);
 }
+
+/* BUI LoadingState "Drive": 3×3 pixel grid, chevron wavefront driving right —
+   delay per cell is (col + |row − 1|) × 90ms on a 650ms cycle. Opacity-only. */
+.rsb-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 4px);
+  gap: 1.5px;
+  flex-shrink: 0;
+}
+.rsb-cell {
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--ink);
+  opacity: 0.15;
+  animation: rsb-pixel-on 650ms ease-in-out infinite;
+}
+.rsb-cell:nth-child(1) {
+  animation-delay: 90ms;
+}
+.rsb-cell:nth-child(2) {
+  animation-delay: 180ms;
+}
+.rsb-cell:nth-child(3) {
+  animation-delay: 270ms;
+}
+.rsb-cell:nth-child(4) {
+  animation-delay: 0ms;
+}
+.rsb-cell:nth-child(5) {
+  animation-delay: 90ms;
+}
+.rsb-cell:nth-child(6) {
+  animation-delay: 180ms;
+}
+.rsb-cell:nth-child(7) {
+  animation-delay: 90ms;
+}
+.rsb-cell:nth-child(8) {
+  animation-delay: 180ms;
+}
+.rsb-cell:nth-child(9) {
+  animation-delay: 270ms;
+}
+@keyframes rsb-pixel-on {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  18%,
+  42% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Freeze the grid at its dim state; the timer still ticks. */
+  .rsb-cell {
+    animation: none;
+  }
+}
+
 .rsb-dot {
   width: 8px;
   height: 8px;

@@ -4,7 +4,7 @@
 // (amber chips). No raw HTML ever touches the DOM.
 // `trailing` (the streaming cursor) is appended inside the last block.
 
-import { Fragment, useMemo, type ReactNode } from 'react'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
 
 // Inline code that names a workspace file, e.g. `index.html`, `src/app.ts`, or
 // an absolute path with spaces. Still requires a trailing .ext so prose isn't matched.
@@ -80,7 +80,14 @@ function pushProse(
       pushCiteMarkers(out, text.slice(last, m.index), citations, nextKey, citationNumbers)
     if (m[1]) {
       out.push(
-        <a key={nextKey()} className="cite-ref" href={m[2]} target="_blank" rel="noreferrer" title={m[2]}>
+        <a
+          key={nextKey()}
+          className="cite-ref"
+          href={m[2]}
+          target="_blank"
+          rel="noreferrer"
+          title={m[2]}
+        >
           {m[1]}
         </a>
       )
@@ -90,7 +97,14 @@ function pushProse(
       const citeNum = /^(\d{1,2})$/.exec(label)
       out.push(
         citeNum ? (
-          <a key={nextKey()} className="cite-ref" href={url} target="_blank" rel="noreferrer" title={url}>
+          <a
+            key={nextKey()}
+            className="cite-ref"
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            title={url}
+          >
             {citeNum[1]}
           </a>
         ) : (
@@ -120,7 +134,8 @@ function renderInline(
   let key = 0
   const nextKey = (): number => key++
   while ((m = re.exec(text)) !== null) {
-    if (m.index > last) pushProse(out, text.slice(last, m.index), citations, nextKey, citationNumbers)
+    if (m.index > last)
+      pushProse(out, text.slice(last, m.index), citations, nextKey, citationNumbers)
     const tok = m[0]
     if (tok.startsWith('`')) {
       const inner = tok.slice(1, -1)
@@ -272,6 +287,49 @@ function parseBlocks(text: string): Block[] {
   return blocks
 }
 
+// Fenced code block, BUI CodeBlock chrome: a card with a header row (language
+// label + quiet copy affordance) over the inset code well. Copy goes through
+// navigator.clipboard (kept dependency-free like the rest of this lib) and is
+// guarded so environments without it (jsdom) never throw.
+function CodeBlock({
+  lang,
+  text,
+  tail
+}: {
+  lang: string
+  text: string
+  tail: ReactNode
+}): React.JSX.Element {
+  const [copied, setCopied] = useState(false)
+  const copy = (): void => {
+    const write = navigator.clipboard?.writeText(text)
+    if (write)
+      void write.then(() => {
+        setCopied(true)
+        window.setTimeout(() => setCopied(false), 1500)
+      })
+  }
+  return (
+    <div className="code-card">
+      <div className="code-card-head">
+        <span className="code-card-lang">{lang || 'code'}</span>
+        <button
+          type="button"
+          className={'code-copy' + (copied ? ' copied' : '')}
+          aria-label="Copy code"
+          onClick={copy}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <pre className="code-block">
+        <code>{text}</code>
+        {tail}
+      </pre>
+    </div>
+  )
+}
+
 function List({
   ordered,
   items,
@@ -320,7 +378,11 @@ export function Markdown({
       {blocks.map((block, i) => {
         const tail = trailing && i === lastIndex ? trailing : null
         if (block.kind === 'h5')
-          return <h5 key={i}>{renderInline(block.text, onFileClick, onFileOpen, citations, citationNumbers)}</h5>
+          return (
+            <h5 key={i}>
+              {renderInline(block.text, onFileClick, onFileOpen, citations, citationNumbers)}
+            </h5>
+          )
         if (block.kind === 'ol')
           return (
             <List
@@ -348,12 +410,7 @@ export function Markdown({
             />
           )
         if (block.kind === 'code')
-          return (
-            <pre key={i} className="code-block">
-              <code>{block.text}</code>
-              {tail}
-            </pre>
-          )
+          return <CodeBlock key={i} lang={block.lang} text={block.text} tail={tail} />
         if (block.kind === 'table')
           return (
             <div key={i} className="md-table-wrap">
@@ -361,7 +418,9 @@ export function Markdown({
                 <thead>
                   <tr>
                     {block.headers.map((h, k) => (
-                      <th key={k}>{renderInline(h, onFileClick, onFileOpen, citations, citationNumbers)}</th>
+                      <th key={k}>
+                        {renderInline(h, onFileClick, onFileOpen, citations, citationNumbers)}
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -369,7 +428,15 @@ export function Markdown({
                   {block.rows.map((row, r) => (
                     <tr key={r}>
                       {block.headers.map((_, c) => (
-                        <td key={c}>{renderInline(row[c] ?? '', onFileClick, onFileOpen, citations, citationNumbers)}</td>
+                        <td key={c}>
+                          {renderInline(
+                            row[c] ?? '',
+                            onFileClick,
+                            onFileOpen,
+                            citations,
+                            citationNumbers
+                          )}
+                        </td>
                       ))}
                     </tr>
                   ))}

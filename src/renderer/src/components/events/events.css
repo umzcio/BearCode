@@ -9,21 +9,45 @@
 .worked-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--text-mid);
-  font-size: 14px;
-  padding: 4px 2px;
+  gap: 7px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  padding: 4px 6px;
+  margin-left: -6px;
   cursor: pointer;
   width: fit-content;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   user-select: none;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .worked-head:hover {
-  color: var(--text);
+  color: var(--ink);
+  background: var(--hover);
+}
+
+/* BUI ThinkingState: the active label shimmers (a gradient sweep clipped to
+   the text) while the agent works; settles to plain ink-2 when done. */
+.shimmer-label {
+  background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer-text 1.4s linear infinite;
+}
+/* @keyframes shimmer-text lives in styles/shared.css (Loading primitive owns it). */
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-label {
+    animation: none;
+    background-image: none;
+    color: var(--ink-2);
+  }
 }
 .worked-head .chev {
   display: flex;
-  color: var(--text-dim);
+  color: var(--ink-3);
   transition: transform var(--dur-menu) var(--ease-out);
 }
 .worked-head .chev svg {
@@ -37,7 +61,10 @@
 .steps {
   display: flex;
   flex-direction: column;
-  padding-left: 18px;
+  /* BUI ThinkingState trace: hairline left containment for the step list. */
+  margin-left: 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
   overflow: hidden;
   transition:
     opacity var(--dur-fast) var(--ease-out),
@@ -61,35 +88,103 @@
 .step-row {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  color: var(--text-mid);
-  font-size: 13.5px;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: var(--radius-control);
+  color: var(--ink-2);
+  font-size: 12.5px;
   cursor: pointer;
   user-select: none;
   width: fit-content;
   max-width: 100%;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .step-row:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
+  color: var(--ink);
 }
 .step-row b {
-  font-weight: 600;
-  color: inherit;
+  font-weight: 500;
+  color: var(--ink);
 }
-.step-row .mono,
 .waiting-note .mono {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 11.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* BUI ToolChips: the tool's target (command, path, args) reads as a chip —
+   mono microcopy on the field surface with a hairline, chip radius. */
+.step-row .mono {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  background: var(--field);
+  border-radius: var(--radius-chip);
+  box-shadow: var(--shadow-hairline);
+  padding: 1px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* BUI ToolChips/TaskRows status glyphs: running = accent ring sweep, done =
+   green check, error/denied = red cross on its tint. Decorative only
+   (aria-hidden) — the row text still carries the state in words. */
+.step-status {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.step-status.running::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+  border-top-color: var(--accent);
+  animation: step-spin 0.7s linear infinite;
+}
+@keyframes step-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.step-status.done::before {
+  content: '';
+  width: 8px;
+  height: 4px;
+  border-left: 1.5px solid var(--green);
+  border-bottom: 1.5px solid var(--green);
+  transform: rotate(-45deg) translateY(-1px);
+}
+.step-status.error {
+  background: var(--red-tint);
+  border-radius: 50%;
+  color: var(--red);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+.step-status.error::before {
+  content: '\00d7';
+}
+@media (prefers-reduced-motion: reduce) {
+  .step-status.running::before {
+    animation: none;
+    border-top-color: var(--line-strong);
+  }
+}
 .step-row .chev {
   display: flex;
-  color: var(--text-dim);
+  color: var(--ink-3);
   flex-shrink: 0;
   transition: transform var(--dur-menu) var(--ease-out);
 }
@@ -109,16 +204,16 @@
 }
 .sandbox-badge {
   font-size: 11px;
-  font-weight: 600;
-  color: var(--text-dim);
-  background: var(--bg-hover);
-  border: 1px solid var(--border-soft);
+  font-weight: 500;
+  color: var(--ink-2);
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
   border-radius: 999px;
   padding: 1px 7px;
   flex-shrink: 0;
 }
 .sandbox-hint {
-  color: var(--text-dim);
+  color: var(--ink-2);
   font-style: italic;
   font-size: 12.5px;
   margin-top: 6px;
@@ -127,10 +222,10 @@
 .step-body {
   display: none;
   margin: 4px 0 8px 8px;
-  border-left: 2px solid var(--border);
-  padding: 8px 14px;
-  font-size: 13px;
-  color: var(--text-mid);
+  border-left: 1px solid var(--line);
+  padding: 6px 14px;
+  font-size: 12.5px;
+  color: var(--ink-2);
   line-height: 1.6;
   white-space: pre-line;
   transition:
@@ -158,11 +253,12 @@
 }
 .step-body.term {
   font-family: var(--mono);
-  font-size: 12px;
-  background: var(--bg-window);
-  border: 1px solid var(--border-soft);
-  border-left: 2px solid var(--border);
-  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  background: var(--inset);
+  border: none;
+  box-shadow: var(--shadow-hairline);
+  border-radius: var(--radius-control);
   padding: 10px 14px;
   white-space: pre-wrap;
   overflow-x: auto;
@@ -171,10 +267,10 @@
   color: var(--green);
 }
 .step-body h5 {
-  font-size: 13px;
-  color: var(--text);
+  font-size: 12.5px;
+  color: var(--ink);
   margin: 8px 0 4px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .step-body h5:first-child {
   margin-top: 0;
@@ -212,9 +308,10 @@
 
 /* --- Diff card --- */
 .diff-card {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  background: var(--surface);
+  border: none;
+  box-shadow: var(--shadow-card);
+  border-radius: var(--radius-card);
   margin-top: 12px;
   overflow: hidden;
 }
@@ -234,15 +331,21 @@
 }
 .diff-head .plus {
   color: var(--green);
-  font-weight: 600;
+  font-weight: 500;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
 }
 .diff-head .minus {
   color: var(--red);
-  font-weight: 600;
+  font-weight: 500;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
 }
 .diff-head .chev {
   display: flex;
-  color: var(--text-dim);
+  color: var(--ink-3);
   transition: transform var(--dur-menu) var(--ease-out);
 }
 .diff-head .chev svg {
@@ -257,18 +360,20 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  background: var(--wash);
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-size: 13px;
+  background: var(--surface);
+  border: none;
+  box-shadow: var(--shadow-btn);
+  color: var(--ink);
+  font-size: 12.5px;
   font-weight: 500;
   padding: 6px 13px;
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   font-family: inherit;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .review-btn:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .review-btn svg {
   width: 14px;
@@ -276,7 +381,7 @@
 }
 
 .diff-files {
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--line);
 }
 .diff-card.closed .diff-files {
   display: none;
@@ -285,26 +390,34 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 10px 14px;
-  font-size: 13px;
+  padding: 9px 14px;
+  font-size: 12.5px;
   cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.diff-file:nth-child(even) {
+  background: var(--stripe);
 }
 .diff-file:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .diff-file .ftype {
   font-family: var(--mono);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--accent);
   flex-shrink: 0;
 }
 .diff-file .fname {
-  color: var(--text);
+  color: var(--ink);
   font-weight: 500;
+  font-family: var(--mono);
+  font-size: 11.5px;
 }
 .diff-file .fpath {
-  color: var(--text-dim);
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 11.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -312,6 +425,9 @@
 }
 .diff-file .stats {
   flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
 }
 .diff-file .stats .plus {
   color: var(--green);
@@ -329,35 +445,38 @@
   text-underline-offset: 2px;
 }
 
-/* --- Error card --- */
+/* --- Error card: red on its tint (semantic chip pairing) --- */
 .error-card {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-top: 10px;
   padding: 11px 14px;
-  border-radius: var(--radius);
-  background: rgba(240, 106, 106, 0.08);
-  border: 1px solid rgba(240, 106, 106, 0.35);
-  font-size: 13.5px;
-  color: var(--text);
+  border-radius: var(--radius-card);
+  background: var(--red-tint);
+  border: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--red) 30%, transparent);
+  font-size: 13px;
+  color: var(--ink);
 }
 .error-card .error-msg {
   flex: 1;
 }
 .retry-btn {
-  background: var(--wash);
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-size: 13px;
+  background: var(--surface);
+  border: none;
+  box-shadow: var(--shadow-btn);
+  color: var(--ink);
+  font-size: 12.5px;
   font-weight: 500;
   padding: 6px 13px;
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   font-family: inherit;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .retry-btn:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 
 /* --- Message actions --- */
@@ -375,7 +494,10 @@
 .msg-actions .icon-btn {
   width: 27px;
   height: 27px;
-  color: var(--text-dim);
+  color: var(--ink-3);
+}
+.msg-actions .icon-btn:hover {
+  color: var(--ink-2);
 }
 .msg-actions .icon-btn svg {
   width: 14px;
@@ -390,26 +512,27 @@
   font-size: 12.5px;
   font-weight: 500;
   padding: 4px 12px;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   cursor: pointer;
-  border: 1px solid var(--border);
+  border: none;
   flex-shrink: 0;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .approve-btn.run {
-  background: rgba(62, 207, 142, 0.14);
-  border-color: rgba(62, 207, 142, 0.35);
+  background: var(--green-tint);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--green) 35%, transparent);
   color: var(--green);
 }
 .approve-btn.run:hover {
-  background: rgba(62, 207, 142, 0.22);
+  background: color-mix(in srgb, var(--green) 12%, var(--green-tint));
 }
 .approve-btn.deny {
-  background: rgba(240, 106, 106, 0.08);
-  border-color: rgba(240, 106, 106, 0.35);
+  background: var(--red-tint);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--red) 35%, transparent);
   color: var(--red);
 }
 .approve-btn.deny:hover {
-  background: rgba(240, 106, 106, 0.16);
+  background: color-mix(in srgb, var(--red) 12%, var(--red-tint));
 }
 
 /* --- Markdown extras --- */
@@ -422,20 +545,68 @@
   margin-bottom: 6px;
   line-height: 1.6;
 }
+/* BUI CodeBlock: a card with a header row (language label + quiet copy
+   affordance) over an inset code well — 11.5px mono at 1.7. */
+.code-card {
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  margin: 2px 0 12px;
+}
+.code-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 6px 5px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.code-card-lang {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-chip);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.code-copy:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.code-copy.copied {
+  color: var(--green);
+}
 .code-block {
   font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.6;
-  background: var(--bg-window);
-  border: 1px solid var(--border-soft);
-  border-radius: 9px;
-  padding: 11px 14px;
-  margin: 2px 0 12px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  background: var(--inset);
+  border: none;
+  border-radius: 0;
+  padding: 10px 14px;
+  margin: 0;
   white-space: pre;
   overflow-x: auto;
-  color: var(--text-mid);
+  color: var(--ink-2);
+  user-select: text;
 }
-.step-body .code-block {
+.step-body .code-card {
   margin: 6px 0;
 }
 
@@ -446,54 +617,60 @@
 }
 .md-table {
   border-collapse: collapse;
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.5;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-hairline);
 }
 .md-table th,
 .md-table td {
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--line);
   padding: 7px 12px;
   text-align: left;
   vertical-align: top;
 }
 .md-table th {
-  background: var(--wash);
-  font-weight: 600;
-  color: var(--text);
+  background: var(--inset);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
   white-space: nowrap;
 }
 .md-table td {
-  color: var(--text-mid);
+  color: var(--ink-2);
 }
 .md-table tr:nth-child(even) td {
-  background: var(--wash);
+  background: var(--stripe);
 }
 
-/* --- Write/edit step stats --- */
+/* --- Write/edit step stats (BUI diff chips: mono tabular +N −N) --- */
 .step-stats {
   margin-left: 7px;
-  font-size: 12.5px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 .step-stats .plus {
   color: var(--green);
-  font-weight: 600;
+  font-weight: 500;
 }
 .step-stats .minus {
   color: var(--red);
-  font-weight: 600;
+  font-weight: 500;
   margin-left: 5px;
 }
 
 /* --- Command approval card --- */
 .waiting-note {
-  color: var(--text-dim);
-  font-size: 13px;
+  color: var(--ink-3);
+  font-size: 12.5px;
   padding: 2px 8px 8px;
 }
 .approval-card {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  background: var(--surface);
+  border: none;
+  box-shadow: var(--shadow-card);
+  border-radius: var(--radius-card);
   padding: 14px;
   margin: 2px 0 8px;
   max-width: 640px;
@@ -514,18 +691,20 @@
   }
 }
 .approval-title {
-  font-size: 13.5px;
-  font-weight: 650;
-  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
   margin-bottom: 10px;
 }
 .approval-cmd {
   font-family: var(--mono);
-  font-size: 12.5px;
-  color: var(--text);
-  background: var(--bg-window);
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ink);
+  background: var(--inset);
+  border: none;
+  box-shadow: var(--shadow-hairline);
+  border-radius: var(--radius-control);
   padding: 9px 12px;
   margin-bottom: 10px;
   white-space: pre-wrap;
@@ -533,11 +712,13 @@
 }
 .approval-args {
   font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text);
-  background: var(--bg-window);
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ink);
+  background: var(--inset);
+  border: none;
+  box-shadow: var(--shadow-hairline);
+  border-radius: var(--radius-control);
   padding: 9px 12px;
   margin: 0 0 10px;
   max-height: 220px;
@@ -553,15 +734,16 @@
   text-align: left;
   background: none;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   font-family: inherit;
-  font-size: 13.5px;
-  color: var(--text);
+  font-size: 13px;
+  color: var(--ink);
   padding: 8px 10px;
   cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .approval-opt:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .approval-opt .opt-num {
   display: inline-flex;
@@ -569,16 +751,18 @@
   justify-content: center;
   width: 20px;
   height: 20px;
-  border-radius: 5px;
-  background: var(--wash-strong);
-  border: 1px solid var(--border-soft);
-  font-size: 11.5px;
-  color: var(--text-mid);
+  border-radius: var(--radius-chip);
+  background: var(--inset);
+  border: none;
+  box-shadow: var(--shadow-hairline);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
   flex-shrink: 0;
 }
 .approval-opt .opt-hint {
-  color: var(--text-dim);
-  font-size: 12.5px;
+  color: var(--ink-3);
+  font-size: 12px;
 }
 
 /* --- /learn propose_skill card (G-skills Task 8) --- */
@@ -632,10 +816,10 @@
   flex-shrink: 0;
   margin-top: 8px;
   font-size: 10.5px;
-  font-weight: 600;
+  font-weight: 500;
   padding: 2px 6px;
-  border-radius: 5px;
-  background: rgba(76, 141, 255, 0.14);
+  border-radius: var(--radius-chip);
+  background: var(--accent-tint);
   color: var(--accent);
 }
 
@@ -645,10 +829,14 @@
 }
 @keyframes approval-pulse {
   0% {
-    box-shadow: 0 0 0 0 var(--accent);
+    box-shadow:
+      var(--shadow-card),
+      0 0 0 0 var(--accent);
   }
   100% {
-    box-shadow: 0 0 0 6px rgba(76, 141, 255, 0);
+    box-shadow:
+      var(--shadow-card),
+      0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -687,24 +875,29 @@
 }
 .allow-cell {
   text-align: left;
-  border: 1px solid var(--border-soft);
-  background: var(--bg-raised);
-  color: var(--text-mid);
-  border-radius: 6px;
+  border: none;
+  box-shadow: var(--shadow-hairline);
+  background: var(--inset);
+  color: var(--ink-2);
+  border-radius: var(--radius-control);
   padding: 6px 10px;
   font-size: 12.5px;
   cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .allow-cell:hover {
-  color: var(--text);
-  border-color: var(--accent);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 /* --- Artifact cards (Ba1) --- */
 .artifact-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
+  border: none;
+  box-shadow: var(--shadow-card);
+  border-radius: var(--radius-card);
+  background: var(--surface);
   margin: 10px 0;
   overflow: hidden;
 }
@@ -716,14 +909,14 @@
   cursor: pointer;
 }
 .artifact-head:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .artifact-kind {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--text-mid);
+  color: var(--ink-2);
   flex-shrink: 0;
 }
 .artifact-title {
@@ -742,39 +935,42 @@
 }
 .artifact-status {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 2px 8px;
   border-radius: 999px;
   flex-shrink: 0;
+  border: none;
 }
 .artifact-status.pending-review {
-  color: var(--amber);
-  border: 1px solid rgba(224, 181, 104, 0.35);
+  color: var(--orange);
+  background: var(--orange-tint);
 }
 .artifact-status.approved,
 .artifact-status.final {
   color: var(--green);
-  border: 1px solid rgba(62, 207, 142, 0.35);
+  background: var(--green-tint);
 }
 .artifact-status.superseded {
-  color: var(--text-dim);
-  border: 1px solid var(--border);
+  color: var(--ink-2);
+  background: var(--hover);
 }
 .artifact-pane-btn {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-mid);
+  background: var(--surface);
+  border: none;
+  box-shadow: var(--shadow-btn);
+  border-radius: var(--radius-chip);
+  color: var(--ink-2);
   font-size: 11.5px;
   padding: 3px 9px;
   cursor: pointer;
   flex-shrink: 0;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .artifact-pane-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
+  color: var(--ink);
 }
 .artifact-card .chev {
   color: var(--text-dim);
@@ -799,6 +995,14 @@
 .artifact-body h5,
 .artifact-body .md-table-wrap {
   margin: 8px 0;
+}
+/* The markdown code card carries the block spacing; its inner <pre> must not
+   re-add margin inside the card (the generic `pre` rule above would). */
+.artifact-body .code-card {
+  margin: 8px 0;
+}
+.artifact-body .code-card pre {
+  margin: 0;
 }
 .artifact-body ul,
 .artifact-body ol {
@@ -829,7 +1033,7 @@
 
 /* Ursa Phase 2: the slim per-step divider inside a pipeline turn's worked
    group ("2  Step 2/3  reviewer · Claude Sonnet 5"). Uses the app accent
-   (#4c8dff), NOT a router brand colour -- Ursus pipelines render this too.
+   (--accent), NOT a router brand colour -- Ursus pipelines render this too.
    Trailing hairline rule. No animation -- reduce-motion safe by construction. */
 .ursa-step {
   display: flex;
@@ -847,27 +1051,28 @@
   width: 17px;
   height: 17px;
   border-radius: 50%;
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-tint);
+  color: var(--accent);
   font-size: 11px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .ursa-step-label {
   flex: 0 0 auto;
   color: var(--accent);
-  font-weight: 600;
+  font-weight: 500;
 }
 .ursa-step-role {
   flex: 0 0 auto;
-  color: var(--text);
+  color: var(--ink);
 }
 .ursa-step-sep {
   flex: 0 0 auto;
-  color: var(--text-dim);
+  color: var(--ink-3);
 }
 .ursa-step-model {
   flex: 0 0 auto;
-  color: var(--text-dim);
+  color: var(--ink-3);
 }
 .ursa-step-rule {
   flex: 1;
@@ -956,10 +1161,11 @@
   height: 18px;
   margin-top: 1px;
   border-radius: 50%;
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-tint);
+  color: var(--accent);
   font-size: 11px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .pipeline-step-body {
   flex: 1;
@@ -990,40 +1196,43 @@
 /* Sources cited by the answering model (turn_meta.citations, e.g. Perplexity
    sonar) -- a slim list under the answer; [n] markers in the text are 1-based
    indexes into this list, so numbering matches. */
+/* BUI StreamingText sources panel: an inset card holding the rows. */
 .sources-list {
   margin: 10px 0 4px;
 }
 .sources-title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
   margin-bottom: 6px;
 }
 .sources-items {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 4px;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  background: var(--inset);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-hairline);
 }
 .sources-item {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 3px 6px;
-  margin: 0 -6px;
-  border-radius: 6px;
+  padding: 4px 6px;
+  border-radius: var(--radius-chip);
   text-decoration: none;
-  color: var(--text-mid);
-  font-size: 12.5px;
-  transition: background var(--dur-fast) var(--ease-out);
+  color: var(--ink-2);
+  font-size: 12px;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .sources-item:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
+  color: var(--ink);
 }
 .sources-item:focus-visible {
   outline: none;
@@ -1033,7 +1242,7 @@
   flex: 0 0 auto;
   min-width: 16px;
   text-align: right;
-  color: var(--text-dim);
+  color: var(--ink-3);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
 }
@@ -1045,31 +1254,42 @@
 }
 .sources-domain {
   flex: 0 0 auto;
-  color: var(--text-dim);
-  font-size: 11px;
+  margin-left: auto;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 10.5px;
 }
 
 /* Inline [n] citation markers linkified against turn_meta.citations -- a
    small superscript-style chip; the number matches the Sources list below. */
+/* BUI SourceChip: a small mono chip on the inset surface with a hairline;
+   hover raises it to the button shadow. */
 .cite-ref {
   display: inline-block;
   min-width: 14px;
   padding: 0 4px;
   margin: 0 1px;
-  border-radius: 5px;
-  background: var(--bg-hover);
-  color: var(--text-mid);
+  border-radius: var(--radius-chip);
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
+  color: var(--ink-2);
+  font-family: var(--mono);
   font-size: 10.5px;
-  font-weight: 600;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   line-height: 16px;
   text-align: center;
   text-decoration: none;
   vertical-align: 2px;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .cite-ref:hover {
-  background: var(--accent);
-  color: #fff;
+  background: var(--hover);
+  color: var(--ink);
+  box-shadow: var(--shadow-btn);
 }
 .cite-ref:focus-visible {
   outline: none;
@@ -1097,31 +1317,32 @@
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 11.5px;
+  font-weight: 500;
   letter-spacing: 0.01em;
   flex-shrink: 0;
   white-space: nowrap;
 }
 .sev-chip.sev-critical {
   color: var(--red);
-  background: color-mix(in srgb, var(--red) 16%, transparent);
+  background: var(--red-tint);
 }
 .sev-chip.sev-important {
-  color: var(--amber);
-  background: color-mix(in srgb, var(--amber) 16%, transparent);
+  color: var(--orange);
+  background: var(--orange-tint);
 }
 .sev-chip.sev-minor {
-  color: var(--text-dim);
-  background: var(--bg-hover);
+  color: var(--ink-2);
+  background: var(--hover);
 }
 .lens-badge {
   flex-shrink: 0;
   font-size: 11px;
-  font-weight: 600;
-  color: var(--text-dim);
-  background: var(--bg-hover);
-  border: 1px solid var(--border-soft);
+  font-weight: 500;
+  color: var(--ink-2);
+  background: var(--inset);
+  border: none;
+  box-shadow: var(--shadow-hairline);
   border-radius: 999px;
   padding: 1px 7px;
 }
@@ -1130,9 +1351,10 @@
    severity-grouped, expandable rows. Chrome matches .approval-card's raised
    surface at a lighter touch (no pulse -- this isn't a pending interaction). */
 .review-findings {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  background: var(--surface);
+  border: none;
+  box-shadow: var(--shadow-card);
+  border-radius: var(--radius-card);
   padding: 12px 14px;
   margin: 2px 0 8px;
   max-width: 640px;
@@ -1146,9 +1368,9 @@
   margin-bottom: 6px;
 }
 .review-findings-title {
-  font-size: 13.5px;
-  font-weight: 650;
-  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
 }
 .review-findings-counts {
   display: flex;
@@ -1178,7 +1400,7 @@
   user-select: none;
 }
 .finding-head:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .finding-head:focus-visible {
   outline: none;
@@ -1188,7 +1410,7 @@
   flex-shrink: 0;
   font-family: var(--mono);
   font-size: 11.5px;
-  color: var(--text-dim);
+  color: var(--ink-3);
 }
 .finding-title {
   min-width: 0;
@@ -1215,8 +1437,8 @@
 .finding-detail {
   margin: 2px 0 6px 8px;
   padding: 8px 12px;
-  border-left: 2px solid var(--border);
-  color: var(--text-mid);
+  border-left: 1px solid var(--line);
+  color: var(--ink-2);
   font-size: 12.5px;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -1277,13 +1499,15 @@
 .lens-chip {
   display: inline-flex;
   align-items: center;
-  background: var(--bg-window);
-  border: 1px solid var(--border);
+  background: var(--surface);
+  border: none;
+  box-shadow: var(--shadow-btn);
   border-radius: 999px;
   padding: 6px 12px;
   font-size: 12.5px;
+  font-weight: 500;
   font-family: inherit;
-  color: var(--text);
+  color: var(--ink);
   cursor: pointer;
   transition:
     background var(--dur-fast) var(--ease-out),
@@ -1292,7 +1516,7 @@
     transform var(--dur-press) var(--ease-out);
 }
 .lens-chip:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .lens-chip:active {
   transform: scale(0.96);
@@ -1324,9 +1548,9 @@
   box-shadow: var(--focus-ring);
 }
 .lens-chip.selected {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  border-color: var(--accent);
-  color: var(--accent-strong, var(--accent));
+  background: var(--accent-tint);
+  box-shadow: 0 0 0 1px var(--accent);
+  color: var(--accent-ink);
 }
 .clarify-scope-input {
   width: 100%;
@@ -1335,16 +1559,18 @@
    submit immediately with no button) -- matches the primary-button recipe
    already used by the skill-proposal/hooks/connectors forms (Settings.css). */
 .clarify-card .approval-actions .pill-btn {
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-strong);
   padding: 7px 16px;
 }
 .clarify-card .approval-actions .pill-btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  /* On-accent text: --page is white in light and near-black in dark, the
+     readable pairing against both themes' accent blues (no on-accent token). */
+  color: var(--page);
 }
 .clarify-card .approval-actions .pill-btn.primary:hover {
-  background: var(--accent-strong, var(--accent));
+  background: var(--accent-ink);
 }
 .clarify-card .approval-actions .pill-btn:disabled {
   opacity: 0.5;

@@ -143,7 +143,8 @@ function WorkedGroupImpl({
         onClick={() => setCollapsed((c) => !c)}
       >
         {live ? <ThinkingPaw size={17} /> : null}
-        <span>{label}</span>
+        {/* BUI ThinkingState: the active label shimmers; settled text is plain. */}
+        <span className={live ? 'shimmer-label' : undefined}>{label}</span>
         <span className="chev">
           <IconChevronDown />
         </span>

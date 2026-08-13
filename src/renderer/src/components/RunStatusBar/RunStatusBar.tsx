@@ -2,8 +2,19 @@ import { useEffect, useState } from 'react'
 import { useAppStore } from '../../state/store'
 import { deriveActivity, formatElapsed } from '../../lib/activity'
 import { useAnimatedUnmount } from '../../lib/useAnimatedUnmount'
-import { ThinkingPaw } from '../brand/ThinkingPaw'
 import './RunStatusBar.css'
+
+// BUI LoadingState "Drive" pattern: a 3×3 pixel grid whose chevron wavefront
+// drives right (delays staggered per cell in CSS). Purely decorative.
+function PixelGrid(): React.JSX.Element {
+  return (
+    <span className="rsb-grid" aria-hidden="true">
+      {Array.from({ length: 9 }, (_, i) => (
+        <span key={i} className="rsb-cell" />
+      ))}
+    </span>
+  )
+}
 
 export function RunStatusBar({
   convoId,
@@ -57,8 +68,8 @@ export function RunStatusBar({
       role={attention ? 'button' : undefined}
       tabIndex={attention ? 0 : undefined}
     >
-      {attention ? <span className="rsb-dot" /> : <ThinkingPaw size={17} />}
-      <span className="rsb-label">{activity.label}</span>
+      {attention ? <span className="rsb-dot" /> : <PixelGrid />}
+      <span className={'rsb-label' + (attention ? '' : ' working')}>{activity.label}</span>
       {startedAt ? <span className="rsb-elapsed">{formatElapsed(elapsed)}</span> : null}
       <button
         className="rsb-stop"
