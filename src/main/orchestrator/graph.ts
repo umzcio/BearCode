@@ -176,7 +176,12 @@ const RESEARCHER_SUBAGENT = {
     'delegate research or a summary to a subagent.',
   systemPrompt:
     'You are a focused research assistant. Given a topic, produce a concise, ' +
-    'factual summary. Do not ask clarifying questions; answer with what you know.'
+    'factual summary. Do not ask clarifying questions. If a web_search tool is ' +
+    'available, use it to verify anything time-sensitive (people currently in ' +
+    'roles, prices, versions, current events) and cite what you find. If no ' +
+    'search tool is available, say so explicitly and label the answer as ' +
+    'unverified knowledge that may be out of date -- NEVER present a remembered ' +
+    'officeholder, price, or version as current fact.'
 }
 
 // F4: the browser subagent — the /browser path. It drives the embedded browser

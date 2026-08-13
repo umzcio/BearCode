@@ -243,3 +243,8 @@
 .convo-composer .composer-wrap {
   max-width: var(--conversation-max);
 }
+
+/* Copy feedback: the icon flips to a green check (see CopyButton). */
+.copy-feedback.copied {
+  color: var(--green);
+}

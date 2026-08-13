@@ -21,13 +21,45 @@ import { remapCitations } from '../lib/citations'
 import { ErrorCard } from './events/ErrorCard'
 import { CompactionMarker } from './events/CompactionMarker'
 import { EmptyState } from './ui/EmptyState'
-import { IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
+import { IconCheck, IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
 import { Hint } from './Hint'
 import { messageTimestamp } from '../lib/time'
 import { attachmentBadge } from '../lib/attachmentBadge'
 import { groupTurnsIncremental, type TranscriptState } from '../lib/transcript'
 import { prefersReducedMotion } from '../lib/prefersReducedMotion'
 import './ConversationView.css'
+
+// Copy affordance with feedback at the point of interaction (Grok/ChatGPT
+// pattern, same as the markdown code-card): the icon flips to a green check
+// for a beat. A bottom-of-window toast is too far from the cursor to read as
+// feedback (live complaint, 2026-08-12).
+function CopyButton({ text }: { text: string }): React.JSX.Element {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (timer.current) window.clearTimeout(timer.current)
+    },
+    []
+  )
+  return (
+    <Hint label={copied ? 'Copied' : 'Copy'} side="top">
+      <button
+        className={'icon-btn copy-feedback' + (copied ? ' copied' : '')}
+        aria-label={copied ? 'Copied' : 'Copy'}
+        onClick={() => {
+          void window.bearcode.clipboard.write(text).then(() => {
+            setCopied(true)
+            if (timer.current) window.clearTimeout(timer.current)
+            timer.current = window.setTimeout(() => setCopied(false), 1400)
+          })
+        }}
+      >
+        {copied ? <IconCheck /> : <IconCopy />}
+      </button>
+    </Hint>
+  )
+}
 
 // A transcript attachment pill (Task 7). A reloaded transcript only carries
 // the persisted AttachmentRef (id/name/mime) -- never bytes -- so the real
@@ -142,8 +174,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   // contract (graph.ts): emitting review_clarify is always the LAST thing
   // that happens before the run parks in 'awaiting-approval'.
   const lastEvent = convo.events[convo.events.length - 1]
-  const pendingClarify =
-    lastEvent?.type === 'review_clarify' ? lastEvent : undefined
+  const pendingClarify = lastEvent?.type === 'review_clarify' ? lastEvent : undefined
 
   const firstPendingHermesInteraction = running
     ? convo.events.find(
@@ -251,7 +282,11 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   // e.g. once Hermes IS enabled but the gateway is unreachable). Gated on
   // events.length so the moment a turn actually starts (even a failed one),
   // the normal transcript takes back over.
-  if (convo.modelRef === HERMES_MODEL_REF && convo.events.length === 0 && !settings?.hermesEnabled) {
+  if (
+    convo.modelRef === HERMES_MODEL_REF &&
+    convo.events.length === 0 &&
+    !settings?.hermesEnabled
+  ) {
     return (
       <div className="convo-view">
         <div className="convo-scroll">
@@ -329,19 +364,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                     {turn.user.createdAt ? (
                       <span className="msg-time">{messageTimestamp(turn.user.createdAt)}</span>
                     ) : null}
-                    <Hint label="Copy" side="top">
-                      <button
-                        className="icon-btn"
-                        aria-label="Copy"
-                        onClick={() => {
-                          void window.bearcode.clipboard
-                            .write(turn.user.text)
-                            .then(() => showToast('Copied'))
-                        }}
-                      >
-                        <IconCopy />
-                      </button>
-                    </Hint>
+                    <CopyButton text={turn.user.text} />
                   </div>
                 </div>
                 {/* Perplexity-style source presentation: only cited sources,
@@ -355,110 +378,99 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                       )
                     : null
                   return (
-                <div className="agent-turn">
-                  {turn.steps.length > 0 || live ? (
-                    <WorkedGroup
-                      steps={turn.steps}
-                      live={live}
-                      startedAt={convo.startedAt}
-                      workedSeconds={workedSecondsByTurn.get(turn.user.id)}
-                      convoId={convoId}
-                    />
-                  ) : null}
-                  {turn.councilSeats.length > 0 ? (
-                    <CouncilPanel seats={turn.councilSeats} />
-                  ) : null}
-                  {turn.reviewFindings.length > 0 || turn.reviewSummary ? (
-                    <ReviewFindings events={turn.reviewFindings} summary={turn.reviewSummary} />
-                  ) : null}
-                  {turn.clarifications.map((clarification) => (
-                    <HermesClarifyCard
-                      key={clarification.id}
-                      event={clarification}
-                      convoId={convoId}
-                    />
-                  ))}
-                  {turn.artifacts.map((a) => (
-                    <ArtifactCard key={a.id} event={a} />
-                  ))}
-                  {turn.texts.map((t) =>
-                    t.text.length > 0 ? (
-                      <div key={t.id} data-event-id={t.id}>
-                        <AssistantText
-                          text={t.text}
-                          streaming={streaming}
+                    <div className="agent-turn">
+                      {turn.steps.length > 0 || live ? (
+                        <WorkedGroup
+                          steps={turn.steps}
+                          live={live}
+                          startedAt={convo.startedAt}
+                          workedSeconds={workedSecondsByTurn.get(turn.user.id)}
                           convoId={convoId}
-                          citations={turn.turnMeta?.citations}
-                          citationNumbers={cite?.renumber}
                         />
-                      </div>
-                    ) : null
-                  )}
-                  {turn.diffs.map((d) => (
-                    <DiffCard key={d.id} event={d} />
-                  ))}
-                  {turn.attachments.map((attachment) => (
-                    <HermesAttachment
-                      key={attachment.id}
-                      event={attachment}
-                      convoId={convoId}
-                    />
-                  ))}
-                  {cite ? <SourcesList citations={cite.ordered} /> : null}
-                  {turn.errors.map((e) => (
-                    <ErrorCard
-                      key={e.id}
-                      message={e.message}
-                      recoverable={e.recoverable}
-                      onRetry={() => retryRun(convoId)}
-                    />
-                  ))}
-                  {turn.turnMeta?.ursaRole ? (
-                    <span className="msg-ursa-badge">
-                      {turn.turnMeta.ursaRole} ·{' '}
-                      {
-                        modelDisplay(providers, `${turn.turnMeta.provider}/${turn.turnMeta.model}`)
-                          .name
-                      }
-                    </span>
-                  ) : null}
-                  {turn.done || turn.errors.length > 0 ? (
-                    <div className="msg-actions">
-                      <Hint label="Copy" side="top">
-                        <button
-                          className="icon-btn"
-                          aria-label="Copy"
-                          onClick={() => {
-                            const text = turn.texts.map((t) => t.text).join('\n\n')
-                            void window.bearcode.clipboard
-                              .write(text)
-                              .then(() => showToast('Copied'))
-                          }}
-                        >
-                          <IconCopy />
-                        </button>
-                      </Hint>
-                      <Hint label="Good response" side="top">
-                        <button
-                          className="icon-btn"
-                          aria-label="Good response"
-                          onClick={() => showToast('Noted')}
-                        >
-                          <IconThumbsUp />
-                        </button>
-                      </Hint>
-                      <Hint label="Bad response" side="top">
-                        <button
-                          className="icon-btn"
-                          aria-label="Bad response"
-                          onClick={() => showToast('Noted')}
-                        >
-                          <IconThumbsDown />
-                        </button>
-                      </Hint>
+                      ) : null}
+                      {turn.councilSeats.length > 0 ? (
+                        <CouncilPanel seats={turn.councilSeats} />
+                      ) : null}
+                      {turn.reviewFindings.length > 0 || turn.reviewSummary ? (
+                        <ReviewFindings events={turn.reviewFindings} summary={turn.reviewSummary} />
+                      ) : null}
+                      {turn.clarifications.map((clarification) => (
+                        <HermesClarifyCard
+                          key={clarification.id}
+                          event={clarification}
+                          convoId={convoId}
+                        />
+                      ))}
+                      {turn.artifacts.map((a) => (
+                        <ArtifactCard key={a.id} event={a} />
+                      ))}
+                      {turn.texts.map((t) =>
+                        t.text.length > 0 ? (
+                          <div key={t.id} data-event-id={t.id}>
+                            <AssistantText
+                              text={t.text}
+                              streaming={streaming}
+                              convoId={convoId}
+                              citations={turn.turnMeta?.citations}
+                              citationNumbers={cite?.renumber}
+                            />
+                          </div>
+                        ) : null
+                      )}
+                      {turn.diffs.map((d) => (
+                        <DiffCard key={d.id} event={d} />
+                      ))}
+                      {turn.attachments.map((attachment) => (
+                        <HermesAttachment
+                          key={attachment.id}
+                          event={attachment}
+                          convoId={convoId}
+                        />
+                      ))}
+                      {cite ? <SourcesList citations={cite.ordered} /> : null}
+                      {turn.errors.map((e) => (
+                        <ErrorCard
+                          key={e.id}
+                          message={e.message}
+                          recoverable={e.recoverable}
+                          onRetry={() => retryRun(convoId)}
+                        />
+                      ))}
+                      {turn.turnMeta?.ursaRole ? (
+                        <span className="msg-ursa-badge">
+                          {turn.turnMeta.ursaRole} ·{' '}
+                          {
+                            modelDisplay(
+                              providers,
+                              `${turn.turnMeta.provider}/${turn.turnMeta.model}`
+                            ).name
+                          }
+                        </span>
+                      ) : null}
+                      {turn.done || turn.errors.length > 0 ? (
+                        <div className="msg-actions">
+                          <CopyButton text={turn.texts.map((t) => t.text).join('\n\n')} />
+                          <Hint label="Good response" side="top">
+                            <button
+                              className="icon-btn"
+                              aria-label="Good response"
+                              onClick={() => showToast('Noted')}
+                            >
+                              <IconThumbsUp />
+                            </button>
+                          </Hint>
+                          <Hint label="Bad response" side="top">
+                            <button
+                              className="icon-btn"
+                              aria-label="Bad response"
+                              onClick={() => showToast('Noted')}
+                            >
+                              <IconThumbsDown />
+                            </button>
+                          </Hint>
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
                   )
                 })()}
               </div>

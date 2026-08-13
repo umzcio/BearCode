@@ -177,7 +177,8 @@ function getDb(): Database.Database {
     // column already exists
   }
   // Web Search toggle (effort-popover row). Same guarded ALTER idiom; NULL
-  // (older rows) coerces to false in toMeta -- search is explicit opt-in.
+  // (never-toggled rows, and every new conversation) coerces to TRUE in
+  // toMeta -- search is opt-OUT (Zach, 2026-08-12); an explicit off is 0.
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN web_search INTEGER`)
   } catch {
@@ -482,7 +483,8 @@ function toMeta(
     activeRules: parseActiveRules(row.active_rules),
     effort: (row.effort as EffortLevel) ?? getSettings().defaultEffort,
     thinking: row.thinking == null ? getSettings().defaultThinking : row.thinking === 1,
-    webSearch: row.web_search === 1,
+    // NULL = never toggled = the opt-out default (ON); 0 = explicit off.
+    webSearch: row.web_search == null ? true : row.web_search === 1,
     projectId: row.project_id ?? null,
     pinned: row.pinned === 1,
     archived: row.archived === 1,
@@ -1321,7 +1323,10 @@ export function upsertImportedConfig(
     .run(...vals, projectPath, sourcePath)
 }
 
-export function getImportedConfig(projectPath: string, sourcePath: string): ImportedConfigRow | null {
+export function getImportedConfig(
+  projectPath: string,
+  sourcePath: string
+): ImportedConfigRow | null {
   const row = getDb()
     .prepare(`SELECT * FROM imported_config_sources WHERE project_path = ? AND source_path = ?`)
     .get(projectPath, sourcePath) as ImportedConfigDbRow | undefined
