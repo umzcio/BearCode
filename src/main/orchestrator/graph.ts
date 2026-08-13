@@ -190,8 +190,12 @@ const BROWSER_SUBAGENT = {
   name: 'browser',
   description:
     'Operates a live web browser to accomplish web tasks (navigate, read, click, ' +
-    'type, screenshot). Use the task tool with subagent_type "browser" whenever the ' +
-    'user asks you to browse, open a site, or interact with a web page.',
+    'type, screenshot). Use the task tool with subagent_type "browser" ONLY when ' +
+    'the user explicitly asks to use the browser (e.g. /browser) or the task ' +
+    'requires interacting with a specific page — forms, logins, or visually ' +
+    'verifying a web app you are building. NEVER use the browser as a search ' +
+    'engine: to find information on the web, use the web_search tool when ' +
+    'available; if it is not available this turn, say so instead of browsing.',
   systemPrompt:
     'You control a real browser via the browser_* tools. Read the page (prefer ' +
     'browser_read a11y) before acting; click/type by ref; screenshot to show ' +
@@ -2885,7 +2889,12 @@ function buildAgentAndContext(
     ...(backendFactory
       ? buildTools(projectPath as string, conversationId, sink, diffGroupId, worktreeMappings)
       : []),
-    ...browserTools,
+    // Browser access is DELEGATION-ONLY (Zach, 2026-08-12): the main agent no
+    // longer carries browser_* directly — reaching the browser means the task
+    // tool with subagent_type "browser" (the /browser path). This stops models
+    // from driving the embedded browser as a search engine when the real
+    // answer is web_search (server-side, no approval prompts); the subagent
+    // below still carries the full hook-wrapped browser_* toolset.
     // buildMcpTools' per-tool tool() carries a distinct zod-inferred generic,
     // so its shared array is widened to unknown[] at the source; the elements
     // are StructuredTools like browserTools, so re-narrow to that shape here.
@@ -2946,10 +2955,11 @@ function buildAgentAndContext(
       wrapToolsWithHooks(browserTools, hookCtx) as typeof browserTools
     ),
     ...(backendFactory ? { backend: backendFactory } : {}),
-    // F4 decoupling: browser_* tools (buildBrowserTools) are ALWAYS present —
-    // browsing has no project-folder dependency (session data keys off
-    // conversationId, not projectPath). Project-scoped tools (buildTools) stay
-    // folder-gated behind backendFactory, exactly as before. wrappedTools
+    // F4 decoupling note, amended 2026-08-12: browsing still has no project-
+    // folder dependency (session data keys off conversationId), but browser_*
+    // now reaches the model ONLY through the browser subagent above — the main
+    // tools array is browser-free by design. Project-scoped tools (buildTools)
+    // stay folder-gated behind backendFactory, exactly as before. wrappedTools
     // (Task 8) is allTools run through wrapToolsWithHooks -- same tools, same
     // order, each one now hook-gated ahead of its own permission evaluation.
     tools: wrappedTools
