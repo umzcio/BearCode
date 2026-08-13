@@ -1,3 +1,6 @@
+/* Models table — Beautiful UI RecordsTable language: a hairline-wrapped
+   --surface table over the --canvas page, header row on --inset with small
+   uppercase --ink-3 labels, --stripe zebra rows, --hover row hover. */
 .models-tab {
   display: flex;
   flex-direction: column;
@@ -15,45 +18,80 @@
   gap: 6px;
   padding: 0 10px;
   height: 32px;
-  border-radius: 8px;
-  border: 1px solid var(--border-soft);
-  background: var(--bg-input);
-  color: var(--text-dim);
+  border-radius: var(--radius-control);
+  background: var(--field);
+  box-shadow: var(--shadow-inset-field), var(--shadow-hairline);
+  color: var(--ink-3);
+  transition: box-shadow var(--dur-fast) var(--ease-out);
+}
+.mt-search:focus-within {
+  box-shadow:
+    var(--shadow-inset-field),
+    0 0 0 1px var(--accent);
 }
 .mt-search input {
   border: none;
   background: transparent;
   outline: none;
-  color: var(--text);
+  color: var(--ink);
   font-size: 13px;
   width: 180px;
+}
+.mt-search input::placeholder {
+  color: var(--ink-3);
 }
 .mt-enabled-only {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
   margin-left: auto;
+}
+.mt-table-wrap {
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow-x: auto;
 }
 .mt-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
+  color: var(--ink);
 }
 .mt-table th {
   text-align: left;
-  font-size: 11.5px;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--text-dim);
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border-soft);
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
+  background: var(--inset);
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
 }
 .mt-table td {
-  padding: 10px;
-  border-bottom: 1px solid var(--border-soft);
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
   vertical-align: middle;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.mt-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.mt-table tbody tr:nth-child(even) td {
+  background: var(--stripe);
+}
+.mt-table tbody tr:hover td {
+  background: var(--hover);
+}
+/* Context column: live-updating numbers read in tabular figures. */
+.mt-table td:nth-child(3) {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
 }
 .mt-model {
   display: flex;
@@ -62,41 +100,59 @@
 }
 .mt-model-name {
   font-weight: 500;
-  color: var(--text);
+  color: var(--ink);
 }
 .mt-model-vendor {
   font-size: 11.5px;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 .mt-caps {
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
 }
+/* Capability chips: neutral inset chips (semantic states elsewhere pair a
+   color with its -tint fill). */
+.mt-caps .chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: var(--radius-chip);
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
 .mt-caps-unknown {
-  color: var(--text-dim);
+  color: var(--ink-3);
   font-style: italic;
   font-size: 12px;
 }
 .mt-price {
-  font-size: 12.5px;
-  color: var(--text-dim);
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
 }
 .mt-status {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  color: var(--ink-2);
+  font-size: 12.5px;
 }
 .mt-status-link {
   border: none;
   background: transparent;
-  color: var(--accent, var(--text));
+  color: var(--accent-ink);
   font-size: 12px;
   cursor: pointer;
   padding: 0;
 }
 .mt-status-link:hover {
   text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .mt-fav,
 .mt-more {
@@ -105,20 +161,23 @@
   justify-content: center;
   width: 26px;
   height: 26px;
-  border-radius: 6px;
+  border-radius: var(--radius-chip);
   border: none;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--ink-3);
   cursor: pointer;
-  transition: transform var(--dur-press-release) var(--ease-out);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press-release) var(--ease-out);
 }
 .mt-fav:hover,
 .mt-more:hover {
-  background: var(--wash);
-  color: var(--text);
+  background: var(--hover-2);
+  color: var(--ink);
 }
 .mt-fav.active {
-  color: var(--yellow, #e0b23e);
+  color: var(--orange);
 }
 .mt-fav.active svg {
   fill: currentColor;
@@ -127,54 +186,71 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 12.5px;
-  color: var(--text-dim);
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
 }
 .mt-pagination button {
-  border: 1px solid var(--border-soft);
-  background: transparent;
-  color: var(--text);
-  border-radius: 6px;
+  border: none;
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+  color: var(--ink);
+  border-radius: var(--radius-control);
   padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  transition: transform var(--dur-press-release) var(--ease-out);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press-release) var(--ease-out);
+}
+.mt-pagination button:hover:not(:disabled) {
+  background: var(--hover);
 }
 .mt-pagination button:disabled {
   opacity: 0.4;
   cursor: default;
 }
 .mt-bulk-btn {
-  border: 1px solid var(--border-soft);
-  background: transparent;
-  color: var(--text);
-  border-radius: 8px;
+  border: none;
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+  color: var(--ink);
+  border-radius: var(--radius-control);
   padding: 6px 12px;
-  font-size: 12.5px;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  transition: transform var(--dur-press-release) var(--ease-out);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press-release) var(--ease-out);
 }
 .mt-bulk-btn:hover {
-  background: var(--wash);
+  background: var(--hover);
 }
 .mt-footer {
   display: flex;
 }
 .mt-add-model {
-  border: 1px dashed var(--border-soft);
+  border: 1px dashed var(--line-strong);
   background: transparent;
-  color: var(--text-dim);
-  border-radius: 8px;
+  color: var(--ink-2);
+  border-radius: var(--radius-control);
   padding: 6px 12px;
-  font-size: 12.5px;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  transition: transform var(--dur-press-release) var(--ease-out);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press-release) var(--ease-out);
 }
 .mt-add-model::before {
   content: '+ ';
 }
 .mt-add-model:hover {
-  color: var(--text);
-  border-color: var(--border);
+  color: var(--ink);
+  background: var(--hover);
 }
 .mt-fav:active,
 .mt-more:active,

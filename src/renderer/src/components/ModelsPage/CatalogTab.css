@@ -1,3 +1,5 @@
+/* Catalog — vendor groups rendered as hairline-wrapped --surface cards with a
+   table-style --inset group header (Beautiful UI RecordsTable language). */
 .catalog-tab {
   display: flex;
   flex-direction: column;
@@ -15,36 +17,59 @@
   gap: 6px;
   padding: 0 10px;
   height: 32px;
-  border-radius: 8px;
-  border: 1px solid var(--border-soft);
-  background: var(--bg-input);
-  color: var(--text-dim);
+  border-radius: var(--radius-control);
+  background: var(--field);
+  box-shadow: var(--shadow-inset-field), var(--shadow-hairline);
+  color: var(--ink-3);
+  transition: box-shadow var(--dur-fast) var(--ease-out);
+}
+.ct-search:focus-within {
+  box-shadow:
+    var(--shadow-inset-field),
+    0 0 0 1px var(--accent);
 }
 .ct-search input {
   border: none;
   background: transparent;
   outline: none;
-  color: var(--text);
+  color: var(--ink);
   font-size: 13px;
   width: 180px;
+}
+.ct-search input::placeholder {
+  color: var(--ink-3);
 }
 .ct-group {
   display: flex;
   flex-direction: column;
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
 }
 .ct-group-head {
-  font-size: 11.5px;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--text-dim);
-  padding: 4px 0 8px;
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
+  background: var(--inset);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
 }
 .ct-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 4px;
-  border-bottom: 1px solid var(--border-soft);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.ct-row:last-child {
+  border-bottom: none;
+}
+.ct-row:hover {
+  background: var(--hover);
 }
 .ct-row-text {
   flex: 1;
@@ -56,30 +81,34 @@
 }
 .ct-row-name {
   font-weight: 500;
-  font-size: 13.5px;
-  color: var(--text);
+  font-size: 13px;
+  color: var(--ink);
   flex-shrink: 0;
 }
 .ct-row-desc {
   font-size: 12.5px;
-  color: var(--text-dim);
+  color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ct-enable {
-  border: 1px solid var(--border-soft);
-  background: transparent;
-  color: var(--text);
-  border-radius: 8px;
+  border: none;
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+  color: var(--ink);
+  border-radius: var(--radius-control);
   padding: 5px 12px;
-  font-size: 12.5px;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   flex-shrink: 0;
-  transition: transform var(--dur-press-release) var(--ease-out);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press-release) var(--ease-out);
 }
 .ct-enable:hover {
-  background: var(--wash);
+  background: var(--hover);
 }
 .ct-enable:active {
   transform: scale(0.97);

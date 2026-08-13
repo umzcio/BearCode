@@ -1,3 +1,5 @@
+/* Pricing table — same RecordsTable language as ModelsTab: hairline-wrapped
+   --surface table, --inset header, --stripe zebra, tabular-nums prices. */
 .pricing-tab {
   display: flex;
   flex-direction: column;
@@ -5,7 +7,7 @@
 }
 .pt-intro {
   font-size: 12.5px;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 .pt-toolbar {
   display: flex;
@@ -19,40 +21,60 @@
   gap: 6px;
   padding: 0 10px;
   height: 32px;
-  border-radius: 8px;
-  border: 1px solid var(--border-soft);
-  background: var(--bg-input);
-  color: var(--text-dim);
+  border-radius: var(--radius-control);
+  background: var(--field);
+  box-shadow: var(--shadow-inset-field), var(--shadow-hairline);
+  color: var(--ink-3);
+  transition: box-shadow var(--dur-fast) var(--ease-out);
+}
+.pt-search:focus-within {
+  box-shadow:
+    var(--shadow-inset-field),
+    0 0 0 1px var(--accent);
 }
 .pt-search input {
   border: none;
   background: transparent;
   outline: none;
-  color: var(--text);
+  color: var(--ink);
   font-size: 13px;
   width: 180px;
+}
+.pt-search input::placeholder {
+  color: var(--ink-3);
 }
 .pt-enabled-only {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
   margin-left: auto;
+}
+.pt-table-wrap {
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow-x: auto;
 }
 .pricing-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
+  color: var(--ink);
 }
 .pricing-table th {
   text-align: left;
-  font-size: 11.5px;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--text-dim);
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border-soft);
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
+  background: var(--inset);
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
 }
 .pricing-table th:not(:first-child),
 .pricing-table td:not(:first-child) {
@@ -60,13 +82,20 @@
   font-variant-numeric: tabular-nums;
 }
 .pricing-table td {
-  padding: 10px;
-  color: var(--text);
-  border-bottom: 1px solid var(--border-soft);
+  padding: 9px 12px;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
   vertical-align: middle;
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
-.pricing-table tr:last-child td {
+.pricing-table tbody tr:last-child td {
   border-bottom: none;
+}
+.pricing-table tbody tr:nth-child(even) td {
+  background: var(--stripe);
+}
+.pricing-table tbody tr:hover td {
+  background: var(--hover);
 }
 .pt-model {
   display: flex;
@@ -76,23 +105,32 @@
 }
 .pt-model-name {
   font-weight: 500;
-  color: var(--text);
+  color: var(--ink);
 }
 .pt-model-vendor {
   font-size: 11.5px;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
+/* Source chip: neutral inset chip; the synced state is a semantic
+   color-on-tint pair. */
 .price-src {
+  display: inline-flex;
+  align-items: center;
   font-size: 11px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--border-soft);
-  color: var(--text-dim);
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: var(--radius-chip);
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
+  color: var(--ink-2);
 }
 .price-src.synced {
+  background: var(--green-tint);
   color: var(--green);
-  border-color: color-mix(in srgb, var(--green) 45%, transparent);
+  box-shadow: none;
 }
 .price-src.none {
-  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-3);
 }

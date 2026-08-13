@@ -50,9 +50,8 @@ export function ModelsTab(): React.JSX.Element {
 
   const [search, setSearch] = useState('')
   const [vendorFilter, setVendorFilter] = useState<'all' | ProviderId>('all')
-  const [capabilityFilter, setCapabilityFilter] = useState<(typeof CAPABILITY_OPTIONS)[number]['value']>(
-    'all'
-  )
+  const [capabilityFilter, setCapabilityFilter] =
+    useState<(typeof CAPABILITY_OPTIONS)[number]['value']>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | ModelStatus>('all')
   const [enabledOnly, setEnabledOnly] = useState(true)
   const [page, setPage] = useState(1)
@@ -84,7 +83,11 @@ export function ModelsTab(): React.JSX.Element {
 
   const filtered = allRows.filter((row) => {
     const q = search.trim().toLowerCase()
-    if (q && !row.label.toLowerCase().includes(q) && !row.providerDisplayName.toLowerCase().includes(q))
+    if (
+      q &&
+      !row.label.toLowerCase().includes(q) &&
+      !row.providerDisplayName.toLowerCase().includes(q)
+    )
       return false
     if (vendorFilter !== 'all' && row.providerId !== vendorFilter) return false
     if (capabilityFilter !== 'all' && !(row.metadata?.capabilities[capabilityFilter] ?? false))
@@ -184,7 +187,12 @@ export function ModelsTab(): React.JSX.Element {
           />
           Show enabled only
         </label>
-        <button ref={bulkBtnRef} type="button" className="mt-bulk-btn" onClick={() => setBulkOpen((o) => !o)}>
+        <button
+          ref={bulkBtnRef}
+          type="button"
+          className="mt-bulk-btn"
+          onClick={() => setBulkOpen((o) => !o)}
+        >
           Bulk actions
         </button>
         <Menu
@@ -208,120 +216,126 @@ export function ModelsTab(): React.JSX.Element {
       {pageRows.length === 0 ? (
         <EmptyState title="No models match these filters" />
       ) : (
-        <table className="mt-table">
-          <thead>
-            <tr>
-              <th aria-hidden="true" />
-              <th>Model</th>
-              <th>Context</th>
-              <th>Capabilities</th>
-              <th>Pricing</th>
-              <th>Status</th>
-              <th>Enabled</th>
-              <th aria-hidden="true" />
-            </tr>
-          </thead>
-          <tbody>
-            {pageRows.map((row) => {
-              const caps = row.metadata
-                ? (Object.entries(row.metadata.capabilities) as [CapabilityKey, boolean][])
-                    .filter(([, on]) => on)
-                    .map(([k]) => k)
-                : null
-              return (
-                <tr className="mt-row" key={row.ref}>
-                  <td>
-                    <button
-                      type="button"
-                      className={'mt-fav' + (row.favorite ? ' active' : '')}
-                      aria-label={row.favorite ? `Unfavorite ${row.label}` : `Favorite ${row.label}`}
-                      onClick={() => toggleFavorite(row.ref)}
-                    >
-                      <IconStar size={14} />
-                    </button>
-                  </td>
-                  <td>
-                    <div className="mt-model">
-                      <ProviderIcon provider={row.providerId} size={16} />
-                      <div>
-                        <div className="mt-model-name">{row.label}</div>
-                        <div className="mt-model-vendor">{row.providerDisplayName}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td>{formatTokens(row.contextWindow)}</td>
-                  <td>
-                    {caps === null ? (
-                      <span className="mt-caps-unknown">Unknown</span>
-                    ) : caps.length === 0 ? (
-                      <span className="mt-caps-unknown">—</span>
-                    ) : (
-                      <div className="mt-caps">
-                        {caps.slice(0, 3).map((c) => (
-                          <span className="chip" key={c}>
-                            {CAPABILITY_LABEL[c]}
-                          </span>
-                        ))}
-                        {caps.length > 3 ? <span className="chip">+{caps.length - 3}</span> : null}
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    {row.price ? (
-                      <div className="mt-price">
-                        <div>${row.price.inputPer1M} in</div>
-                        <div>${row.price.outputPer1M} out</div>
-                      </div>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td>
-                    <span className="mt-status">
-                      <span
-                        className={
-                          'status-dot' +
-                          (row.status === 'available'
-                            ? ' ok'
-                            : row.status === 'not-configured'
-                              ? ' warn'
-                              : ' err')
+        <div className="mt-table-wrap">
+          <table className="mt-table">
+            <thead>
+              <tr>
+                <th aria-hidden="true" />
+                <th>Model</th>
+                <th>Context</th>
+                <th>Capabilities</th>
+                <th>Pricing</th>
+                <th>Status</th>
+                <th>Enabled</th>
+                <th aria-hidden="true" />
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.map((row) => {
+                const caps = row.metadata
+                  ? (Object.entries(row.metadata.capabilities) as [CapabilityKey, boolean][])
+                      .filter(([, on]) => on)
+                      .map(([k]) => k)
+                  : null
+                return (
+                  <tr className="mt-row" key={row.ref}>
+                    <td>
+                      <button
+                        type="button"
+                        className={'mt-fav' + (row.favorite ? ' active' : '')}
+                        aria-label={
+                          row.favorite ? `Unfavorite ${row.label}` : `Favorite ${row.label}`
                         }
+                        onClick={() => toggleFavorite(row.ref)}
+                      >
+                        <IconStar size={14} />
+                      </button>
+                    </td>
+                    <td>
+                      <div className="mt-model">
+                        <ProviderIcon provider={row.providerId} size={16} />
+                        <div>
+                          <div className="mt-model-name">{row.label}</div>
+                          <div className="mt-model-vendor">{row.providerDisplayName}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>{formatTokens(row.contextWindow)}</td>
+                    <td>
+                      {caps === null ? (
+                        <span className="mt-caps-unknown">Unknown</span>
+                      ) : caps.length === 0 ? (
+                        <span className="mt-caps-unknown">—</span>
+                      ) : (
+                        <div className="mt-caps">
+                          {caps.slice(0, 3).map((c) => (
+                            <span className="chip" key={c}>
+                              {CAPABILITY_LABEL[c]}
+                            </span>
+                          ))}
+                          {caps.length > 3 ? (
+                            <span className="chip">+{caps.length - 3}</span>
+                          ) : null}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      {row.price ? (
+                        <div className="mt-price">
+                          <div>${row.price.inputPer1M} in</div>
+                          <div>${row.price.outputPer1M} out</div>
+                        </div>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td>
+                      <span className="mt-status">
+                        <span
+                          className={
+                            'status-dot' +
+                            (row.status === 'available'
+                              ? ' ok'
+                              : row.status === 'not-configured'
+                                ? ' warn'
+                                : ' err')
+                          }
+                        />
+                        {STATUS_LABEL[row.status]}
+                        {row.status !== 'available' ? (
+                          <button
+                            type="button"
+                            className="mt-status-link"
+                            onClick={() => openSettings('providers')}
+                          >
+                            {row.status === 'not-configured' ? 'Configure →' : 'Check status →'}
+                          </button>
+                        ) : null}
+                      </span>
+                    </td>
+                    <td>
+                      <Toggle
+                        checked={row.enabled}
+                        ariaLabel={`${row.label} enabled`}
+                        onChange={(on) => void setModelEnabled(row.ref, on)}
                       />
-                      {STATUS_LABEL[row.status]}
-                      {row.status !== 'available' ? (
-                        <button
-                          type="button"
-                          className="mt-status-link"
-                          onClick={() => openSettings('providers')}
-                        >
-                          {row.status === 'not-configured' ? 'Configure →' : 'Check status →'}
-                        </button>
-                      ) : null}
-                    </span>
-                  </td>
-                  <td>
-                    <Toggle
-                      checked={row.enabled}
-                      ariaLabel={`${row.label} enabled`}
-                      onChange={(on) => void setModelEnabled(row.ref, on)}
-                    />
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="mt-more"
-                      aria-label="More actions"
-                      onClick={() => setOpenRef(row.ref)}
-                    >
-                      <IconDots size={14} />
-                    </button>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="mt-more"
+                        aria-label="More actions"
+                        onClick={() => setOpenRef(row.ref)}
+                      >
+                        <IconDots size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <div className="mt-pagination">

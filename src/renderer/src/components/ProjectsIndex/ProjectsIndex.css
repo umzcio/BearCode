@@ -1,7 +1,10 @@
+/* Projects index — Beautiful UI InsightCards language: the list is a
+   hairline-wrapped --surface card over the --canvas page; rows are quiet
+   chip-radius buttons that light up with --hover. */
 .projects-index {
   flex: 1;
   min-width: 0;
-  background: var(--bg-window);
+  background: var(--canvas);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -11,17 +14,18 @@
   align-items: center;
   gap: 12px;
   padding: 22px 28px 18px;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--line);
 }
 .pidx-icon {
   width: 34px;
   height: 34px;
-  border-radius: 9px;
-  background: var(--wash);
+  border-radius: var(--radius-control);
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-dim);
+  color: var(--ink-2);
   flex-shrink: 0;
 }
 .pidx-title {
@@ -31,32 +35,38 @@
 .pidx-title h3 {
   margin: 0;
   font-size: 16px;
-  font-weight: 650;
+  font-weight: 600;
+  color: var(--ink);
 }
 .pidx-title .pidx-meta {
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
   margin-top: 2px;
 }
 .pidx-sort {
   flex-shrink: 0;
 }
 .pidx-list {
-  padding: 8px 16px 24px;
+  margin: 16px 24px 28px;
+  padding: 5px;
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
 }
 .pidx-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 11px 12px;
-  border-radius: 9px;
+  padding: 9px 10px;
+  border-radius: var(--radius-chip);
   cursor: pointer;
   transition:
     background var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out);
 }
 .pidx-row:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .pidx-row:focus-visible {
   outline: none;
@@ -66,21 +76,22 @@
    active-project highlight reads as one visual language across the sidebar's
    Pinned Projects rows and this index page. */
 .pidx-row.selected {
-  background: var(--bg-active);
+  background: var(--hover-2);
 }
 .pidx-row.selected .name {
-  color: var(--text);
+  color: var(--ink);
 }
 .pidx-row .chip {
   width: 24px;
   height: 24px;
-  border-radius: 7px;
+  border-radius: var(--radius-chip);
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-active);
-  color: var(--text-dim);
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
+  color: var(--ink-2);
 }
 .pidx-row .name {
   flex: 1;
@@ -88,14 +99,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13.5px;
-  color: var(--text-mid);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
 }
 .pidx-row:hover .name {
-  color: var(--text);
+  color: var(--ink);
 }
 .pidx-row .cnt {
-  color: var(--text-dim);
+  color: var(--ink-3);
   font-size: 12px;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
