@@ -6,19 +6,22 @@
   gap: 4px;
 }
 
+/* Grok/ChatGPT-style status pill (Zach 2026-08-12, supersedes the Antigravity
+   flat header): a rounded raised chip — paw, "Working… Ns", chevron — that the
+   step trace expands beneath. */
 .worked-head {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   color: var(--ink-2);
   font-size: 13px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  padding: 4px 6px;
-  margin-left: -6px;
+  padding: 6px 12px;
   cursor: pointer;
   width: fit-content;
-  border-radius: var(--radius-control);
+  background: var(--hover);
+  border-radius: 999px;
   user-select: none;
   /* BUI hover grammar: color feedback at 100ms on the standard curve. */
   transition:
@@ -27,7 +30,7 @@
 }
 .worked-head:hover {
   color: var(--ink);
-  background: var(--hover);
+  background: var(--hover-2);
 }
 
 /* BUI ThinkingState: the active label shimmers (a gradient sweep clipped to
@@ -88,8 +91,10 @@
 .steps {
   display: flex;
   flex-direction: column;
-  /* BUI ThinkingState trace: hairline left containment for the step list. */
-  margin-left: 8px;
+  /* BUI ThinkingState trace: hairline left containment for the step list,
+     dropped beneath the status pill. */
+  margin-top: 6px;
+  margin-left: 14px;
   padding-left: 12px;
   border-left: 1px solid var(--line);
   overflow: hidden;
