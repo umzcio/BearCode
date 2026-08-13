@@ -506,7 +506,16 @@ function mergeLiveWithStatic(
       label: opts.preferStaticLabel && existing ? existing.label : m.label
     })
   }
-  const merged = [...byId.values()]
+  let merged = [...byId.values()]
+  // Dated snapshot aliases (claude-haiku-4-5-20251001) carry the same display
+  // name as their base model and rendered as indistinguishable duplicate rows
+  // (live complaint 2026-08-12). Drop a dated id whenever its undated base is
+  // also in the list — same model, one row.
+  const ids = new Set(merged.map((m) => m.id))
+  merged = merged.filter((m) => {
+    const dated = m.id.match(/^(.*)-\d{8}$/)
+    return !(dated && ids.has(dated[1]))
+  })
   // Newly discovered models otherwise land APPENDED below the curated set
   // ("Grok 4.6 at the bottom of the Grok list" — live complaint 2026-08-12).
   // For providers whose ids share one version-numbered family, order the
