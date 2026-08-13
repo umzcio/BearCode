@@ -1,3 +1,6 @@
+/* Attention-only run bar (see RunStatusBar.tsx): appears above the composer
+   only when the run is blocked on the user. Semantic attention = orange on its
+   tint, per the BUI language. */
 .run-status-bar {
   display: flex;
   align-items: center;
@@ -5,11 +8,12 @@
   padding: 6px 12px;
   margin: 0 0 6px;
   border: none;
-  box-shadow: var(--shadow-hairline);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange), transparent 60%);
   border-radius: var(--radius-control);
-  background: var(--surface);
+  background: var(--orange-tint);
   font-size: 13px;
-  color: var(--ink-2);
+  color: var(--ink);
+  cursor: pointer;
   transition:
     opacity var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
@@ -26,8 +30,8 @@
 .run-status-bar[data-state='closing'] {
   opacity: 0;
   transform: translateY(4px);
-  /* Matches the trust-banner convention (App.css:96-103): keep the closing
-     bar's Stop button from eating clicks during the exit transition. */
+  /* Matches the trust-banner convention (App.css:96-103): keep the bar from
+     eating clicks during the exit transition. */
   pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -43,10 +47,9 @@
     transform: none;
   }
 }
-.run-status-bar.attention {
-  box-shadow: 0 0 0 1px var(--accent);
-  color: var(--ink);
-  cursor: pointer;
+.run-status-bar:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 .rsb-label {
   flex: 1;
@@ -56,123 +59,19 @@
   white-space: nowrap;
   font-weight: 500;
 }
-/* BUI LoadingState: the working label shimmers — a gradient sweep clipped to
-   the text — while the elapsed timer ticks beside it. */
-.rsb-label.working {
-  background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: rsb-shimmer 1.4s linear infinite;
-}
-@keyframes rsb-shimmer {
-  0% {
-    background-position: 150%;
-  }
-  100% {
-    background-position: -50%;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .rsb-label.working {
-    animation: none;
-    background-image: none;
-    color: var(--ink-2);
-  }
-}
-.rsb-elapsed {
-  color: var(--ink-3);
-  font-family: var(--mono);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.rsb-stop {
-  border: none;
-  box-shadow: var(--shadow-hairline);
-  background: transparent;
-  color: var(--ink-2);
-  border-radius: var(--radius-chip);
-  padding: 2px 8px;
-  font-size: 12px;
+.rsb-view {
+  color: var(--orange);
+  font-size: 12.5px;
   font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
+  white-space: nowrap;
 }
-.rsb-stop:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
-
-/* BUI LoadingState "Drive": 3×3 pixel grid, chevron wavefront driving right —
-   delay per cell is (col + |row − 1|) × 90ms on a 650ms cycle. Opacity-only. */
-.rsb-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 4px);
-  gap: 1.5px;
-  flex-shrink: 0;
-}
-.rsb-cell {
-  width: 4px;
-  height: 4px;
-  border-radius: 1px;
-  background: var(--ink);
-  opacity: 0.15;
-  animation: rsb-pixel-on 650ms ease-in-out infinite;
-}
-.rsb-cell:nth-child(1) {
-  animation-delay: 90ms;
-}
-.rsb-cell:nth-child(2) {
-  animation-delay: 180ms;
-}
-.rsb-cell:nth-child(3) {
-  animation-delay: 270ms;
-}
-.rsb-cell:nth-child(4) {
-  animation-delay: 0ms;
-}
-.rsb-cell:nth-child(5) {
-  animation-delay: 90ms;
-}
-.rsb-cell:nth-child(6) {
-  animation-delay: 180ms;
-}
-.rsb-cell:nth-child(7) {
-  animation-delay: 90ms;
-}
-.rsb-cell:nth-child(8) {
-  animation-delay: 180ms;
-}
-.rsb-cell:nth-child(9) {
-  animation-delay: 270ms;
-}
-@keyframes rsb-pixel-on {
-  0%,
-  100% {
-    opacity: 0.15;
-  }
-  18%,
-  42% {
-    opacity: 1;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  /* Freeze the grid at its dim state; the timer still ticks. */
-  .rsb-cell {
-    animation: none;
-  }
-}
-
 .rsb-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--orange);
   animation: rsb-pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
 }
 @keyframes rsb-pulse {
   0%,
