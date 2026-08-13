@@ -7,15 +7,18 @@
   z-index: 300;
   pointer-events: none;
 }
+/* BUI tooltip treatment: the dedicated --tooltip-* tokens (a near-black
+   surface in both themes) with a hairline border -- no drop shadow; the
+   contrast against any surface carries the depth. */
 .hint-surface {
-  background: var(--bg-active);
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  padding: 9px 14px;
-  font-size: 13px;
-  color: var(--text);
+  background: var(--tooltip-bg);
+  border: 1px solid var(--tooltip-border);
+  border-radius: var(--radius-control);
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tooltip-fg);
   white-space: nowrap;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
 }
 .hint-surface.hint-enter {
   animation: hint-in var(--dur-fast) var(--ease-out);
@@ -40,7 +43,9 @@
 }
 
 .hint-keys {
-  color: var(--text-dim);
+  color: var(--tooltip-muted);
+  font-family: var(--mono);
+  font-size: 11px;
   margin-left: 9px;
   letter-spacing: 1px;
 }

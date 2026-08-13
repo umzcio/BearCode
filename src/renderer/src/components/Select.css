@@ -2,24 +2,27 @@
   position: relative;
   flex-shrink: 0;
 }
-/* Matches the footprint of the native selects it replaces. */
+/* Matches the footprint of the native selects it replaces. BUI button
+   language: --surface raised by the hairline --shadow-btn, control radius. */
 .app-select-trigger {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 170px;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  color: var(--text);
+  background: var(--surface);
+  border: none;
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-btn);
+  color: var(--ink);
   font-family: inherit;
   font-size: 13px;
   padding: 7px 12px;
   cursor: pointer;
   text-align: left;
+  transition: background var(--dur-fast) ease;
 }
 .app-select-trigger:hover {
-  border-color: var(--border-strong, var(--text-dim));
+  background: var(--hover);
 }
 .app-select-value {
   flex: 1;
@@ -29,7 +32,7 @@
 }
 .app-select-trigger .chev {
   display: flex;
-  color: var(--text-dim);
+  color: var(--ink-3);
   flex-shrink: 0;
 }
 .app-select-trigger .chev svg {
