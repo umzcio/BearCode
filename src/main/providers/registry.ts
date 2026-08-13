@@ -493,7 +493,7 @@ export function clearLiveDiscoveryCache(): void {
 function mergeLiveWithStatic(
   live: ModelInfo[],
   staticModels: ModelInfo[],
-  opts: { preferStaticLabel: boolean }
+  opts: { preferStaticLabel: boolean; sortByVersion?: boolean }
 ): ModelInfo[] {
   const staticById = new Map(staticModels.map((m) => [m.id, m]))
   const byId = new Map<string, ModelInfo>()
@@ -506,7 +506,29 @@ function mergeLiveWithStatic(
       label: opts.preferStaticLabel && existing ? existing.label : m.label
     })
   }
-  return [...byId.values()]
+  const merged = [...byId.values()]
+  // Newly discovered models otherwise land APPENDED below the curated set
+  // ("Grok 4.6 at the bottom of the Grok list" — live complaint 2026-08-12).
+  // For providers whose ids share one version-numbered family, order the
+  // whole group newest-first; the sort is stable, so equal-version ids keep
+  // the curated order. Providers with mixed families (Perplexity hosts Kimi/
+  // GLM/Nemotron side by side) skip this — cross-family version comparison
+  // is meaningless.
+  if (opts.sortByVersion) {
+    const version = (id: string): number[] => (id.match(/\d+/g) ?? []).map(Number)
+    const cmp = (a: number[], b: number[]): number => {
+      for (let i = 0; i < Math.max(a.length, b.length); i++) {
+        const d = (b[i] ?? -1) - (a[i] ?? -1)
+        if (d !== 0) return d
+      }
+      return 0
+    }
+    return merged
+      .map((m, i) => ({ m, i, v: version(m.id) }))
+      .sort((x, y) => cmp(x.v, y.v) || x.i - y.i)
+      .map((x) => x.m)
+  }
+  return merged
 }
 
 // OpenAI's list has no mode/type field, so filter via the LiteLLM catalog
@@ -579,7 +601,8 @@ async function ensureLiveDiscovery(provider: ProviderId): Promise<void> {
   const merged = mergeLiveWithStatic(result.models, STATIC_MODELS[provider] ?? [], {
     // OpenAI's list has no display names at all; xAI/Perplexity get generated
     // labels ("Grok 4.6") that a curated static label should still beat.
-    preferStaticLabel: provider === 'openai' || provider === 'xai' || provider === 'perplexity'
+    preferStaticLabel: provider === 'openai' || provider === 'xai' || provider === 'perplexity',
+    sortByVersion: provider !== 'perplexity'
   })
   liveModelCache.set(provider, merged)
   for (const [id, caps] of Object.entries(result.capabilities)) {

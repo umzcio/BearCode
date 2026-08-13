@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ProviderId } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import {
@@ -28,9 +28,11 @@ const SORT_OPTIONS: SelectOption<'vendor' | 'name'>[] = [
 
 function Row({
   row,
+  justEnabled,
   onEnable
 }: {
   row: ModelRow
+  justEnabled: boolean
   onEnable: (ref: string) => void
 }): React.JSX.Element {
   return (
@@ -42,8 +44,17 @@ function Row({
           <span className="ct-row-desc">{row.catalog.description}</span>
         ) : null}
       </div>
-      <button type="button" className="ct-enable" onClick={() => onEnable(row.ref)}>
-        Enable
+      {/* Feedback at the point of interaction: the button flips to a green
+          confirmation and the row lingers a beat before leaving the catalog
+          (it would otherwise vanish instantly — "ZERO feedback" complaint,
+          2026-08-12). */}
+      <button
+        type="button"
+        className={'ct-enable' + (justEnabled ? ' done' : '')}
+        disabled={justEnabled}
+        onClick={() => onEnable(row.ref)}
+      >
+        {justEnabled ? '✓ Enabled' : 'Enable'}
       </button>
     </div>
   )
@@ -59,8 +70,19 @@ export function CatalogTab(): React.JSX.Element {
   const providers = useAppStore((s) => s.providers)
   const settings = useAppStore((s) => s.settings)
   const setModelEnabled = useAppStore((s) => s.setModelEnabled)
+  const showToast = useAppStore((s) => s.showToast)
 
   const [search, setSearch] = useState('')
+  // Rows enabled moments ago: kept visible (they are no longer "disabled")
+  // with a green confirmation until their linger timer expires.
+  const [justEnabled, setJustEnabled] = useState<Record<string, boolean>>({})
+  const lingerTimers = useRef<number[]>([])
+  useEffect(
+    () => () => {
+      for (const t of lingerTimers.current) window.clearTimeout(t)
+    },
+    []
+  )
   const [vendorFilter, setVendorFilter] = useState<'all' | ProviderId>('all')
   const [capabilityFilter, setCapabilityFilter] =
     useState<(typeof CAPABILITY_OPTIONS)[number]['value']>('all')
@@ -68,7 +90,9 @@ export function CatalogTab(): React.JSX.Element {
 
   if (!settings) return <EmptyState title="Loading models…" />
 
-  const disabled = buildModelRows(manageableModels, providers, settings).filter((r) => !r.enabled)
+  const disabled = buildModelRows(manageableModels, providers, settings).filter(
+    (r) => !r.enabled || justEnabled[r.ref]
+  )
 
   if (disabled.length === 0) {
     return (
@@ -98,7 +122,21 @@ export function CatalogTab(): React.JSX.Element {
     return true
   })
 
-  const handleEnable = (ref: string): void => void setModelEnabled(ref, true)
+  const handleEnable = (ref: string): void => {
+    setJustEnabled((m) => ({ ...m, [ref]: true }))
+    void setModelEnabled(ref, true)
+    const label = disabled.find((r) => r.ref === ref)?.label ?? ref
+    showToast(`${label} enabled — it's now in the model picker`)
+    lingerTimers.current.push(
+      window.setTimeout(() => {
+        setJustEnabled((m) => {
+          const next = { ...m }
+          delete next[ref]
+          return next
+        })
+      }, 1600)
+    )
+  }
 
   const toolbar = (
     <div className="ct-toolbar">
@@ -147,7 +185,12 @@ export function CatalogTab(): React.JSX.Element {
         {toolbar}
         <div className="ct-group">
           {flat.map((row) => (
-            <Row row={row} onEnable={handleEnable} key={row.ref} />
+            <Row
+              row={row}
+              justEnabled={Boolean(justEnabled[row.ref])}
+              onEnable={handleEnable}
+              key={row.ref}
+            />
           ))}
         </div>
       </div>
@@ -170,7 +213,12 @@ export function CatalogTab(): React.JSX.Element {
         <div className="ct-group" key={vendor}>
           <div className="ct-group-head">{vendor}</div>
           {rows.map((row) => (
-            <Row row={row} onEnable={handleEnable} key={row.ref} />
+            <Row
+              row={row}
+              justEnabled={Boolean(justEnabled[row.ref])}
+              onEnable={handleEnable}
+              key={row.ref}
+            />
           ))}
         </div>
       ))}

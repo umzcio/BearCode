@@ -111,6 +111,15 @@
 .ct-enable:hover {
   background: var(--hover);
 }
+/* Just-enabled confirmation: green-on-tint, no hover, row lingers a beat
+   before leaving the list (CatalogTab justEnabled). */
+.ct-enable.done,
+.ct-enable.done:hover {
+  color: var(--green);
+  background: var(--green-tint);
+  box-shadow: none;
+  cursor: default;
+}
 .ct-enable:active {
   transform: scale(0.97);
   transition: transform var(--dur-press) var(--ease-out);
