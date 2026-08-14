@@ -100,6 +100,41 @@
 .mpk-search {
   margin: 4px 6px 6px;
 }
+/* Segmented tabs on the --field track, active segment raised (BUI pattern,
+   same as the sidebar seg-toggle). */
+.mpk-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 0 6px 4px;
+  background: var(--field);
+  border-radius: var(--radius-control);
+  padding: 3px;
+}
+.mpk-tab {
+  flex: 1;
+  border: none;
+  appearance: none;
+  white-space: nowrap;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+  padding: 4px 0;
+  border-radius: var(--radius-chip);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard);
+}
+.mpk-tab:hover {
+  color: var(--ink);
+}
+.mpk-tab.on {
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+  color: var(--ink);
+}
 .mpk-scroll {
   /* FIXED height, not max-height: the popover must not resize as tabs switch
      between a 3-row Favorites view and the full All list (live complaint,

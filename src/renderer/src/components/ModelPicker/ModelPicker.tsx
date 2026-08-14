@@ -11,12 +11,18 @@ import ursusTeddy from '../../assets/ursus-teddy.svg'
 import { useCloseOnSettingsOpen } from '../../lib/useCloseOnSettingsOpen'
 import './ModelPicker.css'
 
-// Informed-list picker (option D + search + favorites, per Zach 2026-08-13):
-// ONE continuous scrolling list — Modes, ★ Favorites (the landing view),
-// Recent, then the ENTIRE vendor-grouped catalog with informed rows. No tabs:
-// the full list is always present, favorites are simply where you land. The
-// search field filters the whole catalog. Stars persist as
-// settings.favoriteModels — the same list the Models tab's mt-fav stars edit.
+// Favorites-first picker (approved prototype, 2026-08-13): opens on the
+// ★ Favorites tab (Modes pinned on top), Recent derives from conversation
+// history, All is the informed grouped list. The search field filters the
+// ENTIRE catalog from any tab. Stars persist as settings.favoriteModels —
+// the same list the Models tab's mt-fav stars edit.
+
+const TABS = [
+  { key: 'fav', label: '★ Favorites' },
+  { key: 'rec', label: 'Recent' },
+  { key: 'all', label: 'All' }
+] as const
+type TabKey = (typeof TABS)[number]['key']
 
 // 1_000_000 -> "1M", 200_000 -> "200K".
 function formatCtx(n: number | undefined): string | null {
@@ -66,11 +72,14 @@ export function ModelPicker(): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const settingsOpen = useAppStore((s) => s.settingsOpen)
   useCloseOnSettingsOpen(open, settingsOpen, () => setOpen(false))
-  // Every open gets a fresh generation; search/highlight are stored KEYED to
-  // the generation and derived back to their defaults ('', current model)
-  // whenever the stored generation is stale. This resets the picker on each
-  // open without any setState-in-effect (react-hooks/set-state-in-effect).
+  // Every open gets a fresh generation; tab/search/highlight are stored KEYED
+  // to the generation and derived back to their defaults ('fav', '', current
+  // model) whenever the stored generation is stale. This resets the picker on
+  // each open without any setState-in-effect (react-hooks/set-state-in-effect).
   const [gen, setGen] = useState(0)
+  const [tabSel, setTabSel] = useState<{ g: number; v: TabKey }>({ g: -1, v: 'fav' })
+  const tab = tabSel.g === gen ? tabSel.v : 'fav'
+  const setTab = (v: TabKey): void => setTabSel({ g: gen, v })
   const [searchSel, setSearchSel] = useState({ g: -1, v: '' })
   const search = searchSel.g === gen ? searchSel.v : ''
   const setSearch = (v: string): void => setSearchSel({ g: gen, v })
@@ -111,18 +120,36 @@ export function ModelPicker(): React.JSX.Element {
   const searching = search.trim().length > 0
   const q = search.trim().toLowerCase()
 
-  const showModes = searching ? 'ursa ursus modes'.includes(q) || q.startsWith('urs') : true
-  // Section contents (one continuous list; a model may appear in several
-  // sections, so row ids carry a section prefix to stay unique).
-  const favRefs = favorites.filter((ref) => selectable.has(ref))
-  const recRefs = recents.filter((ref) => !favoriteSet.has(ref))
-  const searchRefs: string[] = []
+  // The concrete model rows of the CURRENT view, in render order. The Ursa/
+  // Ursus rows are prepended separately (they render on the Favorites tab and
+  // in matching search results).
+  const showModes = searching
+    ? 'ursa ursus modes'.includes(q) || q.startsWith('urs')
+    : tab === 'fav'
+  const viewRefs: string[] = []
   if (searching) {
     for (const [ref, { provider, model }] of selectable) {
       const hay =
         `${model.label} ${provider.displayName} ${(model.strengths ?? []).join(' ')}`.toLowerCase()
-      if (hay.includes(q)) searchRefs.push(ref)
+      if (hay.includes(q)) viewRefs.push(ref)
     }
+  } else if (tab === 'fav') {
+    // The current model is always visible in the default view, favorited or
+    // not — it carries the ✓ and seeds the keyboard highlight.
+    if (
+      modelRef &&
+      modelRef !== URSA_MODEL_REF &&
+      modelRef !== URSUS_MODEL_REF &&
+      selectable.has(modelRef) &&
+      !favoriteSet.has(modelRef)
+    ) {
+      viewRefs.push(modelRef)
+    }
+    for (const ref of favorites) if (selectable.has(ref)) viewRefs.push(ref)
+  } else if (tab === 'rec') {
+    viewRefs.push(...recents)
+  } else {
+    for (const ref of selectable.keys()) viewRefs.push(ref)
   }
 
   // Flatten the visible view into the navigable options, in the same order
@@ -147,21 +174,17 @@ export function ModelPicker(): React.JSX.Element {
       }
     })
   }
-  const pushModel = (section: string, ref: string): void => {
+  for (const ref of viewRefs) {
     flatOptions.push({
-      id: `model-${section}-${ref}`,
+      id: `model-${ref}`,
       commit: () => {
         selectModel(ref)
         setOpen(false)
       }
     })
   }
-  if (searching) {
-    for (const ref of searchRefs) pushModel('hit', ref)
-  } else {
-    for (const ref of favRefs) pushModel('fav', ref)
-    for (const ref of recRefs) pushModel('rec', ref)
-    for (const [ref] of selectable) pushModel('all', ref)
+  // Add-key affordances render only on the All tab (unfiltered).
+  if (!searching && tab === 'all') {
     for (const provider of providers) {
       if (provider.reachable && provider.requiresKey && !provider.keyConfigured) {
         flatOptions.push({
@@ -178,15 +201,17 @@ export function ModelPicker(): React.JSX.Element {
   // The roving highlight, same generation-keyed derivation: until the user
   // arrows/hovers within this view (gen + tab + search), the highlight sits on
   // the current model (or the first row).
-  const viewKey = `${gen}:${search}`
+  const viewKey = `${gen}:${tab}:${search}`
   const [activeSel, setActiveSel] = useState({ k: '', i: 0 })
+  const currentTargetId =
+    modelRef === URSA_MODEL_REF
+      ? 'model-ursa'
+      : modelRef === URSUS_MODEL_REF
+        ? 'model-ursus'
+        : `model-${modelRef}`
   const seedIndex = Math.max(
     0,
-    modelRef === URSA_MODEL_REF
-      ? flatOptions.findIndex((o) => o.id === 'model-ursa')
-      : modelRef === URSUS_MODEL_REF
-        ? flatOptions.findIndex((o) => o.id === 'model-ursus')
-        : flatOptions.findIndex((o) => o.id.endsWith(`-${modelRef}`))
+    flatOptions.findIndex((o) => o.id === currentTargetId)
   )
   const activeIndex = activeSel.k === viewKey ? activeSel.i : seedIndex
   const setActiveIndex = (i: number | ((prev: number) => number)): void =>
@@ -280,19 +305,19 @@ export function ModelPicker(): React.JSX.Element {
     )
   }
 
-  const modelRow = (section: string, ref: string): React.JSX.Element | null => {
+  const modelRow = (ref: string): React.JSX.Element | null => {
     const entry = selectable.get(ref)
     if (!entry) return null
     const { provider, model } = entry
-    const idx = flatOptions.findIndex((o) => o.id === `model-${section}-${ref}`)
+    const idx = flatOptions.findIndex((o) => o.id === `model-${ref}`)
     const ctx = formatCtx(model.contextWindow)
     const price = settings?.modelPricing?.[ref]?.inputPer1M
     const tier = provider.id === 'ollama' ? 'free' : costTier(price)
     const fav = favoriteSet.has(ref)
     return (
       <div
-        key={`${section}:${ref}`}
-        id={`opt-model-${section}-${ref}`}
+        key={ref}
+        id={`opt-model-${ref}`}
         role="option"
         aria-selected={ref === modelRef}
         className={
@@ -415,82 +440,98 @@ export function ModelPicker(): React.JSX.Element {
               onClick={(e) => e.stopPropagation()}
             />
           </div>
+          {!searching ? (
+            <div className="mpk-tabs" role="tablist">
+              {TABS.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === t.key}
+                  className={'mpk-tab' + (tab === t.key ? ' on' : '')}
+                  onClick={() => setTab(t.key)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="mpk-scroll">
             {searching ? (
               <>
                 {ursaRow}
                 {ursusRow}
-                {searchRefs.length === 0 && !showModes ? (
+                {viewRefs.length === 0 && !showModes ? (
                   <div className="mpk-empty">No models match “{search.trim()}”</div>
                 ) : (
-                  searchRefs.map((ref) => modelRow('hit', ref))
+                  viewRefs.map(modelRow)
                 )}
               </>
-            ) : (
+            ) : tab === 'fav' ? (
               <>
-                {/* Option D, one continuous list: Modes, then ★ Favorites as
-                    the landing section, Recent, then the ENTIRE informed
-                    catalog grouped by vendor. Nothing hides behind a tab. */}
                 <div className="menu-group-label">Modes</div>
                 {ursaRow}
                 {ursusRow}
-                <div className="menu-group-label">★ Favorites</div>
-                {favRefs.length > 0 ? (
-                  favRefs.map((ref) => modelRow('fav', ref))
+                <div className="menu-group-label">Favorites</div>
+                {viewRefs.length > 0 ? (
+                  viewRefs.map(modelRow)
                 ) : (
                   <div className="mpk-empty">
                     <b>No favorites yet</b>
-                    Hover any model below and click the ★ to pin it up here.
+                    Hover any model in All and click the ★ to keep it here.
                   </div>
                 )}
-                {recRefs.length > 0 ? (
-                  <>
-                    <div className="menu-group-label">Recent</div>
-                    {recRefs.map((ref) => modelRow('rec', ref))}
-                  </>
-                ) : null}
-                {providers.map((provider) => {
-                  const dimmed = provider.requiresKey && !provider.keyConfigured
-                  if (!provider.reachable && !provider.note) return null
-                  return (
-                    <div key={provider.id}>
-                      <div className="menu-group-label">
-                        <span className="group-icon">
-                          <ProviderIcon provider={provider.id} size={14} />
-                        </span>
-                        {provider.displayName}
-                      </div>
-                      {!provider.reachable ? (
-                        <div className="menu-item disabled">
-                          <span>{provider.note ?? 'Not reachable'}</span>
-                        </div>
-                      ) : dimmed ? (
-                        (() => {
-                          const idx = flatOptions.findIndex((o) => o.id === `addkey-${provider.id}`)
-                          return (
-                            <div
-                              id={`opt-addkey-${provider.id}`}
-                              role="option"
-                              aria-selected={false}
-                              className={
-                                'menu-item add-key' + (idx === activeIndex ? ' active' : '')
-                              }
-                              onClick={() => flatOptions[idx]?.commit()}
-                              onMouseEnter={() => setActiveIndex(idx)}
-                            >
-                              <span>Add API key</span>
-                            </div>
-                          )
-                        })()
-                      ) : (
-                        provider.models.map((model) =>
-                          modelRow('all', `${provider.id}/${model.id}`)
-                        )
-                      )}
-                    </div>
-                  )
-                })}
               </>
+            ) : tab === 'rec' ? (
+              viewRefs.length > 0 ? (
+                <>
+                  <div className="menu-group-label">Recently used</div>
+                  {viewRefs.map(modelRow)}
+                </>
+              ) : (
+                <div className="mpk-empty">
+                  <b>Nothing yet</b>
+                  Models you use show up here automatically.
+                </div>
+              )
+            ) : (
+              providers.map((provider) => {
+                const dimmed = provider.requiresKey && !provider.keyConfigured
+                if (!provider.reachable && !provider.note) return null
+                return (
+                  <div key={provider.id}>
+                    <div className="menu-group-label">
+                      <span className="group-icon">
+                        <ProviderIcon provider={provider.id} size={14} />
+                      </span>
+                      {provider.displayName}
+                    </div>
+                    {!provider.reachable ? (
+                      <div className="menu-item disabled">
+                        <span>{provider.note ?? 'Not reachable'}</span>
+                      </div>
+                    ) : dimmed ? (
+                      (() => {
+                        const idx = flatOptions.findIndex((o) => o.id === `addkey-${provider.id}`)
+                        return (
+                          <div
+                            id={`opt-addkey-${provider.id}`}
+                            role="option"
+                            aria-selected={false}
+                            className={'menu-item add-key' + (idx === activeIndex ? ' active' : '')}
+                            onClick={() => flatOptions[idx]?.commit()}
+                            onMouseEnter={() => setActiveIndex(idx)}
+                          >
+                            <span>Add API key</span>
+                          </div>
+                        )
+                      })()
+                    ) : (
+                      provider.models.map((model) => modelRow(`${provider.id}/${model.id}`))
+                    )}
+                  </div>
+                )
+              })
             )}
           </div>
         </div>
