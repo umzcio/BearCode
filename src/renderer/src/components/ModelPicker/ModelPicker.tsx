@@ -83,6 +83,18 @@ export function ModelPicker(): React.JSX.Element {
   const [searchSel, setSearchSel] = useState({ g: -1, v: '' })
   const search = searchSel.g === gen ? searchSel.v : ''
   const setSearch = (v: string): void => setSearchSel({ g: gen, v })
+  // All-tab vendor rail selection: 'modes' (the bear) or a provider id.
+  // Defaults to the current model's vendor so All opens where you are.
+  const defaultRail: 'modes' | ProviderId =
+    modelRef && modelRef !== URSA_MODEL_REF && modelRef !== URSUS_MODEL_REF
+      ? (modelRef.slice(0, modelRef.indexOf('/')) as ProviderId)
+      : 'modes'
+  const [railSel, setRailSel] = useState<{ g: number; v: 'modes' | ProviderId }>({
+    g: -1,
+    v: 'modes'
+  })
+  const rail = railSel.g === gen ? railSel.v : defaultRail
+  const setRail = (v: 'modes' | ProviderId): void => setRailSel({ g: gen, v })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -125,7 +137,7 @@ export function ModelPicker(): React.JSX.Element {
   // in matching search results).
   const showModes = searching
     ? 'ursa ursus modes'.includes(q) || q.startsWith('urs')
-    : tab === 'fav'
+    : tab === 'fav' || (tab === 'all' && rail === 'modes')
   const viewRefs: string[] = []
   if (searching) {
     for (const [ref, { provider, model }] of selectable) {
@@ -148,8 +160,9 @@ export function ModelPicker(): React.JSX.Element {
     for (const ref of favorites) if (selectable.has(ref)) viewRefs.push(ref)
   } else if (tab === 'rec') {
     viewRefs.push(...recents)
-  } else {
-    for (const ref of selectable.keys()) viewRefs.push(ref)
+  } else if (rail !== 'modes') {
+    // All tab, prototype-B pane: only the rail-selected vendor's models.
+    for (const ref of selectable.keys()) if (ref.startsWith(`${rail}/`)) viewRefs.push(ref)
   }
 
   // Flatten the visible view into the navigable options, in the same order
@@ -183,25 +196,25 @@ export function ModelPicker(): React.JSX.Element {
       }
     })
   }
-  // Add-key affordances render only on the All tab (unfiltered).
-  if (!searching && tab === 'all') {
-    for (const provider of providers) {
-      if (provider.reachable && provider.requiresKey && !provider.keyConfigured) {
-        flatOptions.push({
-          id: `addkey-${provider.id}`,
-          commit: () => {
-            setOpen(false)
-            openSettings('providers')
-          }
-        })
-      }
+  // Add-key affordance renders in the All pane when the rail-selected vendor
+  // has no key yet.
+  if (!searching && tab === 'all' && rail !== 'modes') {
+    const provider = providers.find((pr) => pr.id === rail)
+    if (provider?.reachable && provider.requiresKey && !provider.keyConfigured) {
+      flatOptions.push({
+        id: `addkey-${provider.id}`,
+        commit: () => {
+          setOpen(false)
+          openSettings('providers')
+        }
+      })
     }
   }
 
   // The roving highlight, same generation-keyed derivation: until the user
   // arrows/hovers within this view (gen + tab + search), the highlight sits on
   // the current model (or the first row).
-  const viewKey = `${gen}:${tab}:${search}`
+  const viewKey = `${gen}:${tab}:${rail}:${search}`
   const [activeSel, setActiveSel] = useState({ k: '', i: 0 })
   const currentTargetId =
     modelRef === URSA_MODEL_REF
@@ -456,7 +469,7 @@ export function ModelPicker(): React.JSX.Element {
               ))}
             </div>
           ) : null}
-          <div className="mpk-scroll">
+          <div className={'mpk-scroll' + (!searching && tab === 'all' ? ' mpk-scroll--split' : '')}>
             {searching ? (
               <>
                 {ursaRow}
@@ -495,43 +508,87 @@ export function ModelPicker(): React.JSX.Element {
                 </div>
               )
             ) : (
-              providers.map((provider) => {
-                const dimmed = provider.requiresKey && !provider.keyConfigured
-                if (!provider.reachable && !provider.note) return null
+              (() => {
+                // Prototype-B pane inside the All tab: vendor rail on the
+                // left (bear = Modes), the selected vendor's models on the
+                // right. The tab strip above never changes.
+                const railProvider = rail === 'modes' ? null : providers.find((p) => p.id === rail)
+                const dimmed =
+                  railProvider != null && railProvider.requiresKey && !railProvider.keyConfigured
                 return (
-                  <div key={provider.id}>
-                    <div className="menu-group-label">
-                      <span className="group-icon">
-                        <ProviderIcon provider={provider.id} size={14} />
-                      </span>
-                      {provider.displayName}
-                    </div>
-                    {!provider.reachable ? (
-                      <div className="menu-item disabled">
-                        <span>{provider.note ?? 'Not reachable'}</span>
-                      </div>
-                    ) : dimmed ? (
-                      (() => {
-                        const idx = flatOptions.findIndex((o) => o.id === `addkey-${provider.id}`)
-                        return (
-                          <div
-                            id={`opt-addkey-${provider.id}`}
-                            role="option"
-                            aria-selected={false}
-                            className={'menu-item add-key' + (idx === activeIndex ? ' active' : '')}
-                            onClick={() => flatOptions[idx]?.commit()}
-                            onMouseEnter={() => setActiveIndex(idx)}
+                  <div className="mpk-all">
+                    <div className="mpk-rail">
+                      <button
+                        type="button"
+                        className={'mpk-rail-btn' + (rail === 'modes' ? ' on' : '')}
+                        aria-label="Modes"
+                        title="Modes"
+                        onClick={() => setRail('modes')}
+                      >
+                        <img src={ursaTeddy} alt="" className="ursa-icon" />
+                      </button>
+                      {providers.map((p) =>
+                        p.reachable || p.note ? (
+                          <button
+                            key={p.id}
+                            type="button"
+                            className={'mpk-rail-btn' + (rail === p.id ? ' on' : '')}
+                            aria-label={p.displayName}
+                            title={p.displayName}
+                            onClick={() => setRail(p.id)}
                           >
-                            <span>Add API key</span>
+                            <ProviderIcon provider={p.id} size={16} />
+                          </button>
+                        ) : null
+                      )}
+                    </div>
+                    <div className="mpk-pane">
+                      {rail === 'modes' ? (
+                        <>
+                          <div className="menu-group-label">Modes</div>
+                          {ursaRow}
+                          {ursusRow}
+                        </>
+                      ) : railProvider == null || (!railProvider.reachable && railProvider.note) ? (
+                        <>
+                          <div className="menu-group-label">{railProvider?.displayName ?? ''}</div>
+                          <div className="menu-item disabled">
+                            <span>{railProvider?.note ?? 'Not reachable'}</span>
                           </div>
-                        )
-                      })()
-                    ) : (
-                      provider.models.map((model) => modelRow(`${provider.id}/${model.id}`))
-                    )}
+                        </>
+                      ) : dimmed ? (
+                        <>
+                          <div className="menu-group-label">{railProvider.displayName}</div>
+                          {(() => {
+                            const idx = flatOptions.findIndex(
+                              (o) => o.id === `addkey-${railProvider.id}`
+                            )
+                            return (
+                              <div
+                                id={`opt-addkey-${railProvider.id}`}
+                                role="option"
+                                aria-selected={false}
+                                className={
+                                  'menu-item add-key' + (idx === activeIndex ? ' active' : '')
+                                }
+                                onClick={() => flatOptions[idx]?.commit()}
+                                onMouseEnter={() => setActiveIndex(idx)}
+                              >
+                                <span>Add API key</span>
+                              </div>
+                            )
+                          })()}
+                        </>
+                      ) : (
+                        <>
+                          <div className="menu-group-label">{railProvider.displayName}</div>
+                          {viewRefs.map(modelRow)}
+                        </>
+                      )}
+                    </div>
                   </div>
                 )
-              })
+              })()
             )}
           </div>
         </div>

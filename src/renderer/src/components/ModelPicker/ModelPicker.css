@@ -232,3 +232,49 @@
   color: var(--ink-2);
   font-weight: 500;
 }
+
+/* ── All tab: prototype-B split pane (vendor rail + one vendor's models). The
+   tab strip above never changes; only the All CONTENT is two-pane. ── */
+.mpk-scroll--split {
+  overflow: hidden;
+  display: flex;
+}
+.mpk-all {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+}
+.mpk-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 6px 4px 2px;
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.mpk-rail-btn {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: none;
+  appearance: none;
+  background: transparent;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  transition: background-color var(--dur-hover) var(--ease-standard);
+}
+.mpk-rail-btn:hover {
+  background: var(--hover);
+}
+.mpk-rail-btn.on {
+  background: var(--hover-2);
+  box-shadow: var(--shadow-hairline);
+}
+.mpk-pane {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding-left: 4px;
+}
