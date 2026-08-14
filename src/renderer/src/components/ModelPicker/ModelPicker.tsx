@@ -137,7 +137,7 @@ export function ModelPicker(): React.JSX.Element {
   // in matching search results).
   const showModes = searching
     ? 'ursa ursus modes'.includes(q) || q.startsWith('urs')
-    : tab === 'fav' || (tab === 'all' && rail === 'modes')
+    : tab === 'all' && rail === 'modes'
   const viewRefs: string[] = []
   if (searching) {
     for (const [ref, { provider, model }] of selectable) {
@@ -146,18 +146,10 @@ export function ModelPicker(): React.JSX.Element {
       if (hay.includes(q)) viewRefs.push(ref)
     }
   } else if (tab === 'fav') {
-    // The current model is always visible in the default view, favorited or
-    // not — it carries the ✓ and seeds the keyboard highlight.
-    if (
-      modelRef &&
-      modelRef !== URSA_MODEL_REF &&
-      modelRef !== URSUS_MODEL_REF &&
-      selectable.has(modelRef) &&
-      !favoriteSet.has(modelRef)
-    ) {
-      viewRefs.push(modelRef)
-    }
-    for (const ref of favorites) if (selectable.has(ref)) viewRefs.push(ref)
+    // Favorites lists EXACTLY the starred refs, in saved order — including
+    // the Ursa/Ursus sentinels, which are starrable like any model (Zach,
+    // 2026-08-13). No Modes section, no current-model ride-along.
+    viewRefs.push(...favorites)
   } else if (tab === 'rec') {
     viewRefs.push(...recents)
   } else if (rail !== 'modes') {
@@ -169,32 +161,34 @@ export function ModelPicker(): React.JSX.Element {
   // they render, so keyboard nav and the mouse click handlers commit the
   // identical action.
   const flatOptions: { id: string; commit: () => void }[] = []
-  if (showModes && ursaSelectable) {
+  const pushSentinel = (kind: 'ursa' | 'ursus'): void => {
+    const ok = kind === 'ursa' ? ursaSelectable : ursusSelectable
+    if (!ok) return
+    const sentinel = kind === 'ursa' ? URSA_MODEL_REF : URSUS_MODEL_REF
     flatOptions.push({
-      id: 'model-ursa',
+      id: `model-${kind}`,
       commit: () => {
-        selectModel(URSA_MODEL_REF)
+        selectModel(sentinel)
         setOpen(false)
       }
     })
   }
-  if (showModes && ursusSelectable) {
-    flatOptions.push({
-      id: 'model-ursus',
-      commit: () => {
-        selectModel(URSUS_MODEL_REF)
-        setOpen(false)
-      }
-    })
+  if (showModes) {
+    pushSentinel('ursa')
+    pushSentinel('ursus')
   }
   for (const ref of viewRefs) {
-    flatOptions.push({
-      id: `model-${ref}`,
-      commit: () => {
-        selectModel(ref)
-        setOpen(false)
-      }
-    })
+    if (ref === URSA_MODEL_REF) pushSentinel('ursa')
+    else if (ref === URSUS_MODEL_REF) pushSentinel('ursus')
+    else if (selectable.has(ref)) {
+      flatOptions.push({
+        id: `model-${ref}`,
+        commit: () => {
+          selectModel(ref)
+          setOpen(false)
+        }
+      })
+    }
   }
   // Add-key affordance renders in the All pane when the rail-selected vendor
   // has no key yet.
@@ -312,22 +306,57 @@ export function ModelPicker(): React.JSX.Element {
     isSelectable: boolean,
     icon: string,
     label: string,
-    hint: string | null
+    hint: string | null,
+    reorderable = false
   ): React.JSX.Element => {
     const id = `model-${kind}`
     const sentinel = kind === 'ursa' ? URSA_MODEL_REF : URSUS_MODEL_REF
     const idx = flatOptions.findIndex((o) => o.id === id)
+    const fav = favoriteSet.has(sentinel)
+    const isDragging = dragRef === sentinel
+    const drop = dropTarget?.ref === sentinel ? dropTarget : null
+    const dragProps = reorderable
+      ? {
+          draggable: true,
+          onDragStart: (e: React.DragEvent): void => {
+            e.dataTransfer.effectAllowed = 'move'
+            dragLive.current = sentinel
+            setDragRef(sentinel)
+          },
+          onDragOver: (e: React.DragEvent): void => {
+            if (!dragLive.current || dragLive.current === sentinel) return
+            e.preventDefault()
+            const rect = e.currentTarget.getBoundingClientRect()
+            const target = { ref: sentinel, after: e.clientY > rect.top + rect.height / 2 }
+            dropLive.current = target
+            setDropTarget(target)
+          },
+          onDrop: (e: React.DragEvent): void => {
+            e.preventDefault()
+            commitReorder()
+          },
+          onDragEnd: (): void => {
+            dragLive.current = null
+            dropLive.current = null
+            setDragRef(null)
+            setDropTarget(null)
+          }
+        }
+      : {}
     return (
       <div
+        key={id}
         id={`opt-${id}`}
         role="option"
         aria-selected={modelRef === sentinel}
         aria-disabled={!isSelectable}
         className={
-          'menu-item ursa-entry' +
+          'menu-item ursa-entry mpk-row' +
           (modelRef === sentinel ? ' selected' : '') +
           (!isSelectable ? ' disabled' : '') +
-          (flatOptions[activeIndex]?.id === id ? ' active' : '')
+          (flatOptions[activeIndex]?.id === id ? ' active' : '') +
+          (isDragging ? ' mpk-dragging' : '') +
+          (drop ? (drop.after ? ' mpk-drop-after' : ' mpk-drop-before') : '')
         }
         onClick={() => {
           if (isSelectable) flatOptions[idx]?.commit()
@@ -335,10 +364,29 @@ export function ModelPicker(): React.JSX.Element {
         onMouseEnter={() => {
           if (isSelectable && idx >= 0) setActiveIndex(idx)
         }}
+        {...dragProps}
       >
+        {reorderable ? (
+          <span className="mpk-grip" aria-hidden="true">
+            ⠿
+          </span>
+        ) : null}
         <img src={icon} alt="" className="ursa-icon" />
         <span>{label}</span>
         {hint ? <span className="ursa-hint">{hint}</span> : null}
+        <button
+          type="button"
+          className={'mpk-star' + (fav ? ' on' : '')}
+          aria-label={fav ? `Unfavorite ${label}` : `Favorite ${label}`}
+          aria-pressed={fav}
+          tabIndex={-1}
+          onClick={(e) => {
+            e.stopPropagation()
+            toggleFavorite(sentinel)
+          }}
+        >
+          ★
+        </button>
         <span className="check">✓</span>
       </div>
     )
@@ -563,18 +611,43 @@ export function ModelPicker(): React.JSX.Element {
               </>
             ) : tab === 'fav' ? (
               <>
-                <div className="menu-group-label">Modes</div>
-                {ursaRow}
-                {ursusRow}
                 <div className="menu-group-label">Favorites</div>
                 {viewRefs.length > 0 ? (
-                  // Only true favorites reorder (the current model rides along
-                  // unstarred and isn't part of the saved order).
-                  viewRefs.map((ref) => modelRow(ref, favoriteSet.has(ref)))
+                  // Exactly the starred refs, in saved order — sentinels and
+                  // models interleave and all reorder by drag.
+                  viewRefs.map((ref) =>
+                    ref === URSA_MODEL_REF
+                      ? modeRow(
+                          'ursa',
+                          ursaSelectable,
+                          ursaTeddy,
+                          'Ursa',
+                          !ursaEnabled
+                            ? 'Enable Ursa in Settings first'
+                            : !anyProviderUsable
+                              ? 'Add an API key in Settings > Providers first'
+                              : null,
+                          true
+                        )
+                      : ref === URSUS_MODEL_REF
+                        ? modeRow(
+                            'ursus',
+                            ursusSelectable,
+                            ursusTeddy,
+                            'Ursus',
+                            !ursusEnabled
+                              ? 'Enable Ursus in Settings first'
+                              : !(openrouterUsable || ollamaUsable)
+                                ? 'Add an OpenRouter key or run Ollama first'
+                                : null,
+                            true
+                          )
+                        : modelRow(ref, true)
+                  )
                 ) : (
                   <div className="mpk-empty">
                     <b>No favorites yet</b>
-                    Hover any model in All and click the ★ to keep it here.
+                    Star any model — or Ursa and Ursus on the All tab — to pin it here.
                   </div>
                 )}
               </>

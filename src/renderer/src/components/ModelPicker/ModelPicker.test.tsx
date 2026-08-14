@@ -23,7 +23,7 @@ describe('ModelPicker — Ursa entry', () => {
     useAppStore.setState({
       providers: [usableProvider] as never,
       modelRef: null,
-      settings: { ursaEnabled: false } as never
+      settings: { favoriteModels: ['ursa/auto'], ursaEnabled: false } as never
     })
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button'))
@@ -36,7 +36,7 @@ describe('ModelPicker — Ursa entry', () => {
     useAppStore.setState({
       providers: [] as never,
       modelRef: null,
-      settings: { ursaEnabled: true } as never
+      settings: { favoriteModels: ['ursa/auto'], ursaEnabled: true } as never
     })
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button'))
@@ -50,7 +50,7 @@ describe('ModelPicker — Ursa entry', () => {
     useAppStore.setState({
       providers: [usableProvider] as never,
       modelRef: null,
-      settings: { ursaEnabled: true } as never,
+      settings: { favoriteModels: ['ursa/auto'], ursaEnabled: true } as never,
       selectModel
     })
     render(<ModelPicker />)
@@ -63,7 +63,7 @@ describe('ModelPicker — Ursa entry', () => {
     useAppStore.setState({
       providers: [usableProvider] as never,
       modelRef: 'ursa/auto',
-      settings: { ursaEnabled: true } as never
+      settings: { favoriteModels: ['ursa/auto'], ursaEnabled: true } as never
     })
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button'))
@@ -83,7 +83,7 @@ describe('ModelPicker — Ursa entry', () => {
     useAppStore.setState({
       providers: [usableProvider, secondProvider] as never,
       modelRef: 'openai/gpt-5',
-      settings: { ursaEnabled: false } as never
+      settings: { favoriteModels: ['openai/gpt-5'], ursaEnabled: false } as never
     })
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button'))
@@ -99,7 +99,7 @@ describe('ModelPicker — Ursus entry', () => {
     useAppStore.setState({
       providers: [usableProvider] as never,
       modelRef: null,
-      settings: { ursusEnabled: false } as never
+      settings: { favoriteModels: ['ursus/auto'], ursusEnabled: false } as never
     })
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button'))
@@ -112,7 +112,7 @@ describe('ModelPicker — Ursus entry', () => {
     useAppStore.setState({
       providers: [] as never,
       modelRef: null,
-      settings: { ursusEnabled: true } as never
+      settings: { favoriteModels: ['ursus/auto'], ursusEnabled: true } as never
     })
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button'))
@@ -135,7 +135,7 @@ describe('ModelPicker — Ursus entry', () => {
     useAppStore.setState({
       providers: [openrouterProvider] as never,
       modelRef: null,
-      settings: { ursusEnabled: true } as never,
+      settings: { favoriteModels: ['ursus/auto'], ursusEnabled: true } as never,
       selectModel
     })
     render(<ModelPicker />)
@@ -167,7 +167,7 @@ describe('ModelPicker — Ursus entry', () => {
     useAppStore.setState({
       providers: [openrouterProvider, ollamaProvider] as never,
       modelRef: null,
-      settings: { ursusEnabled: true } as never,
+      settings: { favoriteModels: ['ursus/auto'], ursusEnabled: true } as never,
       selectModel
     })
     render(<ModelPicker />)
@@ -189,7 +189,7 @@ describe('ModelPicker — Ursus entry', () => {
     useAppStore.setState({
       providers: [openrouterProvider] as never,
       modelRef: 'ursus/auto',
-      settings: { ursusEnabled: true } as never
+      settings: { favoriteModels: ['ursus/auto'], ursusEnabled: true } as never
     })
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button'))
@@ -235,7 +235,7 @@ describe('ModelPicker — favorites-first picker', () => {
     }
   ]
 
-  it('opens on the Favorites tab with Modes on top and starred models listed', () => {
+  it('opens on Favorites listing exactly the starred refs — no Modes, no ride-along', () => {
     useAppStore.setState({
       providers: twoProviders as never,
       modelRef: 'anthropic/claude-sonnet-5',
@@ -245,12 +245,13 @@ describe('ModelPicker — favorites-first picker', () => {
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button', { name: /claude sonnet 5/i }))
     expect(screen.getByRole('tab', { name: /favorites/i }).className).toContain('on')
-    expect(screen.getByText('Modes')).toBeInTheDocument()
-    // Starred model + the current (unstarred) model are both visible (the
-    // trigger button also carries the current model's name, hence getAllBy).
+    // No always-pinned Modes section: sentinels appear only when starred.
+    expect(screen.queryByText('Modes')).not.toBeInTheDocument()
+    expect(screen.queryByText('Ursa')).not.toBeInTheDocument()
     expect(screen.getByText('Grok 4.6')).toBeInTheDocument()
-    expect(screen.getAllByText('Claude Sonnet 5').length).toBeGreaterThan(1)
-    // Non-favorited, non-current models stay off the default view.
+    // The unstarred current model no longer rides along — the trigger button
+    // is the only place its name appears.
+    expect(screen.getAllByText('Claude Sonnet 5')).toHaveLength(1)
     expect(screen.queryByText('Grok 4.5')).not.toBeInTheDocument()
   })
 
