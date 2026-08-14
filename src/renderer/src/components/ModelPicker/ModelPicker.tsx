@@ -318,6 +318,23 @@ export function ModelPicker(): React.JSX.Element {
     )
   }
 
+  // Brand tile (the approved mock's treatment): the vendor glyph in its brand
+  // color on a tinted rounded tile, used in the rail and on every model row.
+  const brandTile = (provider: ProviderModels, size: number, icon: number): React.JSX.Element => (
+    <span
+      className="mpk-tile"
+      style={{
+        width: size,
+        height: size,
+        color: provider.color,
+        background: `${provider.color}22`,
+        boxShadow: `0 0 0 1px ${provider.color}44`
+      }}
+    >
+      <ProviderIcon provider={provider.id} size={icon} />
+    </span>
+  )
+
   const modelRow = (ref: string): React.JSX.Element | null => {
     const entry = selectable.get(ref)
     if (!entry) return null
@@ -341,7 +358,7 @@ export function ModelPicker(): React.JSX.Element {
         onClick={() => flatOptions[idx]?.commit()}
         onMouseEnter={() => setActiveIndex(idx)}
       >
-        <ProviderIcon provider={provider.id} size={16} />
+        {brandTile(provider, 26, 14)}
         <span className="mpk-nm">
           <b>{model.label}</b>
           {model.strengths?.length ? <small>{model.strengths.join(' · ')}</small> : null}
@@ -525,7 +542,17 @@ export function ModelPicker(): React.JSX.Element {
                         title="Modes"
                         onClick={() => setRail('modes')}
                       >
-                        <img src={ursaTeddy} alt="" className="ursa-icon" />
+                        <span
+                          className="mpk-tile"
+                          style={{
+                            width: 26,
+                            height: 26,
+                            background: 'var(--orange-tint)',
+                            boxShadow: '0 0 0 1px var(--orange)'
+                          }}
+                        >
+                          <img src={ursaTeddy} alt="" className="ursa-icon" />
+                        </span>
                       </button>
                       {providers.map((p) =>
                         p.reachable || p.note ? (
@@ -537,7 +564,7 @@ export function ModelPicker(): React.JSX.Element {
                             title={p.displayName}
                             onClick={() => setRail(p.id)}
                           >
-                            <ProviderIcon provider={p.id} size={16} />
+                            {brandTile(p, 26, 14)}
                           </button>
                         ) : null
                       )}

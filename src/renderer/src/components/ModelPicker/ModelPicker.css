@@ -278,3 +278,12 @@
   overflow-y: auto;
   padding-left: 4px;
 }
+
+/* Brand tile: vendor glyph in its brand color on a tinted rounded square
+   (the approved mock's icon treatment, rail + rows). */
+.mpk-tile {
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  flex-shrink: 0;
+}
