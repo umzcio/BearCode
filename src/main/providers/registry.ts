@@ -98,6 +98,13 @@ const CAPABILITIES: Record<string, ModelCapabilities> = {
     strengths: ['general'],
     costTier: 'low'
   },
+  // Live-discovered frontier models (2026-08): curated here so the picker's
+  // strengths line and the Ursa classifier know them; ids come from the
+  // providers' own list endpoints, not STATIC_MODELS.
+  'anthropic/claude-opus-5': {
+    strengths: ['code', 'research', 'writing', 'general'],
+    costTier: 'high'
+  },
   'openai/gpt-5.6-sol': {
     reasoning: { effort: 'high' },
     strengths: ['code', 'general'],
@@ -140,6 +147,10 @@ const CAPABILITIES: Record<string, ModelCapabilities> = {
   'xai/grok-4.5': {
     strengths: ['code', 'general'],
     costTier: 'high'
+  },
+  'xai/grok-4.6': {
+    strengths: ['code', 'general'],
+    costTier: 'mid'
   },
   // Realtime multi-agent research: xAI spins up parallel server-side agents
   // that search, cross-reference, and synthesize with citations. The
