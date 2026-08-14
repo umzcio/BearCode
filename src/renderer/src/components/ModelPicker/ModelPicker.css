@@ -136,7 +136,10 @@
   color: var(--ink);
 }
 .mpk-scroll {
-  max-height: 384px;
+  /* FIXED height, not max-height: the popover must not resize as tabs switch
+     between a 3-row Favorites view and the full All list (live complaint,
+     2026-08-13). Sparse views keep quiet space below instead. */
+  height: 384px;
   overflow-y: auto;
 }
 /* Informed rows: name (+ optional strengths line), star, ctx/cost tags. */
