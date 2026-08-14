@@ -88,8 +88,8 @@ describe('ModelPicker — Ursa entry', () => {
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button'))
     const listbox = screen.getByRole('listbox')
-    expect(listbox.getAttribute('aria-activedescendant')).toBe('opt-model-openai/gpt-5')
-    const modelRow = listbox.querySelector('#opt-model-openai\\/gpt-5')
+    expect(listbox.getAttribute('aria-activedescendant')).toBe('opt-model-all-openai/gpt-5')
+    const modelRow = listbox.querySelector('#opt-model-all-openai\\/gpt-5')
     expect(modelRow?.className).toContain('active')
   })
 })
@@ -235,7 +235,7 @@ describe('ModelPicker — favorites-first picker', () => {
     }
   ]
 
-  it('opens on the Favorites tab with Modes on top and starred models listed', () => {
+  it('renders one continuous list: Modes, Favorites landing section, full catalog', () => {
     useAppStore.setState({
       providers: twoProviders as never,
       modelRef: 'anthropic/claude-sonnet-5',
@@ -244,14 +244,15 @@ describe('ModelPicker — favorites-first picker', () => {
     })
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button', { name: /claude sonnet 5/i }))
-    expect(screen.getByRole('tab', { name: /favorites/i }).className).toContain('on')
+    // One continuous list: Modes, then the Favorites landing section, then
+    // the full vendor-grouped catalog — everything visible at once.
     expect(screen.getByText('Modes')).toBeInTheDocument()
-    // Starred model + the current (unstarred) model are both visible (the
-    // trigger button also carries the current model's name, hence getAllBy).
-    expect(screen.getByText('Grok 4.6')).toBeInTheDocument()
-    expect(screen.getAllByText('Claude Sonnet 5').length).toBeGreaterThan(1)
-    // Non-favorited, non-current models stay off the default view.
-    expect(screen.queryByText('Grok 4.5')).not.toBeInTheDocument()
+    expect(screen.getByText('★ Favorites')).toBeInTheDocument()
+    // The starred model renders twice: once in Favorites, once in its vendor
+    // group. Every other model still renders in its vendor group.
+    expect(screen.getAllByText('Grok 4.6')).toHaveLength(2)
+    expect(screen.getByText('Grok 4.5')).toBeInTheDocument()
+    expect(screen.getByText('xAI')).toBeInTheDocument()
   })
 
   it('shows the teaching empty state when nothing is starred', () => {
@@ -266,7 +267,7 @@ describe('ModelPicker — favorites-first picker', () => {
     expect(screen.getByText(/no favorites yet/i)).toBeInTheDocument()
   })
 
-  it('search filters the whole catalog from any tab and ignores tab scoping', () => {
+  it('search filters the whole catalog with flat results', () => {
     useAppStore.setState({
       providers: twoProviders as never,
       modelRef: null,
@@ -281,8 +282,8 @@ describe('ModelPicker — favorites-first picker', () => {
     expect(screen.getByText('Grok 4.6')).toBeInTheDocument()
     expect(screen.getByText('Grok 4.5')).toBeInTheDocument()
     expect(screen.queryByText('Claude Sonnet 5')).not.toBeInTheDocument()
-    // Tabs hide while searching (results replace the tabbed views).
-    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    // Section labels give way to flat results while searching.
+    expect(screen.queryByText('★ Favorites')).not.toBeInTheDocument()
   })
 
   it('star toggle persists through saveSettings({ favoriteModels })', () => {
@@ -296,11 +297,13 @@ describe('ModelPicker — favorites-first picker', () => {
     })
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button'))
-    fireEvent.click(screen.getByRole('button', { name: /unfavorite claude sonnet 5/i }))
+    fireEvent.click(
+      screen.getAllByRole('button', { name: /unfavorite claude sonnet 5/i })[0]
+    )
     expect(saveSettings).toHaveBeenCalledWith({ favoriteModels: [] })
   })
 
-  it('Recent tab lists distinct models from conversation history, newest first', () => {
+  it('Recent section lists distinct models from conversation history, newest first', () => {
     useAppStore.setState({
       providers: twoProviders as never,
       modelRef: null,
@@ -313,13 +316,15 @@ describe('ModelPicker — favorites-first picker', () => {
     })
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button'))
-    fireEvent.click(screen.getByRole('tab', { name: /recent/i }))
+    expect(screen.getByText('Recent')).toBeInTheDocument()
+    // The Recent section lists distinct history models newest-first, above
+    // the vendor groups (which repeat them).
     const rows = screen
       .getAllByRole('option')
-      .map((o) => o.textContent ?? '')
-      .filter((t) => t.includes('Grok') || t.includes('Claude'))
-    expect(rows[0]).toContain('Grok 4.5')
-    expect(rows[1]).toContain('Claude Sonnet 5')
+      .map((o) => o.id)
+      .filter((id) => id.includes('-rec-'))
+    expect(rows[0]).toContain('grok-4.5')
+    expect(rows[1]).toContain('claude-sonnet-5')
     expect(rows).toHaveLength(2)
   })
 
@@ -336,7 +341,8 @@ describe('ModelPicker — favorites-first picker', () => {
     })
     render(<ModelPicker />)
     fireEvent.click(screen.getByRole('button'))
-    expect(screen.getByText('500K')).toBeInTheDocument()
-    expect(screen.getByText('$$')).toBeInTheDocument()
+    // Favorited row + its vendor-group row both carry the informed tags.
+    expect(screen.getAllByText('500K')).toHaveLength(2)
+    expect(screen.getAllByText('$$')).toHaveLength(2)
   })
 })
