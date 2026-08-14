@@ -274,6 +274,32 @@ export function ModelPicker(): React.JSX.Element {
     }
   }
 
+  // Favorites drag-reorder (Favorites tab only): the row order IS
+  // settings.favoriteModels, so a drop simply persists the new array.
+  // The drag logic reads REFS, not state — dragover/drop can fire before
+  // React commits the render that updated the state, so state here is only
+  // for the visual affordances (dim + insertion hairline).
+  const dragLive = useRef<string | null>(null)
+  const dropLive = useRef<{ ref: string; after: boolean } | null>(null)
+  const [dragRef, setDragRef] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ ref: string; after: boolean } | null>(null)
+  const commitReorder = (): void => {
+    const drag = dragLive.current
+    const drop = dropLive.current
+    if (drag && drop && drag !== drop.ref) {
+      const order = favorites.filter((r) => r !== drag)
+      const at = order.indexOf(drop.ref)
+      if (at >= 0) {
+        order.splice(at + (drop.after ? 1 : 0), 0, drag)
+        void saveSettings({ favoriteModels: order })
+      }
+    }
+    dragLive.current = null
+    dropLive.current = null
+    setDragRef(null)
+    setDropTarget(null)
+  }
+
   const toggleFavorite = (ref: string): void => {
     const set = new Set(favorites)
     if (set.has(ref)) set.delete(ref)
@@ -335,11 +361,41 @@ export function ModelPicker(): React.JSX.Element {
     </span>
   )
 
-  const modelRow = (ref: string): React.JSX.Element | null => {
+  const modelRow = (ref: string, reorderable = false): React.JSX.Element | null => {
     const entry = selectable.get(ref)
     if (!entry) return null
     const { provider, model } = entry
     const idx = flatOptions.findIndex((o) => o.id === `model-${ref}`)
+    const isDragging = dragRef === ref
+    const drop = dropTarget?.ref === ref ? dropTarget : null
+    const dragProps = reorderable
+      ? {
+          draggable: true,
+          onDragStart: (e: React.DragEvent): void => {
+            e.dataTransfer.effectAllowed = 'move'
+            dragLive.current = ref
+            setDragRef(ref)
+          },
+          onDragOver: (e: React.DragEvent): void => {
+            if (!dragLive.current || dragLive.current === ref) return
+            e.preventDefault()
+            const rect = e.currentTarget.getBoundingClientRect()
+            const target = { ref, after: e.clientY > rect.top + rect.height / 2 }
+            dropLive.current = target
+            setDropTarget(target)
+          },
+          onDrop: (e: React.DragEvent): void => {
+            e.preventDefault()
+            commitReorder()
+          },
+          onDragEnd: (): void => {
+            dragLive.current = null
+            dropLive.current = null
+            setDragRef(null)
+            setDropTarget(null)
+          }
+        }
+      : {}
     const ctx = formatCtx(model.contextWindow)
     const price = settings?.modelPricing?.[ref]?.inputPer1M
     const tier = provider.id === 'ollama' ? 'free' : costTier(price)
@@ -353,11 +409,19 @@ export function ModelPicker(): React.JSX.Element {
         className={
           'menu-item mpk-row' +
           (ref === modelRef ? ' selected' : '') +
-          (idx === activeIndex ? ' active' : '')
+          (idx === activeIndex ? ' active' : '') +
+          (isDragging ? ' mpk-dragging' : '') +
+          (drop ? (drop.after ? ' mpk-drop-after' : ' mpk-drop-before') : '')
         }
         onClick={() => flatOptions[idx]?.commit()}
         onMouseEnter={() => setActiveIndex(idx)}
+        {...dragProps}
       >
+        {reorderable ? (
+          <span className="mpk-grip" aria-hidden="true">
+            ⠿
+          </span>
+        ) : null}
         {brandTile(provider, 26, 14)}
         <span className="mpk-nm">
           <b>{model.label}</b>
@@ -494,7 +558,7 @@ export function ModelPicker(): React.JSX.Element {
                 {viewRefs.length === 0 && !showModes ? (
                   <div className="mpk-empty">No models match “{search.trim()}”</div>
                 ) : (
-                  viewRefs.map(modelRow)
+                  viewRefs.map((ref) => modelRow(ref))
                 )}
               </>
             ) : tab === 'fav' ? (
@@ -504,7 +568,9 @@ export function ModelPicker(): React.JSX.Element {
                 {ursusRow}
                 <div className="menu-group-label">Favorites</div>
                 {viewRefs.length > 0 ? (
-                  viewRefs.map(modelRow)
+                  // Only true favorites reorder (the current model rides along
+                  // unstarred and isn't part of the saved order).
+                  viewRefs.map((ref) => modelRow(ref, favoriteSet.has(ref)))
                 ) : (
                   <div className="mpk-empty">
                     <b>No favorites yet</b>
@@ -516,7 +582,7 @@ export function ModelPicker(): React.JSX.Element {
               viewRefs.length > 0 ? (
                 <>
                   <div className="menu-group-label">Recently used</div>
-                  {viewRefs.map(modelRow)}
+                  {viewRefs.map((ref) => modelRow(ref))}
                 </>
               ) : (
                 <div className="mpk-empty">
@@ -609,7 +675,7 @@ export function ModelPicker(): React.JSX.Element {
                       ) : (
                         <>
                           <div className="menu-group-label">{railProvider.displayName}</div>
-                          {viewRefs.map(modelRow)}
+                          {viewRefs.map((ref) => modelRow(ref))}
                         </>
                       )}
                     </div>
