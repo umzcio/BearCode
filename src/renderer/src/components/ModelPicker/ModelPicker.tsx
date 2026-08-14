@@ -321,7 +321,7 @@ export function ModelPicker(): React.JSX.Element {
         role="option"
         aria-selected={ref === modelRef}
         className={
-          'menu-item mp-row' +
+          'menu-item mpk-row' +
           (ref === modelRef ? ' selected' : '') +
           (idx === activeIndex ? ' active' : '')
         }
@@ -329,13 +329,13 @@ export function ModelPicker(): React.JSX.Element {
         onMouseEnter={() => setActiveIndex(idx)}
       >
         <ProviderIcon provider={provider.id} size={16} />
-        <span className="mp-nm">
+        <span className="mpk-nm">
           <b>{model.label}</b>
           {model.strengths?.length ? <small>{model.strengths.join(' · ')}</small> : null}
         </span>
         <button
           type="button"
-          className={'mp-star' + (fav ? ' on' : '')}
+          className={'mpk-star' + (fav ? ' on' : '')}
           aria-label={fav ? `Unfavorite ${model.label}` : `Favorite ${model.label}`}
           aria-pressed={fav}
           tabIndex={-1}
@@ -346,12 +346,12 @@ export function ModelPicker(): React.JSX.Element {
         >
           ★
         </button>
-        <span className="mp-tags">
-          {ctx ? <span className="mp-tag">{ctx}</span> : null}
+        <span className="mpk-tags">
+          {ctx ? <span className="mpk-tag">{ctx}</span> : null}
           {tier ? (
             <span
               className={
-                'mp-tag' + (tier === '$' || tier === 'free' ? ' g' : tier === '$$$' ? ' o' : '')
+                'mpk-tag' + (tier === '$' || tier === 'free' ? ' g' : tier === '$$$' ? ' o' : '')
               }
             >
               {tier}
@@ -430,7 +430,7 @@ export function ModelPicker(): React.JSX.Element {
           aria-activedescendant={`opt-${flatOptions[activeIndex]?.id}`}
           onKeyDown={onMenuKey}
         >
-          <div className="menu-search mp-search">
+          <div className="menu-search mpk-search">
             <IconSearch />
             <input
               ref={searchRef}
@@ -441,14 +441,14 @@ export function ModelPicker(): React.JSX.Element {
             />
           </div>
           {!searching ? (
-            <div className="mp-tabs" role="tablist">
+            <div className="mpk-tabs" role="tablist">
               {TABS.map((t) => (
                 <button
                   key={t.key}
                   type="button"
                   role="tab"
                   aria-selected={tab === t.key}
-                  className={'mp-tab' + (tab === t.key ? ' on' : '')}
+                  className={'mpk-tab' + (tab === t.key ? ' on' : '')}
                   onClick={() => setTab(t.key)}
                 >
                   {t.label}
@@ -456,13 +456,13 @@ export function ModelPicker(): React.JSX.Element {
               ))}
             </div>
           ) : null}
-          <div className="mp-scroll">
+          <div className="mpk-scroll">
             {searching ? (
               <>
                 {ursaRow}
                 {ursusRow}
                 {viewRefs.length === 0 && !showModes ? (
-                  <div className="mp-empty">No models match “{search.trim()}”</div>
+                  <div className="mpk-empty">No models match “{search.trim()}”</div>
                 ) : (
                   viewRefs.map(modelRow)
                 )}
@@ -476,7 +476,7 @@ export function ModelPicker(): React.JSX.Element {
                 {viewRefs.length > 0 ? (
                   viewRefs.map(modelRow)
                 ) : (
-                  <div className="mp-empty">
+                  <div className="mpk-empty">
                     <b>No favorites yet</b>
                     Hover any model in All and click the ★ to keep it here.
                   </div>
@@ -489,7 +489,7 @@ export function ModelPicker(): React.JSX.Element {
                   {viewRefs.map(modelRow)}
                 </>
               ) : (
-                <div className="mp-empty">
+                <div className="mpk-empty">
                   <b>Nothing yet</b>
                   Models you use show up here automatically.
                 </div>

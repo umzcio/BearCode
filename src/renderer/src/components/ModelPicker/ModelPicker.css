@@ -49,8 +49,13 @@
 }
 .menu-search input:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--focus);
-  border-radius: 4px;
+}
+/* Focus lives on the field wrapper, BUI-quiet: hairline brighten, no ring
+   inside a ring. */
+.menu-search:focus-within {
+  box-shadow:
+    var(--shadow-inset-field),
+    0 0 0 1px var(--line-strong);
 }
 .menu-search input::placeholder {
   color: var(--ink-3);
@@ -92,12 +97,12 @@
 .model-menu {
   width: 380px;
 }
-.mp-search {
+.mpk-search {
   margin: 4px 6px 6px;
 }
 /* Segmented tabs on the --field track, active segment raised (BUI pattern,
    same as the sidebar seg-toggle). */
-.mp-tabs {
+.mpk-tabs {
   display: flex;
   gap: 2px;
   margin: 0 6px 4px;
@@ -105,9 +110,11 @@
   border-radius: var(--radius-control);
   padding: 3px;
 }
-.mp-tab {
+.mpk-tab {
   flex: 1;
   border: none;
+  appearance: none;
+  white-space: nowrap;
   background: transparent;
   font-family: inherit;
   font-size: 12px;
@@ -120,34 +127,34 @@
     background-color var(--dur-hover) var(--ease-standard),
     color var(--dur-hover) var(--ease-standard);
 }
-.mp-tab:hover {
+.mpk-tab:hover {
   color: var(--ink);
 }
-.mp-tab.on {
+.mpk-tab.on {
   background: var(--surface);
   box-shadow: var(--shadow-btn);
   color: var(--ink);
 }
-.mp-scroll {
+.mpk-scroll {
   max-height: 384px;
   overflow-y: auto;
 }
 /* Informed rows: name (+ optional strengths line), star, ctx/cost tags. */
-.mp-row {
+.mpk-row {
   gap: 9px;
 }
-.mp-nm {
+.mpk-nm {
   flex: 1;
   min-width: 0;
 }
-.mp-nm b {
+.mpk-nm b {
   display: block;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.mp-nm small {
+.mpk-nm small {
   display: block;
   color: var(--ink-3);
   font-size: 11px;
@@ -156,7 +163,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.mp-star {
+.mpk-star {
   border: none;
   background: none;
   font-family: inherit;
@@ -172,24 +179,24 @@
     opacity var(--dur-hover) var(--ease-standard),
     color var(--dur-hover) var(--ease-standard);
 }
-.mp-row:hover .mp-star,
-.mp-row.active .mp-star {
+.mpk-row:hover .mpk-star,
+.mpk-row.active .mpk-star {
   opacity: 1;
 }
-.mp-star.on {
+.mpk-star.on {
   opacity: 1;
   color: var(--orange);
 }
-.mp-star:hover {
+.mpk-star:hover {
   color: var(--orange);
 }
-.mp-tags {
+.mpk-tags {
   display: flex;
   gap: 4px;
   flex-shrink: 0;
   align-items: center;
 }
-.mp-tag {
+.mpk-tag {
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 500;
@@ -200,24 +207,24 @@
   border-radius: 5px;
   padding: 3px 5px;
 }
-.mp-tag.g {
+.mpk-tag.g {
   color: var(--green);
   background: var(--green-tint);
   box-shadow: none;
 }
-.mp-tag.o {
+.mpk-tag.o {
   color: var(--orange);
   background: var(--orange-tint);
   box-shadow: none;
 }
-.mp-empty {
+.mpk-empty {
   text-align: center;
   color: var(--ink-3);
   font-size: 12.5px;
   padding: 26px 24px;
   line-height: 1.6;
 }
-.mp-empty b {
+.mpk-empty b {
   display: block;
   color: var(--ink-2);
   font-weight: 500;
