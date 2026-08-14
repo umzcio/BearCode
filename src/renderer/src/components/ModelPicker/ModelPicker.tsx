@@ -397,7 +397,7 @@ export function ModelPicker(): React.JSX.Element {
         }
       : {}
     const ctx = formatCtx(model.contextWindow)
-    const price = settings?.modelPricing?.[ref]?.inputPer1M
+    const price = settings?.modelPricing?.[ref]?.inputPer1M ?? model.pricing?.inputPer1M
     const tier = provider.id === 'ollama' ? 'free' : costTier(price)
     const fav = favoriteSet.has(ref)
     return (

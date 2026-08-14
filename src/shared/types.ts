@@ -946,6 +946,9 @@ export interface ModelInfo {
   // research"). Attached by listAllModels from the registry's CAPABILITIES
   // table; absent for discovered/custom/dynamic models.
   strengths?: string[]
+  // Provider-reported per-1M USD prices, attached from live discovery when
+  // LiteLLM's synced catalog has no entry for the ref (fallback only).
+  pricing?: { inputPer1M: number; outputPer1M: number }
 }
 
 // A model reference is "provider/modelId"; the modelId itself may contain
@@ -988,6 +991,9 @@ export interface ManageableModel {
   // true for custom models. Drives the opt-in-vs-opt-out enabled default in
   // listManageableModels().
   liveOnly: boolean
+  // Provider-reported per-1M USD prices (xAI live discovery) — fallback when
+  // LiteLLM's synced modelPricing has no entry for the ref.
+  pricing?: { inputPer1M: number; outputPer1M: number }
   // Live-discovered capability data (Anthropic/Google only, this session) --
   // NOT persisted to AppSettings; overlaid on top of LiteLLM's persisted
   // modelMetadata by buildModelRows (Task 7). Absent for every model until a

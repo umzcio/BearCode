@@ -395,6 +395,7 @@ export async function listManageableModels(): Promise<ManageableProvider[]> {
       const ref = `${id}/${m.id}`
       const liveOnly = isLiveOnly(id, m.id, customModels)
       const liveCapabilities = liveCapabilitiesFor(ref)
+      const livePricing = livePricingCache.get(ref)
       byId.set(m.id, {
         id: m.id,
         label: m.label,
@@ -402,7 +403,8 @@ export async function listManageableModels(): Promise<ManageableProvider[]> {
         custom: false,
         liveOnly,
         enabled: liveOnly ? enabledLiveSet.has(ref) : !disabledSet.has(ref),
-        ...(liveCapabilities ? { liveCapabilities } : {})
+        ...(liveCapabilities ? { liveCapabilities } : {}),
+        ...(livePricing ? { pricing: livePricing } : {})
       })
     }
     for (const c of customModels) {
@@ -452,6 +454,11 @@ const liveModelCache = new Map<ProviderId, ModelInfo[]>()
 // (Task 7) -- never itself persisted to settings.
 const liveCapabilityCache = new Map<string, Partial<ModelMetadata['capabilities']>>()
 
+// Per-ref provider-reported pricing (xAI live discovery). Attached to the
+// models payload as a FALLBACK for refs the LiteLLM sync doesn't know yet;
+// the synced modelPricing map always wins when present.
+const livePricingCache = new Map<string, { inputPer1M: number; outputPer1M: number }>()
+
 // The current best-known model list for a provider: live-discovered if a
 // successful fetch has landed this process lifetime, else the static
 // curated array. Synchronous and side-effect-free -- never triggers a
@@ -476,6 +483,7 @@ export function liveCapabilitiesFor(
 export function clearLiveDiscoveryCache(): void {
   liveModelCache.clear()
   liveCapabilityCache.clear()
+  livePricingCache.clear()
 }
 
 // Merge a live-discovered list with the static curated array by id, PER
@@ -617,6 +625,9 @@ async function ensureLiveDiscovery(provider: ProviderId): Promise<void> {
   for (const [id, caps] of Object.entries(result.capabilities)) {
     liveCapabilityCache.set(`${provider}/${id}`, caps)
   }
+  for (const [id, price] of Object.entries(result.pricing ?? {})) {
+    livePricingCache.set(`${provider}/${id}`, price)
+  }
 }
 
 // The model's real context window (tokens) for a "provider/modelId" ref, or
@@ -691,8 +702,14 @@ export async function listAllModels(): Promise<ProviderModels[]> {
         // CAPABILITIES table knows the ref (absent otherwise, renderer hides
         // the line).
         models: merged.map((m) => {
-          const caps = capabilitiesFor(`${entry.id}/${m.id}`)
-          return caps?.strengths ? { ...m, strengths: caps.strengths } : m
+          const ref = `${entry.id}/${m.id}`
+          const caps = capabilitiesFor(ref)
+          const pricing = livePricingCache.get(ref)
+          return {
+            ...m,
+            ...(caps?.strengths ? { strengths: caps.strengths } : {}),
+            ...(pricing ? { pricing } : {})
+          }
         }),
         note
       }

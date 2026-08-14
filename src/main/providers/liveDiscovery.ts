@@ -10,6 +10,9 @@ export interface LiveDiscoveryResult {
   // Keyed by the provider's BARE model id (not a "provider/id" ref) --
   // registry.ts prefixes when populating its cache.
   capabilities: Record<string, Partial<ModelMetadata['capabilities']>>
+  // Provider-reported per-1M-token USD prices (xAI only so far). Fallback
+  // when LiteLLM's synced catalog lags a new model; never overrides it.
+  pricing?: Record<string, { inputPer1M: number; outputPer1M: number }>
 }
 
 const FETCH_TIMEOUT_MS = 5000
@@ -191,9 +194,12 @@ function labelFromId(id: string): string {
 interface XaiModelEntry {
   id: string
   input_modalities?: string[]
-  // Field name differs across doc revisions; accept either, omit when absent.
-  context_window?: number
-  max_prompt_length?: number
+  // Verified against docs.x.ai 2026-08-13: max context is `context_length`;
+  // token prices are USD CENTS PER 100M TOKENS (divide by 10,000 for the
+  // per-1M USD figure the rest of the app uses).
+  context_length?: number
+  prompt_text_token_price?: number
+  completion_text_token_price?: number
 }
 interface XaiModelsResponse {
   models?: XaiModelEntry[]
@@ -214,9 +220,10 @@ export async function fetchXaiModels(apiKey: string): Promise<LiveDiscoveryResul
     const body = (await res.json()) as XaiModelsResponse
     const models: ModelInfo[] = []
     const capabilities: Record<string, Partial<ModelMetadata['capabilities']>> = {}
+    const pricing: Record<string, { inputPer1M: number; outputPer1M: number }> = {}
     for (const entry of body.models ?? []) {
       if (!entry.id) continue
-      const window = entry.context_window ?? entry.max_prompt_length
+      const window = entry.context_length
       models.push({
         id: entry.id,
         label: labelFromId(entry.id),
@@ -227,8 +234,18 @@ export async function fetchXaiModels(apiKey: string): Promise<LiveDiscoveryResul
       if (Array.isArray(entry.input_modalities)) {
         capabilities[entry.id] = { vision: entry.input_modalities.includes('image') }
       }
+      if (
+        typeof entry.prompt_text_token_price === 'number' &&
+        typeof entry.completion_text_token_price === 'number' &&
+        entry.prompt_text_token_price > 0
+      ) {
+        pricing[entry.id] = {
+          inputPer1M: entry.prompt_text_token_price / 10_000,
+          outputPer1M: entry.completion_text_token_price / 10_000
+        }
+      }
     }
-    return { models, capabilities }
+    return { models, capabilities, pricing }
   } catch {
     return null
   }

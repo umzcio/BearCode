@@ -136,7 +136,9 @@ export function buildModelRows(
   for (const p of manageableModels) {
     for (const m of p.models) {
       const ref = `${p.id}/${m.id}`
-      const price = resolvePrice(ref, settings.modelPricing)
+      // Synced LiteLLM price wins; a provider-reported live price (xAI) fills
+      // in for refs LiteLLM doesn't catalog yet.
+      const price = resolvePrice(ref, settings.modelPricing) ?? m.pricing ?? null
       rows.push({
         ref,
         providerId: p.id,
