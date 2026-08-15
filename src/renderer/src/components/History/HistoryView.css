@@ -1,3 +1,6 @@
+/* History (⌘K) — Beautiful UI SearchList language: input on --field with the
+   inset shadow, quiet result rows that light up with --hover, ink hierarchy
+   (--ink match text, --ink-3 meta/glyphs). */
 .history-view {
   flex: 1;
   display: flex;
@@ -9,29 +12,36 @@
 .history-search-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
   margin: 8px 16px 4px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-elev, var(--bg));
-  color: var(--text-dim);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--field);
+  box-shadow: var(--shadow-inset-field), var(--shadow-hairline);
+  color: var(--ink-3);
+  transition: box-shadow var(--dur-fast) var(--ease-standard);
+}
+/* Focus indication lives on the row (the input fills it edge-to-edge). */
+.history-search-row:focus-within {
+  box-shadow:
+    var(--shadow-inset-field),
+    0 0 0 1px var(--accent);
 }
 .history-search-input {
   flex: 1;
   border: none;
   outline: none;
   background: transparent;
-  color: var(--text);
-  font-size: 14px;
+  color: var(--ink);
+  font-size: 13px;
 }
 .history-search-input:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--focus);
-  border-radius: 4px;
 }
 .history-search-input::placeholder {
-  color: var(--text-dim);
+  color: var(--ink-3);
 }
 
 .history-scroll {
@@ -44,11 +54,11 @@
   margin-bottom: 18px;
 }
 .history-bucket-head {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
   padding: 6px 6px 8px;
 }
 
@@ -57,9 +67,18 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 10px 12px;
-  border-radius: 8px;
+  padding: 9px 10px;
+  border-radius: var(--radius-control);
   cursor: pointer;
+  /* Row hover: 100ms standard curve (BUI table grammar). */
+  transition: background-color var(--dur-hover) var(--ease-standard);
+}
+/* Search results cascade in as the query filters: BUI fade-up, 80ms per-row
+   stagger via --i (set inline by HistoryView, capped). Browse mode stays
+   static -- no entrance decoration on a page that is simply there. */
+.history-hit {
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * var(--dur-stagger));
 }
 .history-row {
   flex-direction: row;
@@ -69,7 +88,12 @@
 }
 .history-row:hover,
 .history-hit:hover {
-  background: var(--hover, var(--wash));
+  background: var(--hover);
+}
+.history-row:focus-visible,
+.history-hit:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .history-row-main {
@@ -79,15 +103,15 @@
   min-width: 0;
 }
 .history-row-title {
-  font-size: 14px;
-  color: var(--text);
+  font-size: 13px;
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .history-row-preview {
   font-size: 12.5px;
-  color: var(--text-dim);
+  color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -98,10 +122,11 @@
   gap: 10px;
   flex-shrink: 0;
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
 }
 .history-row-model {
-  color: var(--text-mid);
+  color: var(--ink-2);
 }
 
 .history-hit-head {
@@ -111,29 +136,31 @@
   font-size: 13px;
 }
 .history-hit-title {
-  color: var(--text);
+  color: var(--ink);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .history-hit-proj {
-  color: var(--text-dim);
+  color: var(--ink-3);
+  font-size: 12px;
 }
 .history-hit-age {
   margin-left: auto;
-  color: var(--text-dim);
+  color: var(--ink-3);
+  font-size: 12px;
   flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 .history-hit-snippet {
   font-size: 13px;
-  color: var(--text-mid);
+  color: var(--ink-2);
   line-height: 1.5;
 }
 .history-hit-snippet mark {
-  background: var(--accent-wash, rgba(255, 210, 90, 0.28));
-  color: var(--text);
+  background: var(--accent-tint);
+  color: var(--ink);
   border-radius: 3px;
   padding: 0 1px;
 }
-

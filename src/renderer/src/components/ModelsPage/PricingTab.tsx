@@ -48,7 +48,11 @@ export function PricingTab(): React.JSX.Element | null {
 
   const filtered = allRows.filter((row) => {
     const q = search.trim().toLowerCase()
-    if (q && !row.label.toLowerCase().includes(q) && !row.providerDisplayName.toLowerCase().includes(q))
+    if (
+      q &&
+      !row.label.toLowerCase().includes(q) &&
+      !row.providerDisplayName.toLowerCase().includes(q)
+    )
       return false
     if (vendorFilter !== 'all' && row.providerId !== vendorFilter) return false
     if (enabledOnly && !row.enabled) return false
@@ -89,40 +93,42 @@ export function PricingTab(): React.JSX.Element | null {
       {sorted.length === 0 ? (
         <EmptyState title="No models match these filters" />
       ) : (
-        <table className="pricing-table">
-          <thead>
-            <tr>
-              <th>Model</th>
-              <th>Input</th>
-              <th>Output</th>
-              <th>Source</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((row) => (
-              <tr key={row.ref}>
-                <td className="pricing-model">
-                  <div className="pt-model">
-                    <ProviderIcon provider={row.providerId} size={16} />
-                    <div>
-                      <div className="pt-model-name">{row.label}</div>
-                      <div className="pt-model-vendor">{row.providerDisplayName}</div>
-                    </div>
-                  </div>
-                </td>
-                <td>{row.price ? `$${row.price.inputPer1M}` : '—'}</td>
-                <td>{row.price ? `$${row.price.outputPer1M}` : '—'}</td>
-                <td>
-                  {row.priceSource ? (
-                    <span className={'price-src ' + row.priceSource}>{row.priceSource}</span>
-                  ) : (
-                    <span className="price-src none">—</span>
-                  )}
-                </td>
+        <div className="pt-table-wrap">
+          <table className="pricing-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Input</th>
+                <th>Output</th>
+                <th>Source</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sorted.map((row) => (
+                <tr key={row.ref}>
+                  <td className="pricing-model">
+                    <div className="pt-model">
+                      <ProviderIcon provider={row.providerId} size={16} />
+                      <div>
+                        <div className="pt-model-name">{row.label}</div>
+                        <div className="pt-model-vendor">{row.providerDisplayName}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td>{row.price ? `$${row.price.inputPer1M}` : '—'}</td>
+                  <td>{row.price ? `$${row.price.outputPer1M}` : '—'}</td>
+                  <td>
+                    {row.priceSource ? (
+                      <span className={'price-src ' + row.priceSource}>{row.priceSource}</span>
+                    ) : (
+                      <span className="price-src none">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

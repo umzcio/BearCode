@@ -23,7 +23,9 @@ function CouncilSeatRow({ seat }: { seat: CouncilSeatEvent }): React.JSX.Element
   const failed = seat.status === 'failed'
   const stageWord = seat.stage === 'answer' ? 'seat' : 'review'
   return (
-    <div className={'step council-seat' + (open && !failed ? ' open' : '') + (failed ? ' failed' : '')}>
+    <div
+      className={'step council-seat' + (open && !failed ? ' open' : '') + (failed ? ' failed' : '')}
+    >
       <div
         className={'step-row' + (failed ? ' static' : '')}
         onClick={failed ? undefined : () => setOpen((o) => !o)}
@@ -43,8 +45,12 @@ function CouncilSeatRow({ seat }: { seat: CouncilSeatEvent }): React.JSX.Element
         )}
       </div>
       {failed ? null : (
-        <div className="step-body md">
-          <Markdown text={seat.text} />
+        <div className="step-reveal">
+          <div className="step-reveal-clip">
+            <div className="step-body md">
+              <Markdown text={seat.text} />
+            </div>
+          </div>
         </div>
       )}
     </div>

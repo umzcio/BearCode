@@ -21,6 +21,6 @@
 }
 .display-sep {
   height: 1px;
-  background: var(--border);
+  background: var(--line);
   margin: 5px 6px;
 }

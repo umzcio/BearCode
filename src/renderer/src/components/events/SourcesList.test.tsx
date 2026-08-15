@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { SourcesList } from './SourcesList'
 
 afterEach(cleanup)
 
 describe('SourcesList', () => {
-  it('renders 1-based numbered links matching the answer\'s [n] markers', () => {
+  it("renders 1-based numbered links matching the answer's [n] markers", () => {
     render(
       <SourcesList
         citations={[
@@ -33,5 +33,20 @@ describe('SourcesList', () => {
   it('renders nothing for an empty list', () => {
     const { container } = render(<SourcesList citations={[]} />)
     expect(container.innerHTML).toBe('')
+  })
+
+  it('starts open and collapses/expands via the Sources disclosure', () => {
+    const { container } = render(<SourcesList citations={[{ url: 'https://a.example' }]} />)
+    const toggle = screen.getByRole('button', { name: 'Sources' })
+    const reveal = container.querySelector('.ms-sources-reveal')!
+    // Open by default: the list is visible exactly as before the disclosure existed
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(reveal.className).toContain('is-open')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(reveal.className).not.toContain('is-open')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(reveal.className).toContain('is-open')
   })
 })

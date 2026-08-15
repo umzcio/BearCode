@@ -32,34 +32,38 @@ function DiffCardImpl({ event }: { event: FileDiffEvent }): React.JSX.Element {
           Review
         </button>
       </div>
-      <div className="diff-files">
-        {files.map((file) => {
-          const name = file.path.split('/').pop() ?? file.path
-          const dir = file.path.slice(0, Math.max(0, file.path.length - name.length - 1))
-          return (
-            <div
-              className={'diff-file' + (cmdHeld ? ' cmd-openable' : '')}
-              key={file.path}
-              title={cmdHeld ? 'Cmd-click to open' : undefined}
-              onClick={(e) => {
-                if (e.metaKey || e.ctrlKey) {
-                  e.stopPropagation()
-                  openFile(file.path)
-                } else {
-                  openReview(event.diffId)
-                }
-              }}
-            >
-              <span className="ftype">{file.status === 'created' ? 'M+' : 'M'}</span>
-              <span className="fname">{name}</span>
-              <span className="fpath">{dir}</span>
-              <span className="stats">
-                <span className="plus">+{file.additions}</span>
-                <span className="minus">-{file.deletions}</span>
-              </span>
-            </div>
-          )
-        })}
+      {/* BUI collapsible grammar: grid wrapper animates 0fr<->1fr; .diff-files
+          clips. Large body => --dur-reveal-lg (see events.css). */}
+      <div className="diff-reveal">
+        <div className="diff-files">
+          {files.map((file) => {
+            const name = file.path.split('/').pop() ?? file.path
+            const dir = file.path.slice(0, Math.max(0, file.path.length - name.length - 1))
+            return (
+              <div
+                className={'diff-file' + (cmdHeld ? ' cmd-openable' : '')}
+                key={file.path}
+                title={cmdHeld ? 'Cmd-click to open' : undefined}
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey) {
+                    e.stopPropagation()
+                    openFile(file.path)
+                  } else {
+                    openReview(event.diffId)
+                  }
+                }}
+              >
+                <span className="ftype">{file.status === 'created' ? 'M+' : 'M'}</span>
+                <span className="fname">{name}</span>
+                <span className="fpath">{dir}</span>
+                <span className="stats">
+                  <span className="plus">+{file.additions}</span>
+                  <span className="minus">-{file.deletions}</span>
+                </span>
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

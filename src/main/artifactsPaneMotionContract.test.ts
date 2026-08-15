@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 const mainDir = dirname(fileURLToPath(import.meta.url))
 const paneCss = readFileSync(join(mainDir, '../renderer/src/components/ArtifactsPane.css'), 'utf8')
+const sharedCss = readFileSync(join(mainDir, '../renderer/src/styles/shared.css'), 'utf8')
 const browserPaneCss = readFileSync(
   join(mainDir, '../renderer/src/components/Browser/BrowserPane.css'),
   'utf8'
@@ -34,6 +35,31 @@ type CssRule = {
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
+}
+
+// Every brace-balanced block following each occurrence of `prelude` (a file
+// can hold several `@media (prefers-reduced-motion: reduce)` blocks).
+function balancedBlocksAfter(source: string, prelude: string): string[] {
+  const blocks: string[] = []
+  let from = 0
+  for (;;) {
+    const start = source.indexOf(prelude, from)
+    if (start === -1) return blocks
+    const open = source.indexOf('{', start + prelude.length)
+    if (open === -1) return blocks
+    let depth = 1
+    for (let cursor = open + 1; cursor < source.length; cursor++) {
+      if (source[cursor] === '{') depth++
+      if (source[cursor] === '}') depth--
+      if (depth === 0) {
+        blocks.push(source.slice(open + 1, cursor))
+        from = cursor
+        break
+      }
+    }
+    if (depth !== 0) return blocks
+    from = Math.max(from, start + prelude.length)
+  }
 }
 
 function withoutComments(css: string): string {
@@ -318,14 +344,6 @@ function expectEntryCueRules(css: string, selector: string): void {
     '.plan-resolution-notice': {
       duration: '--dur-fast',
       startingTransform: 'translateY(2px)'
-    },
-    '.comment-row': {
-      duration: '--dur-fast',
-      startingTransform: 'translateY(2px)'
-    },
-    '.plan-comment-item': {
-      duration: '--dur-fast',
-      startingTransform: 'translateY(2px)'
     }
   } as const
   const cue = cues[selector as keyof typeof cues]
@@ -356,38 +374,6 @@ function expectEntryCueRules(css: string, selector: string): void {
   const entryBody = normalizeWhitespace(entryRule?.body ?? '')
   expect(entryBody).toContain('opacity: 0')
   expect(entryBody).toContain(`transform: ${cue.startingTransform}`)
-}
-
-function expectReducedEntryCueRules(css: string, selector: string): void {
-  const osRule = findRule(
-    css,
-    ({ prelude, ancestors }) =>
-      ancestors.join(' > ') === reducedMotionMedia && splitSelectorList(prelude).includes(selector)
-  )
-  const osStartingRule = findRule(
-    css,
-    ({ prelude, ancestors }) =>
-      ancestors.join(' > ') === `${reducedMotionMedia} > ${startingStyle}` &&
-      splitSelectorList(prelude).includes(selector)
-  )
-  const inAppSelector = `:root[data-motion='reduced'] ${selector}`
-  const inAppRule = findRule(
-    css,
-    ({ prelude, ancestors }) =>
-      ancestors.length === 0 && splitSelectorList(prelude).includes(inAppSelector)
-  )
-  const inAppStartingRule = findRule(
-    css,
-    ({ prelude, ancestors }) =>
-      ancestors.join(' > ') === startingStyle && splitSelectorList(prelude).includes(inAppSelector)
-  )
-
-  const osBody = normalizeWhitespace(osRule?.body ?? '')
-  expect(osBody).toContain('transform: none')
-  expect(osBody).toContain('transition: opacity var(--dur-fast) var(--ease-out)')
-  expect(normalizeWhitespace(osStartingRule?.body ?? '')).toContain('transform: none')
-  expectTransformNone(inAppRule)
-  expectTransformNone(inAppStartingRule)
 }
 
 describe('Artifacts Pane motion CSS contract', () => {
@@ -459,9 +445,10 @@ describe('Artifacts Pane motion CSS contract', () => {
     expectFamilies(activeRule, pressableFamilies)
 
     const baseBody = normalizeWhitespace(baseRule?.body ?? '')
-    expect(baseBody).toContain('background-color var(--dur-fast) ease')
-    expect(baseBody).toContain('color var(--dur-fast) ease')
-    expect(baseBody).toContain('border-color var(--dur-fast) ease')
+    // BUI hover grammar: 100ms standard curve for color feedback.
+    expect(baseBody).toContain('background-color var(--dur-hover) var(--ease-standard)')
+    expect(baseBody).toContain('color var(--dur-hover) var(--ease-standard)')
+    expect(baseBody).toContain('border-color var(--dur-hover) var(--ease-standard)')
     expect(baseBody).toContain('transform var(--dur-press-release) var(--ease-out)')
 
     const activeBody = normalizeWhitespace(activeRule?.body ?? '')
@@ -576,11 +563,31 @@ describe('Artifacts Pane motion CSS contract', () => {
     expectEntryCueRules(paneCss, '.plan-resolution-notice')
   })
 
-  it('cues newly inserted comment rows without movement under reduced motion', () => {
-    for (const selector of ['.comment-row', '.plan-comment-item']) {
-      expectEntryCueRules(paneCss, selector)
-      expectReducedEntryCueRules(paneCss, selector)
-    }
+  it('cascades comment rows in via the shared fade-up with a tokenized stagger', () => {
+    // BUI motion grammar (plans/2026-08-12-bui-motion-fidelity.md): comment
+    // rows moved from @starting-style transitions to the shared fade-up
+    // keyframes with a per-row --dur-stagger delay. Reduced motion is owned by
+    // shared.css, whose OS variant redefines fade-up transform-free.
+    const rowRule = findRule(
+      paneCss,
+      ({ prelude, ancestors }) =>
+        ancestors.length === 0 &&
+        splitSelectorList(prelude).includes('.comment-row') &&
+        splitSelectorList(prelude).includes('.plan-comment-item')
+    )
+    expect(rowRule).toBeDefined()
+    const rowBody = normalizeWhitespace(rowRule?.body ?? '')
+    expect(rowBody).toContain('animation: fade-up var(--dur-reveal) var(--ease-out) both')
+    expect(rowBody).toContain('animation-delay: calc(var(--i, 0) * var(--dur-stagger))')
+    expect(rowBody).not.toMatch(/\b\d+(?:\.\d+)?m?s\b/)
+
+    const reducedBlocks = balancedBlocksAfter(sharedCss, '@media (prefers-reduced-motion: reduce)')
+    const reducedWithFadeUp = reducedBlocks.find((b) => b.includes('@keyframes fade-up'))
+    expect(reducedWithFadeUp).toBeDefined()
+    const reducedFadeUp =
+      balancedBlocksAfter(reducedWithFadeUp ?? '', '@keyframes fade-up')[0] ?? ''
+    expect(reducedFadeUp.length).toBeGreaterThan(0)
+    expect(reducedFadeUp).not.toContain('transform')
   })
 
   it('limits the comment tooltip hover to fine pointers and mirrors it for keyboard focus', () => {
@@ -609,7 +616,7 @@ describe('Artifacts Pane motion CSS contract', () => {
     )
 
     expect(normalizeWhitespace(tooltipRule?.body ?? '')).toContain(
-      'transition: opacity var(--dur-fast) ease'
+      'transition: opacity var(--dur-fast) var(--ease-standard)'
     )
     expect(hoverRule).toBeDefined()
     expect(normalizeWhitespace(hoverRule?.body ?? '')).toContain('opacity: 1')

@@ -1,14 +1,26 @@
-/* Design tokens. Dark is the default/base (the app's original look, unchanged);
-   [data-theme='light'] supplies a light set. The apply module (appearance.ts)
-   sets data-theme on <html> ('dark' | 'light'; 'system' resolves to one of
-   these; 'custom' sets data-theme plus inline --bg/--fg/--accent overrides).
-   Structural tokens (fonts, radius, widths) are theme-independent. */
+/* Design tokens — Beautiful UI system (beautifului.dev, MIT; adopted 2026-08-12,
+   see docs/superpowers/specs/2026-08-12-beautiful-ui-overhaul-design.md).
+   Dark is the default/base; [data-theme='light'] supplies the light set. The
+   apply module (appearance.ts) sets data-theme on <html> ('dark' | 'light';
+   'system' resolves to one of these; 'custom' sets data-theme plus inline
+   overrides for BOTH the new and legacy color vars).
+   Structural tokens (fonts, radius, widths) are theme-independent.
+
+   Vocabulary: --page/--canvas/--surface/--inset (surfaces), --ink/-2/-3 (text),
+   --line/--line-strong (hairlines), semantic color + -tint pairs, --shadow-*.
+   Legacy names (--bg, --text, --border, ...) are aliases kept so pre-overhaul
+   CSS keeps working; new/touched rules use the new names. */
 :root {
   /* --- structural (theme-independent) --- */
-  --mono: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+  --mono: 'JetBrains Mono Variable', 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  --sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --serif: 'New York', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
-  --radius: 12px;
+  /* Radius tiers: chips/badges 6, buttons/inputs 8, cards/panels 10, overlays 12. */
+  --radius-chip: 6px;
+  --radius-control: 8px;
+  --radius-card: 10px;
+  --radius-overlay: 12px;
+  --radius: 12px; /* legacy = overlay tier */
   --radius-menu: 12px; /* canonical dropdown/menu surface radius (Menu/Popover) */
   /* Chat text font + conversation column width, overridden by data-* below. */
   --chat-font: var(--sans);
@@ -23,27 +35,69 @@
   --collapsed-topbar-content-left: 134px;
 
   /* --- dark palette (default) --- */
-  --bg: #131313;
-  --bg-window: #1b1b1b;
-  --bg-sidebar: #171717;
-  --bg-raised: #232323;
-  --bg-hover: #262626;
-  --bg-active: #2e2e2e;
-  --border: #2c2c2c;
-  --border-soft: #242424;
-  --text: #e7e7e7;
-  --text-mid: #a8a8a8;
-  --text-dim: #8a8a8a; /* AA: 5.38:1 on --bg #131313 (audit M-11) */
-  --accent: #4c8dff;
-  --accent-strong: #5c98ff;
-  --green: #3ecf8e;
-  --red: #f06a6a;
-  --danger: #f06a6a;
-  --amber: #e0b568;
+  --page: #17181a;
+  --canvas: #1c1d1f;
+  --surface: #232427;
+  --inset: #1f2022;
+  --hover: #2a2b2e;
+  --hover-2: #313236;
+  --ink: #f2f3f4;
+  --ink-2: #a5a8ad;
+  --ink-3: #6c6f75;
+  --line: #2e3033;
+  --line-strong: #3a3c40;
+  --field: #2b2c2f;
+  --stripe: #ffffff0e;
+  --stripe-bg: #1b1c1e;
+  --accent: #3d9aff;
+  --accent-ink: #7ec0ff;
+  --accent-tint: #3d9aff29;
+  --green: #3dbb72;
+  --green-tint: #3dbb7224;
+  --orange: #f68f3c;
+  --orange-tint: #f68f3c24;
+  --red: #ee5c61;
+  --red-tint: #ee5c6124;
+  --tooltip-bg: #111214;
+  --tooltip-fg: #f2f3f4;
+  --tooltip-muted: #a5a8ad;
+  --tooltip-border: #2e3033;
+
+  /* --- shadows (dark) --- */
+  --shadow-hairline: 0 0 0 1px var(--line);
+  --shadow-btn: 0 0 0 1px var(--line-strong), 0 1px 2px #0000004d;
+  --shadow-card: 0 0 0 1px var(--line), 0 1px 2px #0003, 0 2px 6px #0003;
+  --shadow-raised: 0 0 0 1px var(--line), 0 2px 10px #00000038;
+  --shadow-overlay: 0 0 0 1px var(--line-strong), 0 8px 28px #00000057;
+  --shadow-inset-field: inset 0 1px 2px #0006;
+
+  /* --- legacy aliases (migration bridge; do not use in new rules) --- */
+  --bg: var(--page);
+  --bg-window: var(--canvas);
+  --bg-sidebar: var(--page);
+  --bg-raised: var(--surface);
+  --bg-hover: var(--hover);
+  --bg-active: var(--hover-2);
+  --border: var(--line);
+  --border-soft: var(--line);
+  --text: var(--ink);
+  --text-mid: var(--ink-2);
+  /* AA guard (audit M-11): dim text stays ink-2; ink-3 is for disabled/tertiary
+     glyphs only, never body copy. */
+  --text-dim: var(--ink-2);
+  --accent-strong: var(--accent-ink);
+  --danger: var(--red);
+  --amber: var(--orange);
+
+  /* Ink on accent/semantic fills (BUI text-white: white in both themes) and
+     the modal scrim (BUI black/55 in both themes) — theme-independent. */
+  --accent-fg: #ffffff;
+  --scrim: rgba(0, 0, 0, 0.55);
+
   /* Keyboard focus ring: accent ring with an inner gap in the window bg so it
      reads on any surface (raised chrome, sidebar rows, inputs). */
   --focus: var(--accent);
-  --focus-ring: 0 0 0 2px var(--bg-window), 0 0 0 4px var(--focus);
+  --focus-ring: 0 0 0 2px var(--canvas), 0 0 0 4px var(--focus);
   /* A translucent wash for subtle raised chrome, tuned per theme so it reads
      the same over light and dark surfaces. */
   --wash: rgba(255, 255, 255, 0.04);
@@ -58,6 +112,14 @@
     0,
     1
   ); /* iOS-like drawer (already used by sidebar FLIP) */
+  --ease-link: cubic-bezier(0.16, 1, 0.3, 1); /* underline/link micro-transitions */
+  /* BUI standard curve: color/hover feedback only — structural movement keeps
+     --ease-out/--ease-in-out. */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-hover: 100ms; /* hover color feedback (BUI transition-colors duration-100) */
+  --dur-reveal: 300ms; /* collapsible grid-rows + fade-up entrances */
+  --dur-reveal-lg: 400ms; /* large collapsibles (diff bodies, source panels) */
+  --dur-stagger: 80ms; /* per-row entrance cascade delay (BUI fade-up/pop-in sets) */
   --dur-press: 140ms; /* button press */
   --dur-press-release: 100ms; /* button release response */
   --dur-fast: 150ms; /* hover, small */
@@ -68,23 +130,41 @@
 }
 
 :root[data-theme='light'] {
-  --bg: #ebebeb;
-  --bg-window: #ffffff;
-  --bg-sidebar: #f2f2f2;
-  --bg-raised: #ffffff;
-  --bg-hover: #ededed;
-  --bg-active: #e2e2e2;
-  --border: #d7d7d7;
-  --border-soft: #e6e6e6;
-  --text: #1a1a1a;
-  --text-mid: #585858;
-  --text-dim: #6a6a6a; /* AA: 4.54:1 on --bg #ebebeb (audit M-11) */
-  --accent: #2f6fe0;
-  --accent-strong: #2f6fe0;
-  --green: #1a9d63;
-  --red: #d64545;
-  --danger: #d64545;
-  --amber: #b07d18;
+  --page: #fafafb;
+  --canvas: #f1f2f3;
+  --surface: #ffffff;
+  --inset: #f7f8f9;
+  --hover: #f4f5f6;
+  --hover-2: #e7e9eb;
+  --ink: #1f2124;
+  --ink-2: #62656b;
+  --ink-3: #9a9da3;
+  --line: #ecedef;
+  --line-strong: #e0e2e5;
+  --field: #f2f2f3;
+  --stripe: #49494913;
+  --stripe-bg: #f5f5f5;
+  --accent: #0285ff;
+  --accent-ink: #0170dd;
+  --accent-tint: #e9f3ff;
+  --green: #189a4d;
+  --green-tint: #e8f5ed;
+  --orange: #ef720c;
+  --orange-tint: #fdf1e5;
+  --red: #e3474c;
+  --red-tint: #fcecec;
+  --tooltip-bg: #25272b;
+  --tooltip-fg: #f6f7f8;
+  --tooltip-muted: #a5a8ad;
+  --tooltip-border: #3a3c40;
+
+  --shadow-hairline: 0 0 0 1px var(--line);
+  --shadow-btn: 0 0 0 1px var(--line-strong), 0 1px 2px #1018280d;
+  --shadow-card: 0 0 0 1px var(--line), 0 1px 2px #1018280a, 0 2px 6px #10182808;
+  --shadow-raised: 0 0 0 1px var(--line), 0 2px 10px #0000000b;
+  --shadow-overlay: 0 0 0 1px var(--line), 0 8px 28px #0001;
+  --shadow-inset-field: inset 0 1px 2px #0000001f;
+
   --wash: rgba(0, 0, 0, 0.04);
   --wash-strong: rgba(0, 0, 0, 0.08);
 }
@@ -113,9 +193,9 @@ body,
 }
 
 body {
-  background: var(--bg);
+  background: var(--page);
   font-family: var(--sans);
-  color: var(--text);
+  color: var(--ink);
   font-size: 14px;
   user-select: none;
 }

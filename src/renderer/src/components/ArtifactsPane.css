@@ -62,22 +62,24 @@
   min-height: 0;
 }
 .overview-title {
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
   margin-bottom: 12px;
 }
 .overview-prompt {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  border-radius: var(--radius-card);
   padding: 11px 14px;
-  font-size: 13.5px;
-  color: var(--text);
+  font-size: 13px;
+  color: var(--ink);
   margin-bottom: 16px;
 }
 .overview-sub {
-  font-size: 12.5px;
-  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
   margin-bottom: 8px;
 }
 .overview-file {
@@ -87,23 +89,23 @@
   width: 100%;
   background: none;
   border: none;
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   font-family: inherit;
-  font-size: 13.5px;
-  color: var(--text-mid);
-  padding: 9px 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+  padding: 8px 10px;
   cursor: pointer;
   text-align: left;
 }
 .overview-file:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .overview-file .fname {
-  color: var(--text);
-  font-weight: 600;
+  color: var(--ink);
+  font-weight: 500;
 }
 .overview-file .fdir {
-  color: var(--text-dim);
+  color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -111,7 +113,9 @@
 }
 .overview-file .stats {
   flex-shrink: 0;
-  font-size: 12.5px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
 }
 .overview-file .stats .plus {
   color: var(--green);
@@ -132,16 +136,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-dim);
+  color: var(--ink-2);
   font-size: 13px;
   padding: 40px 0;
 }
 
 .commenting-line {
-  background: rgba(76, 141, 255, 0.14);
+  background: var(--accent-tint);
 }
 .commented-line {
-  background: rgba(76, 141, 255, 0.08);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
 }
 .comment-glyph {
   background: var(--accent);
@@ -150,9 +154,11 @@
   margin-left: 6px;
 }
 
-/* --- Pending comment list + send bar --- */
+/* --- Pending comment list + send bar (DiffTable character: hairline rows,
+   --stripe zebra, 11.5px mono locations) --- */
 .comment-list {
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--line);
+  background: var(--inset);
   max-height: 130px;
   overflow-y: auto;
   padding: 6px 10px;
@@ -164,19 +170,24 @@
   gap: 9px;
   padding: 5px 6px;
   font-size: 12.5px;
-  border-radius: 7px;
+  border-radius: var(--radius-chip);
+}
+.comment-row:nth-child(even) {
+  background: var(--stripe);
 }
 .comment-row:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .comment-loc {
   font-family: var(--mono);
   font-size: 11.5px;
-  color: var(--accent);
+  line-height: 1.7;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-ink);
   flex-shrink: 0;
 }
 .comment-text {
-  color: var(--text-mid);
+  color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -185,7 +196,7 @@
 .comment-del {
   background: none;
   border: none;
-  color: var(--text-dim);
+  color: var(--ink-3);
   cursor: pointer;
   display: flex;
   padding: 3px;
@@ -193,21 +204,21 @@
   flex-shrink: 0;
 }
 .comment-del:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
+  color: var(--ink);
 }
 .comment-send {
   display: flex;
   justify-content: flex-end;
   padding: 10px 16px;
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--line);
   flex-shrink: 0;
 }
 
 /* --- States --- */
 .file-state {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   flex-shrink: 0;
 }
 .file-state.reverted {
@@ -216,29 +227,30 @@
 
 .foot-btn {
   font-family: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
-  padding: 7px 15px;
-  border-radius: 9px;
+  padding: 6px 14px;
+  border-radius: var(--radius-control);
   cursor: pointer;
-  border: 1px solid var(--border);
-  background: var(--wash);
-  color: var(--text);
+  border: none;
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+  color: var(--ink);
 }
 .foot-btn:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .foot-btn.accept {
-  background: rgba(62, 207, 142, 0.14);
-  border-color: rgba(62, 207, 142, 0.35);
+  background: var(--green-tint);
+  box-shadow: var(--shadow-hairline);
   color: var(--green);
 }
 .foot-btn.accept:hover {
-  background: rgba(62, 207, 142, 0.22);
+  background: color-mix(in srgb, var(--green) 24%, var(--green-tint));
 }
 
 .added-wash {
-  background: color-mix(in srgb, transparent, var(--green) 14%);
+  background: var(--green-tint);
 }
 
 /* Floating hover Comment button, Antigravity style. */
@@ -251,11 +263,11 @@
   justify-content: center;
   background: var(--accent);
   border: none;
-  border-radius: 6px;
-  color: #fff;
+  border-radius: var(--radius-chip);
+  color: var(--accent-fg);
   cursor: pointer;
   z-index: 30;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-raised);
 }
 .comment-fab:hover {
   background: var(--accent);
@@ -274,18 +286,19 @@
   right: 34px;
   top: 50%;
   transform: translateY(-50%);
-  background: var(--bg-active);
-  border: 1px solid var(--border-soft);
-  border-radius: 9px;
-  padding: 7px 14px;
-  font-size: 13px;
+  background: var(--tooltip-bg);
+  border: 1px solid var(--tooltip-border);
+  border-radius: var(--radius-control);
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 500;
   font-family: inherit;
-  color: var(--text-mid);
+  color: var(--tooltip-fg);
   white-space: nowrap;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-overlay);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--dur-fast) ease;
+  transition: opacity var(--dur-fast) var(--ease-standard);
 }
 @media (hover: hover) and (pointer: fine) {
   .comment-fab:hover::before {
@@ -300,13 +313,13 @@
   padding: 16px 18px;
   font-size: 13px;
   line-height: 1.55;
-  color: var(--text-mid);
+  color: var(--ink-2);
   user-select: text;
 }
 .artifact-view-title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--ink);
   margin-bottom: 10px;
 }
 .artifact-view p,
@@ -344,11 +357,13 @@
   margin-left: auto;
   min-width: 0;
   max-width: 100%;
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
 }
 .plan-resolution-notice {
   margin-left: auto;
-  color: var(--text-mid);
+  color: var(--ink-2);
   font-size: 12px;
+  font-weight: 500;
   opacity: 1;
   transform: translateY(0);
   transition:
@@ -361,99 +376,145 @@
     transform: translateY(2px);
   }
 }
+/* ApprovalCard action row: primary approve on --accent, quiet deny in --red
+   over --red-tint, everything else a soft --surface button on --shadow-btn. */
 .plan-proceed,
 .plan-request-review {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: none;
-  color: var(--text);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+  color: var(--ink);
+  font-family: inherit;
   font-size: 12px;
-  padding: 4px 12px;
+  font-weight: 500;
+  padding: 5px 12px;
   cursor: pointer;
 }
 .plan-proceed {
-  color: var(--green);
-  border-color: rgba(62, 207, 142, 0.45);
+  background: var(--accent);
+  box-shadow: none;
+  color: var(--accent-fg);
 }
-.plan-proceed:hover {
-  background: rgba(62, 207, 142, 0.12);
+.plan-proceed:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, var(--ink));
+}
+.plan-proceed:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 .plan-request-review:hover:not(:disabled) {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .plan-request-review:disabled {
   opacity: 0.45;
   cursor: default;
+}
+.plan-request-review.plan-deny {
+  background: transparent;
+  box-shadow: none;
+  color: var(--red);
+}
+.plan-request-review.plan-deny:hover:not(:disabled) {
+  background: var(--red-tint);
 }
 .plan-feedback-box {
   width: 100%;
   box-sizing: border-box;
   margin: 10px 0;
   padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-raised);
-  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--field);
+  box-shadow: var(--shadow-inset-field);
+  color: var(--ink);
+  font-family: inherit;
   font-size: 12.5px;
   min-height: 60px;
   resize: vertical;
+  /* Approval-card body mounts with the pending review: BUI ApprovalCard fade-up. */
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
+}
+.plan-feedback-box::placeholder {
+  color: var(--ink-3);
 }
 .plan-feedback-actions {
   display: flex;
   align-items: center;
   gap: 10px;
   margin: 0 0 12px;
+  /* Mounts with the feedback box above: same fade-up. */
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
 }
 .plan-feedback-hint {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 .plan-comment-list {
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--line);
   margin-top: 14px;
   padding-top: 10px;
 }
 .plan-comment-item {
   margin: 10px 0;
   font-size: 12.5px;
-  color: var(--text-mid);
+  color: var(--ink-2);
 }
+/* Review-comment rows cascade in: BUI fade-up with the per-row stagger
+   (--i set inline by the renderer, capped ~6; rows without it just fade up). */
 .comment-row,
 .plan-comment-item {
-  opacity: 1;
-  transform: translateY(0);
-  transition:
-    opacity var(--dur-fast) var(--ease-out),
-    transform var(--dur-fast) var(--ease-out);
+  animation: fade-up var(--dur-reveal) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * var(--dur-stagger));
 }
-@starting-style {
-  .comment-row,
-  .plan-comment-item {
-    opacity: 0;
-    transform: translateY(2px);
-  }
-}
+/* Quoted plan excerpt = the ApprovalCard command/preview region: monospace on
+   --inset behind a hairline. */
 .plan-comment-quote {
   margin: 0 0 6px;
-  padding: 4px 10px;
-  border-left: 3px solid var(--border);
-  color: var(--text-dim);
+  padding: 6px 10px;
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
+  border-radius: var(--radius-chip);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
   white-space: pre-wrap;
 }
 .plan-comment-chip {
-  font-size: 10.5px;
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-left: 8px;
-  color: var(--text-dim);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
+  color: var(--ink-2);
 }
 .plan-comment-chip.draft {
-  color: var(--amber);
+  background: var(--orange-tint);
+  box-shadow: none;
+  color: var(--orange);
 }
 .comment-composer textarea {
   width: 100%;
   box-sizing: border-box;
   min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--field);
+  box-shadow: var(--shadow-inset-field);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12.5px;
+  resize: vertical;
+}
+.comment-composer textarea::placeholder {
+  color: var(--ink-3);
 }
 .comment-composer-actions {
   display: flex;
@@ -468,21 +529,23 @@
    preview machinery without leaking. Dark-only (the app is dark).
    =================================================================== */
 .ap-panel {
-  /* Reference tokens pointed at the app theme (one place to retune). */
-  --ap-surface-0: var(--bg);
-  --ap-surface-1: var(--bg-window);
-  --ap-surface-2: var(--bg-active);
-  --ap-border: var(--border-soft);
-  --ap-border-strong: var(--border);
-  --ap-text-primary: var(--text);
-  --ap-text-secondary: var(--text-mid);
-  --ap-text-muted: var(--text-dim);
-  --ap-accent-amber: var(--amber);
+  /* Reference tokens pointed at the Beautiful UI vocabulary (one place to
+     retune). Kept so the pane's Monaco/comment/preview machinery reads the
+     same names it always has. */
+  --ap-surface-0: var(--page);
+  --ap-surface-1: var(--canvas);
+  --ap-surface-2: var(--hover-2);
+  --ap-border: var(--line);
+  --ap-border-strong: var(--line-strong);
+  --ap-text-primary: var(--ink);
+  --ap-text-secondary: var(--ink-2);
+  --ap-text-muted: var(--ink-3);
+  --ap-accent-amber: var(--orange);
   --ap-accent-blue: var(--accent);
   --ap-success: var(--green);
   --ap-danger: var(--red);
-  --ap-radius-sm: 6px;
-  --ap-radius-md: 10px;
+  --ap-radius-sm: var(--radius-chip);
+  --ap-radius-md: var(--radius-card);
 
   /* Top-level pane footprint. */
   flex: 0 0 clamp(500px, 46%, 960px);
@@ -491,12 +554,13 @@
   display: flex;
   flex-direction: column;
   background: var(--ap-surface-1);
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--line);
   color: var(--ap-text-primary);
   overflow: hidden;
 }
 
-/* --- Header rows --- */
+/* --- Header rows: title bar on --surface, file-tab strip on --inset (the
+   DiffTable sticky-header tier), both closed by a hairline. --- */
 .ap-row {
   display: flex;
   align-items: center;
@@ -505,11 +569,13 @@
   flex-shrink: 0;
 }
 .ap-row-top {
+  background: var(--surface);
   border-bottom: 1px solid var(--ap-border);
 }
 .ap-row-tabs {
   justify-content: space-between;
   gap: 10px;
+  background: var(--inset);
   border-bottom: 1px solid var(--ap-border);
   padding-bottom: 0;
   overflow: hidden;
@@ -534,21 +600,26 @@
 /* Review mode: the file:line label in the FilePanel header (a finding opened
    at its exact line). Truncates so a long path never pushes out the close btn. */
 .ap-file-name {
-  font-size: 12px;
+  font-family: var(--mono);
+  font-size: 11.5px;
   font-weight: 500;
-  color: var(--text-dim);
+  color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
 }
 
-/* --- Segmented toggles (Overview/Diff, Diff/Code/Preview) --- */
+/* --- Segmented toggles (Overview/Diff, Diff/Code/Preview): an --inset track
+   behind a raised --surface thumb. --- */
 .ap-segmented {
   display: flex;
-  border: 1px solid var(--ap-border-strong);
-  border-radius: var(--ap-radius-sm);
-  overflow: hidden;
+  gap: 2px;
+  padding: 2px;
+  border: none;
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
+  border-radius: var(--radius-control);
   flex-shrink: 0;
 }
 .ap-segmented button {
@@ -559,13 +630,15 @@
   font-size: 11.5px;
   font-weight: 500;
   padding: 3px 10px;
+  border-radius: var(--radius-chip);
   cursor: pointer;
 }
 .ap-segmented button:hover {
   color: var(--ap-text-primary);
 }
 .ap-segmented button.active {
-  background: var(--ap-surface-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
   color: var(--ap-text-primary);
 }
 .ap-segmented button:focus-visible,
@@ -622,21 +695,23 @@
   color: var(--ap-text-secondary);
   font-family: inherit;
   font-size: 12px;
+  font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
 }
 .ap-rail-item:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
   color: var(--ap-text-primary);
 }
 .ap-rail-item.selected {
-  background: var(--ap-surface-2);
+  background: var(--surface);
   border-color: var(--ap-border-strong);
   color: var(--ap-text-primary);
 }
 .ap-rail-meta {
   color: var(--ap-text-muted);
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- File tabs (row 2) --- */
@@ -654,14 +729,15 @@
   padding: 9px 8px 12px;
   font-family: inherit;
   font-size: 12px;
+  font-weight: 500;
   white-space: nowrap;
   background: none;
   border: none;
-  color: var(--ap-text-muted);
+  color: var(--ap-text-secondary);
   cursor: pointer;
 }
 .ap-tab:hover {
-  color: var(--ap-text-secondary);
+  color: var(--ap-text-primary);
 }
 .ap-tab.active {
   color: var(--ap-text-primary);
@@ -674,7 +750,9 @@
   text-underline-offset: 2px;
 }
 .ap-diffstat {
+  font-family: var(--mono);
   font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
 }
 .ap-diffstat .add {
   color: var(--ap-success);
@@ -780,26 +858,30 @@
 }
 .ap-attachment-badge {
   flex-shrink: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-chip);
   padding: 2px 6px;
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.2;
   letter-spacing: 0.04em;
   color: var(--ap-text-secondary);
-  background: var(--ap-surface-2);
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
 }
 .ap-attachment-badge.badge-pdf {
-  color: var(--ap-danger);
-  background: color-mix(in srgb, var(--ap-danger) 14%, transparent);
+  color: var(--red);
+  background: var(--red-tint);
+  box-shadow: none;
 }
 .ap-attachment-badge.badge-docx {
-  color: var(--ap-accent-blue);
-  background: color-mix(in srgb, var(--ap-accent-blue) 14%, transparent);
+  color: var(--accent);
+  background: var(--accent-tint);
+  box-shadow: none;
 }
 .ap-attachment-badge.badge-xlsx {
-  color: var(--ap-success);
-  background: color-mix(in srgb, var(--ap-success) 14%, transparent);
+  color: var(--green);
+  background: var(--green-tint);
+  box-shadow: none;
 }
 .ap-attachment-size {
   flex-shrink: 0;
@@ -831,7 +913,7 @@
 }
 .ap-attachment-missing {
   padding: 18px;
-  color: var(--ap-text-muted);
+  color: var(--ink-2);
   font-size: 13px;
 }
 
@@ -853,9 +935,10 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  background: var(--bg-active);
-  border: 1px solid var(--border-soft);
-  border-radius: 12px;
+  background: var(--surface);
+  border: none;
+  box-shadow: var(--shadow-raised);
+  border-radius: var(--radius-overlay);
   padding: 7px 10px 7px 14px;
   opacity: 1;
   transform: translateY(0);
@@ -878,9 +961,9 @@
   background: none;
   border: none;
   outline: none;
-  color: var(--text);
+  color: var(--ink);
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.45;
   padding: 3px 0;
 }
@@ -890,7 +973,7 @@
   border-radius: 4px;
 }
 .comment-bar-input::placeholder {
-  color: var(--text-dim);
+  color: var(--ink-3);
 }
 .comment-bar-send {
   display: flex;
@@ -898,10 +981,10 @@
   justify-content: center;
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: none;
   border: none;
-  color: var(--text-dim);
+  color: var(--ink-3);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -911,7 +994,7 @@
 }
 .comment-bar-send.ready {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
 }
 .comment-bar-send:disabled {
   cursor: default;
@@ -922,10 +1005,10 @@
   justify-content: center;
   width: 26px;
   height: 26px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: none;
   border: none;
-  color: var(--text-dim);
+  color: var(--ink-3);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -934,8 +1017,8 @@
   height: 15px;
 }
 .comment-bar-close:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
+  color: var(--ink);
 }
 
 .artifact-version-history {
@@ -945,20 +1028,24 @@
   margin-bottom: 10px;
 }
 .version-chip {
-  border: 1px solid var(--border);
-  background: none;
+  border: none;
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
   border-radius: 999px;
   padding: 2px 10px;
   font-size: 11.5px;
-  color: var(--text-mid);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
   cursor: pointer;
 }
 .version-chip:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .version-chip.selected {
-  background: var(--bg-active);
-  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+  color: var(--ink);
 }
 
 /* Shared Artifacts Pane control vocabulary. Selection itself remains
@@ -978,10 +1065,11 @@
   .comment-fab,
   .foot-btn
 ) {
+  /* BUI hover color grammar: 100ms standard curve. */
   transition:
-    background-color var(--dur-fast) ease,
-    color var(--dur-fast) ease,
-    border-color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
+    border-color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 
@@ -1002,9 +1090,9 @@
   ):active:not(:disabled) {
   transform: scale(0.97);
   transition:
-    background-color var(--dur-fast) ease,
-    color var(--dur-fast) ease,
-    border-color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
+    border-color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press) var(--ease-out);
 }
 
@@ -1102,28 +1190,5 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .comment-row,
-  .plan-comment-item {
-    transform: none;
-    transition: opacity var(--dur-fast) var(--ease-out);
-  }
-  @starting-style {
-    .comment-row,
-    .plan-comment-item {
-      opacity: 0;
-      transform: none;
-    }
-  }
-}
-
-:root[data-motion='reduced'] .comment-row,
-:root[data-motion='reduced'] .plan-comment-item {
-  transform: none;
-}
-@starting-style {
-  :root[data-motion='reduced'] .comment-row,
-  :root[data-motion='reduced'] .plan-comment-item {
-    transform: none;
-  }
-}
+/* .comment-row/.plan-comment-item reduced-motion handling lives in the shared
+   fade-up keyframe's transform-free variant (shared.css). */

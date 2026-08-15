@@ -152,10 +152,14 @@ export function HistoryView(): React.JSX.Element {
         ) : hits === null ? (
           <Loading label="Searching…" />
         ) : hits.length > 0 ? (
-          hits.map((hit) => (
+          hits.map((hit, i) => (
             <div
               className="history-hit"
-              key={hit.eventId}
+              // Query-scoped key: each settled query re-mounts its result set
+              // so the BUI fade-up cascade re-runs as the query filters.
+              key={`${trimmed}:${hit.eventId}`}
+              // 80ms per-row stagger via --i, capped (HistoryView.css).
+              style={{ '--i': Math.min(i, 5) } as React.CSSProperties}
               role="button"
               tabIndex={0}
               onClick={() =>

@@ -1,4 +1,8 @@
 // Line icons copied from the prototype's inline SVGs.
+/* eslint-disable react-refresh/only-export-components -- every export here IS
+   a component, built by the icon() factory below; the rule just can't see
+   through the factory call. Pre-existing pattern, surfaced 2026-08-12 when
+   this file first entered a lint-changed set. */
 
 interface IconProps {
   size?: number
@@ -120,6 +124,7 @@ export const IconCopy = icon(
     <path d="M5 15V5a2 2 0 0 1 2-2h10" />
   </>
 )
+export const IconCheck = icon(<path d="M5 13l4.5 4.5L19 8" />)
 export const IconThumbsUp = icon(
   <path d="M7 10v11H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3zm0 0l4.2-7.2a2 2 0 0 1 3.7 1.1L14 9h5a2 2 0 0 1 2 2.4l-1.5 7A2 2 0 0 1 17.5 20H7" />
 )

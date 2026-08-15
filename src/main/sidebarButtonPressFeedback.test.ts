@@ -165,8 +165,12 @@ describe('sidebar button press feedback', () => {
       const transition = rootRuleDeclaration(css, selector)
       const active = activeRuleDeclarations(css, `${selector}:active`)
 
-      expect(transition).toContain('background var(--dur-fast) var(--ease-out)')
-      expect(transition).toContain('color var(--dur-fast) var(--ease-out)')
+      // BUI hover grammar: colors on the standard curve at the hover tier
+      // (100ms) or, for larger surfaces like the segmented control, 150ms.
+      expect(transition).toMatch(
+        /background-color var\(--dur-(?:hover|fast)\) var\(--ease-standard\)/
+      )
+      expect(transition).toMatch(/color var\(--dur-(?:hover|fast)\) var\(--ease-standard\)/)
       expect(transition).toContain('transform var(--dur-press-release) var(--ease-out)')
       expect(active.normal).toContain('transform: scale(0.97);')
       expect(active.normal).toContain('transform var(--dur-press) var(--ease-out)')

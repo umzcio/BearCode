@@ -11,24 +11,28 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--text-mid);
-  font-size: 13.5px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
   padding: 0 6px 10px;
   cursor: pointer;
   width: fit-content;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   background: none;
   border: none;
   font-family: inherit;
   text-align: left;
+  /* BUI hover color grammar: 100ms standard curve. */
+  transition: color var(--dur-hover) var(--ease-standard);
 }
 .workspace-row:hover {
-  color: var(--text);
+  color: var(--ink);
 }
 .workspace-row svg {
-  width: 15px;
-  height: 15px;
-  color: var(--text-dim);
+  width: 14px;
+  height: 14px;
+  /* Icon glyphs step down one ink tier from their 13px label (BUI). */
+  color: var(--ink-3);
 }
 .workspace-row .workspace-chev svg {
   width: 12px;

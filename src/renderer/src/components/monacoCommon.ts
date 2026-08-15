@@ -32,14 +32,14 @@ monaco.editor.defineTheme('bearcode-dark', {
     { token: 'attribute.value.unit.css', foreground: 'ae81ff' }
   ],
   colors: {
-    'editor.background': '#181818',
-    'editor.foreground': '#dcdcdc',
+    'editor.background': '#1c1d1f',
+    'editor.foreground': '#f2f3f4',
     'diffEditor.insertedTextBackground': '#00000000',
-    'diffEditor.insertedLineBackground': '#31391f66',
-    'diffEditor.removedTextBackground': '#f06a6a17',
-    'diffEditor.removedLineBackground': '#f06a6a12',
-    'editorLineNumber.foreground': '#6f6f6f',
-    'editorGutter.background': '#181818',
+    'diffEditor.insertedLineBackground': '#3dbb7224',
+    'diffEditor.removedTextBackground': '#ee5c6117',
+    'diffEditor.removedLineBackground': '#ee5c6112',
+    'editorLineNumber.foreground': '#6c6f75',
+    'editorGutter.background': '#1c1d1f',
     'scrollbarSlider.background': '#33333388',
     'scrollbarSlider.hoverBackground': '#3d3d3d99'
   }
@@ -63,12 +63,12 @@ monaco.editor.defineTheme('bearcode-light', {
   ],
   colors: {
     'editor.background': '#ffffff',
-    'editor.foreground': '#1a1a1a',
+    'editor.foreground': '#1f2124',
     'diffEditor.insertedTextBackground': '#00000000',
-    'diffEditor.insertedLineBackground': '#1a9d6320',
-    'diffEditor.removedTextBackground': '#d6454518',
-    'diffEditor.removedLineBackground': '#d6454510',
-    'editorLineNumber.foreground': '#b4b4b4',
+    'diffEditor.insertedLineBackground': '#189a4d20',
+    'diffEditor.removedTextBackground': '#e3474c18',
+    'diffEditor.removedLineBackground': '#e3474c10',
+    'editorLineNumber.foreground': '#9a9da3',
     'editorGutter.background': '#ffffff',
     'scrollbarSlider.background': '#00000022',
     'scrollbarSlider.hoverBackground': '#00000033'
@@ -94,7 +94,7 @@ export const EDITOR_OPTIONS = {
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
   fontSize: 12.5,
-  fontFamily: "'SF Mono', ui-monospace, Menlo, Consolas, monospace",
+  fontFamily: "'JetBrains Mono Variable', 'SF Mono', ui-monospace, Menlo, Consolas, monospace",
   lineHeight: 22,
   glyphMargin: true,
   contextmenu: false,

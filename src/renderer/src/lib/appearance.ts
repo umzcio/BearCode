@@ -25,7 +25,23 @@ const CUSTOM_VARS = [
   '--accent',
   '--accent-strong',
   '--wash',
-  '--wash-strong'
+  '--wash-strong',
+  // Beautiful UI vocabulary (tokens.css). Legacy names above are set directly
+  // too (not via the aliases) so both generations of CSS follow the palette.
+  '--page',
+  '--canvas',
+  '--surface',
+  '--inset',
+  '--hover',
+  '--hover-2',
+  '--ink',
+  '--ink-2',
+  '--ink-3',
+  '--line',
+  '--line-strong',
+  '--field',
+  '--accent-ink',
+  '--accent-tint'
 ]
 
 const ZOOM: Record<Appearance['fontSize'], number> = { small: 0.9, medium: 1, large: 1.1 }
@@ -71,6 +87,23 @@ function applyCustom(root: HTMLElement, c: CustomColors): void {
   root.style.setProperty('--accent-strong', mix(c.accent, c.fg, 12))
   root.style.setProperty('--wash', mix('transparent', c.fg, 5))
   root.style.setProperty('--wash-strong', mix('transparent', c.fg, 10))
+  // New-vocabulary tokens: same derivations, BUI names. Set directly (not via
+  // the tokens.css aliases) because inline legacy vars would otherwise win for
+  // old rules while new rules kept the theme defaults.
+  root.style.setProperty('--page', mix(c.bg, '#000000', dark ? 28 : 5))
+  root.style.setProperty('--canvas', c.bg)
+  root.style.setProperty('--surface', mix(c.bg, c.fg, 7))
+  root.style.setProperty('--inset', mix(c.bg, c.fg, 4))
+  root.style.setProperty('--hover', mix(c.bg, c.fg, 10))
+  root.style.setProperty('--hover-2', mix(c.bg, c.fg, 15))
+  root.style.setProperty('--ink', c.fg)
+  root.style.setProperty('--ink-2', mix(c.fg, c.bg, 32))
+  root.style.setProperty('--ink-3', mix(c.fg, c.bg, 55))
+  root.style.setProperty('--line', mix(c.bg, c.fg, 20))
+  root.style.setProperty('--line-strong', mix(c.bg, c.fg, 28))
+  root.style.setProperty('--field', mix(c.bg, c.fg, 9))
+  root.style.setProperty('--accent-ink', mix(c.accent, c.fg, 12))
+  root.style.setProperty('--accent-tint', mix('transparent', c.accent, 16))
 }
 
 const systemPrefersDark = (): boolean => window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -95,10 +128,7 @@ export function applyAppearance(a: Appearance): void {
   root.style.setProperty('--window-controls-left', `${WINDOW_CONTROLS_LEFT_PX / zoom}px`)
   root.style.setProperty('--window-controls-top', `${WINDOW_CONTROLS_TOP_PX / zoom}px`)
   root.style.setProperty('--window-controls-scale', String(1 / zoom))
-  root.style.setProperty(
-    '--window-controls-hit-width',
-    `${WINDOW_CONTROLS_HIT_WIDTH_PX / zoom}px`
-  )
+  root.style.setProperty('--window-controls-hit-width', `${WINDOW_CONTROLS_HIT_WIDTH_PX / zoom}px`)
   root.style.setProperty(
     '--collapsed-topbar-content-left',
     `${COLLAPSED_TOPBAR_CONTENT_LEFT_PX / zoom}px`

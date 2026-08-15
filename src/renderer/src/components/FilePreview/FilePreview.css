@@ -28,7 +28,7 @@
 }
 .file-preview.loading,
 .file-preview.unsupported {
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 .file-preview.text pre {
   white-space: pre-wrap;
@@ -70,7 +70,7 @@
 }
 .file-preview.table-wrap th,
 .file-preview.table-wrap td {
-  border: 1px solid var(--border, var(--border));
+  border: 1px solid var(--line);
   padding: 4px 8px;
   text-align: left;
   white-space: nowrap;

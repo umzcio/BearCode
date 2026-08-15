@@ -253,6 +253,10 @@ function browserActionLabel(call: ToolCallEvent): string {
 // ConversationView.css), leaving the step row + waiting note in place.
 // Clicks on either copy would be safe regardless: graph.ts's
 // resolveInterrupt no-ops a second resolve for an answered callId.
+// Pre-existing shared context export: ConversationView imports it from here,
+// and moving it to its own module is a structural refactor out of scope for
+// the UI restyle — hence the targeted disable.
+// eslint-disable-next-line react-refresh/only-export-components
 export const PinnedApprovalArea = createContext(false)
 
 // Parallel approvals can put several pending cards on screen at once (any
@@ -360,6 +364,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
     return (
       <div className="step">
         <div className="step-row" onClick={() => openReviewForFile(convoId, stats.path)}>
+          <span className="step-status done" aria-hidden="true" />
           {summaryFor(call, result, openFile)}
           <span className="chev">
             <IconChevronRightSmall />
@@ -464,7 +469,9 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
       return (
         <div className="step">
           <div className="step-row static">
-            <span>{call.approvalState === 'approved' ? 'Pipeline approved' : 'Pipeline declined'}</span>
+            <span>
+              {call.approvalState === 'approved' ? 'Pipeline approved' : 'Pipeline declined'}
+            </span>
           </div>
         </div>
       )
@@ -496,18 +503,23 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
     return (
       <div className={'step' + (open ? ' open' : '')}>
         <div className="step-row" onClick={() => setOpen((o) => !o)}>
+          <span className={'step-status ' + (result ? 'done' : 'running')} aria-hidden="true" />
           <span>{result ? 'Ran' : 'Running'}</span>
           <span className="mono">{action}</span>
           <span className="chev">
             <IconChevronRightSmall />
           </span>
         </div>
-        <div className="step-body">
-          {isScreenshot ? (
-            <img className="browser-shot" src={output} alt="Browser screenshot" />
-          ) : (
-            (output ?? 'Working…')
-          )}
+        <div className="step-reveal">
+          <div className="step-reveal-clip">
+            <div className="step-body">
+              {isScreenshot ? (
+                <img className="browser-shot" src={output} alt="Browser screenshot" />
+              ) : (
+                (output ?? 'Working…')
+              )}
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -552,6 +564,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
     return (
       <div className={'step' + (open ? ' open' : '')}>
         <div className="step-row" onClick={() => setOpen((o) => !o)}>
+          <span className={'step-status ' + (result ? 'done' : 'running')} aria-hidden="true" />
           <span>
             {provider} · {toolName}
           </span>
@@ -559,7 +572,11 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
             <IconChevronRightSmall />
           </span>
         </div>
-        <div className="step-body">{result ? result.output : 'Working…'}</div>
+        <div className="step-reveal">
+          <div className="step-reveal-clip">
+            <div className="step-body">{result ? result.output : 'Working…'}</div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -600,12 +617,17 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
     return (
       <div className={'step' + (open ? ' open' : '')}>
         <div className="step-row" onClick={() => setOpen((o) => !o)}>
+          <span className={'step-status ' + (result ? 'done' : 'running')} aria-hidden="true" />
           {summaryFor(call, result, openFile)}
           <span className="chev">
             <IconChevronRightSmall />
           </span>
         </div>
-        <div className="step-body">{result ? result.output : 'Working…'}</div>
+        <div className="step-reveal">
+          <div className="step-reveal-clip">
+            <div className="step-body">{result ? result.output : 'Working…'}</div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -639,6 +661,13 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
     return (
       <div className={'step' + (open ? ' open' : '')}>
         <div className="step-row" onClick={() => setOpen((o) => !o)}>
+          <span
+            className={
+              'step-status ' +
+              (call.approvalState === 'denied' || nonZero ? 'error' : result ? 'done' : 'running')
+            }
+            aria-hidden="true"
+          />
           <span>{verb}</span>
           <span className="mono">{command}</span>
           {sandboxed ? (
@@ -650,20 +679,25 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
             <IconChevronRightSmall />
           </span>
         </div>
-        <div className="step-body term">
-          {result ? result.output : 'Running…'}
-          {result && result.exitCode !== undefined ? (
-            <>
-              {'\n'}
-              <span className="ok">exit code {result.exitCode}</span>
-            </>
-          ) : null}
-          {sandboxed && nonZero ? (
-            <div className="sandbox-hint" role="note">
-              This command may have been blocked by the sandbox. Ask the agent to re-run it outside
-              the sandbox to check.
+        {/* Terminal output is a large body: --dur-reveal-lg per the BUI grammar. */}
+        <div className="step-reveal step-reveal-lg">
+          <div className="step-reveal-clip">
+            <div className="step-body term">
+              {result ? result.output : 'Running…'}
+              {result && result.exitCode !== undefined ? (
+                <>
+                  {'\n'}
+                  <span className="ok">exit code {result.exitCode}</span>
+                </>
+              ) : null}
+              {sandboxed && nonZero ? (
+                <div className="sandbox-hint" role="note">
+                  This command may have been blocked by the sandbox. Ask the agent to re-run it
+                  outside the sandbox to check.
+                </div>
+              ) : null}
             </div>
-          ) : null}
+          </div>
         </div>
       </div>
     )
@@ -672,12 +706,17 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
   return (
     <div className={'step' + (open ? ' open' : '')}>
       <div className="step-row" onClick={() => setOpen((o) => !o)}>
+        <span className={'step-status ' + (result ? 'done' : 'running')} aria-hidden="true" />
         {summaryFor(call, result, openFile)}
         <span className="chev">
           <IconChevronRightSmall />
         </span>
       </div>
-      <div className="step-body">{result ? result.output : 'Working…'}</div>
+      <div className="step-reveal">
+        <div className="step-reveal-clip">
+          <div className="step-body">{result ? result.output : 'Working…'}</div>
+        </div>
+      </div>
     </div>
   )
 }

@@ -1,4 +1,8 @@
-/* Shared chrome copied from the prototype: buttons, menus, code chips, scrollbars. */
+/* Shared chrome: buttons, menus, code chips, scrollbars — Beautiful UI system
+   (see docs/superpowers/specs/2026-08-12-beautiful-ui-overhaul-design.md).
+   Depth is hairline-first: surfaces sit on --surface with --shadow-* rings,
+   never heavy borders. Ink hierarchy: --ink primary, --ink-2 secondary,
+   --ink-3 tertiary glyphs only. */
 
 /* Keyboard-focus ring, app-wide: mouse focus stays clean, Tab focus shows a
    consistent accent ring (--focus-ring, tokens.css) on every interactive
@@ -15,26 +19,28 @@
 .chrome-btn {
   background: none;
   border: none;
-  color: var(--text-dim);
+  color: var(--ink-2);
   cursor: pointer;
   padding: 4px;
-  border-radius: 6px;
+  border-radius: var(--radius-chip);
   display: flex;
   -webkit-app-region: no-drag;
+  /* BUI hover grammar: color feedback at --dur-hover/--ease-standard;
+     the press transform keeps its own press tokens (structural motion). */
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .chrome-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-mid);
+  background: var(--hover);
+  color: var(--ink);
 }
 .chrome-btn:active {
   transform: scale(0.97);
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press) var(--ease-out);
 }
 .chrome-btn svg {
@@ -47,35 +53,35 @@
 }
 .chrome-btn:disabled:hover {
   background: none;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .icon-btn {
   background: none;
   border: none;
-  color: var(--text-mid);
+  color: var(--ink-2);
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: inherit;
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .icon-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
+  color: var(--ink);
 }
 .icon-btn:active {
   transform: scale(0.97);
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press) var(--ease-out);
 }
 .icon-btn svg {
@@ -88,7 +94,7 @@
 }
 .icon-btn:disabled:hover {
   background: none;
-  color: var(--text-mid);
+  color: var(--ink-2);
 }
 
 .pill-btn {
@@ -97,29 +103,30 @@
   gap: 7px;
   background: none;
   border: none;
-  color: var(--text);
-  font-size: 13.5px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   font-family: inherit;
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .pill-btn:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 .pill-btn:active {
   transform: scale(0.97);
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press) var(--ease-out);
 }
 .pill-btn .chev {
-  color: var(--text-dim);
+  color: var(--ink-3);
 }
 .pill-btn svg {
   width: 13px;
@@ -137,13 +144,11 @@
    `position: static` via `.menu--in-popover` below -- see that rule for why. */
 .menu {
   position: absolute;
-  background: var(--bg-raised);
-  border: 1px solid var(--border-soft, var(--border));
-  border-radius: var(--radius-menu);
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.22),
-    0 14px 40px rgba(0, 0, 0, 0.46);
-  padding: 5px;
+  background: var(--surface);
+  border: none;
+  border-radius: var(--radius-overlay);
+  box-shadow: var(--shadow-overlay);
+  padding: 4px;
   min-width: 300px;
   max-height: 420px;
   overflow-y: auto;
@@ -179,22 +184,22 @@
   align-items: center;
   gap: 8px;
   padding: 8px 10px 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 .menu-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 11px;
-  border-radius: 6px;
+  padding: 7px 10px;
+  border-radius: var(--radius-chip);
   cursor: pointer;
-  font-size: 13.5px;
-  color: var(--text-mid);
+  font-size: 13px;
+  color: var(--ink-2);
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 /* Leading `MenuItem.icon` (unsized inline icons render at native SVG
@@ -204,7 +209,7 @@
 .menu-item > svg {
   width: 15px;
   height: 15px;
-  color: var(--text-dim);
+  color: var(--ink-3);
   flex-shrink: 0;
 }
 .menu-item > span:not(.check):not(.mi-text) {
@@ -214,26 +219,26 @@
   white-space: nowrap;
 }
 .menu-item:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
+  color: var(--ink);
 }
 /* Roving-tabindex keyboard highlight -- mirrors .menu-item:hover so the
    active option is visible whether reached by mouse or keyboard. */
 .menu-item.active {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--hover);
+  color: var(--ink);
 }
 .menu-item:active {
   transform: scale(0.97);
   transition:
-    background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press) var(--ease-out);
 }
 /* Two-line rows (title + description), e.g. Antigravity-style rich dropdowns. */
 .menu-item.has-desc {
   align-items: flex-start;
-  padding: 9px 11px;
+  padding: 9px 10px;
 }
 .menu-item .mi-text {
   display: flex;
@@ -243,14 +248,14 @@
   min-width: 0;
 }
 .menu-item .mi-title {
-  color: var(--text);
-  font-size: 13.5px;
+  color: var(--ink);
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .menu-item .mi-desc {
-  color: var(--text-dim);
+  color: var(--ink-2);
   font-size: 12px;
   line-height: 1.4;
 }
@@ -264,7 +269,7 @@
   font-size: 13px;
 }
 .menu-item.selected {
-  color: var(--text);
+  color: var(--ink);
 }
 .menu-item.selected .check {
   opacity: 1;
@@ -275,10 +280,10 @@
 }
 .menu-item.disabled:hover {
   background: none;
-  color: var(--text-mid);
+  color: var(--ink-2);
 }
 .menu-item.danger {
-  color: var(--danger, var(--red));
+  color: var(--red);
 }
 /* For an item whose usual action doesn't apply right now but which still
    performs a real, different action on click/activation (e.g. the sidebar's
@@ -290,16 +295,17 @@
 .menu-item.redirect {
   color: var(--accent);
 }
+/* Semantic chip: color on its -tint fill (BUI badge language). */
 .menu-item .badge {
-  font-size: 10.5px;
+  font-size: 11px;
   padding: 2px 6px;
-  border-radius: 5px;
-  background: rgba(76, 141, 255, 0.14);
-  color: var(--accent);
-  font-weight: 600;
+  border-radius: var(--radius-chip);
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+  font-weight: 500;
 }
 .menu-item .badge.local {
-  background: rgba(62, 207, 142, 0.13);
+  background: var(--green-tint);
   color: var(--green);
 }
 .provider-dot {
@@ -311,11 +317,12 @@
 
 code.tok {
   font-family: var(--mono);
-  font-size: 12px;
-  background: rgba(224, 181, 104, 0.12);
-  color: var(--amber);
+  font-size: 11.5px;
+  line-height: 1.7;
+  background: var(--orange-tint);
+  color: var(--orange);
   padding: 1.5px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-chip);
 }
 
 /* ---------- Field hint ---------- */
@@ -324,9 +331,11 @@ code.tok {
    a field needs an inline "here's the expected format" note. */
 .field-hint {
   font-size: 12px;
-  color: var(--warning, #d98a3d);
+  font-weight: 500;
+  color: var(--orange);
 }
 .field-hint code {
+  font-family: var(--mono);
   font-size: 11px;
   opacity: 0.9;
 }
@@ -335,7 +344,7 @@ code.tok {
   display: inline-block;
   width: 7px;
   height: 15px;
-  background: var(--text);
+  background: var(--ink);
   vertical-align: text-bottom;
   animation: blink 1s steps(1) infinite;
   margin-left: 1px;
@@ -355,7 +364,7 @@ code.tok {
   width: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: var(--line-strong);
   border-radius: 4px;
 }
 
@@ -365,13 +374,13 @@ code.tok {
   bottom: 26px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--bg-window);
-  border: 1px solid var(--border);
-  color: var(--text);
+  background: var(--surface);
+  border: none;
+  color: var(--ink);
   font-size: 13px;
   padding: 8px 16px;
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius-overlay);
+  box-shadow: var(--shadow-overlay);
   z-index: 200;
   display: flex;
   align-items: center;
@@ -384,88 +393,169 @@ code.tok {
 }
 .toast-btn {
   font-size: 12px;
+  font-weight: 500;
   padding: 4px 12px;
-  border-radius: 7px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text);
+  border-radius: var(--radius-control);
+  border: none;
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+  color: var(--ink);
   cursor: pointer;
+  transition: background-color var(--dur-hover) var(--ease-standard);
 }
 .toast-btn:hover {
-  background: var(--wash-strong);
+  background: var(--hover);
 }
 .toast-btn.primary {
   background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  box-shadow: none;
+  color: var(--accent-fg);
 }
 
 .menu-divider {
   height: 1px;
-  background: var(--border-soft);
-  margin: 5px 4px;
+  background: var(--line);
+  margin: 4px;
 }
 
 /* ---------- Empty / Loading / Error primitives ---------- */
 /* Shared placeholder rows (EmptyState / Loading / ErrorCard) -- generalize
    the per-page `domain-empty` forks so every "nothing here", "still
-   loading", and "that failed" moment reads the same: one 13px font-size,
-   consistent padding, left-aligned to match the dominant list style. */
+   loading", and "that failed" moment reads the same. EmptyState/ErrorCard
+   are hairline cards on --surface; ink hierarchy carries the copy. */
 .empty-state {
-  padding: 10px 0;
+  padding: 12px 14px;
   font-size: 13px;
-  color: var(--text-dim);
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  color: var(--ink-2);
   text-align: left;
 }
 .empty-state-title {
-  color: var(--text-dim);
+  font-weight: 500;
+  color: var(--ink);
 }
 .empty-state-hint {
   margin-top: 3px;
   font-size: 12px;
-  color: var(--text-dim);
-  opacity: 0.75;
+  color: var(--ink-2);
 }
 
+/* BUI LoadingState: a 3x3 pixel grid with a chevron wavefront driving right,
+   paired with a shimmering 13px medium label. Loop durations/easing follow
+   the BUI reference (ambient loops, like the caret blink above, sit outside
+   the interaction-motion token set). */
 .loading-state {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 10px 0;
   font-size: 13px;
-  color: var(--text-dim);
   text-align: left;
 }
-.loading-spinner {
-  width: 12px;
-  height: 12px;
+.loading-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 4px);
+  gap: 1.5px;
   flex-shrink: 0;
-  border-radius: 50%;
-  border: 1.5px solid var(--border);
-  border-top-color: var(--text-dim);
-  animation: loading-spin 700ms linear infinite;
 }
-@keyframes loading-spin {
-  from {
-    transform: rotate(0deg);
+.loading-cell {
+  width: 4px;
+  height: 4px;
+  background: var(--ink);
+  border-radius: 1px;
+  opacity: 0.15;
+  animation: pixel-on 650ms ease-in-out infinite;
+}
+/* Chevron wavefront delays: (column + |row - 1|) * 90ms per cell. The 650ms
+   cycle is shorter than the sweep, so two fronts are always in flight. */
+.loading-cell:nth-child(1) {
+  animation-delay: 90ms;
+}
+.loading-cell:nth-child(2) {
+  animation-delay: 180ms;
+}
+.loading-cell:nth-child(3) {
+  animation-delay: 270ms;
+}
+.loading-cell:nth-child(4) {
+  animation-delay: 0ms;
+}
+.loading-cell:nth-child(5) {
+  animation-delay: 90ms;
+}
+.loading-cell:nth-child(6) {
+  animation-delay: 180ms;
+}
+.loading-cell:nth-child(7) {
+  animation-delay: 90ms;
+}
+.loading-cell:nth-child(8) {
+  animation-delay: 180ms;
+}
+.loading-cell:nth-child(9) {
+  animation-delay: 270ms;
+}
+@keyframes pixel-on {
+  0%,
+  100% {
+    opacity: 0.15;
   }
-  to {
-    transform: rotate(360deg);
+  18%,
+  42% {
+    opacity: 1;
+  }
+  62% {
+    opacity: 0.15;
   }
 }
+.loading-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: transparent;
+  background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmer-text 1.4s linear infinite;
+}
+@keyframes shimmer-text {
+  0% {
+    background-position: 150%;
+  }
+  100% {
+    background-position: -50%;
+  }
+}
+/* Reduced motion freezes the grid to its dim state and swaps the shimmer for
+   plain secondary ink. */
 @media (prefers-reduced-motion: reduce) {
-  .loading-spinner {
+  .loading-cell {
     animation: none;
   }
+  .loading-label {
+    animation: none;
+    background-image: none;
+    color: var(--ink-2);
+  }
+}
+:root[data-motion='reduced'] .loading-cell {
+  animation: none;
+}
+:root[data-motion='reduced'] .loading-label {
+  animation: none;
+  background-image: none;
+  color: var(--ink-2);
 }
 
 .ui-error-card {
   padding: 10px 12px;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: var(--radius-card);
+  background: var(--red-tint);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--red) 25%, transparent);
   font-size: 13px;
-  color: var(--text);
+  color: var(--red);
   text-align: left;
 }
 
@@ -483,4 +573,78 @@ code.tok {
 :root[data-motion='reduced'] .icon-btn:active,
 :root[data-motion='reduced'] .menu-item:active {
   transform: none;
+}
+
+/* ── BUI entrance keyframe library (beautifului.dev, exact values) ──
+   Shared by every surface: reference these, never redefine them locally.
+   fade-up/pop-in pair with var(--ease-out) (BUI's ease-out-strong) and an
+   80-120ms per-row stagger via animation-delay; stream-in materializes
+   streamed text chunks (curve cubic-bezier(.22,.61,.25,1) per the reference).
+   `both` fill is the caller's job: animation: fade-up var(--dur-reveal) var(--ease-out) both; */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes stream-in {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+/* Reduced motion: entrances keep the fade, drop transform/blur. The blanket
+   :root[data-motion='reduced'] duration rule (tokens.css) already collapses
+   these to imperceptible; the OS media query needs the transform-free pairs. */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes stream-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
 }

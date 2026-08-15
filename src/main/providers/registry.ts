@@ -14,7 +14,13 @@ import type {
 import { getKey, keyStatus } from '../keys'
 import { getSettings } from '../settings'
 import type { ModelMetadata } from '../../shared/pricing'
-import { fetchAnthropicModels, fetchGoogleModels, fetchOpenAIModels } from './liveDiscovery'
+import {
+  fetchAnthropicModels,
+  fetchGoogleModels,
+  fetchOpenAIModels,
+  fetchPerplexityModels,
+  fetchXaiModels
+} from './liveDiscovery'
 
 interface ProviderRegistryEntry {
   id: ProviderId
@@ -92,6 +98,13 @@ const CAPABILITIES: Record<string, ModelCapabilities> = {
     strengths: ['general'],
     costTier: 'low'
   },
+  // Live-discovered frontier models (2026-08): curated here so the picker's
+  // strengths line and the Ursa classifier know them; ids come from the
+  // providers' own list endpoints, not STATIC_MODELS.
+  'anthropic/claude-opus-5': {
+    strengths: ['code', 'research', 'writing', 'general'],
+    costTier: 'high'
+  },
   'openai/gpt-5.6-sol': {
     reasoning: { effort: 'high' },
     strengths: ['code', 'general'],
@@ -134,6 +147,10 @@ const CAPABILITIES: Record<string, ModelCapabilities> = {
   'xai/grok-4.5': {
     strengths: ['code', 'general'],
     costTier: 'high'
+  },
+  'xai/grok-4.6': {
+    strengths: ['code', 'general'],
+    costTier: 'mid'
   },
   // Realtime multi-agent research: xAI spins up parallel server-side agents
   // that search, cross-reference, and synthesize with citations. The
@@ -207,9 +224,7 @@ async function fetchOllamaContextWindow(base: string, id: string): Promise<numbe
 // Callers that only need the model LIST (per-turn eligibility checks) leave it
 // off and keep the single-request fast path; the catalog that feeds the
 // renderer (and therefore the context meter) turns it on.
-export async function listOllamaModels(
-  opts: { withContextWindows?: boolean } = {}
-): Promise<{
+export async function listOllamaModels(opts: { withContextWindows?: boolean } = {}): Promise<{
   models: ModelInfo[]
   reachable: boolean
   note?: string
@@ -278,14 +293,20 @@ export const REGISTRY: ProviderRegistryEntry[] = [
     displayName: 'Perplexity',
     color: '#20B8CD',
     requiresKey: true,
-    listModels: async () => ({ models: PERPLEXITY_MODELS, reachable: true })
+    listModels: async () => {
+      await ensureLiveDiscovery('perplexity')
+      return { models: knownModels('perplexity'), reachable: true }
+    }
   },
   {
     id: 'xai',
     displayName: 'xAI',
     color: '#9aa0a6',
     requiresKey: true,
-    listModels: async () => ({ models: XAI_MODELS, reachable: true })
+    listModels: async () => {
+      await ensureLiveDiscovery('xai')
+      return { models: knownModels('xai'), reachable: true }
+    }
   },
   {
     id: 'ollama',
@@ -370,7 +391,9 @@ export function allKnownModelRefs(): string[] {
 // time it (or listAllModels) is called this process lifetime.
 export async function listManageableModels(): Promise<ManageableProvider[]> {
   await Promise.all(
-    (['anthropic', 'google', 'openai'] as ProviderId[]).map((id) => ensureLiveDiscovery(id))
+    (['anthropic', 'google', 'openai', 'xai', 'perplexity'] as ProviderId[]).map((id) =>
+      ensureLiveDiscovery(id)
+    )
   )
   const { customModels = [], disabledModels = [], enabledLiveModels = [] } = getSettings()
   const disabledSet = new Set(disabledModels)
@@ -383,6 +406,7 @@ export async function listManageableModels(): Promise<ManageableProvider[]> {
       const ref = `${id}/${m.id}`
       const liveOnly = isLiveOnly(id, m.id, customModels)
       const liveCapabilities = liveCapabilitiesFor(ref)
+      const livePricing = livePricingCache.get(ref)
       byId.set(m.id, {
         id: m.id,
         label: m.label,
@@ -390,7 +414,8 @@ export async function listManageableModels(): Promise<ManageableProvider[]> {
         custom: false,
         liveOnly,
         enabled: liveOnly ? enabledLiveSet.has(ref) : !disabledSet.has(ref),
-        ...(liveCapabilities ? { liveCapabilities } : {})
+        ...(liveCapabilities ? { liveCapabilities } : {}),
+        ...(livePricing ? { pricing: livePricing } : {})
       })
     }
     for (const c of customModels) {
@@ -427,18 +452,23 @@ const STATIC_MODELS: Partial<Record<ProviderId, ModelInfo[]>> = {
   xai: XAI_MODELS
 }
 
-// Per-provider live-discovered model list (Anthropic/Google/OpenAI only --
-// see liveDiscovery.ts), populated lazily by ensureLiveDiscovery(). Empty
-// until that provider's first successful live fetch this process lifetime;
-// knownModels() falls back to STATIC_MODELS for any provider with no cache
-// entry -- every provider, until Task 6 wires in the real fetchers, and
-// permanently for xAI/Perplexity/OpenRouter (no discovery mechanism exists).
+// Per-provider live-discovered model list (Anthropic/Google/OpenAI/xAI/
+// Perplexity -- see liveDiscovery.ts), populated lazily by
+// ensureLiveDiscovery(). Empty until that provider's first successful live
+// fetch this process lifetime; knownModels() falls back to STATIC_MODELS for
+// any provider with no cache entry, and permanently for OpenRouter (its
+// full catalog is dynamic and handled by its own provider entry).
 const liveModelCache = new Map<ProviderId, ModelInfo[]>()
 
 // Per-ref live-discovered capability patch. Merged on top of LiteLLM's
 // persisted AppSettings.modelMetadata at render time by buildModelRows
 // (Task 7) -- never itself persisted to settings.
 const liveCapabilityCache = new Map<string, Partial<ModelMetadata['capabilities']>>()
+
+// Per-ref provider-reported pricing (xAI live discovery). Attached to the
+// models payload as a FALLBACK for refs the LiteLLM sync doesn't know yet;
+// the synced modelPricing map always wins when present.
+const livePricingCache = new Map<string, { inputPer1M: number; outputPer1M: number }>()
 
 // The current best-known model list for a provider: live-discovered if a
 // successful fetch has landed this process lifetime, else the static
@@ -449,7 +479,9 @@ export function knownModels(provider: ProviderId): ModelInfo[] {
   return liveModelCache.get(provider) ?? STATIC_MODELS[provider] ?? []
 }
 
-export function liveCapabilitiesFor(ref: string): Partial<ModelMetadata['capabilities']> | undefined {
+export function liveCapabilitiesFor(
+  ref: string
+): Partial<ModelMetadata['capabilities']> | undefined {
   return liveCapabilityCache.get(ref)
 }
 
@@ -462,6 +494,7 @@ export function liveCapabilitiesFor(ref: string): Partial<ModelMetadata['capabil
 export function clearLiveDiscoveryCache(): void {
   liveModelCache.clear()
   liveCapabilityCache.clear()
+  livePricingCache.clear()
 }
 
 // Merge a live-discovered list with the static curated array by id, PER
@@ -479,7 +512,7 @@ export function clearLiveDiscoveryCache(): void {
 function mergeLiveWithStatic(
   live: ModelInfo[],
   staticModels: ModelInfo[],
-  opts: { preferStaticLabel: boolean }
+  opts: { preferStaticLabel: boolean; sortByVersion?: boolean }
 ): ModelInfo[] {
   const staticById = new Map(staticModels.map((m) => [m.id, m]))
   const byId = new Map<string, ModelInfo>()
@@ -492,7 +525,38 @@ function mergeLiveWithStatic(
       label: opts.preferStaticLabel && existing ? existing.label : m.label
     })
   }
-  return [...byId.values()]
+  let merged = [...byId.values()]
+  // Dated snapshot aliases (claude-haiku-4-5-20251001) carry the same display
+  // name as their base model and rendered as indistinguishable duplicate rows
+  // (live complaint 2026-08-12). Drop a dated id whenever its undated base is
+  // also in the list — same model, one row.
+  const ids = new Set(merged.map((m) => m.id))
+  merged = merged.filter((m) => {
+    const dated = m.id.match(/^(.*)-\d{8}$/)
+    return !(dated && ids.has(dated[1]))
+  })
+  // Newly discovered models otherwise land APPENDED below the curated set
+  // ("Grok 4.6 at the bottom of the Grok list" — live complaint 2026-08-12).
+  // For providers whose ids share one version-numbered family, order the
+  // whole group newest-first; the sort is stable, so equal-version ids keep
+  // the curated order. Providers with mixed families (Perplexity hosts Kimi/
+  // GLM/Nemotron side by side) skip this — cross-family version comparison
+  // is meaningless.
+  if (opts.sortByVersion) {
+    const version = (id: string): number[] => (id.match(/\d+/g) ?? []).map(Number)
+    const cmp = (a: number[], b: number[]): number => {
+      for (let i = 0; i < Math.max(a.length, b.length); i++) {
+        const d = (b[i] ?? -1) - (a[i] ?? -1)
+        if (d !== 0) return d
+      }
+      return 0
+    }
+    return merged
+      .map((m, i) => ({ m, i, v: version(m.id) }))
+      .sort((x, y) => cmp(x.v, y.v) || x.i - y.i)
+      .map((x) => x.m)
+  }
+  return merged
 }
 
 // OpenAI's list has no mode/type field, so filter via the LiteLLM catalog
@@ -516,7 +580,10 @@ const OPENAI_NON_CHAT_SUBSTRINGS = [
   'codex'
 ]
 
-function isKnownOpenAIChatModel(id: string, metadata: Record<string, { mode?: string }> | undefined): boolean {
+function isKnownOpenAIChatModel(
+  id: string,
+  metadata: Record<string, { mode?: string }> | undefined
+): boolean {
   const ref = `openai/${id}`
   if (metadata?.[ref]) return metadata[ref].mode === 'chat'
   return !OPENAI_NON_CHAT_SUBSTRINGS.some((s) => id.includes(s))
@@ -552,18 +619,25 @@ async function ensureLiveDiscovery(provider: ProviderId): Promise<void> {
     else if (provider === 'openai') {
       const metadata = getSettings().modelMetadata
       result = await fetchOpenAIModels(apiKey, (id) => isKnownOpenAIChatModel(id, metadata))
-    }
+    } else if (provider === 'xai') result = await fetchXaiModels(apiKey)
+    else if (provider === 'perplexity') result = await fetchPerplexityModels(apiKey)
   } catch {
     return
   }
   if (!result) return
 
   const merged = mergeLiveWithStatic(result.models, STATIC_MODELS[provider] ?? [], {
-    preferStaticLabel: provider === 'openai'
+    // OpenAI's list has no display names at all; xAI/Perplexity get generated
+    // labels ("Grok 4.6") that a curated static label should still beat.
+    preferStaticLabel: provider === 'openai' || provider === 'xai' || provider === 'perplexity',
+    sortByVersion: provider !== 'perplexity'
   })
   liveModelCache.set(provider, merged)
   for (const [id, caps] of Object.entries(result.capabilities)) {
     liveCapabilityCache.set(`${provider}/${id}`, caps)
+  }
+  for (const [id, price] of Object.entries(result.pricing ?? {})) {
+    livePricingCache.set(`${provider}/${id}`, price)
   }
 }
 
@@ -635,7 +709,19 @@ export async function listAllModels(): Promise<ProviderModels[]> {
         requiresKey: entry.requiresKey,
         keyConfigured: entry.requiresKey ? status[entry.id] : true,
         reachable,
-        models: merged,
+        // Informed picker rows: curated strengths ride along when the
+        // CAPABILITIES table knows the ref (absent otherwise, renderer hides
+        // the line).
+        models: merged.map((m) => {
+          const ref = `${entry.id}/${m.id}`
+          const caps = capabilitiesFor(ref)
+          const pricing = livePricingCache.get(ref)
+          return {
+            ...m,
+            ...(caps?.strengths ? { strengths: caps.strengths } : {}),
+            ...(pricing ? { pricing } : {})
+          }
+        }),
         note
       }
     })

@@ -1,7 +1,9 @@
+/* Models page shell — Beautiful UI: page content sits on --canvas; tables and
+   cards below supply their own --surface + hairline depth. */
 .models-page {
   flex: 1;
   min-width: 0;
-  background: var(--bg-window);
+  background: var(--canvas);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -18,33 +20,37 @@
 }
 .mp-synced {
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .mp-tabs {
   display: flex;
   gap: 4px;
   padding: 18px 28px 0;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--line);
 }
 .mp-tab {
   border: none;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--ink-2);
   font-size: 13px;
   font-weight: 500;
   padding: 8px 4px 10px;
   cursor: pointer;
   border-bottom: 2px solid transparent;
   margin-right: 18px;
-  transition: transform var(--dur-press-release) var(--ease-out);
+  /* BUI hover color grammar: 100ms standard curve. */
+  transition:
+    color var(--dur-hover) var(--ease-standard),
+    transform var(--dur-press-release) var(--ease-out);
 }
 .mp-tab:hover {
-  color: var(--text);
+  color: var(--ink);
 }
 .mp-tab.active {
-  color: var(--text);
-  border-bottom-color: var(--accent, var(--text));
+  color: var(--ink);
+  border-bottom-color: var(--accent);
 }
 .mp-tab:active {
   transform: scale(0.97);

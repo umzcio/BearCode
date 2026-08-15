@@ -1,14 +1,19 @@
+/* Attention-only run bar (see RunStatusBar.tsx): appears above the composer
+   only when the run is blocked on the user. Semantic attention = orange on its
+   tint, per the BUI language. */
 .run-status-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 6px 12px;
   margin: 0 0 6px;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  background: var(--bg-raised);
+  border: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange), transparent 60%);
+  border-radius: var(--radius-control);
+  background: var(--orange-tint);
   font-size: 13px;
-  color: var(--text-mid);
+  color: var(--ink);
+  cursor: pointer;
   transition:
     opacity var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
@@ -25,8 +30,8 @@
 .run-status-bar[data-state='closing'] {
   opacity: 0;
   transform: translateY(4px);
-  /* Matches the trust-banner convention (App.css:96-103): keep the closing
-     bar's Stop button from eating clicks during the exit transition. */
+  /* Matches the trust-banner convention (App.css:96-103): keep the bar from
+     eating clicks during the exit transition. */
   pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -42,10 +47,9 @@
     transform: none;
   }
 }
-.run-status-bar.attention {
-  border-color: var(--accent);
-  color: var(--text);
-  cursor: pointer;
+.run-status-bar:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 .rsb-label {
   flex: 1;
@@ -53,29 +57,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
 }
-.rsb-elapsed {
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-.rsb-stop {
-  border: 1px solid var(--border-soft);
-  background: transparent;
-  color: var(--text-mid);
-  border-radius: 6px;
-  padding: 2px 8px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.rsb-stop:hover {
-  color: var(--text);
+.rsb-view {
+  color: var(--orange);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 .rsb-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--orange);
   animation: rsb-pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
 }
 @keyframes rsb-pulse {
   0%,

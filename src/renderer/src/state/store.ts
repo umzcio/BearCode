@@ -755,7 +755,11 @@ export const useAppStore = create<AppState>((set, get) => {
     permissionMode: 'accept-edits',
     effort: 'adaptive',
     thinking: true,
-    webSearch: false,
+    // Web search is opt-OUT (Zach, 2026-08-12): search-capable models get the
+    // server-side tool by default; the composer toggle turns it off. Models
+    // without search capability ignore this (serverSearchActive gates on
+    // webSearchCapability), so a blanket true is safe.
+    webSearch: true,
     ursaMode: 'code',
     folderSettings: [],
     projectSettingsPath: null,
@@ -1003,6 +1007,12 @@ export const useAppStore = create<AppState>((set, get) => {
           permissionMode: s.settings?.defaultPermissionMode ?? 'accept-edits',
           effort: s.settings?.defaultEffort ?? 'adaptive',
           thinking: s.settings?.defaultThinking ?? true,
+          // Web search is opt-out: a fresh conversation always starts ON. This
+          // reset is load-bearing -- startFromHome PERSISTS the live value, so
+          // without it a just-viewed searchless conversation writes an explicit
+          // 0 into every new conversation it seeds (the 2026-08-12 "still says
+          // no web search" contamination chain).
+          webSearch: true,
           // Ursa Mode has no settings default -- a fresh Home composer is Code.
           ursaMode: 'code',
           auxSelection: null,
@@ -1070,7 +1080,9 @@ export const useAppStore = create<AppState>((set, get) => {
       set((s) => ({
         terminalTabs: {
           ...s.terminalTabs,
-          [path]: (s.terminalTabs[path] ?? []).map((t) => (t.id === id ? { ...t, exited: true } : t))
+          [path]: (s.terminalTabs[path] ?? []).map((t) =>
+            t.id === id ? { ...t, exited: true } : t
+          )
         }
       }))
     },
@@ -1828,7 +1840,8 @@ export const useAppStore = create<AppState>((set, get) => {
       if (summary.rulesImported > 0) parts.push(plural(summary.rulesImported, 'rule'))
       if (summary.workflowsImported > 0) parts.push(plural(summary.workflowsImported, 'workflow'))
       if (summary.skillsImported > 0) parts.push(plural(summary.skillsImported, 'skill'))
-      if (summary.mcpServersImported > 0) parts.push(plural(summary.mcpServersImported, 'connector'))
+      if (summary.mcpServersImported > 0)
+        parts.push(plural(summary.mcpServersImported, 'connector'))
       get().showToast(parts.length === 0 ? 'Nothing was imported' : `Imported ${parts.join(', ')}`)
       // refreshTrustState too, not just the banner state (final review Finding
       // 4): if the project had no .agents/ before this import,

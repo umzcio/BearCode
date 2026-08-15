@@ -40,6 +40,8 @@
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@langchain/anthropic": "^1.5.3",
     "@langchain/core": "^1.2.4",
     "@langchain/google-genai": "^2.2.0",

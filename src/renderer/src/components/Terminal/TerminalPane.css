@@ -23,5 +23,7 @@
   height: 100%;
   padding: 8px;
   box-sizing: border-box;
-  background: var(--bg-window);
+  /* Matches xtermTheme()'s background (TerminalPane.tsx) so the padding frame
+     and the terminal cell grid read as one surface. */
+  background: var(--canvas);
 }

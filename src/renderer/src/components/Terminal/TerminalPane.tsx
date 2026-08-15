@@ -19,12 +19,16 @@ function xtermTheme(): {
   selectionBackground: string
 } {
   const styles = getComputedStyle(document.documentElement)
-  const v = (name: string, fallback: string): string => styles.getPropertyValue(name).trim() || fallback
+  const v = (name: string, fallback: string): string =>
+    styles.getPropertyValue(name).trim() || fallback
+  // BUI palette via the canonical tokens (fallbacks mirror the dark-theme
+  // values in styles/tokens.css). Must stay in sync with
+  // .terminal-pane-surface's background in TerminalPane.css.
   return {
-    background: v('--bg-window', '#1b1b1b'),
-    foreground: v('--text', '#e7e7e7'),
-    cursor: v('--accent', '#4c8dff'),
-    selectionBackground: v('--bg-active', '#2e2e2e')
+    background: v('--canvas', '#1c1d1f'),
+    foreground: v('--ink', '#f2f3f4'),
+    cursor: v('--accent', '#3d9aff'),
+    selectionBackground: v('--hover-2', '#313236')
   }
 }
 
