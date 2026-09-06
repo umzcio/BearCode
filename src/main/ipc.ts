@@ -52,10 +52,12 @@ import { isPermissionMode } from '../shared/permissionMode'
 import { isEffortLevel } from '../shared/effort'
 import { isUrsaMode } from '../shared/ursaMode'
 import {
+  compatKeyStatus,
   getHermesPlatformKey,
   getHermesToken,
   getOrCreateHermesInstallationId,
   keyStatus,
+  setCompatKey,
   setHermesPlatformKey,
   setHermesToken,
   setKey,
@@ -89,7 +91,7 @@ import {
 import { mcpManager } from './mcp/manager'
 import { smitherySearch, fetchSmitheryConfig } from './mcp/registry'
 import { addUserRule, deleteUserRule, listRulesInfo, setBuiltinDisabled } from './permissions'
-import { setSettings, settingsInfo } from './settings'
+import { getSettings, setSettings, settingsInfo } from './settings'
 import { allKnownModelRefs, clearLiveDiscoveryCache, listAllModels, listManageableModels } from './providers/registry'
 import { syncPricing } from './pricing/sync'
 import { filePathFor, getDiff, revertFile } from './diffs'
@@ -584,6 +586,24 @@ export function registerIpc(): void {
     setKey(provider, key)
   })
   ipcMain.handle('bearcode:keys:status', () => keyStatus())
+
+  // Compat provider (user-configured OpenAI-compatible endpoints): per-endpoint
+  // keys in the vault as `compat:<endpointId>`. Write-only from the renderer
+  // (same convention as bearcode:mcp:set-secret); an empty string clears. The
+  // endpointId is validated against the configured compatEndpoints so a
+  // renderer can never write a vault entry for an endpoint that doesn't exist.
+  ipcMain.handle('bearcode:compat:set-key', (_e, endpointId: unknown, value: unknown) => {
+    if (typeof endpointId !== 'string' || endpointId.length === 0) {
+      throw new Error(`Invalid compat endpoint id: ${String(endpointId)}`)
+    }
+    if (typeof value !== 'string') throw new Error(`Invalid secret value: ${String(value)}`)
+    const configured = (getSettings().compatEndpoints ?? []).map((ep) => ep.id)
+    setCompatKey(endpointId, value, configured)
+  })
+  ipcMain.handle('bearcode:compat:key-status', () => {
+    const configured = (getSettings().compatEndpoints ?? []).map((ep) => ep.id)
+    return compatKeyStatus(configured)
+  })
 
   const assertHermesConnectionUrl = (
     mode: HermesConnectionMode,

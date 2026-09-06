@@ -278,6 +278,14 @@
   overflow-y: auto;
   padding-left: 4px;
 }
+/* Multi-endpoint rails (Ollama instances, compat endpoints): per-endpoint
+   subheader inside the All-tab pane — smaller and more muted than the
+   provider's menu-group-label above it. */
+.mpk-instance-label {
+  padding: 6px 14px 2px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
 
 /* Brand tile: vendor glyph in its brand color on a tinted rounded square
    (the approved mock's icon treatment, rail + rows). */

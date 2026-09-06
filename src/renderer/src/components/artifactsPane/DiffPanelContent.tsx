@@ -160,17 +160,7 @@ export function DiffPanelContent({
                         </span>
                       )}
                       {f.fileId === activeFile?.fileId ? (
-                        <svg
-                          className="ap-clawmark"
-                          width="16"
-                          height="6"
-                          viewBox="0 0 16 6"
-                          aria-hidden="true"
-                        >
-                          <path d="M1 5 L5.3 1" />
-                          <path d="M5.3 5 L9.7 1" />
-                          <path d="M9.7 5 L14 1" />
-                        </svg>
+                        <span className="ap-tab-indicator" aria-hidden="true" />
                       ) : null}
                     </button>
                   ))}

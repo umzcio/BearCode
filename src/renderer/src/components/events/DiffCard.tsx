@@ -2,7 +2,7 @@ import { memo, useState } from 'react'
 import type { Event } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { useCmdHeld } from '../../lib/useCmdHeld'
-import { IconChevronDown, IconFile } from '../icons'
+import { ChevronDown, FileText } from 'lucide-react'
 import './events.css'
 
 type FileDiffEvent = Extract<Event, { type: 'file_diff' }>
@@ -24,11 +24,11 @@ function DiffCardImpl({ event }: { event: FileDiffEvent }): React.JSX.Element {
           <span className="plus">+{additions}</span>
           <span className="minus">-{deletions}</span>
           <span className="chev">
-            <IconChevronDown />
+            <ChevronDown />
           </span>
         </span>
         <button className="review-btn" onClick={() => openReview(event.diffId)}>
-          <IconFile />
+          <FileText />
           Review
         </button>
       </div>

@@ -13,6 +13,7 @@ import { Select, type SelectOption } from '../Select'
 import { Toggle } from '../Toggle'
 import { EmptyState } from '../ui/EmptyState'
 import { Menu } from '../ui/Menu'
+import { Badge } from '../ui/badge'
 import { ProviderIcon } from '../ProviderIcon'
 import { IconDots, IconSearch, IconStar } from '../icons'
 import { ModelDetailModal } from './ModelDetailModal'
@@ -269,12 +270,12 @@ export function ModelsTab(): React.JSX.Element {
                       ) : (
                         <div className="mt-caps">
                           {caps.slice(0, 3).map((c) => (
-                            <span className="chip" key={c}>
+                            <Badge variant="secondary" key={c}>
                               {CAPABILITY_LABEL[c]}
-                            </span>
+                            </Badge>
                           ))}
                           {caps.length > 3 ? (
-                            <span className="chip">+{caps.length - 3}</span>
+                            <Badge variant="secondary">+{caps.length - 3}</Badge>
                           ) : null}
                         </div>
                       )}

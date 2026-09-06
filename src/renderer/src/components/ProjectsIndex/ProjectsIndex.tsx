@@ -5,7 +5,7 @@ import { groupConversations, type ConvoLike } from '../Sidebar/grouping'
 import { EmptyState } from '../ui/EmptyState'
 import { Hint } from '../Hint'
 import { Select, type SelectOption } from '../Select'
-import { IconFolder, IconPin, IconPlus, IconSettings, IconTerminal } from '../icons'
+import { IconPin, IconPlus, IconSettings, IconTerminal } from '../icons'
 import { projectIcon } from '../ProjectSettings/projectIcons'
 import './ProjectsIndex.css'
 
@@ -126,118 +126,124 @@ export function ProjectsIndex(): React.JSX.Element {
 
   return (
     <div className="projects-index">
-      <div className="pidx-head">
-        <span className="pidx-icon">
-          <IconFolder size={17} />
-        </span>
-        <div className="pidx-title">
-          <h3>Projects</h3>
-          <div className="pidx-meta">
-            {rows.length} project{rows.length === 1 ? '' : 's'}
+      <div className="pidx-inner">
+        <div className="pidx-head">
+          <div className="pidx-title">
+            <h3>Projects</h3>
+            <div className="pidx-meta">
+              {rows.length} project{rows.length === 1 ? '' : 's'}
+            </div>
+          </div>
+          <div className="pidx-sort">
+            <Select
+              value={sort}
+              options={SORT_OPTIONS}
+              onChange={setSort}
+              ariaLabel="Sort projects"
+              compact
+            />
           </div>
         </div>
-        <div className="pidx-sort">
-          <Select
-            value={sort}
-            options={SORT_OPTIONS}
-            onChange={setSort}
-            ariaLabel="Sort projects"
-            compact
-          />
-        </div>
-      </div>
-      <div className="pidx-list">
         {sorted.length === 0 ? (
-          <EmptyState title="No projects yet" hint="Open a folder to add your first project." />
+          <div className="pidx-empty">
+            <EmptyState title="No projects yet" hint="Open a folder to add your first project." />
+          </div>
         ) : (
-          sorted.map(({ fp, count }) => {
-            const Icon = projectIcon(fp.icon)
-            const label = fp.name ?? fp.path.split('/').pop() ?? fp.path
-            const selected = view.kind === 'project' && view.path === fp.path
-            return (
-              <div
-                key={fp.path}
-                className={'pidx-row' + (selected ? ' selected' : '')}
-                role="button"
-                tabIndex={0}
-                onClick={() => openProjectPage(fp.path)}
-                onKeyDown={(e) => {
-                  // Ignore keys originating on the nested Pin button (mirrors
-                  // ProjectPage.tsx's identical row-vs-action convention).
-                  if (e.target !== e.currentTarget) return
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    openProjectPage(fp.path)
-                  }
-                }}
-              >
-                <span
-                  className="chip"
-                  style={fp.color ? { background: fp.color + '2e', color: fp.color } : undefined}
+          <div className="pidx-list">
+            {sorted.map(({ fp, count }) => {
+              const Icon = projectIcon(fp.icon)
+              const label = fp.name ?? fp.path.split('/').pop() ?? fp.path
+              const selected = view.kind === 'project' && view.path === fp.path
+              return (
+                <div
+                  key={fp.path}
+                  className={'pidx-row' + (selected ? ' selected' : '')}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openProjectPage(fp.path)}
+                  onKeyDown={(e) => {
+                    // Ignore keys originating on the nested Pin button (mirrors
+                    // ProjectPage.tsx's identical row-vs-action convention).
+                    if (e.target !== e.currentTarget) return
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      openProjectPage(fp.path)
+                    }
+                  }}
                 >
-                  <Icon size={13} />
-                </span>
-                <span className="name">{label}</span>
-                <span className="cnt">
-                  {count} conversation{count === 1 ? '' : 's'}
-                </span>
-                <span className="pidx-rowact">
-                  <Hint label="Project settings">
-                    <button
-                      type="button"
-                      className="row-act"
-                      aria-label="Project settings"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openProjectSettings(fp.path)
-                      }}
+                  <div className="pidx-card-head">
+                    <span
+                      className="chip"
+                      style={
+                        fp.color ? { background: fp.color + '2e', color: fp.color } : undefined
+                      }
                     >
-                      <IconSettings size={13} />
-                    </button>
-                  </Hint>
-                  <Hint label="Open terminal">
-                    <button
-                      type="button"
-                      className="row-act"
-                      aria-label="Open terminal"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openTerminalView(fp.path)
-                      }}
-                    >
-                      <IconTerminal size={13} />
-                    </button>
-                  </Hint>
-                  <Hint label="New conversation">
-                    <button
-                      type="button"
-                      className="row-act"
-                      aria-label="New conversation"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void newConversationInProject(fp.path)
-                      }}
-                    >
-                      <IconPlus size={13} />
-                    </button>
-                  </Hint>
-                  <Hint label={fp.pinned ? 'Unpin project' : 'Pin project'}>
-                    <button
-                      type="button"
-                      className={'row-act' + (fp.pinned ? ' active' : '')}
-                      aria-label={fp.pinned ? 'Unpin project' : 'Pin project'}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void toggleProjectPinned(fp.path)
-                      }}
-                    >
-                      <IconPin size={13} />
-                    </button>
-                  </Hint>
-                </span>
-              </div>
-            )
-          })
+                      <Icon size={15} />
+                    </span>
+                    <span className="pidx-rowact">
+                      <Hint label="Project settings">
+                        <button
+                          type="button"
+                          className="row-act"
+                          aria-label="Project settings"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openProjectSettings(fp.path)
+                          }}
+                        >
+                          <IconSettings size={13} />
+                        </button>
+                      </Hint>
+                      <Hint label="Open terminal">
+                        <button
+                          type="button"
+                          className="row-act"
+                          aria-label="Open terminal"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openTerminalView(fp.path)
+                          }}
+                        >
+                          <IconTerminal size={13} />
+                        </button>
+                      </Hint>
+                      <Hint label="New conversation">
+                        <button
+                          type="button"
+                          className="row-act"
+                          aria-label="New conversation"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void newConversationInProject(fp.path)
+                          }}
+                        >
+                          <IconPlus size={13} />
+                        </button>
+                      </Hint>
+                      <Hint label={fp.pinned ? 'Unpin project' : 'Pin project'}>
+                        <button
+                          type="button"
+                          className={'row-act' + (fp.pinned ? ' active' : '')}
+                          aria-label={fp.pinned ? 'Unpin project' : 'Pin project'}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void toggleProjectPinned(fp.path)
+                          }}
+                        >
+                          <IconPin size={13} />
+                        </button>
+                      </Hint>
+                    </span>
+                  </div>
+                  <span className="name">{label}</span>
+                  <span className="pidx-path">{fp.path}</span>
+                  <span className="cnt">
+                    {count} conversation{count === 1 ? '' : 's'}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </div>

@@ -1,11 +1,12 @@
 /* F3: the Monaco conflict resolver modal. Reuses the shared `.modal-overlay`
-   scrim + `.content-close`; the panel is a BUI overlay surface (--surface,
-   radius-overlay, hairline-ring shadow), sized for a code editor. */
+   scrim + `.content-close`; the panel is a clean rounded-2xl overlay surface
+   (--surface, 16px corners, hairline-ring overlay shadow), sized for a code
+   editor. */
 .conflict-panel {
   width: min(980px, calc(100% - 56px));
   height: min(720px, calc(100% - 56px));
   background: var(--surface);
-  border-radius: var(--radius-overlay);
+  border-radius: 16px;
   box-shadow: var(--shadow-overlay);
   display: flex;
   flex-direction: column;
@@ -54,7 +55,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
@@ -62,7 +63,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--ink);
 }
@@ -80,18 +81,18 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 10px 16px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
-/* File chips: mono path chips on --field with a hairline ring; the current
+/* File chips: mono path pills on --field with a hairline ring; the current
    one is a semantic chip (accent on its tint), resolved ones go quiet. */
 .conflict-chip {
   font-size: 11.5px;
   font-weight: 500;
   font-family: var(--mono, ui-monospace, monospace);
-  padding: 2px 8px;
-  border-radius: var(--radius-chip);
+  padding: 3px 10px;
+  border-radius: 999px;
   color: var(--ink-2);
   background: var(--field);
   box-shadow: var(--shadow-hairline);
@@ -113,18 +114,28 @@
 }
 
 .conflict-file {
-  padding: 8px 16px;
+  padding: 10px 20px 8px;
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 11.5px;
   line-height: 1.7;
   color: var(--ink-2);
   flex-shrink: 0;
 }
+/* The editor reads as a rounded inset card floating inside the panel, framed
+   by a hairline ring; overflow hidden clips Monaco to the corner radius. */
 .conflict-editor {
   flex: 1;
   min-height: 0;
   position: relative;
-  border-top: 1px solid var(--line);
+  margin: 0 20px 16px;
+  border-radius: var(--radius-overlay);
+  box-shadow: var(--shadow-hairline);
+  overflow: hidden;
+  /* Centers the Loading/error stand-ins; the Monaco host is absolute inset:0
+     and unaffected. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .conflict-editor .monaco-host {
   position: absolute;
@@ -150,7 +161,8 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  gap: 4px;
+  gap: 6px;
+  padding: 24px;
   color: var(--ink);
   font-size: 15px;
 }
@@ -163,7 +175,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 16px;
+  padding: 14px 20px;
   border-top: 1px solid var(--line);
   flex-shrink: 0;
 }

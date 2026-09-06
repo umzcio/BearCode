@@ -9,7 +9,8 @@
   align-items: center;
 }
 
-/* The ring button: a bare 16px SVG in a hit target, accent-colored. */
+/* The ring button: a bare 16px SVG in a circular ghost hit target,
+   accent-colored. */
 .context-ring {
   display: inline-flex;
   align-items: center;
@@ -18,7 +19,7 @@
   height: 24px;
   padding: 0;
   border: none;
-  border-radius: var(--radius-chip);
+  border-radius: 50%;
   background: transparent;
   color: var(--accent);
   cursor: pointer;

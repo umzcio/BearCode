@@ -4,6 +4,11 @@
   opacity: 0;
   z-index: 0;
   pointer-events: none;
+  /* Inset frame: the page background (TerminalView's .terminal-panes) shows
+     around the rounded card below. Keep in sync with FRAME_PADDING_PX in
+     termGeometry.ts -- the pre-spawn geometry probe subtracts this inset. */
+  padding: 10px;
+  box-sizing: border-box;
 }
 
 .terminal-pane.active {
@@ -26,4 +31,9 @@
   /* Matches xtermTheme()'s background (TerminalPane.tsx) so the padding frame
      and the terminal cell grid read as one surface. */
   background: var(--canvas);
+  /* Rounded card with a hairline ring + soft lift; overflow hidden clips the
+     xterm grid (and its helper layers) to the corner radius. */
+  border-radius: var(--radius-overlay);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
 }

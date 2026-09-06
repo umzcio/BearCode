@@ -51,91 +51,107 @@ export function ProjectPage({ path }: { path: string | null }): React.JSX.Elemen
   const now = Date.now()
   const buckets: { label: string; ids: string[] }[] = []
   for (const label of ['Today', 'This week', 'Older'] as const) {
-    const bucketIds = ids.filter((id) => dayBucket(conversations[id]?.updatedAt ?? 0, now) === label)
+    const bucketIds = ids.filter(
+      (id) => dayBucket(conversations[id]?.updatedAt ?? 0, now) === label
+    )
     if (bucketIds.length > 0) buckets.push({ label, ids: bucketIds })
   }
 
   return (
     <div className="project-page">
-      <div className="pp-head">
-        <span className="pp-icon">
-          <Icon size={17} />
-        </span>
-        <div className="pp-title">
-          <h3>{label}</h3>
-          <div className="pp-meta">
-            {ids.length} conversation{ids.length === 1 ? '' : 's'}
+      <div className="pp-inner">
+        <div className="pp-head">
+          <span className="pp-icon">
+            <Icon size={17} />
+          </span>
+          <div className="pp-title">
+            <h3>{label}</h3>
+            <div className="pp-meta">
+              {path ? (
+                <>
+                  <span className="pp-path">{path}</span>
+                  <span className="pp-sep" aria-hidden="true">
+                    ·
+                  </span>
+                </>
+              ) : null}
+              <span>
+                {ids.length} conversation{ids.length === 1 ? '' : 's'}
+              </span>
+            </div>
+          </div>
+          <div className="pp-actions">
+            {path ? (
+              <Hint label={fp?.pinned ? 'Unpin project' : 'Pin project'}>
+                <button
+                  type="button"
+                  className={'pp-btn pp-pin' + (fp?.pinned ? ' active' : '')}
+                  aria-label={fp?.pinned ? 'Unpin project' : 'Pin project'}
+                  onClick={() => void toggleProjectPinned(path)}
+                >
+                  <IconPin size={13} />
+                </button>
+              </Hint>
+            ) : null}
+            {path ? (
+              <button type="button" className="pp-btn" onClick={() => openProjectSettings(path)}>
+                <IconSettings size={13} />
+                Settings
+              </button>
+            ) : null}
+            {path ? (
+              <button type="button" className="pp-btn" onClick={() => openTerminalView(path)}>
+                <IconTerminal size={13} />
+                Terminal
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="pp-btn primary"
+              onClick={() => (path ? void newConversationInProject(path) : goHome())}
+            >
+              <IconPlus size={13} />
+              New
+            </button>
           </div>
         </div>
-        <div className="pp-actions">
-          {path ? (
-            <Hint label={fp?.pinned ? 'Unpin project' : 'Pin project'}>
-              <button
-                type="button"
-                className={'pp-btn pp-pin' + (fp?.pinned ? ' active' : '')}
-                aria-label={fp?.pinned ? 'Unpin project' : 'Pin project'}
-                onClick={() => void toggleProjectPinned(path)}
-              >
-                <IconPin size={13} />
-              </button>
-            </Hint>
-          ) : null}
-          {path ? (
-            <button type="button" className="pp-btn" onClick={() => openProjectSettings(path)}>
-              <IconSettings size={13} />
-              Settings
-            </button>
-          ) : null}
-          {path ? (
-            <button type="button" className="pp-btn" onClick={() => openTerminalView(path)}>
-              <IconTerminal size={13} />
-              Terminal
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="pp-btn primary"
-            onClick={() => (path ? void newConversationInProject(path) : goHome())}
-          >
-            <IconPlus size={13} />
-            New
-          </button>
+        <div className="pp-list">
+          {ids.length === 0 ? (
+            <EmptyState title="No conversations yet" />
+          ) : (
+            buckets.map((bucket) => (
+              <div key={bucket.label}>
+                <div className="pp-daylabel">{bucket.label}</div>
+                {bucket.ids.map((id) => {
+                  const convo = conversations[id]
+                  if (!convo) return null
+                  return (
+                    <ConvoRow
+                      key={id}
+                      id={id}
+                      title={convo.title}
+                      pinned={convo.pinned}
+                      archived={convo.archived}
+                      subtitle={
+                        subtitle === 'worktree' &&
+                        convo.environment === 'worktree' &&
+                        convo.worktrees[0]
+                          ? convo.worktrees[0].branch
+                          : undefined
+                      }
+                      age={relativeAge(convo.updatedAt)}
+                      rowClassName="pp-row"
+                      actionsClassName="pp-rowact"
+                      onOpen={() => openConvo(id)}
+                      onTogglePinned={() => setPinned(id, !convo.pinned)}
+                      onToggleArchived={() => setArchived(id, !convo.archived)}
+                    />
+                  )
+                })}
+              </div>
+            ))
+          )}
         </div>
-      </div>
-      <div className="pp-list">
-        {ids.length === 0 ? (
-          <EmptyState title="No conversations yet" />
-        ) : (
-          buckets.map((bucket) => (
-            <div key={bucket.label}>
-              <div className="pp-daylabel">{bucket.label}</div>
-              {bucket.ids.map((id) => {
-                const convo = conversations[id]
-                if (!convo) return null
-                return (
-                  <ConvoRow
-                    key={id}
-                    id={id}
-                    title={convo.title}
-                    pinned={convo.pinned}
-                    archived={convo.archived}
-                    subtitle={
-                      subtitle === 'worktree' && convo.environment === 'worktree' && convo.worktrees[0]
-                        ? convo.worktrees[0].branch
-                        : undefined
-                    }
-                    age={relativeAge(convo.updatedAt)}
-                    rowClassName="pp-row"
-                    actionsClassName="pp-rowact"
-                    onOpen={() => openConvo(id)}
-                    onTogglePinned={() => setPinned(id, !convo.pinned)}
-                    onToggleArchived={() => setArchived(id, !convo.archived)}
-                  />
-                )
-              })}
-            </div>
-          ))
-        )}
       </div>
     </div>
   )

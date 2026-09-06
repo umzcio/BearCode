@@ -19,7 +19,7 @@ describe('persistent window chrome motion contract', () => {
   it('keeps the sidebar and search controls tightly adjacent', () => {
     const controls = ruleBody(chromeCss, '.window-chrome-controls')
 
-    expect(controls).toContain('gap: 0;')
+    expect(controls).toContain('gap: 2px;')
   })
 
   it('locally exempts fixed chrome buttons from transition and active scaling', () => {

@@ -14,7 +14,12 @@ const PROVIDERS: ProviderId[] = [
   'openrouter',
   'perplexity',
   'xai',
-  'ollama'
+  'ollama',
+  // Always false: compat endpoints are keyed per-endpoint in the vault as
+  // `compat:<endpointId>` (see compatKeyStatus below), never under the bare
+  // 'compat' key. Present only so keyStatus() stays a total
+  // Record<ProviderId, boolean>.
+  'compat'
 ]
 
 function vaultPath(): string {
@@ -73,6 +78,44 @@ const HERMES_TOKEN_VAULT_KEY = 'hermes:bearerToken'
 const HERMES_PLATFORM_KEY_VAULT_KEY = 'hermes:platformKey'
 const HERMES_INSTALLATION_ID_VAULT_KEY = 'hermes:installationId'
 
+// Compat provider (user-configured OpenAI-compatible endpoints): per-endpoint
+// API keys, namespaced `compat:<endpointId>` so they can never collide with a
+// first-party provider key or an MCP/hermes secret.
+const COMPAT_KEY_PREFIX = 'compat:'
+
+export function compatVaultKey(endpointId: string): string {
+  return `${COMPAT_KEY_PREFIX}${endpointId}`
+}
+
+// Write (or clear, on empty value -- setVaultSecret deletes on falsy) an
+// endpoint's key. configuredEndpointIds must come from the CURRENT settings
+// (AppSettings.compatEndpoints) so a renderer can never write a vault entry
+// for an endpoint that doesn't exist.
+export function setCompatKey(
+  endpointId: string,
+  value: string,
+  configuredEndpointIds: string[]
+): void {
+  if (!configuredEndpointIds.includes(endpointId)) {
+    throw new Error(`Unknown compat endpoint: ${endpointId}`)
+  }
+  setVaultSecret(compatVaultKey(endpointId), value)
+}
+
+// Per-endpoint key presence (booleans only) for the configured endpoints --
+// the decrypted key never leaves main.
+export function compatKeyStatus(configuredEndpointIds: string[]): Record<string, boolean> {
+  const vault = readVault()
+  const status: Record<string, boolean> = {}
+  for (const id of configuredEndpointIds) status[id] = Boolean(vault[compatVaultKey(id)])
+  return status
+}
+
+// Main-side read for the provider layer (discovery/requests). Never wire this
+// into an IPC handler -- plaintext keys must not cross to the renderer.
+export function getCompatKey(endpointId: string): string | undefined {
+  return getVaultSecret(compatVaultKey(endpointId))
+}
 export function setHermesToken(token: string): void {
   setVaultSecret(HERMES_TOKEN_VAULT_KEY, token)
 }

@@ -7,8 +7,12 @@ import { ChatOpenAI, ChatOpenAICompletions, ChatOpenAIResponses } from '@langcha
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
 import { BearcodeChatOllama } from './ollamaCompat'
 import { getKey } from '../keys'
-import { getSettings } from '../settings'
-import { parseModelRef, capabilitiesFor } from '../providers/registry'
+import {
+  parseModelRef,
+  capabilitiesFor,
+  resolveOllamaTarget,
+  resolveCompatTarget
+} from '../providers/registry'
 import { webSearchCapability } from '../../shared/effort'
 import type { EffortLevel, ProviderId } from '../../shared/types'
 
@@ -437,10 +441,37 @@ export function makeModel(
         ...extras
       })
     }
-    case 'ollama':
+    case 'ollama': {
       // BearcodeChatOllama stringifies non-string tool-message content that
-      // upstream ChatOllama rejects (see ollamaCompat.ts).
-      return new BearcodeChatOllama({ baseUrl: getSettings().ollamaBaseUrl, model: modelId, ...extras })
+      // upstream ChatOllama rejects (see ollamaCompat.ts). resolveOllamaTarget
+      // routes a namespaced ref ('<instanceId>/<model>') to that instance's
+      // baseUrl with the remainder as the model name; bare/legacy refs hit the
+      // primary instance with the modelId intact.
+      const { baseUrl, modelName } = resolveOllamaTarget(modelId)
+      return new BearcodeChatOllama({ baseUrl, model: modelName, ...extras })
+    }
+    case 'compat': {
+      // OpenAI-compatible endpoints (vLLM, LM Studio, llama.cpp). Same pattern
+      // as openrouter: ChatOpenAI + a baseURL override. resolveCompatTarget
+      // routes a namespaced ref ('<endpointId>/<model>') to that endpoint;
+      // bare refs hit the primary endpoint. The endpoint's vault key
+      // (compat:<endpointId>) rides along when set; otherwise a placeholder
+      // key -- ChatOpenAI throws without one, and local servers ignore it.
+      // The 'No compat endpoints configured' throw propagates on purpose: the
+      // renderer never offers unresolvable refs, and a stale ref left behind
+      // by endpoint deletion must fail loudly here, never fall through to
+      // api.openai.com. extras is {} via buildModelExtras' default branch, so
+      // this is plain Chat Completions -- never the Responses API. vLLM/LM
+      // Studio generally speak tool calling, so no ToollessChatOpenAI wrapper
+      // (a per-endpoint tool-less toggle is a future knob if one is needed).
+      const { baseUrl, modelName, apiKey } = resolveCompatTarget(modelId)
+      return new ChatOpenAI({
+        apiKey: apiKey ?? 'bearcode-unused',
+        model: modelName,
+        configuration: { baseURL: `${baseUrl.replace(/\/$/, '')}/v1` },
+        ...extras
+      })
+    }
     default:
       throw new Error(`Unknown provider: ${provider as string}`)
   }

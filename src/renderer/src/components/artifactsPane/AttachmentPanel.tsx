@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { Download, FileWarning } from 'lucide-react'
 import type { Event } from '@shared/types'
 import { attachmentBadge } from '../../lib/attachmentBadge'
 import { useAppStore } from '../../state/store'
 import { AttachmentPreview } from '../AttachmentPreview/AttachmentPreview'
 import { Hint } from '../Hint'
 import { IconClose } from '../icons'
+import { EmptyState } from '../ui/EmptyState'
 import { formatBytes } from './format'
 
 export function AttachmentPanel({
@@ -47,7 +49,12 @@ export function AttachmentPanel({
         <div className="ap-spacer" />
         <div className="ap-actions">
           {attachment ? (
-            <button disabled={savePending} onClick={() => void download()}>
+            <button
+              className="ap-download-btn"
+              disabled={savePending}
+              onClick={() => void download()}
+            >
+              <Download aria-hidden="true" />
               Download…
             </button>
           ) : null}
@@ -62,7 +69,10 @@ export function AttachmentPanel({
         {attachment ? (
           <AttachmentPreview conversationId={conversationId} attachmentId={attachmentId} />
         ) : (
-          <div className="ap-attachment-missing">Attachment is no longer available</div>
+          <div className="diff-loading">
+            <FileWarning size={22} strokeWidth={1.5} className="ap-state-icon" aria-hidden="true" />
+            <EmptyState title="Attachment is no longer available" />
+          </div>
         )}
       </div>
     </>

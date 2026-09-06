@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { X } from 'lucide-react'
 import type { JSX } from 'react'
 import type { ImportCandidate } from '@shared/types'
 import { useAppStore } from '../state/store'
 import { useAnimatedUnmount } from '../lib/useAnimatedUnmount'
 import { EmptyState } from './ui/EmptyState'
+import './ImportConfigReviewModal.css'
 
 // "1 rule" / "3 rules" -- mirrors store.ts's `plural` (not exported, so
 // duplicated here rather than reaching into the store module for a private
@@ -99,11 +101,15 @@ export function ImportConfigReviewModal(): JSX.Element | null {
     setImporting(true)
     setError(null)
     const selection = {
-      rules: importable.filter((c) => c.kind === 'rule' && selected.has(c.sourcePath)).map((c) => c.sourcePath),
+      rules: importable
+        .filter((c) => c.kind === 'rule' && selected.has(c.sourcePath))
+        .map((c) => c.sourcePath),
       workflows: importable
         .filter((c) => c.kind === 'workflow' && selected.has(c.sourcePath))
         .map((c) => c.sourcePath),
-      skills: importable.filter((c) => c.kind === 'skill' && selected.has(c.sourcePath)).map((c) => c.sourcePath),
+      skills: importable
+        .filter((c) => c.kind === 'skill' && selected.has(c.sourcePath))
+        .map((c) => c.sourcePath),
       mcpServers: importable
         .filter((c) => c.kind === 'mcp' && selected.has(c.sourcePath))
         .map((c) => c.sourcePath)
@@ -119,7 +125,8 @@ export function ImportConfigReviewModal(): JSX.Element | null {
         if (summary.rulesImported > 0) parts.push(plural(summary.rulesImported, 'rule'))
         if (summary.workflowsImported > 0) parts.push(plural(summary.workflowsImported, 'workflow'))
         if (summary.skillsImported > 0) parts.push(plural(summary.skillsImported, 'skill'))
-        if (summary.mcpServersImported > 0) parts.push(plural(summary.mcpServersImported, 'connector'))
+        if (summary.mcpServersImported > 0)
+          parts.push(plural(summary.mcpServersImported, 'connector'))
         const base = parts.length === 0 ? 'Nothing was imported.' : `Imported ${parts.join(', ')}.`
         const skippedNote =
           summary.skipped.length > 0
@@ -141,16 +148,16 @@ export function ImportConfigReviewModal(): JSX.Element | null {
       data-state={state}
       onClick={(e) => e.target === e.currentTarget && closeReview()}
     >
-      <div className="smithery-panel" data-state={state}>
-        <div className="smithery-header">
+      <div className="icr-panel" data-state={state}>
+        <div className="icr-header">
           <div>
-            <div className="page-title">Review &amp; Import</div>
-            <div className="smithery-sub">
+            <div className="icr-title">Review &amp; Import</div>
+            <div className="icr-sub">
               {error ?? summaryText ?? 'Choose what to bring into BearCode.'}
             </div>
           </div>
-          <button className="pill-btn" onClick={closeReview}>
-            Close
+          <button className="icr-close" onClick={closeReview} aria-label="Close">
+            <X size={15} aria-hidden="true" />
           </button>
         </div>
         {candidates.length === 0 ? (
@@ -163,20 +170,20 @@ export function ImportConfigReviewModal(): JSX.Element | null {
                 out of the clipped area past ~9-10 candidates (easily reached
                 by a real .cursor/rules/ directory) and made it unreachable.
                 Same wrapper BrowseSmitheryModal uses for the same reason. */}
-            <div className="smithery-results">
+            <div className="icr-list">
               {importable.map((c) => (
-                <label key={c.sourcePath} className="set-row">
+                <label key={c.sourcePath} className="icr-row">
                   <input
                     type="checkbox"
                     checked={selected.has(c.sourcePath)}
                     onChange={() => toggle(c.sourcePath)}
                   />
-                  <div className="set-row-text">
-                    <div className="set-row-title">{c.sourcePath}</div>
-                    <div className="set-row-desc">{KIND_LABEL[c.kind]}</div>
-                    {c.preview ? <div className="import-preview">{c.preview}</div> : null}
+                  <div className="icr-row-text">
+                    <div className="icr-row-title">{c.sourcePath}</div>
+                    <div className="icr-row-desc">{KIND_LABEL[c.kind]}</div>
+                    {c.preview ? <div className="icr-preview">{c.preview}</div> : null}
                     {c.warnings?.length ? (
-                      <div className="import-warning">
+                      <div className="icr-warning">
                         {c.warnings.length === 1
                           ? c.warnings[0]
                           : `${c.warnings.length} translation warnings: ${c.warnings.join('; ')}`}
@@ -186,10 +193,10 @@ export function ImportConfigReviewModal(): JSX.Element | null {
                 </label>
               ))}
               {skipped.map((c) => (
-                <div className="set-row import-skipped" key={c.sourcePath}>
-                  <div className="set-row-text">
-                    <div className="set-row-title">{c.sourcePath}</div>
-                    <div className="set-row-desc">
+                <div className="icr-row icr-skipped" key={c.sourcePath}>
+                  <div className="icr-row-text">
+                    <div className="icr-row-title">{c.sourcePath}</div>
+                    <div className="icr-row-desc">
                       {c.notPreviewed
                         ? 'Too many sources detected — not previewed yet'
                         : "Couldn't parse — skipped"}
@@ -198,21 +205,23 @@ export function ImportConfigReviewModal(): JSX.Element | null {
                 </div>
               ))}
               {unsupported.map((c) => (
-                <div className="set-row import-skipped" key={c.sourcePath}>
-                  <div className="set-row-text">
-                    <div className="set-row-title">{c.sourcePath}</div>
-                    <div className="set-row-desc">{KIND_LABEL[c.kind]}</div>
+                <div className="icr-row icr-skipped" key={c.sourcePath}>
+                  <div className="icr-row-text">
+                    <div className="icr-row-title">{c.sourcePath}</div>
+                    <div className="icr-row-desc">{KIND_LABEL[c.kind]}</div>
                   </div>
                 </div>
               ))}
             </div>
-            <button
-              className="pill-btn primary"
-              disabled={selected.size === 0 || importing || summaryText !== null}
-              onClick={doImport}
-            >
-              {importing ? 'Importing…' : `Import selected (${selected.size})`}
-            </button>
+            <div className="icr-footer">
+              <button
+                className="pill-btn primary"
+                disabled={selected.size === 0 || importing || summaryText !== null}
+                onClick={doImport}
+              >
+                {importing ? 'Importing…' : `Import selected (${selected.size})`}
+              </button>
+            </div>
           </>
         )}
       </div>

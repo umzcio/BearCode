@@ -10,6 +10,9 @@ vi.mock('./components/Home', () => ({
 vi.mock('./components/Terminal/TerminalView', () => ({
   TerminalView: () => null
 }))
+vi.mock('./components/ConversationView', () => ({
+  ConversationView: () => null
+}))
 
 beforeEach(() => {
   vi.stubGlobal('bearcode', {
@@ -149,4 +152,57 @@ describe('App window chrome ownership', () => {
       expect(screen.getByRole('button', { name: 'Toggle sidebar' })).toBe(toggle)
     }
   )
+})
+
+describe('App conversation breadcrumb', () => {
+  function showConvo(projectPath: string | null): void {
+    useAppStore.setState({
+      view: { kind: 'conversation', id: 'c1' },
+      conversations: {
+        c1: {
+          id: 'c1',
+          title: 'Fart Blame Shifted to User',
+          projectPath,
+          projectLabel: projectPath ? 'BearCode' : 'No folder'
+        }
+      } as never
+    })
+  }
+
+  it('hides the project crumb when the conversation has no folder', () => {
+    render(<App />)
+    act(() => showConvo(null))
+
+    expect(screen.queryByText('No folder')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Fart Blame Shifted to User/ })).toBeTruthy()
+  })
+
+  it('shows the project crumb when the conversation belongs to a project', () => {
+    render(<App />)
+    act(() => showConvo('/Users/zach/GitHub/BearCode'))
+
+    expect(screen.getByText('BearCode')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Fart Blame Shifted to User/ })).toBeTruthy()
+  })
+
+  it('renames inline from the title menu (no prompt dialog)', () => {
+    const renameSpy = vi.fn()
+    useAppStore.setState({ renameConversation: renameSpy })
+    const promptSpy = vi.spyOn(window, 'prompt')
+    render(<App />)
+    act(() => showConvo(null))
+
+    fireEvent.click(screen.getByRole('button', { name: /Fart Blame Shifted to User/ }))
+    fireEvent.click(screen.getByText('Rename'))
+
+    const field = screen.getByLabelText('Rename conversation') as HTMLInputElement
+    expect(field.value).toBe('Fart Blame Shifted to User')
+    fireEvent.change(field, { target: { value: 'Blame Fully Accepted' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    fireEvent.blur(field, { target: { value: 'Blame Fully Accepted' } })
+
+    expect(renameSpy).toHaveBeenCalledWith('c1', 'Blame Fully Accepted')
+    expect(promptSpy).not.toHaveBeenCalled()
+    promptSpy.mockRestore()
+  })
 })

@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { WindowChromeControls } from './components/WindowChrome/WindowChromeControls'
 import { Sidebar, type SidebarMotionControl } from './components/Sidebar/Sidebar'
+import { Menu, type MenuGroup } from './components/ui/Menu'
+import { IconChevronDown } from './components/icons'
 import { Home } from './components/Home'
 import { HistoryView } from './components/History/HistoryView'
 import { TerminalView } from './components/Terminal/TerminalView'
@@ -18,6 +20,7 @@ import { ImportConfigBanner } from './components/ImportConfigBanner'
 import { ImportConfigReviewModal } from './components/ImportConfigReviewModal'
 import { OutsideAccessCard } from './components/OutsideAccessCard'
 import { UpdateBanner } from './components/UpdateBanner'
+import { Toaster } from './components/ui/sonner'
 import { useAppStore } from './state/store'
 import { useCmdHeld } from './lib/useCmdHeld'
 import { useShallow } from 'zustand/react/shallow'
@@ -30,7 +33,9 @@ function App(): React.JSX.Element {
     useShallow((s) => {
       if (s.view.kind !== 'conversation') return null
       const c = s.conversations[s.view.id]
-      return c ? { id: c.id, projectLabel: c.projectLabel, title: c.title } : null
+      return c
+        ? { id: c.id, projectLabel: c.projectLabel, projectPath: c.projectPath, title: c.title }
+        : null
     })
   )
   const auxSelection = useAppStore((s) => s.auxSelection)
@@ -41,6 +46,33 @@ function App(): React.JSX.Element {
   const init = useAppStore((s) => s.init)
   const cmdHeld = useCmdHeld()
   const sidebarMotionControl = useRef<SidebarMotionControl>({ skipNextAnimation: false })
+  const renameConversation = useAppStore((s) => s.renameConversation)
+  const deleteConvo = useAppStore((s) => s.deleteConvo)
+  const [titleMenuOpen, setTitleMenuOpen] = useState(false)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const titleBtnRef = useRef<HTMLButtonElement>(null)
+
+  const convoMenuGroups: MenuGroup[] = [
+    {
+      items: [
+        { value: 'rename', label: 'Rename' },
+        { value: 'delete', label: 'Delete Conversation', danger: true }
+      ]
+    }
+  ]
+  const handleConvoMenuSelect = (value: string): void => {
+    if (!convo) return
+    if (value === 'rename') {
+      setEditingTitle(true)
+    } else if (value === 'delete') {
+      if (window.confirm(`Delete "${convo.title}"?`)) deleteConvo(convo.id)
+    }
+  }
+  const commitTitle = (value: string): void => {
+    const next = value.trim()
+    if (convo && next && next !== convo.title) renameConversation(convo.id, next)
+    setEditingTitle(false)
+  }
 
   useEffect(() => {
     init()
@@ -140,9 +172,50 @@ function App(): React.JSX.Element {
           <div className="window-controls-hit-area" aria-hidden="true" />
           {convo ? (
             <div className="breadcrumb">
-              <span className="crumb">{convo.projectLabel}</span>
-              <span className="sep">/</span>
-              <span className="crumb current">{convo.title}</span>
+              {convo.projectPath ? (
+                <>
+                  <span className="crumb">{convo.projectLabel}</span>
+                  <span className="sep">/</span>
+                </>
+              ) : null}
+              {editingTitle ? (
+                <input
+                  key={convo.id}
+                  className="crumb-rename"
+                  defaultValue={convo.title}
+                  autoFocus
+                  onFocus={(e) => e.currentTarget.select()}
+                  onBlur={(e) => commitTitle(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur()
+                    else if (e.key === 'Escape') setEditingTitle(false)
+                  }}
+                  aria-label="Rename conversation"
+                />
+              ) : (
+                <button
+                  ref={titleBtnRef}
+                  type="button"
+                  className={
+                    titleMenuOpen ? 'crumb current crumb-btn menu-open' : 'crumb current crumb-btn'
+                  }
+                  onClick={() => setTitleMenuOpen((o) => !o)}
+                  aria-haspopup="menu"
+                  aria-expanded={titleMenuOpen}
+                >
+                  <span className="crumb-title">{convo.title}</span>
+                  <IconChevronDown />
+                </button>
+              )}
+              <Menu
+                anchorRef={titleBtnRef}
+                open={titleMenuOpen}
+                onClose={() => setTitleMenuOpen(false)}
+                groups={convoMenuGroups}
+                onSelect={handleConvoMenuSelect}
+                placement="bottom-start"
+                ariaLabel="Conversation actions"
+              />
             </div>
           ) : null}
         </div>
@@ -205,6 +278,7 @@ function App(): React.JSX.Element {
           ) : null}
         </div>
       ) : null}
+      <Toaster position="bottom-right" richColors={false} />
     </div>
   )
 }

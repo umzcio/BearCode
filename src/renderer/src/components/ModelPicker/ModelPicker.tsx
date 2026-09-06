@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ModelInfo, ProviderId, ProviderModels } from '@shared/types'
 import { URSA_MODEL_REF, URSUS_MODEL_REF } from '@shared/types'
 import { modelDisplay, useAppStore } from '../../state/store'
@@ -9,6 +9,7 @@ import { Popover } from '../ui/Popover'
 import ursaTeddy from '../../assets/ursa-teddy.svg'
 import ursusTeddy from '../../assets/ursus-teddy.svg'
 import { useCloseOnSettingsOpen } from '../../lib/useCloseOnSettingsOpen'
+import { groupEndpointRefs } from './groupEndpointRefs'
 import './ModelPicker.css'
 
 // Favorites-first picker (approved prototype, 2026-08-13): opens on the
@@ -100,7 +101,12 @@ export function ModelPicker(): React.JSX.Element {
   const searchRef = useRef<HTMLInputElement>(null)
   const lastTick = useRef(modelMenuTick)
 
-  const current = modelDisplay(providers, modelRef)
+  const current = modelDisplay(
+    providers,
+    modelRef,
+    settings?.ollamaInstances,
+    settings?.compatEndpoints
+  )
   const favorites = settings?.favoriteModels ?? []
   const favoriteSet = new Set(favorites)
 
@@ -157,6 +163,19 @@ export function ModelPicker(): React.JSX.Element {
     for (const ref of selectable.keys()) if (ref.startsWith(`${rail}/`)) viewRefs.push(ref)
   }
 
+  // All-tab endpoint rails (Ollama instances, compat endpoints) with multiple
+  // configured endpoints: rows render grouped under a small per-endpoint
+  // subheader. flatOptions must follow the RENDER order, so keyboard nav uses
+  // the grouped (reordered) refs too.
+  const railGroups =
+    !searching && tab === 'all' && (rail === 'ollama' || rail === 'compat')
+      ? groupEndpointRefs(
+          viewRefs,
+          (rail === 'ollama' ? settings?.ollamaInstances : settings?.compatEndpoints) ?? []
+        )
+      : null
+  const orderedRefs = railGroups ? railGroups.flatMap((g) => g.refs) : viewRefs
+
   // Flatten the visible view into the navigable options, in the same order
   // they render, so keyboard nav and the mouse click handlers commit the
   // identical action.
@@ -177,7 +196,7 @@ export function ModelPicker(): React.JSX.Element {
     pushSentinel('ursa')
     pushSentinel('ursus')
   }
-  for (const ref of viewRefs) {
+  for (const ref of orderedRefs) {
     if (ref === URSA_MODEL_REF) pushSentinel('ursa')
     else if (ref === URSUS_MODEL_REF) pushSentinel('ursus')
     else if (selectable.has(ref)) {
@@ -748,7 +767,16 @@ export function ModelPicker(): React.JSX.Element {
                       ) : (
                         <>
                           <div className="menu-group-label">{railProvider.displayName}</div>
-                          {viewRefs.map((ref) => modelRow(ref))}
+                          {railGroups
+                            ? railGroups.map((g) => (
+                                <Fragment key={g.name}>
+                                  <div className="menu-group-label mpk-instance-label">
+                                    {g.name}
+                                  </div>
+                                  {g.refs.map((ref) => modelRow(ref))}
+                                </Fragment>
+                              ))
+                            : viewRefs.map((ref) => modelRow(ref))}
                         </>
                       )}
                     </div>

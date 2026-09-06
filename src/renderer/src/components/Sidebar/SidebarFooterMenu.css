@@ -1,16 +1,16 @@
 .sb-footer {
   position: relative;
   margin-top: auto;
-  padding: 6px 8px 10px;
+  padding: 8px 0 0;
   border-top: 1px solid var(--line);
 }
 .sb-name-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  padding: 8px 9px;
-  border-radius: var(--radius-control);
+  padding: 6px 8px;
+  border-radius: var(--radius-card);
   cursor: pointer;
   color: var(--ink-2);
   font-size: 13px;
@@ -19,7 +19,7 @@
   border: none;
   text-align: left;
   font-family: inherit;
-  /* BUI hover color grammar: 100ms standard curve. */
+  /* Hover color grammar: 100ms standard curve. */
   transition:
     background-color var(--dur-hover) var(--ease-standard),
     color var(--dur-hover) var(--ease-standard),
@@ -40,6 +40,17 @@
   outline: none;
   box-shadow: var(--focus-ring);
 }
+.sb-avatar {
+  width: 24px;
+  height: 24px;
+}
+.sb-avatar-fallback {
+  /* Soft accent initial disc: tinted fill + accent ink, no hard fill. */
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+  font-size: 10px;
+  font-weight: 600;
+}
 .sb-name-btn .name {
   flex: 1;
   min-width: 0;
@@ -47,12 +58,19 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.sb-plan-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
 .sb-name-btn svg {
   width: 13px;
   height: 13px;
   color: var(--ink-3);
   flex-shrink: 0;
-  /* 200ms: BUI disclosure-chevron constant (no token by design). */
+  /* 200ms: disclosure-chevron constant (no token by design). */
   transition: transform 200ms var(--ease-out);
 }
 .sb-name-btn[aria-expanded='true'] svg {

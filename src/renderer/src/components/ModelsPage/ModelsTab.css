@@ -1,10 +1,10 @@
-/* Models table — Beautiful UI RecordsTable language: a hairline-wrapped
-   --surface table over the --canvas page, header row on --inset with small
-   uppercase --ink-3 labels, --stripe zebra rows, --hover row hover. */
+/* Models table — Kimi-like management list: a rounded-xl --surface sheet with
+   a hairline ring over the --canvas page, whisper-quiet header labels, no
+   zebra (hover only), pill search field, ghost pagination. */
 .models-tab {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 .mt-toolbar {
   display: flex;
@@ -15,10 +15,10 @@
 .mt-search {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 10px;
+  gap: 7px;
+  padding: 0 12px;
   height: 32px;
-  border-radius: var(--radius-control);
+  border-radius: 999px;
   background: var(--field);
   box-shadow: var(--shadow-inset-field), var(--shadow-hairline);
   color: var(--ink-3);
@@ -51,7 +51,7 @@
 }
 .mt-table-wrap {
   background: var(--surface);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-overlay);
   box-shadow: var(--shadow-card);
   overflow-x: auto;
 }
@@ -69,12 +69,11 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--ink-3);
-  background: var(--inset);
-  padding: 9px 12px;
+  padding: 12px 16px 10px;
   border-bottom: 1px solid var(--line);
 }
 .mt-table td {
-  padding: 9px 12px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
   /* Row hover: 100ms standard curve (BUI table grammar). */
@@ -82,9 +81,6 @@
 }
 .mt-table tbody tr:last-child td {
   border-bottom: none;
-}
-.mt-table tbody tr:nth-child(even) td {
-  background: var(--stripe);
 }
 .mt-table tbody tr:hover td {
   background: var(--hover);
@@ -97,7 +93,7 @@
 .mt-model {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 .mt-model-name {
   font-weight: 500;
@@ -112,19 +108,14 @@
   gap: 4px;
   flex-wrap: wrap;
 }
-/* Capability chips: neutral inset chips (semantic states elsewhere pair a
-   color with its -tint fill). */
-.mt-caps .chip {
-  display: inline-flex;
-  align-items: center;
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 7px;
-  border-radius: var(--radius-chip);
+/* Capability chips: ui/badge restyled as neutral inset chips with a hairline
+   ring and muted ink (unlayered, so it wins over the layered utilities). */
+.mt-caps [data-slot='badge'] {
   background: var(--inset);
-  box-shadow: var(--shadow-hairline);
   color: var(--ink-2);
-  white-space: nowrap;
+  border: none;
+  box-shadow: var(--shadow-hairline);
+  font-weight: 500;
 }
 .mt-caps-unknown {
   color: var(--ink-3);
@@ -155,14 +146,15 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+/* Ghost icon buttons: transparent at rest, hover wash only. */
 .mt-fav,
 .mt-more {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-chip);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-control);
   border: none;
   background: transparent;
   color: var(--ink-3);
@@ -193,20 +185,21 @@
 }
 .mt-pagination button {
   border: none;
-  background: var(--surface);
-  box-shadow: var(--shadow-btn);
-  color: var(--ink);
+  background: transparent;
+  color: var(--ink-2);
   border-radius: var(--radius-control);
-  padding: 4px 10px;
+  padding: 5px 11px;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition:
     background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .mt-pagination button:hover:not(:disabled) {
   background: var(--hover);
+  color: var(--ink);
 }
 .mt-pagination button:disabled {
   opacity: 0.4;
@@ -236,14 +229,15 @@
   border: 1px dashed var(--line-strong);
   background: transparent;
   color: var(--ink-2);
-  border-radius: var(--radius-control);
-  padding: 6px 12px;
-  font-size: 12px;
+  border-radius: var(--radius-card);
+  padding: 7px 14px;
+  font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
   transition:
     background-color var(--dur-hover) var(--ease-standard),
     color var(--dur-hover) var(--ease-standard),
+    border-color var(--dur-hover) var(--ease-standard),
     transform var(--dur-press-release) var(--ease-out);
 }
 .mt-add-model::before {

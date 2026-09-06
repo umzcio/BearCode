@@ -1,17 +1,18 @@
 /* Attention-only run bar (see RunStatusBar.tsx): appears above the composer
-   only when the run is blocked on the user. Semantic attention = orange on its
-   tint, per the BUI language. */
+   only when the run is blocked on the user. A minimal slim status strip in the
+   semantic attention language -- orange on its tint with a barely-there color
+   ring, no heavy border. */
 .run-status-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
+  gap: 9px;
+  padding: 5px 12px;
   margin: 0 0 6px;
   border: none;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange), transparent 60%);
-  border-radius: var(--radius-control);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 22%, transparent);
+  border-radius: var(--radius-card);
   background: var(--orange-tint);
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--ink);
   cursor: pointer;
   transition:
@@ -61,13 +62,13 @@
 }
 .rsb-view {
   color: var(--orange);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
 }
 .rsb-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--orange);
   animation: rsb-pulse 1.2s ease-in-out infinite;

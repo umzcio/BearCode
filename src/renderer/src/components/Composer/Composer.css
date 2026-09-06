@@ -3,13 +3,13 @@
   max-width: 760px;
 }
 
-/* BUI ChatComposer/PromptBar: a --surface card carried by hairline-first depth
-   (--shadow-card), card-tier radius. Focus brightens the hairline to
-   --line-strong (shadow-btn layered over shadow-card) instead of drawing an
-   inner ring around the textarea. */
+/* Kimi-style floating composer: a --surface card with a 16px hero radius,
+   hairline-first depth (--shadow-card at rest, raised + a brightened hairline
+   while focused). No inner ring around the textarea. */
 .composer {
+  --composer-radius: 16px;
   background: var(--surface);
-  border-radius: var(--radius-card);
+  border-radius: var(--composer-radius);
   position: relative;
   box-shadow: var(--shadow-card);
   /* Whole-card focus feedback: 150ms, standard curve (BUI grammar). */
@@ -19,7 +19,7 @@
   container-type: inline-size;
 }
 .composer:focus-within {
-  box-shadow: var(--shadow-btn), var(--shadow-card);
+  box-shadow: var(--shadow-btn), var(--shadow-raised);
 }
 
 /* Ursa selected: an on-brand rotating gradient aura. Only steps through
@@ -44,9 +44,10 @@
 .composer--ursa::before {
   content: '';
   position: absolute;
-  inset: -14px;
+  inset: -6px;
   z-index: -1;
-  border-radius: calc(var(--radius-card) + 14px);
+  /* Corner radius tracks the inset so the halo stays concentric with the card. */
+  border-radius: calc(var(--composer-radius, 16px) + 6px);
   background: conic-gradient(
     from var(--ursa-ang, 0deg),
     #8e2f01,
@@ -57,8 +58,8 @@
     #be3e00,
     #8e2f01
   );
-  filter: blur(22px);
-  opacity: 0.5;
+  filter: blur(34px);
+  opacity: 0.42;
   animation: ursa-spin var(--dur-ambient) linear infinite;
 }
 /* Ursus gets the identical treatment in its own light-blue palette (matching
@@ -75,9 +76,9 @@
 .composer--ursus::before {
   content: '';
   position: absolute;
-  inset: -14px;
+  inset: -6px;
   z-index: -1;
-  border-radius: calc(var(--radius-card) + 14px);
+  border-radius: calc(var(--composer-radius, 16px) + 6px);
   background: conic-gradient(
     from var(--ursa-ang, 0deg),
     #1c5f8f,
@@ -88,8 +89,8 @@
     #2f96e0,
     #1c5f8f
   );
-  filter: blur(22px);
-  opacity: 0.5;
+  filter: blur(34px);
+  opacity: 0.42;
   animation: ursa-spin var(--dur-ambient) linear infinite;
 }
 @keyframes ursa-spin {
@@ -119,7 +120,7 @@
     opacity: 0.3;
   }
 }
-/* Ambient paint costs money every frame (conic-gradient repaint under a 22px
+/* Ambient paint costs money every frame (conic-gradient repaint under a 34px
    blur); nobody is watching while the window is unfocused -- pause, don't stop. */
 :root[data-window-blurred] .composer--ursa,
 :root[data-window-blurred] .composer--ursa::before,
@@ -129,7 +130,8 @@
 }
 
 /* Textarea seated directly on the surface -- no inner border or field well;
-   the card's focus-within hairline is the focus affordance (BUI PromptBar). */
+   the card's focus-within hairline is the focus affordance. 15px hero text,
+   generous top padding so the first line breathes. */
 .composer textarea {
   width: 100%;
   background: none;
@@ -137,10 +139,10 @@
   outline: none;
   color: var(--ink);
   font-family: inherit;
-  font-size: 14px;
-  padding: 14px 16px 6px;
+  font-size: 15px;
+  padding: 16px 18px 8px;
   resize: none;
-  height: 52px;
+  height: 54px;
   line-height: 1.5;
 }
 .composer textarea:focus-visible {
@@ -155,7 +157,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 10px 10px 12px;
+  padding: 6px 12px 12px;
   /* Let the whole right group drop to a second row when it won't fit beside
      the left group -- but each group stays on ONE line (no per-item staircase). */
   flex-wrap: wrap;
@@ -168,27 +170,30 @@
 .controls-right {
   justify-content: flex-end;
 }
-/* BUI PromptBar control row: quiet 12px/500 chips (chip-tier radius) that
-   light with --hover. Scoped skin over the shared .pill-btn primitive --
-   consumed, not restyled globally. `:where()` keeps specificity low so the
-   pickers' own state classes (auto-active, bypass-active, recording, ...)
-   still win. Labels stay on one line: a narrow composer must never stack
-   "Claude Opus 4.8" across three lines. */
+/* Picker triggers read as subtle pill chips: fully rounded, quiet 12px/500
+   secondary ink at rest, --hover wash + primary ink on hover. Scoped skin
+   over the shared .pill-btn primitive -- consumed, not restyled globally.
+   `:where()` keeps specificity low so the pickers' own state classes
+   (auto-active, bypass-active, recording, ...) still win. Labels stay on one
+   line: a narrow composer must never stack "Claude Opus 4.8" across three
+   lines. */
 .composer-controls :where(.pill-btn) {
   white-space: nowrap;
   font-size: 12px;
   font-weight: 500;
   color: var(--ink-2);
-  padding: 5px 8px;
-  border-radius: var(--radius-chip);
+  padding: 5px 10px;
+  border-radius: 999px;
 }
 .composer-controls :where(.pill-btn):hover {
   background: var(--hover);
   color: var(--ink);
 }
-/* Icon controls: tertiary glyphs at rest, ink on hover (BUI dictation/plus). */
+/* Icon controls: circular ghost buttons, tertiary glyphs at rest, ink on
+   hover over the --hover wash. */
 .composer-controls :where(.icon-btn) {
   color: var(--ink-3);
+  border-radius: 50%;
 }
 .composer-controls :where(.icon-btn):hover {
   background: var(--hover);
@@ -254,7 +259,7 @@
 }
 /* Non-fatal voice error, mirroring the Settings pricing-sync inline error. */
 .composer-voice-error {
-  padding: 0 14px 10px;
+  padding: 0 18px 10px;
   font-size: 12px;
   color: var(--red);
 }
@@ -264,13 +269,15 @@
   margin-left: auto;
 }
 
-/* Primary send affordance: accent fill, control-tier radius. --tooltip-fg is
+/* Primary send affordance: a circular accent-fill button. --tooltip-fg is
    the one token that stays near-white in BOTH themes -- the correct glyph
    color on a saturated accent fill (no raw white literal). */
 .composer-controls .send-btn {
+  width: 32px;
+  height: 32px;
   background: var(--accent);
   color: var(--accent-fg);
-  border-radius: var(--radius-control);
+  border-radius: 50%;
 }
 .composer-controls .send-btn:hover {
   background: var(--accent-ink);
@@ -284,23 +291,6 @@
   background: var(--line-strong);
 }
 
-.env-row {
-  border-top: 1px solid var(--line);
-  background: var(--inset);
-  padding: 6px 10px;
-  border-radius: 0 0 var(--radius-card) var(--radius-card);
-  display: flex;
-}
-.env-row .pill-btn {
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--ink-2);
-  border-radius: var(--radius-chip);
-}
-.env-row .pill-btn:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
 .env-picker {
   position: relative;
 }
@@ -322,7 +312,7 @@
 }
 
 .command-pill-row {
-  padding: 12px 16px 0;
+  padding: 12px 18px 0;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -355,7 +345,7 @@
 }
 
 .composer-notice {
-  padding: 10px 16px 0;
+  padding: 10px 18px 0;
   font-size: 13px;
   color: var(--orange);
 }
@@ -376,7 +366,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 6px;
+  padding: 12px 18px 0;
 }
 /* Attachment chip (BUI PromptBar): 11.5px secondary ink on --field, hairline
    ring, chip-tier radius. */

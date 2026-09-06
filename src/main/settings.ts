@@ -4,6 +4,7 @@ import { join } from 'path'
 import type {
   AppSettings,
   CustomModel,
+  OllamaInstance,
   ProjectSettings,
   ProviderId,
   SettingsInfo
@@ -32,8 +33,14 @@ import {
 // per-project default coercion) so the two can never drift.
 export const SELECTABLE_PERMISSION_MODES = SELECTABLE_DEFAULT_MODES
 
+const DEFAULT_OLLAMA_INSTANCES: OllamaInstance[] = [
+  { id: 'local', name: 'Local', baseUrl: 'http://localhost:11434' }
+]
+
 const DEFAULTS: AppSettings = {
   ollamaBaseUrl: 'http://localhost:11434',
+  ollamaInstances: DEFAULT_OLLAMA_INSTANCES,
+  compatEndpoints: [],
   defaultModelRef: null,
   defaultPermissionMode: 'accept-edits',
   disabledBuiltins: [],
@@ -140,6 +147,55 @@ function coerceCustomModels(raw: unknown): CustomModel[] {
 export function coerceStringArray(raw: unknown): string[] {
   return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []
 }
+
+// Kebab-case slug rule for endpoint ids (Ollama instances AND OpenAI-compatible
+// compat endpoints), mirrored from the renderer's lib/validators.ts
+// (KEBAB_PATTERN) -- main cannot import renderer modules, so the pattern is
+// duplicated here and must stay in sync.
+const OLLAMA_INSTANCE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
+
+// Display-name cap, same convention as hermesLabel's 40-char slice below.
+const OLLAMA_INSTANCE_NAME_MAX = 40
+
+// Accept only strings that parse as an http(s) URL. Used for Ollama instance
+// baseUrls AND the legacy ollamaBaseUrl field, so a hand-edited settings.json
+// can never persist a URL the provider layer can't fetch.
+function isHttpUrl(raw: unknown): raw is string {
+  if (typeof raw !== 'string' || raw.length === 0) return false
+  try {
+    const u = new URL(raw)
+    return u.protocol === 'http:' || u.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+// Keep only well-formed server endpoints (Ollama instances or OpenAI-compatible
+// compat endpoints -- same shape): a non-empty kebab-case id (deduped, first
+// occurrence wins), a non-empty display name (capped), and an http(s) baseUrl.
+// Anything else is dropped so a malformed settings.json or a bad write payload
+// can never poison the endpoint list. An empty result means the caller decides
+// the fallback: ollamaInstances seeds DEFAULT_OLLAMA_INSTANCES, compatEndpoints
+// stays [].
+export function coerceEndpoints(raw: unknown): OllamaInstance[] {
+  if (!Array.isArray(raw)) return []
+  const out: OllamaInstance[] = []
+  const seen = new Set<string>()
+  for (const v of raw) {
+    if (v == null || typeof v !== 'object') continue
+    const { id, name, baseUrl } = v as Record<string, unknown>
+    if (typeof id !== 'string' || !OLLAMA_INSTANCE_ID_PATTERN.test(id) || seen.has(id)) continue
+    if (typeof name !== 'string' || !name.trim()) continue
+    if (!isHttpUrl(baseUrl)) continue
+    seen.add(id)
+    out.push({ id, name: name.slice(0, OLLAMA_INSTANCE_NAME_MAX), baseUrl })
+  }
+  return out
+}
+
+// Pre-generalization name, kept exported: registry/tests/other callers
+// reference it. Identical to coerceEndpoints.
+export const coerceOllamaInstances = coerceEndpoints
 
 // Connectors/MCP: per-key string-array map, e.g. mcpTrustedProjectServers
 // (projectPath -> trusted server names). Non-object input -> {}; each value
@@ -273,6 +329,24 @@ export function migrateSettings(raw: Record<string, unknown>): AppSettings {
   // malformed customModels collapses to [] so the registry merge stays safe.
   merged.disabledModels = coerceStringArray(s['disabledModels'])
   merged.customModels = coerceCustomModels(s['customModels'])
+  // Multi-Ollama instances: optional & additive. A valid persisted list is
+  // kept; absent/invalid is seeded from the legacy ollamaBaseUrl as the
+  // 'local' primary (invalid legacy URL -> the localhost default, the first
+  // URL validation ollamaBaseUrl has ever had). ollamaBaseUrl then mirrors
+  // the primary instance's baseUrl so older versions reading only the legacy
+  // field keep working after a downgrade.
+  const rawInstances = coerceOllamaInstances(s['ollamaInstances'])
+  if (rawInstances.length > 0) {
+    merged.ollamaInstances = rawInstances
+  } else {
+    const legacyUrl = isHttpUrl(s['ollamaBaseUrl']) ? s['ollamaBaseUrl'] : DEFAULTS.ollamaBaseUrl
+    merged.ollamaInstances = [{ id: 'local', name: 'Local', baseUrl: legacyUrl }]
+  }
+  merged.ollamaBaseUrl = merged.ollamaInstances[0].baseUrl
+  // Compat endpoints (OpenAI-compatible): optional & additive. Same coercion as
+  // ollamaInstances but NEVER seeded -- an absent/invalid persisted list stays
+  // [], and there is no legacy mirror field to keep in sync.
+  merged.compatEndpoints = coerceEndpoints(s['compatEndpoints'])
   // Live-discovery opt-in list (mirrors disabledModels' coercion exactly): a
   // non-array enabledLiveModels collapses to [] so `new Set(enabledLiveModels)`
   // in registry.ts can never throw on a malformed/downgrade-corrupted value.
@@ -401,6 +475,31 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   // write so a bad Add-model entry drops instead of poisoning the registry.
   if (patch.customModels !== undefined) {
     patch = { ...patch, customModels: coerceCustomModels(patch.customModels) }
+  }
+  // Multi-Ollama instances: coerce before write so a bad entry drops instead
+  // of persisting. The legacy ollamaBaseUrl mirrors the primary instance's
+  // baseUrl in BOTH directions: writing instances rewrites ollamaBaseUrl (and
+  // wins if the same patch carries both), writing ollamaBaseUrl directly
+  // rewrites the primary instance's baseUrl (keeping its id/name).
+  if (patch.ollamaInstances !== undefined) {
+    const coerced = coerceOllamaInstances(patch.ollamaInstances)
+    const instances = coerced.length > 0 ? coerced : DEFAULT_OLLAMA_INSTANCES
+    patch = { ...patch, ollamaInstances: instances, ollamaBaseUrl: instances[0].baseUrl }
+  } else if (patch.ollamaBaseUrl !== undefined) {
+    const url = isHttpUrl(patch.ollamaBaseUrl) ? patch.ollamaBaseUrl : DEFAULTS.ollamaBaseUrl
+    const current = getSettings().ollamaInstances ?? DEFAULT_OLLAMA_INSTANCES
+    const [primary, ...rest] = current.length > 0 ? current : DEFAULT_OLLAMA_INSTANCES
+    patch = {
+      ...patch,
+      ollamaBaseUrl: url,
+      ollamaInstances: [{ ...primary, baseUrl: url }, ...rest]
+    }
+  }
+  // Compat endpoints: coerce before write so a bad entry drops instead of
+  // persisting. Unlike ollamaInstances there is NO default seeding (an empty or
+  // all-invalid write stays []) and no legacy mirror field to rewrite.
+  if (patch.compatEndpoints !== undefined) {
+    patch = { ...patch, compatEndpoints: coerceEndpoints(patch.compatEndpoints) }
   }
   if (patch.disabledModels !== undefined) {
     patch = { ...patch, disabledModels: coerceStringArray(patch.disabledModels) }

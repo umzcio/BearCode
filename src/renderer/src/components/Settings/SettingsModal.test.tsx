@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, cleanup, within } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, within, waitFor } from '@testing-library/react'
 import { useAppStore } from '../../state/store'
 import { SettingsModal } from './SettingsModal'
 import { ProvidersPage } from './pages/ProvidersPage'
@@ -9,6 +9,7 @@ import { FEEDBACK_URL } from './SettingsNav'
 
 const settings = {
   ollamaBaseUrl: 'http://localhost:11434',
+  ollamaInstances: [{ id: 'local', name: 'Local', baseUrl: 'http://localhost:11434' }],
   defaultModelRef: null,
   defaultPermissionMode: 'accept-edits',
   disabledBuiltins: [],
@@ -25,6 +26,8 @@ beforeEach(() => {
     .mockReturnValue({ matches: false })
   ;(window as unknown as { bearcode: unknown }).bearcode = {
     settings: { set: setSpy },
+    compatSetKey: vi.fn(() => Promise.resolve()),
+    compatKeyStatus: vi.fn(() => Promise.resolve({})),
     permissions: { list: vi.fn(() => Promise.resolve({ userRules: [], builtins: [] })) },
     models: {
       list: vi.fn(() => Promise.resolve([])),
@@ -115,7 +118,184 @@ describe('SettingsModal Providers split', () => {
     // Ollama base URL field
     expect(screen.getByPlaceholderText('http://localhost:11434')).toBeTruthy()
   })
+})
 
+describe('SettingsModal Ollama instances', () => {
+  const twoInstances = [
+    { id: 'local', name: 'Local', baseUrl: 'http://localhost:11434' },
+    { id: 'gpu-box', name: 'GPU Box', baseUrl: 'http://192.168.1.10:11434' }
+  ]
+  const withInstances = (instances: typeof twoInstances): void => {
+    useAppStore.setState({
+      settings: { ...settings, ollamaInstances: instances } as never
+    })
+  }
+
+  it('lists each configured instance with its name, URL, and the primary tag', () => {
+    withInstances(twoInstances)
+    render(<ProvidersPage />)
+    expect(screen.getByText('Local')).toBeTruthy()
+    expect(screen.getByText('GPU Box')).toBeTruthy()
+    expect(screen.getByText('http://192.168.1.10:11434')).toBeTruthy()
+    // First entry is labeled as the primary (only shown with 2+ instances).
+    expect(screen.getByText('Primary')).toBeTruthy()
+  })
+
+  it('adds a server from the add row, deriving a kebab id from the name', () => {
+    render(<ProvidersPage />)
+    fireEvent.change(screen.getByLabelText('New server name'), { target: { value: 'GPU Box' } })
+    fireEvent.change(screen.getByLabelText('New server URL'), {
+      target: { value: 'http://192.168.1.10:11434' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    expect(setSpy).toHaveBeenCalledWith({
+      ollamaInstances: [
+        { id: 'local', name: 'Local', baseUrl: 'http://localhost:11434' },
+        { id: 'gpu-box', name: 'GPU Box', baseUrl: 'http://192.168.1.10:11434' }
+      ]
+    })
+  })
+
+  it('blocks Add with a visible hint when the URL is not a valid http(s) URL', () => {
+    render(<ProvidersPage />)
+    fireEvent.change(screen.getByLabelText('New server name'), { target: { value: 'GPU Box' } })
+    fireEvent.change(screen.getByLabelText('New server URL'), { target: { value: 'not-a-url' } })
+    expect((screen.getByRole('button', { name: 'Add' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText(/valid http\(s\) URL/)).toBeTruthy()
+    expect(setSpy).not.toHaveBeenCalled()
+  })
+
+  it('edits a server URL inline, keeping its id and name', () => {
+    render(<ProvidersPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Local' }))
+    fireEvent.change(screen.getByLabelText('Edit server URL'), {
+      target: { value: 'http://localhost:11435' }
+    })
+    const editRow = screen.getByLabelText('Edit server URL').closest('.key-row') as HTMLElement
+    fireEvent.click(within(editRow).getByRole('button', { name: 'Save' }))
+    expect(setSpy).toHaveBeenCalledWith({
+      ollamaInstances: [{ id: 'local', name: 'Local', baseUrl: 'http://localhost:11435' }]
+    })
+  })
+
+  it('removing the primary promotes the next server (it becomes the first entry)', () => {
+    withInstances(twoInstances)
+    render(<ProvidersPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Local' }))
+    expect(setSpy).toHaveBeenCalledWith({
+      ollamaInstances: [{ id: 'gpu-box', name: 'GPU Box', baseUrl: 'http://192.168.1.10:11434' }]
+    })
+  })
+
+  it('removing the last server sends an empty list (main resets to the default local instance)', () => {
+    render(<ProvidersPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Local' }))
+    expect(setSpy).toHaveBeenCalledWith({ ollamaInstances: [] })
+  })
+})
+
+describe('SettingsModal compat endpoints (OpenAI-compatible servers)', () => {
+  const oneEndpoint = [{ id: 'vllm', name: 'vLLM', baseUrl: 'http://localhost:8000/v1' }]
+  const withEndpoints = (endpoints: typeof oneEndpoint): void => {
+    useAppStore.setState({
+      settings: { ...settings, compatEndpoints: endpoints } as never
+    })
+  }
+  const compatMocks = (): {
+    setKey: ReturnType<typeof vi.fn>
+    status: ReturnType<typeof vi.fn>
+  } => {
+    const b = (
+      window as unknown as {
+        bearcode: { compatSetKey: unknown; compatKeyStatus: unknown }
+      }
+    ).bearcode
+    return {
+      setKey: b.compatSetKey as ReturnType<typeof vi.fn>,
+      status: b.compatKeyStatus as ReturnType<typeof vi.fn>
+    }
+  }
+
+  it('renders the card (with just the add row) when no endpoints are configured, fetching key status on mount', () => {
+    render(<ProvidersPage />)
+    expect(screen.getByText('OpenAI-Compatible Servers')).toBeTruthy()
+    expect(screen.getByLabelText('New endpoint name')).toBeTruthy()
+    expect(compatMocks().status).toHaveBeenCalled()
+  })
+
+  it('adds an endpoint without a key, deriving a kebab id from the name', () => {
+    render(<ProvidersPage />)
+    fireEvent.change(screen.getByLabelText('New endpoint name'), { target: { value: 'vLLM' } })
+    fireEvent.change(screen.getByLabelText('New endpoint URL'), {
+      target: { value: 'http://localhost:8000/v1' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add endpoint' }))
+    expect(setSpy).toHaveBeenCalledWith({
+      compatEndpoints: [{ id: 'vllm', name: 'vLLM', baseUrl: 'http://localhost:8000/v1' }]
+    })
+    expect(compatMocks().setKey).not.toHaveBeenCalled()
+  })
+
+  it('adds an endpoint with an optional API key, written to the vault under the new id', () => {
+    render(<ProvidersPage />)
+    fireEvent.change(screen.getByLabelText('New endpoint name'), { target: { value: 'LM Studio' } })
+    fireEvent.change(screen.getByLabelText('New endpoint URL'), {
+      target: { value: 'http://localhost:1234/v1' }
+    })
+    fireEvent.change(screen.getByLabelText('New endpoint API key'), {
+      target: { value: 'secret-key' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add endpoint' }))
+    expect(setSpy).toHaveBeenCalledWith({
+      compatEndpoints: [{ id: 'lm-studio', name: 'LM Studio', baseUrl: 'http://localhost:1234/v1' }]
+    })
+    expect(compatMocks().setKey).toHaveBeenCalledWith('lm-studio', 'secret-key')
+  })
+
+  it('shows the Configured indicator from compatKeyStatus (booleans only, keys never come back)', async () => {
+    withEndpoints(oneEndpoint)
+    compatMocks().status.mockResolvedValue({ vllm: true })
+    render(<ProvidersPage />)
+    // Placeholder flips once the async status fetch resolves.
+    expect(await screen.findByPlaceholderText('Configured')).toBeTruthy()
+    expect(screen.getByTitle('API key configured')).toBeTruthy()
+  })
+
+  it('saves a per-endpoint key write-only and refetches status', async () => {
+    withEndpoints(oneEndpoint)
+    render(<ProvidersPage />)
+    const keyInput = screen.getByLabelText('API key for vLLM')
+    fireEvent.change(keyInput, { target: { value: 'sk-local' } })
+    const row = keyInput.closest('.key-row') as HTMLElement
+    fireEvent.click(within(row).getByRole('button', { name: 'Save' }))
+    expect(compatMocks().setKey).toHaveBeenCalledWith('vllm', 'sk-local')
+    // Mount fetch + post-save refetch (chained off the setKey promise).
+    await waitFor(() => expect(compatMocks().status.mock.calls.length).toBeGreaterThanOrEqual(2))
+  })
+
+  it('removing an endpoint clears its vault key (empty string) and promotes the next one', () => {
+    withEndpoints([
+      ...oneEndpoint,
+      { id: 'tabby', name: 'TabbyAPI', baseUrl: 'http://localhost:5000/v1' }
+    ])
+    render(<ProvidersPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Remove vLLM' }))
+    expect(setSpy).toHaveBeenCalledWith({
+      compatEndpoints: [{ id: 'tabby', name: 'TabbyAPI', baseUrl: 'http://localhost:5000/v1' }]
+    })
+    expect(compatMocks().setKey).toHaveBeenCalledWith('vllm', '')
+  })
+
+  it('blocks Add with a visible hint when the URL is not a valid http(s) URL', () => {
+    render(<ProvidersPage />)
+    fireEvent.change(screen.getByLabelText('New endpoint name'), { target: { value: 'vLLM' } })
+    fireEvent.change(screen.getByLabelText('New endpoint URL'), { target: { value: 'not-a-url' } })
+    expect(
+      (screen.getByRole('button', { name: 'Add endpoint' }) as HTMLButtonElement).disabled
+    ).toBe(true)
+    expect(screen.getByText(/valid http\(s\) URL/)).toBeTruthy()
+    expect(setSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe('SettingsModal shell — grouped nav, routing, feedback', () => {

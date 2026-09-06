@@ -34,10 +34,10 @@
   display: flex;
   align-items: center;
   position: relative;
-  padding: 14px 18px;
+  padding: 10px 16px;
   gap: 10px;
   z-index: 5;
-  min-height: 52px;
+  min-height: 44px;
   -webkit-app-region: drag;
   /* .topbar and the view below it (e.g. ProjectPage's .pp-head) share the
      same --canvas background and, in the collapsed-sidebar case, .topbar
@@ -62,7 +62,7 @@
    before an optional breadcrumb. appearance.ts compensates this value for root
    zoom so the physical clearance stays aligned with the window controls. */
 .main.sidebar-collapsed .topbar {
-  padding: 14px 18px 14px var(--collapsed-topbar-content-left);
+  padding: 10px 16px 10px var(--collapsed-topbar-content-left);
 }
 
 /* ---------- Trust banner ---------- */
@@ -192,7 +192,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--ink-2);
   overflow: hidden;
@@ -210,4 +210,59 @@
 .breadcrumb .sep {
   /* Separator glyphs only -- ink-3 is allowed at glyph scale. */
   color: var(--ink-3);
+}
+
+/* Conversation title: a ghost button (Kimi-style) opening the rename/delete
+   menu. Button reset, then a quiet hover pill. */
+.breadcrumb .crumb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  margin: -3px 0;
+  background: none;
+  border: none;
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-chip);
+  min-width: 0;
+  transition: background-color var(--dur-hover) var(--ease-standard);
+}
+.breadcrumb .crumb-btn:hover,
+.breadcrumb .crumb-btn.menu-open {
+  background: var(--hover);
+}
+.breadcrumb .crumb-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.breadcrumb .crumb-btn .crumb-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.breadcrumb .crumb-btn svg {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  color: var(--ink-3);
+}
+
+/* Inline rename: the title swaps for an in-place text field (no dialog). */
+.breadcrumb .crumb-rename {
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  color: var(--ink);
+  background: var(--field);
+  border: none;
+  border-radius: var(--radius-chip);
+  padding: 3px 7px;
+  margin: -3px 0;
+  width: min(60ch, 100%);
+  outline: none;
+}
+.breadcrumb .crumb-rename:focus-visible {
+  box-shadow: var(--focus-ring);
 }

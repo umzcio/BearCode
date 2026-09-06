@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { FileDiff } from 'lucide-react'
 import type { Event, FileDiffFile } from '@shared/types'
 import { defaultsToRenderedPreview } from '@shared/fileClassification'
 import { useAppStore, type ReviewComment } from '../../state/store'
@@ -224,7 +225,10 @@ export function DiffPanel({
     ) : currentDiffLoad.status === 'error' ? (
       <ErrorCard>Could not load changes</ErrorCard>
     ) : (
-      <EmptyState title="No changes" />
+      <>
+        <FileDiff size={22} strokeWidth={1.5} className="ap-state-icon" aria-hidden="true" />
+        <EmptyState title="No changes" />
+      </>
     )
 
   return (

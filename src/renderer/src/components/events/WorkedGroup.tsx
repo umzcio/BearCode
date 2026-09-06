@@ -3,7 +3,7 @@ import type { Event } from '@shared/types'
 import { subagentLabel } from '@shared/agentId'
 import { formatElapsed } from '../../lib/activity'
 import { ThinkingPaw } from '../brand/ThinkingPaw'
-import { IconChevronDown } from '../icons'
+import { ChevronDown } from 'lucide-react'
 import { ThinkingStep } from './ThinkingStep'
 import { ToolStep } from './ToolStep'
 import { HermesToolStep, HermesUnmatchedResult } from './HermesToolStep'
@@ -178,7 +178,7 @@ function WorkedGroupImpl({
         {/* BUI ThinkingState: the active label shimmers; settled text is plain. */}
         <span className={live ? 'shimmer-label' : undefined}>{label}</span>
         <span className="chev">
-          <IconChevronDown />
+          <ChevronDown />
         </span>
       </div>
       {/* BUI collapsible grammar: the grid wrapper animates 0fr<->1fr while the

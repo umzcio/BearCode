@@ -42,7 +42,10 @@ const ALL_KEYED: Record<ProviderId, boolean> = {
   openrouter: true,
   perplexity: true,
   xai: true,
-  ollama: true
+  ollama: true,
+  // Compat endpoints are keyed per-endpoint, never under the bare 'compat'
+  // key -- always false in the real keyStatus().
+  compat: false
 }
 const keyed = (overrides: Partial<Record<ProviderId, boolean>> = {}): Record<ProviderId, boolean> => ({
   ...ALL_KEYED,

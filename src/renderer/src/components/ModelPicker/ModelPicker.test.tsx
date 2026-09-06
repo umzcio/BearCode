@@ -341,3 +341,268 @@ describe('ModelPicker — favorites-first picker', () => {
     expect(screen.getByText('$$')).toBeInTheDocument()
   })
 })
+
+describe('ModelPicker — multi-instance Ollama', () => {
+  const ollamaProvider = {
+    id: 'ollama',
+    displayName: 'Ollama',
+    color: '#3ecf8e',
+    requiresKey: false,
+    keyConfigured: true,
+    reachable: true,
+    models: [
+      { id: 'llama3.2:latest', label: 'Llama 3.2' },
+      { id: 'gpu-box/qwen3:32b', label: 'Qwen 3 32B' }
+    ]
+  }
+  const twoInstances = [
+    { id: 'local', name: 'Local', baseUrl: 'http://localhost:11434' },
+    { id: 'gpu-box', name: 'GPU Box', baseUrl: 'http://gpu-box:11434' }
+  ]
+  const oneInstance = [{ id: 'local', name: 'Local', baseUrl: 'http://localhost:11434' }]
+
+  const openOllamaRail = (): HTMLElement => {
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByRole('tab', { name: /^all$/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ollama' }))
+    return screen.getByRole('listbox')
+  }
+
+  it('groups rows under per-instance subheaders when two instances are configured', () => {
+    useAppStore.setState({
+      providers: [ollamaProvider] as never,
+      modelRef: null,
+      conversations: {} as never,
+      settings: {
+        ursaEnabled: false,
+        favoriteModels: [],
+        ollamaInstances: twoInstances
+      } as never
+    })
+    const listbox = openOllamaRail()
+    const subheaders = [...listbox.querySelectorAll('.mpk-instance-label')].map(
+      (el) => el.textContent
+    )
+    expect(subheaders).toEqual(['Local', 'GPU Box'])
+    // Primary (unprefixed) model renders under the primary's subheader, the
+    // namespaced one under its own — and the grouped order matches.
+    const texts = [...listbox.querySelectorAll('.mpk-instance-label, [role="option"]')].map(
+      (el) => el.textContent ?? ''
+    )
+    const order = ['Local', 'Llama 3.2', 'GPU Box', 'Qwen 3 32B']
+    let at = 0
+    for (const t of texts) {
+      if (at < order.length && t.includes(order[at])) at++
+    }
+    expect(at).toBe(order.length)
+  })
+
+  it('renders no subheaders with a single configured instance (default look unchanged)', () => {
+    useAppStore.setState({
+      providers: [ollamaProvider] as never,
+      modelRef: null,
+      conversations: {} as never,
+      settings: {
+        ursaEnabled: false,
+        favoriteModels: [],
+        ollamaInstances: oneInstance
+      } as never
+    })
+    const listbox = openOllamaRail()
+    expect(listbox.querySelector('.mpk-instance-label')).toBeNull()
+    expect(screen.getByText('Llama 3.2')).toBeInTheDocument()
+  })
+
+  it('renders no subheaders when every visible model is on the primary instance', () => {
+    useAppStore.setState({
+      providers: [
+        { ...ollamaProvider, models: [{ id: 'llama3.2:latest', label: 'Llama 3.2' }] }
+      ] as never,
+      modelRef: null,
+      conversations: {} as never,
+      settings: {
+        ursaEnabled: false,
+        favoriteModels: [],
+        ollamaInstances: twoInstances
+      } as never
+    })
+    const listbox = openOllamaRail()
+    expect(listbox.querySelector('.mpk-instance-label')).toBeNull()
+    expect(screen.getByText('Llama 3.2')).toBeInTheDocument()
+  })
+
+  it('trigger pill disambiguates a namespaced selection with the instance name', () => {
+    useAppStore.setState({
+      providers: [ollamaProvider] as never,
+      modelRef: 'ollama/gpu-box/qwen3:32b',
+      conversations: {} as never,
+      settings: {
+        ursaEnabled: false,
+        favoriteModels: [],
+        ollamaInstances: twoInstances
+      } as never
+    })
+    render(<ModelPicker />)
+    expect(screen.getByText('Qwen 3 32B · GPU Box')).toBeInTheDocument()
+  })
+
+  it('Ursus stays gated on a reachable ollama row when multiple instances are configured', () => {
+    const selectModel = vi.fn()
+    useAppStore.setState({
+      providers: [ollamaProvider] as never,
+      modelRef: null,
+      conversations: {} as never,
+      settings: {
+        ursusEnabled: true,
+        favoriteModels: ['ursus/auto'],
+        ollamaInstances: twoInstances
+      } as never,
+      selectModel
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    const ursusRow = screen.getByText('Ursus').closest('[role="option"]')
+    expect(ursusRow?.className).not.toContain('disabled')
+    fireEvent.click(screen.getByText('Ursus'))
+    expect(selectModel).toHaveBeenCalledWith('ursus/auto')
+  })
+})
+
+describe('ModelPicker — multi-endpoint compat', () => {
+  const compatProvider = {
+    id: 'compat',
+    displayName: 'Compatible',
+    color: '#7c8cf8',
+    requiresKey: false,
+    keyConfigured: true,
+    reachable: true,
+    models: [
+      { id: 'qwen3:32b', label: 'Qwen 3 32B' },
+      // Non-primary endpoint id + a model id that itself contains a slash.
+      { id: 'work/aitech/llama-4:70b', label: 'Llama 4 70B' }
+    ]
+  }
+  const twoEndpoints = [
+    { id: 'home', name: 'Home', baseUrl: 'http://localhost:1234/v1' },
+    { id: 'work', name: 'Work Box', baseUrl: 'http://work:8000/v1' }
+  ]
+  const oneEndpoint = [{ id: 'home', name: 'Home', baseUrl: 'http://localhost:1234/v1' }]
+
+  const openCompatRail = (): HTMLElement => {
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByRole('tab', { name: /^all$/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Compatible' }))
+    return screen.getByRole('listbox')
+  }
+
+  it('groups rows under per-endpoint subheaders when two endpoints are configured', () => {
+    useAppStore.setState({
+      providers: [compatProvider] as never,
+      modelRef: null,
+      conversations: {} as never,
+      settings: {
+        ursaEnabled: false,
+        favoriteModels: [],
+        compatEndpoints: twoEndpoints
+      } as never
+    })
+    const listbox = openCompatRail()
+    const subheaders = [...listbox.querySelectorAll('.mpk-instance-label')].map(
+      (el) => el.textContent
+    )
+    expect(subheaders).toEqual(['Home', 'Work Box'])
+    // Primary (unprefixed) model renders under the primary's subheader, the
+    // namespaced one under its own — and the grouped order matches.
+    const texts = [...listbox.querySelectorAll('.mpk-instance-label, [role="option"]')].map(
+      (el) => el.textContent ?? ''
+    )
+    const order = ['Home', 'Qwen 3 32B', 'Work Box', 'Llama 4 70B']
+    let at = 0
+    for (const t of texts) {
+      if (at < order.length && t.includes(order[at])) at++
+    }
+    expect(at).toBe(order.length)
+  })
+
+  it('renders no subheaders with a single configured endpoint (default look unchanged)', () => {
+    useAppStore.setState({
+      providers: [compatProvider] as never,
+      modelRef: null,
+      conversations: {} as never,
+      settings: {
+        ursaEnabled: false,
+        favoriteModels: [],
+        compatEndpoints: oneEndpoint
+      } as never
+    })
+    const listbox = openCompatRail()
+    expect(listbox.querySelector('.mpk-instance-label')).toBeNull()
+    expect(screen.getByText('Qwen 3 32B')).toBeInTheDocument()
+  })
+
+  it('renders no subheaders with zero configured endpoints', () => {
+    useAppStore.setState({
+      providers: [compatProvider] as never,
+      modelRef: null,
+      conversations: {} as never,
+      settings: {
+        ursaEnabled: false,
+        favoriteModels: [],
+        compatEndpoints: []
+      } as never
+    })
+    const listbox = openCompatRail()
+    expect(listbox.querySelector('.mpk-instance-label')).toBeNull()
+    expect(screen.getByText('Qwen 3 32B')).toBeInTheDocument()
+  })
+
+  it('renders no subheaders when every visible model is on the primary endpoint', () => {
+    useAppStore.setState({
+      providers: [
+        { ...compatProvider, models: [{ id: 'qwen3:32b', label: 'Qwen 3 32B' }] }
+      ] as never,
+      modelRef: null,
+      conversations: {} as never,
+      settings: {
+        ursaEnabled: false,
+        favoriteModels: [],
+        compatEndpoints: twoEndpoints
+      } as never
+    })
+    const listbox = openCompatRail()
+    expect(listbox.querySelector('.mpk-instance-label')).toBeNull()
+    expect(screen.getByText('Qwen 3 32B')).toBeInTheDocument()
+  })
+
+  it('trigger pill disambiguates a namespaced selection with the endpoint name', () => {
+    useAppStore.setState({
+      providers: [compatProvider] as never,
+      modelRef: 'compat/work/aitech/llama-4:70b',
+      conversations: {} as never,
+      settings: {
+        ursaEnabled: false,
+        favoriteModels: [],
+        compatEndpoints: twoEndpoints
+      } as never
+    })
+    render(<ModelPicker />)
+    expect(screen.getByText('Llama 4 70B · Work Box')).toBeInTheDocument()
+  })
+
+  it('shows no cost tag for compat models (unpriced, not "free")', () => {
+    useAppStore.setState({
+      providers: [compatProvider] as never,
+      modelRef: null,
+      conversations: {} as never,
+      settings: {
+        ursaEnabled: false,
+        favoriteModels: [],
+        compatEndpoints: twoEndpoints
+      } as never
+    })
+    openCompatRail()
+    expect(screen.queryByText('free')).not.toBeInTheDocument()
+  })
+})

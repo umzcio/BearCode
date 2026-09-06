@@ -20,6 +20,7 @@
   bottom: 0;
   left: 50%;
   width: 2px;
+  border-radius: 1px;
   transform: translateX(-50%);
   background: var(--accent);
   opacity: 0;

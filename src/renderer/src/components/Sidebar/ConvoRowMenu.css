@@ -2,3 +2,20 @@
   position: relative;
   display: inline-flex;
 }
+
+/* Inline rename field: swaps in for the row's .name span (Sidebar + ProjectPage
+   rows share ConvoRow). Inherits the row's font; a quiet field well. */
+.convo-rename {
+  font: inherit;
+  color: var(--ink);
+  background: var(--field);
+  border: none;
+  border-radius: var(--radius-chip);
+  padding: 1px 6px;
+  margin: -1px 0;
+  min-width: 0;
+  outline: none;
+}
+.convo-rename:focus-visible {
+  box-shadow: var(--focus-ring);
+}

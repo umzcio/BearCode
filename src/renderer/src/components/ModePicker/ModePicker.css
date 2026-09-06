@@ -57,13 +57,13 @@
 }
 .pill-btn.bypass-active {
   color: var(--red);
-  border-color: var(--red);
+  background: var(--red-tint);
 }
 /* Keep the danger ink through hover (the composer's quiet-chip hover skin
    would otherwise repaint it as plain ink). */
 .pill-btn.bypass-active:hover {
   color: var(--red);
-  background: var(--red-tint);
+  background: color-mix(in srgb, var(--red) 24%, var(--red-tint));
 }
 /* Auto mode: semantic chip -- orange on its tint fill (matches CC's amber). */
 .pill-btn.auto-active {

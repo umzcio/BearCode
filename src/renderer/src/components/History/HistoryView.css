@@ -1,6 +1,7 @@
-/* History (⌘K) — Beautiful UI SearchList language: input on --field with the
-   inset shadow, quiet result rows that light up with --hover, ink hierarchy
-   (--ink match text, --ink-3 meta/glyphs). */
+/* History (⌘K) — Kimi search-first list: a large rounded search field over a
+   calm centered column, day-grouped rows with generous padding and rounded-lg
+   hover/active states. Ink hierarchy: --ink titles/matches, --ink-2 previews,
+   --ink-3 meta/glyphs. */
 .history-view {
   flex: 1;
   display: flex;
@@ -12,14 +13,17 @@
 .history-search-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 12px;
-  margin: 8px 16px 4px;
+  gap: 10px;
+  height: 44px;
+  padding: 0 14px;
+  margin: 16px auto 4px;
+  width: min(720px, calc(100% - 48px));
   border: none;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-overlay);
   background: var(--field);
-  box-shadow: var(--shadow-inset-field), var(--shadow-hairline);
+  box-shadow:
+    var(--shadow-inset-field),
+    var(--shadow-hairline);
   color: var(--ink-3);
   transition: box-shadow var(--dur-fast) var(--ease-standard);
 }
@@ -29,16 +33,24 @@
     var(--shadow-inset-field),
     0 0 0 1px var(--accent);
 }
+/* The input is the shared ui/input primitive (layered Tailwind utilities);
+   these unlayered rules strip its own chrome so the row is the visual field. */
 .history-search-input {
   flex: 1;
+  height: 100%;
+  padding: 0;
   border: none;
+  border-radius: 0;
   outline: none;
+  box-shadow: none;
   background: transparent;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
+  min-width: 0;
 }
 .history-search-input:focus-visible {
   outline: none;
+  box-shadow: none;
 }
 .history-search-input::placeholder {
   color: var(--ink-3);
@@ -47,11 +59,17 @@
 .history-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 16px 24px;
+  padding: 12px 0 32px;
+}
+/* Centered reading column: search field and every list block share one width. */
+.history-scroll > * {
+  width: min(720px, calc(100% - 48px));
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .history-bucket {
-  margin-bottom: 18px;
+  margin-bottom: 20px;
 }
 .history-bucket-head {
   font-size: 11px;
@@ -59,7 +77,8 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--ink-3);
-  padding: 6px 6px 8px;
+  /* Aligns with the row text inset below (row padding 12px). */
+  padding: 10px 12px 8px;
 }
 
 .history-row,
@@ -67,8 +86,8 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 9px 10px;
-  border-radius: var(--radius-control);
+  padding: 11px 12px;
+  border-radius: var(--radius-card);
   cursor: pointer;
   /* Row hover: 100ms standard curve (BUI table grammar). */
   transition: background-color var(--dur-hover) var(--ease-standard);
@@ -90,6 +109,10 @@
 .history-hit:hover {
   background: var(--hover);
 }
+.history-row:active,
+.history-hit:active {
+  background: var(--hover-2);
+}
 .history-row:focus-visible,
 .history-hit:focus-visible {
   outline: none;
@@ -104,6 +127,7 @@
 }
 .history-row-title {
   font-size: 13px;
+  font-weight: 500;
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -161,6 +185,6 @@
 .history-hit-snippet mark {
   background: var(--accent-tint);
   color: var(--ink);
-  border-radius: 3px;
+  border-radius: 4px;
   padding: 0 1px;
 }

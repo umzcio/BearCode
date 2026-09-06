@@ -7,7 +7,7 @@
 .app-select-trigger {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 170px;
   background: var(--surface);
   border: none;
@@ -16,14 +16,23 @@
   color: var(--ink);
   font-family: inherit;
   font-size: 13px;
-  padding: 7px 12px;
+  padding: 8px 12px;
   cursor: pointer;
   text-align: left;
   /* BUI hover grammar: color feedback at --dur-hover/--ease-standard. */
-  transition: background-color var(--dur-hover) var(--ease-standard);
+  transition:
+    background-color var(--dur-hover) var(--ease-standard),
+    box-shadow var(--dur-hover) var(--ease-standard);
 }
 .app-select-trigger:hover {
   background: var(--hover);
+}
+.app-select-trigger[aria-expanded='true'] {
+  background: var(--hover);
+}
+.app-select-trigger[aria-expanded='true'] .chev {
+  transform: rotate(180deg);
+  color: var(--ink-2);
 }
 .app-select-value {
   flex: 1;
@@ -35,6 +44,9 @@
   display: flex;
   color: var(--ink-3);
   flex-shrink: 0;
+  transition:
+    transform var(--dur-menu) var(--ease-out),
+    color var(--dur-hover) var(--ease-standard);
 }
 .app-select-trigger .chev svg {
   width: 14px;
@@ -45,4 +57,12 @@
    anymore; see components/ui/Menu.tsx + styles/shared.css `.menu`. */
 .app-select.compact .app-select-trigger {
   min-width: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-select-trigger .chev {
+    transition: none;
+  }
+}
+:root[data-motion='reduced'] .app-select-trigger .chev {
+  transition: none;
 }

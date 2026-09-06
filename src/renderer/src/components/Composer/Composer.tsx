@@ -254,7 +254,7 @@ export function Composer({
   useEffect(() => {
     const ta = taRef.current
     if (!ta) return
-    ta.style.height = '52px'
+    ta.style.height = '54px'
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`
   }, [value])
 
@@ -596,63 +596,6 @@ export function Composer({
           })}
         </div>
       ) : null}
-      {showEnvRow ? (
-        <div className="env-row">
-          <div className="env-picker">
-            <button
-              ref={envTriggerRef}
-              className="pill-btn"
-              onClick={() => setEnvOpen((o) => !o)}
-              disabled={envLocked}
-            >
-              {displayEnv === 'worktree' ? <IconGitBranch /> : <IconMonitor />}
-              <span>{displayEnv === 'worktree' ? 'New Worktree' : 'Local'}</span>
-              {!envLocked ? (
-                <span className="chev">
-                  <IconChevronDown />
-                </span>
-              ) : null}
-            </button>
-            <Popover
-              anchorRef={envTriggerRef}
-              open={envOpen && !envLocked}
-              onClose={() => setEnvOpen(false)}
-              placement="top-start"
-            >
-              <div className="menu menu--in-popover env-menu">
-                <div
-                  className={'menu-item' + (composerEnvironment === 'local' ? ' selected' : '')}
-                  onClick={() => {
-                    setComposerEnvironment('local')
-                    setEnvOpen(false)
-                  }}
-                >
-                  <IconMonitor size={16} />
-                  <span>Local</span>
-                  {composerEnvironment === 'local' ? <span className="check">✓</span> : null}
-                </div>
-                <div
-                  className={
-                    'menu-item' +
-                    (composerEnvironment === 'worktree' ? ' selected' : '') +
-                    (worktreeAvailable ? '' : ' disabled')
-                  }
-                  onClick={() => {
-                    if (!worktreeAvailable) return
-                    setComposerEnvironment('worktree')
-                    setEnvOpen(false)
-                  }}
-                >
-                  <IconGitBranch size={16} />
-                  <span>New Worktree</span>
-                  {composerEnvironment === 'worktree' ? <span className="check">✓</span> : null}
-                </div>
-                <div className="env-hint">Worktrees are available for Git repositories</div>
-              </div>
-            </Popover>
-          </div>
-        </div>
-      ) : null}
       <textarea
         ref={taRef}
         rows={1}
@@ -791,6 +734,65 @@ export function Composer({
             </div>
           )}
           {!isHermesConvo && <ModePicker />}
+          {/* F3: the environment picker (Local / New Worktree) is a quiet chip
+              in the action row. It is interactive only for a not-yet-started
+              conversation; once a conversation has run, the environment is
+              locked and the chip just reports it. */}
+          {showEnvRow ? (
+            <div className="env-picker">
+              <button
+                ref={envTriggerRef}
+                className="pill-btn"
+                onClick={() => setEnvOpen((o) => !o)}
+                disabled={envLocked}
+              >
+                {displayEnv === 'worktree' ? <IconGitBranch /> : <IconMonitor />}
+                <span>{displayEnv === 'worktree' ? 'New Worktree' : 'Local'}</span>
+                {!envLocked ? (
+                  <span className="chev">
+                    <IconChevronDown />
+                  </span>
+                ) : null}
+              </button>
+              <Popover
+                anchorRef={envTriggerRef}
+                open={envOpen && !envLocked}
+                onClose={() => setEnvOpen(false)}
+                placement="top-start"
+              >
+                <div className="menu menu--in-popover env-menu">
+                  <div
+                    className={'menu-item' + (composerEnvironment === 'local' ? ' selected' : '')}
+                    onClick={() => {
+                      setComposerEnvironment('local')
+                      setEnvOpen(false)
+                    }}
+                  >
+                    <IconMonitor size={16} />
+                    <span>Local</span>
+                    {composerEnvironment === 'local' ? <span className="check">✓</span> : null}
+                  </div>
+                  <div
+                    className={
+                      'menu-item' +
+                      (composerEnvironment === 'worktree' ? ' selected' : '') +
+                      (worktreeAvailable ? '' : ' disabled')
+                    }
+                    onClick={() => {
+                      if (!worktreeAvailable) return
+                      setComposerEnvironment('worktree')
+                      setEnvOpen(false)
+                    }}
+                  >
+                    <IconGitBranch size={16} />
+                    <span>New Worktree</span>
+                    {composerEnvironment === 'worktree' ? <span className="check">✓</span> : null}
+                  </div>
+                  <div className="env-hint">Worktrees are available for Git repositories</div>
+                </div>
+              </Popover>
+            </div>
+          ) : null}
           <Hint
             label={voice.status === 'recording' ? 'Stop recording' : 'Voice input'}
             keys="⌃M"

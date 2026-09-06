@@ -8,10 +8,11 @@ import type {
   ManageableProvider,
   ModelCapabilities,
   ModelInfo,
+  OllamaInstance,
   ProviderId,
   ProviderModels
 } from '../../shared/types'
-import { getKey, keyStatus } from '../keys'
+import { getCompatKey, getKey, keyStatus } from '../keys'
 import { getSettings } from '../settings'
 import type { ModelMetadata } from '../../shared/pricing'
 import {
@@ -194,14 +195,44 @@ export function contextLengthFromShow(payload: unknown): number | undefined {
   return undefined
 }
 
+// The configured Ollama servers, first entry = primary. settings.ts guarantees
+// ollamaInstances is seeded (from the legacy ollamaBaseUrl) on every read, but
+// hand-built settings in tests may omit it, so seed the same 'local' primary
+// here rather than trust the shape blindly.
+function configuredOllamaInstances(): OllamaInstance[] {
+  const s = getSettings()
+  if (Array.isArray(s.ollamaInstances) && s.ollamaInstances.length > 0) return s.ollamaInstances
+  return [{ id: 'local', name: 'Local', baseUrl: s.ollamaBaseUrl }]
+}
+
+// Resolve an Ollama model id to the instance that hosts it. A modelId whose
+// FIRST segment matches a configured non-primary instance id targets that
+// instance, with the remainder as the model name ('gpu/qwen3:32b' -> the 'gpu'
+// instance serving 'qwen3:32b'). Everything else -- bare ids, tag suffixes,
+// and even two-segment ids whose first segment matches no instance -- resolves
+// to the primary with the modelId intact, so legacy refs keep working
+// unchanged. Instance ids win on any first-segment collision: deterministic.
+export function resolveOllamaTarget(modelId: string): { baseUrl: string; modelName: string } {
+  const [primary, ...rest] = configuredOllamaInstances()
+  const slash = modelId.indexOf('/')
+  if (slash > 0) {
+    const match = rest.find((i) => i.id === modelId.slice(0, slash))
+    if (match) return { baseUrl: match.baseUrl, modelName: modelId.slice(slash + 1) }
+  }
+  return { baseUrl: primary.baseUrl, modelName: modelId }
+}
+
 // One /api/show round trip per model is far too expensive to repeat on every
 // listing (listOllamaModels runs per-turn via eligibleUrsusRoles). A model's
-// context length is immutable for a given pulled tag, so cache it for the
-// process lifetime and only ever fetch each id once.
+// context length is immutable for a given pulled tag ON A GIVEN HOST, so cache
+// it for the process lifetime and only ever fetch each base/id pair once --
+// keying by host too, since two instances can pull the same tag with different
+// templates/context lengths.
 const ollamaContextWindows = new Map<string, number | undefined>()
 
 async function fetchOllamaContextWindow(base: string, id: string): Promise<number | undefined> {
-  if (ollamaContextWindows.has(id)) return ollamaContextWindows.get(id)
+  const cacheKey = `${base}/${id}`
+  if (ollamaContextWindows.has(cacheKey)) return ollamaContextWindows.get(cacheKey)
   try {
     const res = await fetch(`${base}/api/show`, {
       method: 'POST',
@@ -211,7 +242,7 @@ async function fetchOllamaContextWindow(base: string, id: string): Promise<numbe
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const win = contextLengthFromShow(await res.json())
-    ollamaContextWindows.set(id, win)
+    ollamaContextWindows.set(cacheKey, win)
     return win
   } catch {
     // Do NOT cache a failure: a transient error should not permanently mark the
@@ -223,13 +254,17 @@ async function fetchOllamaContextWindow(base: string, id: string): Promise<numbe
 // `withContextWindows` is opt-in because it costs one extra request per model.
 // Callers that only need the model LIST (per-turn eligibility checks) leave it
 // off and keep the single-request fast path; the catalog that feeds the
-// renderer (and therefore the context meter) turns it on.
-export async function listOllamaModels(opts: { withContextWindows?: boolean } = {}): Promise<{
+// renderer (and therefore the context meter) turns it on. `baseUrl` selects
+// the instance to probe and defaults to the primary, so existing no-arg
+// callers keep the exact legacy behavior.
+export async function listOllamaModels(
+  opts: { baseUrl?: string; withContextWindows?: boolean } = {}
+): Promise<{
   models: ModelInfo[]
   reachable: boolean
   note?: string
 }> {
-  const base = getSettings().ollamaBaseUrl.replace(/\/$/, '')
+  const base = (opts.baseUrl ?? configuredOllamaInstances()[0].baseUrl).replace(/\/$/, '')
   try {
     const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(2000) })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -247,6 +282,159 @@ export async function listOllamaModels(opts: { withContextWindows?: boolean } = 
     return { models, reachable: true }
   } catch {
     return { models: [], reachable: false, note: 'Ollama not running' }
+  }
+}
+
+// Multi-instance catalog: probe EVERY configured instance in parallel (each
+// keeps its own 2s/4s timeouts, so wall time is the single-instance wall time)
+// and merge into one list. Primary-instance models keep their bare ids;
+// non-primary models are namespaced '<instanceId>/<modelName>' so refs stay
+// unambiguous (resolveOllamaTarget reverses the namespacing). `reachable` is
+// true when ANY instance answers; `note` names the ones that didn't. With a
+// single configured instance (the default), this is byte-identical to the
+// legacy listOllamaModels behavior, including the 'Ollama not running' note.
+export async function listAllOllamaInstances(
+  opts: { withContextWindows?: boolean } = {}
+): Promise<{ models: ModelInfo[]; reachable: boolean; note?: string }> {
+  const instances = configuredOllamaInstances()
+  if (instances.length === 1) {
+    return listOllamaModels({ baseUrl: instances[0].baseUrl, ...opts })
+  }
+  const results = await Promise.all(
+    instances.map((inst) => listOllamaModels({ baseUrl: inst.baseUrl, ...opts }))
+  )
+  const models: ModelInfo[] = []
+  const unreachable: string[] = []
+  results.forEach((r, i) => {
+    if (!r.reachable) unreachable.push(instances[i].name)
+    for (const m of r.models) {
+      if (i === 0) models.push(m)
+      else {
+        const id = `${instances[i].id}/${m.id}`
+        models.push({ ...m, id, label: id })
+      }
+    }
+  })
+  return {
+    models,
+    reachable: results.some((r) => r.reachable),
+    ...(unreachable.length > 0 ? { note: `Unreachable: ${unreachable.join(', ')}` } : {})
+  }
+}
+
+// The configured OpenAI-compatible endpoints (vLLM, LM Studio, llama.cpp,
+// TabbyAPI), first entry = primary. Unlike ollamaInstances there is NO legacy
+// fallback seeding: settings.ts guarantees compatEndpoints is [] (never
+// seeded) on every read, and an empty list is the normal default state, so
+// hand-built settings in tests that omit it resolve to [] too.
+function configuredCompatEndpoints(): OllamaInstance[] {
+  const s = getSettings()
+  if (Array.isArray(s.compatEndpoints)) return s.compatEndpoints
+  return []
+}
+
+// Resolve a compat model id to the endpoint that hosts it, mirroring
+// resolveOllamaTarget's routing rules: a modelId whose FIRST segment matches
+// a configured non-primary endpoint id targets that endpoint, with the
+// remainder as the model name ('vllm/qwen3-32b' -> the 'vllm' endpoint
+// serving 'qwen3-32b'). Everything else -- bare ids, slash-containing model
+// ids like 'meta-llama/Llama-3.1-8B-Instruct', and first segments matching no
+// endpoint id -- resolves to the PRIMARY endpoint with the modelId intact.
+// Endpoint ids win on any first-segment collision: deterministic. The
+// endpoint's vault key (compat:<endpointId>) rides along when one exists;
+// with zero configured endpoints there is no primary to fall back to, so the
+// ref is unresolvable and this throws rather than silently targeting nothing.
+export function resolveCompatTarget(modelId: string): {
+  baseUrl: string
+  modelName: string
+  apiKey?: string
+} {
+  const [primary, ...rest] = configuredCompatEndpoints()
+  if (!primary) throw new Error('No compat endpoints configured')
+  const slash = modelId.indexOf('/')
+  if (slash > 0) {
+    const match = rest.find((e) => e.id === modelId.slice(0, slash))
+    if (match) {
+      const apiKey = getCompatKey(match.id)
+      return {
+        baseUrl: match.baseUrl,
+        modelName: modelId.slice(slash + 1),
+        ...(apiKey ? { apiKey } : {})
+      }
+    }
+  }
+  const apiKey = getCompatKey(primary.id)
+  return { baseUrl: primary.baseUrl, modelName: modelId, ...(apiKey ? { apiKey } : {}) }
+}
+
+// One endpoint's OpenAI-compatible model catalog: GET {base}/v1/models with
+// the OpenAI `{ data: [{id}] }` shape. Authorization: Bearer is sent ONLY
+// when the caller has a vaulted key -- many local servers (llama.cpp,
+// default vLLM) reject or ignore an empty bearer, and several log headers.
+// Same 2s probe budget as the Ollama tags call; any failure degrades to
+// reachable:false with a note, never a throw (the merged catalog below names
+// the dead endpoints by display name).
+export async function listCompatModels(opts: { baseUrl: string; apiKey?: string }): Promise<{
+  models: ModelInfo[]
+  reachable: boolean
+  note?: string
+}> {
+  const base = opts.baseUrl.replace(/\/$/, '')
+  try {
+    const headers: Record<string, string> = {}
+    if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`
+    const res = await fetch(`${base}/v1/models`, {
+      headers,
+      signal: AbortSignal.timeout(2000)
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = (await res.json()) as { data?: { id?: unknown }[] }
+    const models = (data.data ?? [])
+      .filter((m): m is { id: string } => typeof m.id === 'string' && m.id.length > 0)
+      .map((m) => ({ id: m.id, label: m.id }))
+    return { models, reachable: true }
+  } catch {
+    return { models: [], reachable: false, note: 'Endpoint unreachable' }
+  }
+}
+
+// Multi-endpoint catalog, mirroring listAllOllamaInstances: probe EVERY
+// configured endpoint in parallel (each keeps its own 2s timeout, so wall
+// time is the single-endpoint wall time) and merge into one list.
+// Primary-endpoint models keep their bare ids; non-primary models are
+// namespaced '<endpointId>/<modelId>' so refs stay unambiguous
+// (resolveCompatTarget reverses the namespacing). `reachable` is true when
+// ANY endpoint answers; `note` names the ones that didn't, BY DISPLAY NAME.
+// With zero configured endpoints (the default) the provider is simply absent:
+// reachable:false and a 'No endpoints configured' note.
+export async function listAllCompatEndpoints(): Promise<{
+  models: ModelInfo[]
+  reachable: boolean
+  note?: string
+}> {
+  const endpoints = configuredCompatEndpoints()
+  if (endpoints.length === 0) {
+    return { models: [], reachable: false, note: 'No endpoints configured' }
+  }
+  const results = await Promise.all(
+    endpoints.map((ep) => listCompatModels({ baseUrl: ep.baseUrl, apiKey: getCompatKey(ep.id) }))
+  )
+  const models: ModelInfo[] = []
+  const unreachable: string[] = []
+  results.forEach((r, i) => {
+    if (!r.reachable) unreachable.push(endpoints[i].name)
+    for (const m of r.models) {
+      if (i === 0) models.push(m)
+      else {
+        const id = `${endpoints[i].id}/${m.id}`
+        models.push({ ...m, id, label: id })
+      }
+    }
+  })
+  return {
+    models,
+    reachable: results.some((r) => r.reachable),
+    ...(unreachable.length > 0 ? { note: `Unreachable: ${unreachable.join(', ')}` } : {})
   }
 }
 
@@ -315,9 +503,24 @@ export const REGISTRY: ProviderRegistryEntry[] = [
     requiresKey: false,
     // The catalog path feeds the renderer (model picker, context meter, pricing),
     // so it pays the extra /api/show round trip per model to learn each one's
-    // context window. Per-turn eligibility checks call listOllamaModels()
-    // directly, without the flag, and keep the single-request fast path.
-    listModels: () => listOllamaModels({ withContextWindows: true })
+    // context window. It probes every configured Ollama instance (multi-instance
+    // merge; a single configured instance behaves exactly as before). Per-turn
+    // eligibility checks call listOllamaModels() directly on the instance their
+    // ref resolves to (resolveOllamaTarget), without the flag, and keep the
+    // single-request fast path.
+    listModels: () => listAllOllamaInstances({ withContextWindows: true })
+  },
+  {
+    id: 'compat',
+    displayName: 'OpenAI-Compatible',
+    color: '#fb7185',
+    requiresKey: false,
+    // Fully dynamic like Ollama: the catalog is whatever the user's configured
+    // endpoints serve, merged across all of them (primary ids bare,
+    // non-primary namespaced). Keys are per-endpoint and optional
+    // (compat:<endpointId> in the vault), so requiresKey stays false and the
+    // provider is "configured" whenever at least one endpoint exists.
+    listModels: () => listAllCompatEndpoints()
   }
 ]
 
@@ -342,8 +545,9 @@ export function mergeModels(
   return [...byId.values()].filter((m) => !disabledSet.has(`${provider}/${m.id}`))
 }
 
-// The first-party curated providers subject to opt-out + Add-model. Ollama is
-// excluded: it is fully dynamic/local and manages its own catalog. Anthropic/
+// The first-party curated providers subject to opt-out + Add-model. Ollama and
+// compat are excluded: both are fully dynamic (local/user-configured
+// endpoints) and manage their own catalogs. Anthropic/
 // Google/OpenAI's entries in knownModels() may be live-discovered (Task 6);
 // openrouter/perplexity/xai always resolve to their static array (no
 // discovery mechanism exists for any of them).
@@ -372,7 +576,8 @@ export function isLiveOnly(provider: ProviderId, modelId: string, custom: Custom
 // Every "providerId/modelId" ref in the EFFECTIVE set (curated + custom minus
 // disabled, PLUS the enabledLiveModels opt-in filter for live-only entries)
 // for the first-party + OpenRouter providers. Feeds the LiteLLM pricing sync.
-// Ollama is dynamic/local and free, so it is intentionally excluded.
+// Ollama and compat are dynamic/user-hosted, so they are intentionally
+// excluded.
 export function allKnownModelRefs(): string[] {
   const { customModels = [], disabledModels = [], enabledLiveModels = [] } = getSettings()
   const enabledLiveSet = new Set(enabledLiveModels)
@@ -689,13 +894,13 @@ export async function listAllModels(): Promise<ProviderModels[]> {
       // has opted it in via enabledLiveModels. Every picker/meter/pricing
       // consumer reads this, staying consistent with listManageableModels.
       // The opt-in filter only applies to MANAGEABLE_PROVIDER_IDS (the
-      // providers with a STATIC_MODELS entry) -- Ollama has no STATIC_MODELS
-      // key and is deliberately excluded from that set (fully dynamic/local,
-      // manages its own catalog), so every id isLiveOnly() would resolve as
-      // "live-only, not opted in" and there is no UI path to ever opt an
-      // Ollama ref in (listManageableModels never iterates it either). Without
-      // this guard, real locally-pulled Ollama models would silently vanish
-      // from the picker/context meter.
+      // providers with a STATIC_MODELS entry) -- Ollama and compat have no
+      // STATIC_MODELS key and are deliberately excluded from that set (fully
+      // dynamic, manage their own catalogs), so every id isLiveOnly() would
+      // resolve as "live-only, not opted in" and there is no UI path to ever
+      // opt such a ref in (listManageableModels never iterates them either).
+      // Without this guard, real discovered Ollama/compat models would
+      // silently vanish from the picker/context meter.
       const merged = mergeModels(entry.id, models, customModels, disabledModels).filter(
         (m) =>
           !MANAGEABLE_PROVIDER_IDS.includes(entry.id) ||

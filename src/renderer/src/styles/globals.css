@@ -1,0 +1,84 @@
+/* Tailwind v4 entry + shadcn theme bridge.
+   Imported from main.tsx BEFORE tokens.css/shared.css.
+
+   Preflight is intentionally skipped: tokens.css already owns the global
+   reset, and Tailwind's preflight would strip list markers/heading margins
+   inside rendered markdown. Layered imports keep every Tailwind rule below
+   the app's unlayered styles in the cascade, so existing CSS always wins
+   ties — the new utilities only apply where components opt in via classes. */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+@import 'tw-animate-css';
+
+/* shadcn semantic tokens -> existing BearCode vars (tokens.css). `@theme
+   inline` keeps the var() indirection in the generated CSS, so the
+   data-theme='light'/'dark' switch (appearance.ts) retargets every shadcn
+   utility automatically — no .dark class needed.
+   Note: shadcn's `accent`/`muted`/`secondary` are hover-surface roles, so
+   they map to --hover; BearCode's blue --accent maps to shadcn `primary`. */
+@theme inline {
+  --color-background: var(--page);
+  --color-foreground: var(--ink);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-fg);
+  --color-secondary: var(--hover);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--hover);
+  --color-muted-foreground: var(--ink-2);
+  --color-accent: var(--hover);
+  --color-accent-foreground: var(--ink);
+  --color-destructive: var(--red);
+  --color-destructive-foreground: var(--accent-fg);
+  --color-border: var(--line);
+  --color-input: var(--line-strong);
+  --color-ring: var(--focus);
+
+  --radius-sm: var(--radius-chip);
+  --radius-md: var(--radius-control);
+  --radius-lg: var(--radius-card);
+  --radius-xl: var(--radius-overlay);
+
+  /* Theme-aware depth: reuse the existing per-theme shadow tokens instead of
+     Tailwind's fixed black-alpha shadows (which vanish on dark surfaces). */
+  --shadow-xs: var(--shadow-btn);
+  --shadow-sm: var(--shadow-card);
+  --shadow-md: var(--shadow-raised);
+  --shadow-lg: var(--shadow-overlay);
+  --shadow-xl: var(--shadow-overlay);
+  --shadow-2xl: var(--shadow-overlay);
+
+  --font-sans: var(--sans);
+  --font-mono: var(--mono);
+}
+
+/* Minimal control reset replacing the bits of preflight shadcn primitives
+   actually need. Scoped to form elements only — nothing else in the app
+   relies on UA control styling, and every legacy control class sets its own
+   background/border (unlayered rules beat these anyway). */
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+  }
+  button {
+    border: none;
+    background: none;
+  }
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--ink-3);
+    opacity: 1;
+  }
+}

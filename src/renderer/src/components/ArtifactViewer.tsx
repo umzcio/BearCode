@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Copy, Download } from 'lucide-react'
 import type { Event } from '@shared/types'
 import { useAppStore } from '../state/store'
 import { Markdown } from '../lib/markdown'
@@ -295,14 +296,16 @@ export function ArtifactViewer({
               </>
             ) : null}
             <button className="plan-request-review" onClick={() => void copyMarkdown()}>
-              Copy Markdown
+              <Copy aria-hidden="true" />
+              {'Copy Markdown'}
             </button>
             <button
               className="plan-request-review"
               disabled={exporting}
               onClick={() => void exportMarkdown()}
             >
-              Export…
+              <Download aria-hidden="true" />
+              {'Export…'}
             </button>
           </div>
         </div>

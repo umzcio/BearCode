@@ -31,7 +31,8 @@ export function AddCustomModelModal({ onClose }: { onClose: () => void }): React
   const [ctx, setCtx] = useState('')
 
   const ctxNum = Number(ctx)
-  const valid = id.trim().length > 0 && label.trim().length > 0 && Number.isFinite(ctxNum) && ctxNum > 0
+  const valid =
+    id.trim().length > 0 && label.trim().length > 0 && Number.isFinite(ctxNum) && ctxNum > 0
   const collides = manageableModels
     .find((p) => p.id === provider)
     ?.models.some((m) => !m.custom && m.id === id.trim())
@@ -71,7 +72,12 @@ export function AddCustomModelModal({ onClose }: { onClose: () => void }): React
         <div className="amp-body">
           <div className="amp-field">
             <label>Provider</label>
-            <Select ariaLabel="Add model provider" value={provider} onChange={setProvider} options={ADDABLE_PROVIDERS} />
+            <Select
+              ariaLabel="Add model provider"
+              value={provider}
+              onChange={setProvider}
+              options={ADDABLE_PROVIDERS}
+            />
           </div>
           <div className="amp-field">
             <label>Model ID</label>
@@ -104,12 +110,13 @@ export function AddCustomModelModal({ onClose }: { onClose: () => void }): React
           </div>
           {collides ? (
             <div className="amp-hint">
-              A built-in model with this ID exists for {provider}; your custom entry will override it.
+              A built-in model with this ID exists for {provider}; your custom entry will override
+              it.
             </div>
           ) : null}
         </div>
         <div className="amp-footer">
-          <button type="button" className="pill-btn" onClick={submit} disabled={!valid}>
+          <button type="button" className="pill-btn amp-submit" onClick={submit} disabled={!valid}>
             Add model
           </button>
         </div>

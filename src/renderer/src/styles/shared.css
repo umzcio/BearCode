@@ -146,10 +146,10 @@
   position: absolute;
   background: var(--surface);
   border: none;
-  border-radius: var(--radius-overlay);
+  border-radius: var(--radius-menu);
   box-shadow: var(--shadow-overlay);
-  padding: 4px;
-  min-width: 300px;
+  padding: 6px;
+  min-width: 260px;
   max-height: 420px;
   overflow-y: auto;
   z-index: 60;
@@ -174,7 +174,7 @@
   position: static;
   min-width: var(--popover-min-width, 0);
   width: max-content;
-  max-width: 280px;
+  max-width: 320px;
   box-sizing: border-box;
 }
 /* Canonical group-label: mixed-case (not uppercase), medium weight, muted --
@@ -183,7 +183,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px 4px;
+  padding: 8px 12px 4px;
   font-size: 12px;
   font-weight: 500;
   color: var(--ink-2);
@@ -192,8 +192,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 10px;
-  border-radius: var(--radius-chip);
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   font-size: 13px;
   color: var(--ink-2);
@@ -238,7 +238,7 @@
 /* Two-line rows (title + description), e.g. Antigravity-style rich dropdowns. */
 .menu-item.has-desc {
   align-items: flex-start;
-  padding: 9px 10px;
+  padding: 10px 12px;
 }
 .menu-item .mi-text {
   display: flex;
@@ -378,7 +378,7 @@ code.tok {
   border: none;
   color: var(--ink);
   font-size: 13px;
-  padding: 8px 16px;
+  padding: 10px 18px;
   border-radius: var(--radius-overlay);
   box-shadow: var(--shadow-overlay);
   z-index: 200;
@@ -394,7 +394,7 @@ code.tok {
 .toast-btn {
   font-size: 12px;
   font-weight: 500;
-  padding: 4px 12px;
+  padding: 5px 14px;
   border-radius: var(--radius-control);
   border: none;
   background: var(--surface);

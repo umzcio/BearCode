@@ -1,6 +1,11 @@
 /* The Artifacts pane (ArtifactsPane.tsx): docked side panel with a header,
    stacked collapsible file sections with inline diffs, and the artifact rail.
-   Class prefix is `ap-`; the pane surface itself is `.ap-panel`. */
+   Class prefix is `ap-`; the pane surface itself is `.ap-panel`.
+   Kimi-style pass (2026-09-05): transparent header tiers over the pane canvas
+   (hairlines only, no surface blocks), ghost icon buttons, an inset segmented
+   control with a raised thumb, a 2px accent tab indicator, and calm centered
+   empty states. Motion rules below are pinned by
+   src/main/artifactsPaneMotionContract.test.ts -- edit them with that file. */
 
 /* Drawer motion: the flex slot appears in one reflow (the conversation column
    snaps once), then the pane surface slides in from the right edge on the same
@@ -52,8 +57,8 @@
 .code-mark {
   font-family: var(--mono);
   font-size: 10px;
-  font-weight: 700;
-  color: var(--accent);
+  font-weight: 600;
+  color: var(--ink-3);
   flex-shrink: 0;
 }
 .ap-scroll {
@@ -70,8 +75,8 @@
 .overview-prompt {
   background: var(--surface);
   box-shadow: var(--shadow-card);
-  border-radius: var(--radius-card);
-  padding: 11px 14px;
+  border-radius: var(--radius-overlay);
+  padding: 12px 16px;
   font-size: 13px;
   color: var(--ink);
   margin-bottom: 16px;
@@ -85,7 +90,7 @@
 .overview-file {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
   background: none;
   border: none;
@@ -93,7 +98,7 @@
   font-family: inherit;
   font-size: 13px;
   color: var(--ink-2);
-  padding: 8px 10px;
+  padding: 9px 12px;
   cursor: pointer;
   text-align: left;
 }
@@ -131,14 +136,28 @@
   /* Anchors the floating Comment button to this editor's coordinates. */
   position: relative;
 }
+/* Pane-level loading/empty moments: calm centered copy, generous air. The
+   shared EmptyState card flattens into plain muted text in this context. */
 .diff-loading {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 12px;
   color: var(--ink-2);
   font-size: 13px;
-  padding: 40px 0;
+  padding: 48px 24px;
+}
+.diff-loading .empty-state {
+  background: none;
+  box-shadow: none;
+  padding: 0;
+  text-align: center;
+}
+.ap-state-icon {
+  color: var(--ink-3);
+  flex-shrink: 0;
 }
 
 .commenting-line {
@@ -210,7 +229,7 @@
 .comment-send {
   display: flex;
   justify-content: flex-end;
-  padding: 10px 16px;
+  padding: 12px 16px;
   border-top: 1px solid var(--line);
   flex-shrink: 0;
 }
@@ -310,15 +329,15 @@
 }
 
 .artifact-view {
-  padding: 16px 18px;
+  padding: 20px 22px 24px;
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.6;
   color: var(--ink-2);
   user-select: text;
 }
 .artifact-view-title {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 650;
   color: var(--ink);
   margin-bottom: 10px;
 }
@@ -341,23 +360,44 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .artifact-view-title-row .artifact-view-title {
   margin-bottom: 0;
   min-width: 0;
   overflow-wrap: anywhere;
 }
+/* Meta chips beside the title: quiet pills; the status chip drops the loud
+   uppercase for sentence case (the tint colors still carry the semantics). */
+.artifact-view .artifact-version {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.artifact-view .artifact-status {
+  text-transform: none;
+  letter-spacing: 0;
+}
 
 /* --- Plan review actions + comments (Ba2) --- */
 .plan-review-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin-left: auto;
   min-width: 0;
   max-width: 100%;
   animation: fade-up var(--dur-reveal) var(--ease-out) both;
+}
+.plan-review-actions svg {
+  width: 13px;
+  height: 13px;
 }
 .plan-resolution-notice {
   margin-left: auto;
@@ -380,15 +420,18 @@
    over --red-tint, everything else a soft --surface button on --shadow-btn. */
 .plan-proceed,
 .plan-request-review {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: none;
   border-radius: var(--radius-control);
   background: var(--surface);
   box-shadow: var(--shadow-btn);
   color: var(--ink);
   font-family: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 500;
-  padding: 5px 12px;
+  padding: 6px 13px;
   cursor: pointer;
 }
 .plan-proceed {
@@ -424,9 +467,8 @@
   margin: 10px 0;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-card);
   background: var(--field);
-  box-shadow: var(--shadow-inset-field);
   color: var(--ink);
   font-family: inherit;
   font-size: 12.5px;
@@ -437,6 +479,11 @@
 }
 .plan-feedback-box::placeholder {
   color: var(--ink-3);
+}
+.plan-feedback-box:focus-visible,
+.comment-composer textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 .plan-feedback-actions {
   display: flex;
@@ -499,15 +546,17 @@
   box-shadow: none;
   color: var(--orange);
 }
+.comment-composer {
+  margin: 12px 0;
+}
 .comment-composer textarea {
   width: 100%;
   box-sizing: border-box;
   min-height: 48px;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-card);
   background: var(--field);
-  box-shadow: var(--shadow-inset-field);
   color: var(--ink);
   font-family: inherit;
   font-size: 12.5px;
@@ -523,15 +572,11 @@
 }
 
 /* ===================================================================
-   Artifact Panel redesign (2026-07-06): two-row header + amber/blue
-   theme from ~/Downloads/ArtifactPanel, wired to app tokens. Scoped
-   under .ap-panel so it composes with the existing Monaco/comment/
-   preview machinery without leaking. Dark-only (the app is dark).
+   Pane chrome: reference tokens pointed at the Beautiful UI vocabulary (one
+   place to retune). Kept so the pane's Monaco/comment/preview machinery reads
+   the same names it always has.
    =================================================================== */
 .ap-panel {
-  /* Reference tokens pointed at the Beautiful UI vocabulary (one place to
-     retune). Kept so the pane's Monaco/comment/preview machinery reads the
-     same names it always has. */
   --ap-surface-0: var(--page);
   --ap-surface-1: var(--canvas);
   --ap-surface-2: var(--hover-2);
@@ -559,25 +604,23 @@
   overflow: hidden;
 }
 
-/* --- Header rows: title bar on --surface, file-tab strip on --inset (the
-   DiffTable sticky-header tier), both closed by a hairline. --- */
+/* --- Header rows: transparent tiers over the pane canvas, each closed by a
+   single hairline. No surface blocks -- the chrome stays quiet. --- */
 .ap-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
+  gap: 10px;
+  padding: 11px 16px;
   flex-shrink: 0;
 }
 .ap-row-top {
-  background: var(--surface);
   border-bottom: 1px solid var(--ap-border);
 }
 .ap-row-tabs {
   justify-content: space-between;
-  gap: 10px;
-  background: var(--inset);
+  gap: 12px;
   border-bottom: 1px solid var(--ap-border);
-  padding-bottom: 0;
+  padding: 2px 16px 0;
   overflow: hidden;
 }
 .ap-paw {
@@ -598,12 +641,17 @@
   flex: 1;
 }
 /* Review mode: the file:line label in the FilePanel header (a finding opened
-   at its exact line). Truncates so a long path never pushes out the close btn. */
+   at its exact line). A soft mono chip; truncates so a long path never pushes
+   out the close button. */
 .ap-file-name {
   font-family: var(--mono);
   font-size: 11.5px;
   font-weight: 500;
   color: var(--ink-2);
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
+  border-radius: var(--radius-chip);
+  padding: 3px 8px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -615,11 +663,11 @@
 .ap-segmented {
   display: flex;
   gap: 2px;
-  padding: 2px;
+  padding: 3px;
   border: none;
   background: var(--inset);
   box-shadow: var(--shadow-hairline);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-card);
   flex-shrink: 0;
 }
 .ap-segmented button {
@@ -627,10 +675,10 @@
   background: transparent;
   color: var(--ap-text-secondary);
   font-family: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 500;
-  padding: 3px 10px;
-  border-radius: var(--radius-chip);
+  padding: 4px 12px;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 .ap-segmented button:hover {
@@ -648,12 +696,12 @@
   outline-offset: -2px;
 }
 
-/* --- Action cluster --- */
+/* --- Action cluster: ghost icon buttons (28px hit area, hover wash). --- */
 .ap-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  color: var(--ap-text-muted);
+  gap: 2px;
+  color: var(--ap-text-secondary);
   flex-shrink: 0;
 }
 .ap-actions button {
@@ -661,22 +709,50 @@
   border: none;
   color: inherit;
   display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   padding: 0;
 }
 .ap-actions button:hover {
+  background: var(--hover);
   color: var(--ap-text-primary);
+}
+.ap-actions button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.ap-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .ap-actions svg {
   width: 15px;
   height: 15px;
 }
+/* The attachment header's one text action keeps the ghost shape but sizes to
+   its label instead of the icon-button square. */
+.ap-actions .ap-download-btn {
+  width: auto;
+  gap: 6px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+.ap-actions .ap-download-btn svg {
+  width: 13px;
+  height: 13px;
+}
 
 /* --- Deliverable rail (Plan / Walkthrough / Changes picker) --- */
 .ap-rail {
   display: flex;
-  gap: 6px;
-  padding: 8px 14px;
+  gap: 8px;
+  padding: 10px 16px;
   overflow-x: auto;
   border-bottom: 1px solid var(--ap-border);
   flex-shrink: 0;
@@ -688,7 +764,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 11px;
+  padding: 5px 12px;
   background: none;
   border: 1px solid transparent;
   border-radius: 999px;
@@ -714,10 +790,11 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* --- File tabs (row 2) --- */
+/* --- File tabs (row 2): quiet labels; the active tab gets a 2px accent
+   indicator that sits on the row's hairline. --- */
 .ap-tabs {
   display: flex;
-  gap: 2px;
+  gap: 4px;
   overflow-x: auto;
   min-width: 0;
 }
@@ -726,7 +803,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 9px 8px 12px;
+  padding: 10px 10px 11px;
   font-family: inherit;
   font-size: 12px;
   font-weight: 500;
@@ -749,6 +826,17 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+.ap-tab-indicator {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  /* Sits on the row's bottom hairline; must stay inside .ap-tabs, whose
+     overflow-x: auto would clip anything below the content edge. */
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
 .ap-diffstat {
   font-family: var(--mono);
   font-size: 10.5px;
@@ -764,15 +852,6 @@
 .ap-diffstat .reverted {
   color: var(--ap-danger);
   font-weight: 600;
-}
-.ap-clawmark {
-  position: absolute;
-  left: 8px;
-  bottom: 3px;
-  stroke: var(--ap-accent-amber);
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  fill: none;
 }
 
 /* --- Body: Monaco (diff/code) or FilePreview --- */
@@ -821,7 +900,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 18px;
+  padding: 20px 22px;
   font-size: 13px;
 }
 
@@ -911,11 +990,6 @@
   height: auto;
   max-width: 100%;
 }
-.ap-attachment-missing {
-  padding: 18px;
-  color: var(--ink-2);
-  font-size: 13px;
-}
 
 /* --- Inline comment composer. An empty Monaco view zone reserves the gap;
    this overlay sits on top of it (always interactive, unlike view-zone content
@@ -995,6 +1069,7 @@
 .comment-bar-send.ready {
   background: var(--accent);
   color: var(--accent-fg);
+  border-radius: 999px;
 }
 .comment-bar-send:disabled {
   cursor: default;
@@ -1025,14 +1100,14 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .version-chip {
   border: none;
   background: var(--inset);
   box-shadow: var(--shadow-hairline);
   border-radius: 999px;
-  padding: 2px 10px;
+  padding: 3px 10px;
   font-size: 11.5px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;

@@ -5,13 +5,14 @@
   z-index: 50;
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: 2px;
   transform: scale(var(--window-controls-scale));
   transform-origin: top left;
   -webkit-app-region: no-drag;
 }
 
 .window-chrome-controls .chrome-btn {
+  border-radius: var(--radius-control);
   transition: none;
 }
 

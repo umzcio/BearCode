@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { Event } from '@shared/types'
 import { useAppStore, modelDisplay } from '../../state/store'
-import { IconChevronRightSmall } from '../icons'
+import { ChevronRight } from 'lucide-react'
 import { Select } from '../Select'
 import { usePendingCardHotkeys } from './usePendingCardHotkeys'
 import { AllowGrid } from './AllowGrid'
@@ -367,7 +367,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
           <span className="step-status done" aria-hidden="true" />
           {summaryFor(call, result, openFile)}
           <span className="chev">
-            <IconChevronRightSmall />
+            <ChevronRight />
           </span>
         </div>
       </div>
@@ -507,7 +507,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
           <span>{result ? 'Ran' : 'Running'}</span>
           <span className="mono">{action}</span>
           <span className="chev">
-            <IconChevronRightSmall />
+            <ChevronRight />
           </span>
         </div>
         <div className="step-reveal">
@@ -569,7 +569,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
             {provider} · {toolName}
           </span>
           <span className="chev">
-            <IconChevronRightSmall />
+            <ChevronRight />
           </span>
         </div>
         <div className="step-reveal">
@@ -620,7 +620,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
           <span className={'step-status ' + (result ? 'done' : 'running')} aria-hidden="true" />
           {summaryFor(call, result, openFile)}
           <span className="chev">
-            <IconChevronRightSmall />
+            <ChevronRight />
           </span>
         </div>
         <div className="step-reveal">
@@ -676,7 +676,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
             </span>
           ) : null}
           <span className="chev">
-            <IconChevronRightSmall />
+            <ChevronRight />
           </span>
         </div>
         {/* Terminal output is a large body: --dur-reveal-lg per the BUI grammar. */}
@@ -709,7 +709,7 @@ export function ToolStep({ call, result, convoId }: ToolStepProps): React.JSX.El
         <span className={'step-status ' + (result ? 'done' : 'running')} aria-hidden="true" />
         {summaryFor(call, result, openFile)}
         <span className="chev">
-          <IconChevronRightSmall />
+          <ChevronRight />
         </span>
       </div>
       <div className="step-reveal">

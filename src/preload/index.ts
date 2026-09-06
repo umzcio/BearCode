@@ -138,6 +138,10 @@ const bearcode: BearcodeApi = {
       ipcRenderer.invoke('bearcode:keys:set', provider, key),
     status: () => ipcRenderer.invoke('bearcode:keys:status')
   },
+  compatSetKey: (endpointId: string, value: string): Promise<void> =>
+    ipcRenderer.invoke('bearcode:compat:set-key', endpointId, value),
+  compatKeyStatus: (): Promise<Record<string, boolean>> =>
+    ipcRenderer.invoke('bearcode:compat:key-status'),
   hermes: {
     testConnection: (
       mode: HermesConnectionMode,

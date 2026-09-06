@@ -7,10 +7,14 @@ import './ConvoRowMenu.css'
 
 export function ConvoRowMenu({
   convoId,
-  title
+  title,
+  onRequestRename
 }: {
   convoId: string
   title: string
+  /** When provided, Rename delegates to inline editing in the row; otherwise
+   * falls back to a prompt dialog. */
+  onRequestRename?: () => void
 }): React.JSX.Element {
   const renameConversation = useAppStore((s) => s.renameConversation)
   const deleteConvo = useAppStore((s) => s.deleteConvo)
@@ -28,8 +32,12 @@ export function ConvoRowMenu({
 
   const handleSelect = (value: string): void => {
     if (value === 'rename') {
-      const next = window.prompt('Rename conversation', title)?.trim()
-      if (next) renameConversation(convoId, next)
+      if (onRequestRename) {
+        onRequestRename()
+      } else {
+        const next = window.prompt('Rename conversation', title)?.trim()
+        if (next) renameConversation(convoId, next)
+      }
     } else if (value === 'delete') {
       if (window.confirm(`Delete "${title}"?`)) deleteConvo(convoId)
     }

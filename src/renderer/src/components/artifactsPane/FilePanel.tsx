@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
+import { FileWarning } from 'lucide-react'
 import { languageForPath } from '@shared/fileClassification'
 import { useAppStore } from '../../state/store'
 import { Hint } from '../Hint'
@@ -62,6 +63,7 @@ export function FilePanel({ path, line }: { path: string; line?: number }): Reac
       <div className="ap-body">
         {failed ? (
           <div className="diff-loading">
+            <FileWarning size={22} strokeWidth={1.5} className="ap-state-icon" aria-hidden="true" />
             <EmptyState title="Couldn't open file" hint={path} />
           </div>
         ) : content === null ? (

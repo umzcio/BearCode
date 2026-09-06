@@ -22,6 +22,7 @@ import { ErrorCard } from './events/ErrorCard'
 import { CompactionMarker } from './events/CompactionMarker'
 import { EmptyState } from './ui/EmptyState'
 import { IconCheck, IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Hint } from './Hint'
 import { messageTimestamp } from '../lib/time'
 import { attachmentBadge } from '../lib/attachmentBadge'
@@ -312,7 +313,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
               onClick={() => stepFocus(-1)}
               disabled={focusIdx <= 0}
             >
-              ‹
+              <ChevronUp />
             </button>
           </Hint>
           <span className="focus-nav-count">
@@ -325,7 +326,7 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
               onClick={() => stepFocus(1)}
               disabled={focusIdx >= focusMatches.length - 1}
             >
-              ›
+              <ChevronDown />
             </button>
           </Hint>
         </div>

@@ -1,8 +1,10 @@
+import { RefreshCw } from 'lucide-react'
 import { useAppStore } from '../state/store'
 import { useAnimatedUnmount } from '../lib/useAnimatedUnmount'
+import './Banners.css'
 
-// Styled identically to TrustBanner/OutsideAccessCard -- reuses the shared
-// .trust-banner class rather than introducing a new banner style.
+// Styled like TrustBanner -- reuses the shared .trust-banner base, with the
+// .banner-accent modifier (Banners.css) for the informational accent tint.
 export function UpdateBanner(): React.JSX.Element | null {
   const status = useAppStore((s) => s.updaterStatus)
   const dismissed = useAppStore((s) => s.updateBannerDismissed)
@@ -16,10 +18,9 @@ export function UpdateBanner(): React.JSX.Element | null {
   })
   if (!mounted) return null
   return (
-    <div className="trust-banner" data-state={state} role="alert">
-      <span className="trust-banner-msg">
-        BearCode {status.version} is ready to install.
-      </span>
+    <div className="trust-banner banner-accent" data-state={state} role="alert">
+      <RefreshCw size={14} className="trust-banner-icon" aria-hidden="true" />
+      <span className="trust-banner-msg">BearCode {status.version} is ready to install.</span>
       <span className="trust-banner-actions">
         <button className="pill-btn" onClick={dismiss}>
           Not now

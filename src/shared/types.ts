@@ -896,6 +896,12 @@ export type ProviderId =
   | 'perplexity'
   | 'xai'
   | 'ollama'
+  // User-configured OpenAI-compatible endpoints (vLLM, LM Studio, llama.cpp,
+  // TabbyAPI). Models on the FIRST configured endpoint keep plain
+  // `compat/<modelId>` refs; refs on any non-primary endpoint are namespaced
+  // `compat/<endpointId>/<modelId>` -- the same convention as ollama (see the
+  // OllamaInstance doc at the ModelRef definition).
+  | 'compat'
 
 // Ursa Phase 1: static per-model metadata (registry.ts's capabilitiesFor())
 // used both by the GPT-5.6 reasoning-effort fix and by the Ursa classifier's
@@ -954,6 +960,20 @@ export interface ModelInfo {
 // A model reference is "provider/modelId"; the modelId itself may contain
 // slashes (OpenRouter), so always split on the first slash only.
 export type ModelRef = string
+
+// One configured Ollama server (multi-instance support). AppSettings holds an
+// ordered list of these: the FIRST entry is the primary instance, and the
+// legacy AppSettings.ollamaBaseUrl field is kept as a mirror of the primary's
+// baseUrl so older app versions (which only read ollamaBaseUrl) keep working
+// after a downgrade. Models on the primary keep their plain `ollama/<modelId>`
+// refs; refs for models on any NON-primary instance are namespaced
+// `ollama/<instanceId>/<modelId>` (still split on the first slash only, so the
+// provider segment stays `ollama`).
+export interface OllamaInstance {
+  id: string // stable kebab-case slug, unique within the list; 'local' = primary
+  name: string // display name
+  baseUrl: string // validated http(s) URL
+}
 
 export interface ProviderModels {
   id: ProviderId
@@ -1226,6 +1246,19 @@ export type TranscribeMeta =
 
 export interface AppSettings {
   ollamaBaseUrl: string
+  // Configured Ollama servers (multi-instance). The FIRST entry is the
+  // primary; ollamaBaseUrl above is the legacy mirror of the primary's baseUrl
+  // and is kept in sync on every read/write for downgrade compatibility (see
+  // the OllamaInstance doc at the ModelRef definition). Optional & additive:
+  // absent/invalid -> seeded from ollamaBaseUrl as the 'local' instance.
+  ollamaInstances?: OllamaInstance[]
+  // Configured OpenAI-compatible endpoints (vLLM, LM Studio, llama.cpp,
+  // TabbyAPI). Reuses the OllamaInstance shape; empty by default and NEVER
+  // seeded -- an absent/invalid persisted list stays []. There is no legacy
+  // mirror field (unlike ollamaBaseUrl), but the FIRST entry is still the
+  // primary for ref purposes: its models keep plain `compat/<modelId>` refs,
+  // others are namespaced `compat/<endpointId>/<modelId>`. Optional & additive.
+  compatEndpoints?: OllamaInstance[]
   defaultModelRef: ModelRef | null
   defaultPermissionMode: PermissionMode
   // Ids of builtin deny rules the user explicitly disabled (design 4.3: deny-only
@@ -1609,6 +1642,14 @@ export interface BearcodeApi {
     set(provider: ProviderId, key: string): Promise<void>
     status(): Promise<Record<ProviderId, boolean>>
   }
+  // Compat provider (user-configured OpenAI-compatible endpoints): per-endpoint
+  // API keys, namespaced `compat:<endpointId>` in the main-process vault.
+  // Write-only from the renderer -- an empty string clears the stored key, and
+  // plaintext keys never cross back. endpointId is validated main-side against
+  // the configured AppSettings.compatEndpoints.
+  compatSetKey(endpointId: string, value: string): Promise<void>
+  // Per-endpoint key presence (booleans only), keyed by endpointId.
+  compatKeyStatus(): Promise<Record<string, boolean>>
   hermes: {
     testConnection(
       mode: HermesConnectionMode,

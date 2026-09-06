@@ -1,9 +1,10 @@
-/* Pricing table — same RecordsTable language as ModelsTab: hairline-wrapped
-   --surface table, --inset header, --stripe zebra, tabular-nums prices. */
+/* Pricing table — same rounded-xl sheet language as ModelsTab: hairline-ring
+   --surface over --canvas, quiet uppercase header, hover-only rows, tabular
+   figures for prices. */
 .pricing-tab {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 .pt-intro {
   font-size: 12.5px;
@@ -18,10 +19,10 @@
 .pt-search {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 10px;
+  gap: 7px;
+  padding: 0 12px;
   height: 32px;
-  border-radius: var(--radius-control);
+  border-radius: 999px;
   background: var(--field);
   box-shadow: var(--shadow-inset-field), var(--shadow-hairline);
   color: var(--ink-3);
@@ -54,7 +55,7 @@
 }
 .pt-table-wrap {
   background: var(--surface);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-overlay);
   box-shadow: var(--shadow-card);
   overflow-x: auto;
 }
@@ -72,8 +73,7 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--ink-3);
-  background: var(--inset);
-  padding: 9px 12px;
+  padding: 12px 16px 10px;
   border-bottom: 1px solid var(--line);
 }
 .pricing-table th:not(:first-child),
@@ -82,7 +82,7 @@
   font-variant-numeric: tabular-nums;
 }
 .pricing-table td {
-  padding: 9px 12px;
+  padding: 12px 16px;
   color: var(--ink);
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
@@ -92,16 +92,13 @@
 .pricing-table tbody tr:last-child td {
   border-bottom: none;
 }
-.pricing-table tbody tr:nth-child(even) td {
-  background: var(--stripe);
-}
 .pricing-table tbody tr:hover td {
   background: var(--hover);
 }
 .pt-model {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   text-align: left;
 }
 .pt-model-name {
@@ -119,7 +116,7 @@
   align-items: center;
   font-size: 11px;
   font-weight: 500;
-  padding: 2px 7px;
+  padding: 2px 8px;
   border-radius: var(--radius-chip);
   background: var(--inset);
   box-shadow: var(--shadow-hairline);

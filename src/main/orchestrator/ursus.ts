@@ -18,7 +18,7 @@ import { URSUS_MODEL_REF } from '../../shared/types'
 import { makeModel } from './models'
 import { getSettings } from '../settings'
 import { keyStatus } from '../keys'
-import { parseModelRef, listOllamaModels } from '../providers/registry'
+import { parseModelRef, listOllamaModels, resolveOllamaTarget } from '../providers/registry'
 import { resolvePipelineSteps } from './ursa'
 import type { CouncilConfig } from './council'
 
@@ -135,7 +135,10 @@ export function ursusRequiredProviders(): ProviderId[] {
 // (architect): a LIVE reachability probe (listOllamaModels, ~2s timeout) AND
 // confirmation the specific pulled model matches -- unlike Ursa's "ollama is
 // always eligible" shortcut, Ursus actually depends on a specific local model
-// being present, so "no key required" is not the same as "usable." ASYNC --
+// being present, so "no key required" is not the same as "usable." The probe is
+// instance-scoped: resolveOllamaTarget picks the baseUrl, so a namespaced ref
+// ('ollama/<instanceId>/<model>') probes that instance and matches the stripped
+// model name, while a bare ref probes the primary exactly as before. ASYNC --
 // every caller must await this.
 export async function eligibleUrsusRoles(roles: readonly UrsaRole[]): Promise<UrsaRole[]> {
   const status = keyStatus()
@@ -143,8 +146,9 @@ export async function eligibleUrsusRoles(roles: readonly UrsaRole[]): Promise<Ur
   for (const r of roles) {
     const { provider, modelId } = parseModelRef(r.modelRef)
     if (provider === 'ollama') {
-      const { models, reachable } = await listOllamaModels()
-      if (reachable && models.some((m) => m.id === modelId)) result.push(r)
+      const { baseUrl, modelName } = resolveOllamaTarget(modelId)
+      const { models, reachable } = await listOllamaModels({ baseUrl })
+      if (reachable && models.some((m) => m.id === modelName)) result.push(r)
     } else if (status[provider]) {
       result.push(r)
     }

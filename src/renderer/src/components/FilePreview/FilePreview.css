@@ -23,11 +23,16 @@
 .file-preview {
   max-height: 60vh;
   overflow: auto;
-  padding: 12px 14px;
+  padding: 14px 16px;
   font-size: 13px;
 }
+/* Loading/unsupported read as calm centered copy, not a card. */
 .file-preview.loading,
 .file-preview.unsupported {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
   color: var(--ink-2);
 }
 .file-preview.text pre {
@@ -35,12 +40,13 @@
   word-break: break-word;
   margin: 0;
   font-family: var(--mono, ui-monospace, monospace);
-  line-height: 1.5;
+  line-height: 1.55;
 }
 .file-preview.image img {
   max-width: 100%;
   height: auto;
-  border-radius: 6px;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-hairline);
 }
 .file-preview.html {
   padding: 0;
@@ -51,13 +57,13 @@
   height: 60vh;
   border: 0;
   background: #fff;
-  border-radius: 6px;
+  border-radius: var(--radius-card);
 }
 .file-preview-frame.pdf {
   height: 70vh;
 }
 .file-preview.markdown {
-  line-height: 1.5;
+  line-height: 1.55;
 }
 .file-preview.table-wrap {
   overflow: auto;
@@ -71,10 +77,11 @@
 .file-preview.table-wrap th,
 .file-preview.table-wrap td {
   border: 1px solid var(--line);
-  padding: 4px 8px;
+  padding: 6px 10px;
   text-align: left;
   white-space: nowrap;
 }
 .file-preview.table-wrap th {
   font-weight: 600;
+  background: var(--inset);
 }

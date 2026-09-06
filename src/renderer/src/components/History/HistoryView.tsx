@@ -8,11 +8,12 @@
 // ⌘K opens this view (the old title-only Cmd-K search modal was removed — this
 // full-text History superseded it).
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Search } from 'lucide-react'
 import type { HistoryHit } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { relativeAge } from '../../lib/time'
 import { groupByTime } from '../../lib/groupByTime'
-import { IconSearch } from '../icons'
+import { Input } from '@renderer/components/ui/input'
 import { renderSnippet } from './snippet'
 import { EmptyState } from '../ui/EmptyState'
 import { Loading } from '../ui/Loading'
@@ -89,8 +90,8 @@ export function HistoryView(): React.JSX.Element {
   return (
     <div className="history-view">
       <div className="history-search-row">
-        <IconSearch size={16} />
-        <input
+        <Search size={16} aria-hidden="true" />
+        <Input
           ref={inputRef}
           className="history-search-input"
           placeholder="Search conversation content"

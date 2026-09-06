@@ -1,5 +1,7 @@
-/* Project page — Beautiful UI InsightCards language: header on --canvas, the
-   conversation list as a hairline-wrapped --surface card, shadow-btn buttons. */
+/* Project page — Kimi-like surface: a calm centered column on --canvas, a
+   chrome-free header (ghost buttons; the accent appears only on the primary
+   "New" action and the pinned state), and the conversation list as a soft
+   hairline-wrapped --surface card. */
 .project-page {
   flex: 1;
   min-width: 0;
@@ -8,17 +10,25 @@
   display: flex;
   flex-direction: column;
 }
+.pp-inner {
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 28px 36px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
 .pp-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 22px 28px 18px;
-  border-bottom: 1px solid var(--line);
+  gap: 14px;
+  padding: 30px 4px 18px;
 }
 .pp-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-control);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   background: var(--inset);
   box-shadow: var(--shadow-hairline);
   display: flex;
@@ -33,69 +43,108 @@
 }
 .pp-title h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .pp-title .pp-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
-  margin-top: 2px;
+  margin-top: 3px;
+}
+/* Full folder path as tertiary meta: mono (it's a path), quiet, truncated. */
+.pp-meta .pp-path {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pp-meta .pp-sep {
+  color: var(--ink-3);
 }
 .pp-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
 }
+/* Ghost buttons: transparent at rest, --hover wash on hover. */
 .pp-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 12px;
+  padding: 6px 11px;
   border-radius: var(--radius-control);
   border: none;
-  box-shadow: var(--shadow-btn);
-  color: var(--ink);
-  font-size: 12px;
+  box-shadow: none;
+  background: none;
+  color: var(--ink-2);
+  font-size: 12.5px;
   font-weight: 500;
-  background: var(--surface);
   cursor: pointer;
   font-family: inherit;
   /* BUI hover color grammar: 100ms standard curve. */
   transition:
     background-color var(--dur-hover) var(--ease-standard),
-    color var(--dur-hover) var(--ease-standard);
+    color var(--dur-hover) var(--ease-standard),
+    filter var(--dur-hover) var(--ease-standard);
 }
 .pp-btn:hover {
   background: var(--hover);
+  color: var(--ink);
 }
 .pp-btn:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
-/* Primary action: accent fill; --tooltip-fg is the system's near-white ink
-   that stays light in both themes (no raw hex allowed here). */
-.pp-btn.primary {
+/* Primary action: the header's one accent fill; --accent-fg is the system's
+   near-white ink that stays light in both themes (no raw hex allowed here). */
+.pp-btn.primary,
+.pp-btn.primary:hover {
   background: var(--accent);
-  box-shadow: none;
   color: var(--accent-fg);
 }
+.pp-btn.primary:hover {
+  filter: brightness(1.08);
+}
 .pp-btn.pp-pin.active {
+  background: var(--accent-tint);
   color: var(--accent-ink);
 }
 .pp-list {
-  margin: 16px 24px 28px;
-  padding: 5px;
+  margin-top: 8px;
+  padding: 6px;
   background: var(--surface);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-overlay);
   box-shadow: var(--shadow-card);
 }
+/* Empty state: the shared EmptyState primitive recast as a calm centered
+   hero inside the list card (chrome removed, generous padding). */
+.pp-list .empty-state {
+  background: none;
+  box-shadow: none;
+  text-align: center;
+  padding: 48px 24px;
+}
+.pp-list .empty-state-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.pp-list .empty-state-hint {
+  margin-top: 6px;
+}
 .pp-daylabel {
-  padding: 12px 10px 4px;
+  padding: 14px 12px 6px;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -106,8 +155,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 9px 10px;
-  border-radius: var(--radius-chip);
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
   /* BUI hover color grammar: 100ms standard curve. */
   transition:
     background-color var(--dur-hover) var(--ease-standard),

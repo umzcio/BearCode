@@ -1,5 +1,6 @@
 import { useState, type JSX } from 'react'
 import type { SourceCitation } from '@shared/types'
+import { ChevronDown } from 'lucide-react'
 
 // The [n] markers models like Perplexity's sonar family leave in their answer
 // text are 1-based indexes into turn_meta.citations -- this list is what they
@@ -28,20 +29,12 @@ export function SourcesList({ citations }: { citations: SourceCitation[] }): JSX
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
-        <svg
+        <ChevronDown
           className={open ? 'ms-sources-chevron is-open' : 'ms-sources-chevron'}
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+          size={11}
+          strokeWidth={2.5}
           aria-hidden="true"
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+        />
         Sources
       </button>
       <div className={open ? 'ms-sources-reveal is-open' : 'ms-sources-reveal'}>

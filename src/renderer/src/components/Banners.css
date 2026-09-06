@@ -1,0 +1,64 @@
+/* Kimi notice-bar language for the top-of-view banners (TrustBanner,
+   UpdateBanner, ImportConfigBanner) and the OutsideAccessCard: slim rounded-lg
+   bars on a tinted semantic wash with a barely-there color ring instead of a
+   heavy border, ghost secondary actions, one accent primary.
+
+   App.css owns the base .trust-banner / .outside-access-card rules including
+   their enter/exit motion; this file overrides only the static skin, at
+   doubled-class specificity so it wins regardless of stylesheet order. The
+   `.banner-accent` modifier switches a banner from the default orange
+   (attention) tint to the informational accent tint. */
+
+.trust-banner.trust-banner {
+  gap: 10px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-card);
+  background: var(--orange-tint);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 20%, transparent);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.trust-banner.banner-accent {
+  background: var(--accent-tint);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.trust-banner .trust-banner-icon {
+  flex-shrink: 0;
+  color: var(--orange);
+}
+.trust-banner.banner-accent .trust-banner-icon {
+  color: var(--accent-ink);
+}
+.trust-banner.trust-banner .pill-btn {
+  border: none;
+}
+.trust-banner.trust-banner .pill-btn:hover {
+  background: var(--wash-strong);
+}
+/* Primary keeps App.css's accent fill; it sits one specificity step above the
+   ghost hover here, so its hover stays accent-strong. */
+
+/* ---------- Outside-access card ---------- */
+.outside-access-card.outside-access-card {
+  gap: 10px;
+  padding: 12px 14px;
+  border: none;
+  border-radius: var(--radius-card);
+  background: var(--orange-tint);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 20%, transparent);
+  font-size: 12.5px;
+}
+.outside-access-card .outside-access-path {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: var(--radius-chip);
+  background: var(--wash-strong);
+}
+.outside-access-card.outside-access-card .pill-btn {
+  border: none;
+}
+.outside-access-card.outside-access-card .pill-btn:hover {
+  background: var(--wash-strong);
+}

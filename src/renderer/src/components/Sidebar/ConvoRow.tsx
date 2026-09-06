@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { ConvoRowMenu } from './ConvoRowMenu'
 import { IconArchive, IconPin } from '../icons'
+import { useAppStore } from '../../state/store'
 
 interface ConvoRowProps {
   id: string
@@ -49,6 +51,15 @@ export function ConvoRow({
   onTogglePinned,
   onToggleArchived
 }: ConvoRowProps): React.JSX.Element {
+  const renameConversation = useAppStore((s) => s.renameConversation)
+  const [editing, setEditing] = useState(false)
+
+  const commitRename = (value: string): void => {
+    const next = value.trim()
+    if (next && next !== title) renameConversation(id, next)
+    setEditing(false)
+  }
+
   return (
     <div
       className={rowClassName + (selected ? ' selected' : '')}
@@ -67,7 +78,23 @@ export function ConvoRow({
       }}
     >
       {dotColor !== undefined ? <span className="dot" style={{ background: dotColor }} /> : null}
-      <span className="name">{title}</span>
+      {editing ? (
+        <input
+          className="name convo-rename"
+          defaultValue={title}
+          autoFocus
+          onFocus={(e) => e.currentTarget.select()}
+          onClick={(e) => e.stopPropagation()}
+          onBlur={(e) => commitRename(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+            else if (e.key === 'Escape') setEditing(false)
+          }}
+          aria-label="Rename conversation"
+        />
+      ) : (
+        <span className="name">{title}</span>
+      )}
       {subtitle !== undefined ? <span className="sub">{subtitle}</span> : null}
       {age !== undefined ? <span className="age">{age}</span> : null}
       <span className={actionsClassName}>
@@ -93,7 +120,7 @@ export function ConvoRow({
         >
           <IconArchive size={13} />
         </button>
-        <ConvoRowMenu convoId={id} title={title} />
+        <ConvoRowMenu convoId={id} title={title} onRequestRename={() => setEditing(true)} />
       </span>
     </div>
   )

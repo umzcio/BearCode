@@ -1,5 +1,7 @@
+import { ShieldAlert } from 'lucide-react'
 import { useAppStore } from '../state/store'
 import { useAnimatedUnmount } from '../lib/useAnimatedUnmount'
+import './Banners.css'
 
 export function TrustBanner(): React.JSX.Element | null {
   const workspacePath = useAppStore((s) => s.workspacePath)
@@ -18,6 +20,7 @@ export function TrustBanner(): React.JSX.Element | null {
   if (!mounted) return null
   return (
     <div className="trust-banner" data-state={state} role="alert">
+      <ShieldAlert size={15} className="trust-banner-icon" aria-hidden="true" />
       <span className="trust-banner-msg">
         This folder hasn&apos;t been trusted. Its project rules, skills, and memory won&apos;t load
         until you trust it.

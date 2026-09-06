@@ -5,7 +5,7 @@
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  padding: 14px 12px;
+  padding: 0 12px 12px;
   /* No transition on margin-left: animating a layout property re-rasterizes the
      whole (long) conversation list every frame -> choppy. Instead the collapse
      is a FLIP in Sidebar.tsx: the margin snaps to its final value (one reflow)
@@ -22,7 +22,9 @@
 }
 
 /* Preserve the former chrome row's exact occupied height while the fixed
-   WindowChromeControls layer sits above the FLIP-transformed sidebar. */
+   WindowChromeControls layer sits above the FLIP-transformed sidebar. Flush
+   to the top edge (the sidebar has no top padding) so the whole strip is a
+   window-drag region. */
 .sidebar-chrome-spacer {
   position: relative;
   height: 42px;
@@ -30,15 +32,62 @@
   -webkit-app-region: drag;
 }
 
-/* BUI SidebarNav rows: 13px/500 labels, --ink-2 base (icons inherit via
+/* Primary action: the one prominent, raised control in the sidebar. A soft
+   --surface card with the button hairline+shadow; the plus glyph is the
+   sidebar's single blue accent. */
+.sb-new-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  margin: 2px 0 6px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  user-select: none;
+  border: none;
+  text-align: left;
+  font-family: inherit;
+  transition:
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
+    transform var(--dur-press-release) var(--ease-out);
+}
+.sb-new-task:hover {
+  background: var(--hover);
+}
+.sb-new-task:active {
+  transform: scale(0.98);
+  transition:
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
+    transform var(--dur-press) var(--ease-out);
+}
+.sb-new-task:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.sb-new-task svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--accent-ink);
+}
+
+/* Ghost nav rows: 13px/500 labels, --ink-2 base (icons inherit via
    currentColor and follow the row to --ink on hover/active), active row =
-   --hover fill on the control radius. */
+   --hover fill on the card radius. */
 .nav-item {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-card);
   color: var(--ink-2);
   cursor: pointer;
   font-size: 13px;
@@ -49,7 +98,7 @@
   width: 100%;
   text-align: left;
   font-family: inherit;
-  /* BUI hover color grammar: 100ms standard curve. */
+  /* Hover color grammar: 100ms standard curve. */
   transition:
     background-color var(--dur-hover) var(--ease-standard),
     color var(--dur-hover) var(--ease-standard);
@@ -72,14 +121,14 @@
   padding: 0 10px;
 }
 
-/* BUI segmented control (InsightCards toggle): pill track on --field, the
-   active segment rises to --surface with the button shadow. */
+/* Segmented control (Hermes): pill track on --field, the active segment rises
+   to --surface with the button shadow. */
 .seg-toggle {
   display: flex;
   background: var(--field);
   border-radius: 999px;
   padding: 3px;
-  margin: 8px 6px 10px;
+  margin: 2px 0 8px;
 }
 .seg-toggle button {
   flex: 1;
@@ -96,8 +145,7 @@
   color: var(--ink-2);
   cursor: pointer;
   font-family: inherit;
-  /* Segmented control = slightly larger surface: 150ms colors (BUI FilterTable
-     chips), standard curve. */
+  /* Segmented control = slightly larger surface: 150ms colors, standard curve. */
   transition:
     background-color var(--dur-fast) var(--ease-standard),
     color var(--dur-fast) var(--ease-standard),
@@ -129,12 +177,12 @@
   flex-shrink: 0;
 }
 
-/* BUI section labels: 11px/600 uppercase --ink-3 with wide tracking (glyph-
-   scale label, exempt from the ink-3 body-copy guard). */
+/* Section labels: 11px/600 uppercase --ink-3 with wide tracking (glyph-scale
+   label, exempt from the ink-3 body-copy guard). */
 .sb-label {
   display: flex;
   align-items: center;
-  padding: 14px 10px 6px;
+  padding: 16px 10px 6px;
   color: var(--ink-3);
   font-size: 11px;
   font-weight: 600;
@@ -144,6 +192,15 @@
 .sb-label .display-options {
   margin-left: auto;
 }
+/* The Display options trigger lives inside a label row: shrink it to label
+   scale so it reads as a quiet glyph, not a second control. */
+.sb-label .display-options .chrome-btn {
+  padding: 2px;
+}
+.sb-label .display-options .chrome-btn svg {
+  width: 14px;
+  height: 14px;
+}
 
 .sb-flatrow {
   display: flex;
@@ -151,7 +208,7 @@
   gap: 8px;
   width: 100%;
   padding: 7px 10px;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-card);
   border: none;
   background: none;
   color: var(--ink-2);
@@ -159,7 +216,7 @@
   cursor: pointer;
   text-align: left;
   font-family: inherit;
-  /* BUI hover color grammar: 100ms standard curve. */
+  /* Hover color grammar: 100ms standard curve. */
   transition:
     background-color var(--dur-hover) var(--ease-standard),
     color var(--dur-hover) var(--ease-standard);
@@ -173,7 +230,9 @@
   box-shadow: var(--focus-ring);
 }
 .sb-flatrow.selected {
-  background: var(--hover);
+  /* One step above the hover fill so the active row stays visible while
+     hovering other rows. */
+  background: var(--hover-2);
   color: var(--ink);
   font-weight: 500;
 }
@@ -232,7 +291,7 @@
   margin-left: auto;
   flex-shrink: 0;
   opacity: 0;
-  /* Hover reveal = hover feedback: 100ms (BUI SidebarNav's plus affordance). */
+  /* Hover reveal = hover feedback: 100ms. */
   transition: opacity var(--dur-hover) var(--ease-standard);
 }
 .sb-flatrow:hover .sb-rowact,
@@ -243,9 +302,15 @@
   .seg-toggle button:active {
     transform: none;
   }
+  .sb-new-task:active {
+    transform: none;
+  }
 }
 
 :root[data-motion='reduced'] .seg-toggle button:active {
+  transform: none;
+}
+:root[data-motion='reduced'] .sb-new-task:active {
   transform: none;
 }
 
@@ -261,6 +326,7 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  margin-top: 2px;
 }
 .sb-recents {
   display: flex;

@@ -12,7 +12,8 @@ import {
   URSUS_COUNCIL_SEATS,
   URSUS_COUNCIL_CHAIR,
   URSUS_DEEP_RESEARCH_PIPELINE,
-  resolveUrsusDeepResearchPipeline
+  resolveUrsusDeepResearchPipeline,
+  eligibleUrsusRoles
 } from './ursus'
 
 vi.mock('../db', () => ({}))
@@ -25,7 +26,10 @@ vi.mock('./models', () => ({
   }))
 }))
 vi.mock('../settings', () => ({
-  getSettings: vi.fn()
+  // Default impl: resolveOllamaTarget (used by eligibleUrsusRoles) reads
+  // getSettings() even for bare refs, and must never see undefined. Tests that
+  // care about settings override this with mockReturnValue.
+  getSettings: vi.fn(() => ({ ollamaBaseUrl: 'http://localhost:11434' }))
 }))
 vi.mock('../keys', () => ({
   keyStatus: vi.fn(() => ({ openrouter: true }))
@@ -142,6 +146,64 @@ describe('resolveUrsusDeepResearchPipeline', () => {
     expect('steps' in result).toBe(true)
     if (!('steps' in result)) return
     expect(result.steps.map((s) => s.role)).toEqual(['verifier', 'reviewer'])
+  })
+})
+
+describe('eligibleUrsusRoles', () => {
+  const INSTANCES = [
+    { id: 'local', name: 'Local', baseUrl: 'http://localhost:11434' },
+    { id: 'gpu-box', name: 'GPU Box', baseUrl: 'http://gpu.local:11434' }
+  ]
+
+  beforeEach(() => {
+    listOllamaModelsSpy.mockReset()
+    vi.mocked(getSettings).mockReturnValue({
+      ollamaBaseUrl: 'http://localhost:11434',
+      ollamaInstances: INSTANCES
+    } as never)
+    vi.mocked(keyStatus).mockReturnValue({ openrouter: true } as never)
+  })
+
+  it('probes the primary instance for a bare ollama ref, matching the model id intact', async () => {
+    listOllamaModelsSpy.mockResolvedValue({
+      models: [{ id: 'ornith:35b', label: 'ornith:35b' }],
+      reachable: true
+    })
+    const architect = CURATED_URSUS_ROLES.find((r) => r.name === 'architect')!
+    const roles = await eligibleUrsusRoles([architect])
+    expect(listOllamaModelsSpy).toHaveBeenCalledWith({ baseUrl: 'http://localhost:11434' })
+    expect(roles).toEqual([architect])
+  })
+
+  it('probes the resolved instance for a namespaced ollama ref, matching the stripped model name', async () => {
+    listOllamaModelsSpy.mockResolvedValue({
+      models: [{ id: 'ornith:35b', label: 'ornith:35b' }],
+      reachable: true
+    })
+    const role = {
+      name: 'gpu-architect',
+      modelRef: 'ollama/gpu-box/ornith:35b',
+      description: 'test role'
+    }
+    const roles = await eligibleUrsusRoles([role])
+    expect(listOllamaModelsSpy).toHaveBeenCalledWith({ baseUrl: 'http://gpu.local:11434' })
+    expect(roles).toEqual([role])
+  })
+
+  it('excludes a namespaced ollama role when its instance is unreachable or the model is not pulled', async () => {
+    const role = {
+      name: 'gpu-architect',
+      modelRef: 'ollama/gpu-box/ornith:35b',
+      description: 'test role'
+    }
+    listOllamaModelsSpy.mockResolvedValue({ models: [], reachable: false })
+    expect(await eligibleUrsusRoles([role])).toEqual([])
+    listOllamaModelsSpy.mockResolvedValue({
+      models: [{ id: 'llama3', label: 'llama3' }],
+      reachable: true
+    })
+    expect(await eligibleUrsusRoles([role])).toEqual([])
+    expect(listOllamaModelsSpy).toHaveBeenCalledWith({ baseUrl: 'http://gpu.local:11434' })
   })
 })
 

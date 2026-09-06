@@ -83,25 +83,24 @@
   }
 }
 
-/* Hairline-ringed overlay surface on --canvas; setting cards inside sit on
-   --surface so groups read as raised hairline cards (BUI depth model). */
+/* Hairline-ringed overlay surface on --canvas; setting groups inside sit on
+   --surface ringed by a bare hairline, so rows read as calm grouped lists. */
 .settings-panel {
   width: min(1120px, calc(100% - 56px));
   height: min(780px, calc(100% - 56px));
   background: var(--canvas);
-  border-radius: var(--radius-overlay);
+  border-radius: 16px;
   box-shadow: var(--shadow-overlay);
   display: flex;
   overflow: hidden;
 }
 
-/* --- Nav rail --- */
+/* --- Nav rail: slim, same surface as the panel, hairline divider --- */
 .settings-rail {
-  width: 232px;
+  width: 208px;
   flex-shrink: 0;
-  background: var(--page);
   border-right: 1px solid var(--line);
-  padding: 16px 10px 12px;
+  padding: 20px 10px 14px;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -115,13 +114,13 @@
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--ink-3);
-  padding: 14px 10px 6px;
+  padding: 16px 12px 6px;
   flex-shrink: 0;
 }
 .rail-group:first-child .rail-group-label {
-  padding-top: 2px;
+  padding-top: 0;
 }
 .rail-item {
   display: flex;
@@ -135,7 +134,7 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--ink-2);
-  padding: 7px 10px;
+  padding: 7px 12px;
   border-radius: var(--radius-control);
   cursor: pointer;
   flex-shrink: 0;
@@ -143,8 +142,7 @@
   /* BUI hover color grammar: 100ms standard curve. */
   transition:
     background-color var(--dur-hover) var(--ease-standard),
-    color var(--dur-hover) var(--ease-standard),
-    box-shadow var(--dur-hover) var(--ease-standard);
+    color var(--dur-hover) var(--ease-standard);
 }
 .rail-item svg {
   width: 16px;
@@ -165,10 +163,9 @@
 .rail-item:hover svg {
   color: var(--ink-2);
 }
-/* Selected = raised surface chip (FilterTable's active-chip treatment). */
+/* Selected = quiet rounded fill (System-Settings style), no raised shadow. */
 .rail-item.selected {
-  background: var(--surface);
-  box-shadow: var(--shadow-btn);
+  background: var(--hover-2);
   color: var(--ink);
 }
 .rail-item.selected svg {
@@ -183,7 +180,7 @@
   flex-direction: column;
   flex-shrink: 0;
   border-top: 1px solid var(--line);
-  padding-top: 8px;
+  padding-top: 10px;
 }
 
 /* --- Content pane --- */
@@ -192,7 +189,7 @@
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding: 28px 36px 32px;
+  padding: 34px 42px 40px;
 }
 /* Switching rail sections re-mounts the page's content (each page renders
    conditionally), so the body fades up as one unit on every section switch --
@@ -206,14 +203,14 @@
 }
 .content-close {
   position: absolute;
-  top: 18px;
-  right: 18px;
+  top: 20px;
+  right: 20px;
   background: none;
   border: none;
-  color: var(--ink-2);
+  color: var(--ink-3);
   cursor: pointer;
-  padding: 5px;
-  border-radius: var(--radius-chip);
+  padding: 6px;
+  border-radius: var(--radius-control);
   display: flex;
   /* BUI hover color grammar: 100ms standard curve. */
   transition:
@@ -230,9 +227,9 @@
 }
 
 .page-title {
-  font-size: 20px;
+  font-size: 21px;
   font-weight: 650;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   margin-bottom: 6px;
 }
 /* Pixel-art page icon (Ursa teddy) sitting beside a .page-title's text. */
@@ -246,32 +243,35 @@
 .page-sub {
   font-size: 13px;
   color: var(--ink-2);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+  line-height: 1.5;
 }
 
 .set-group-title {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
-  margin: 24px 0 10px;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
+  margin: 28px 2px 10px;
 }
 
 /* --- Setting cards --- */
-/* Hairline card: --surface over the pane's --canvas, ringed by --shadow-card
-   instead of a border. */
+/* Quiet grouped list: --surface over the pane's --canvas ringed by a single
+   hairline (no drop shadow); rows divide with hairlines. */
 .set-card {
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-overlay);
   background: var(--surface);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-hairline);
   overflow: hidden;
 }
 .set-card.pad {
-  padding: 6px 14px;
+  padding: 8px 18px;
 }
 .set-row {
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 14px 16px;
+  padding: 15px 18px;
   border-bottom: 1px solid var(--line);
 }
 .set-row:last-child {
@@ -378,6 +378,118 @@
 .key-row input::placeholder {
   color: var(--ink-3);
   font-family: inherit;
+}
+
+/* --- Ollama instances manager (Providers page) --- */
+/* Display rows reuse .key-row; these classes handle the name/URL text and the
+   alignment spacer on rows without the aggregate status dot. */
+.ollama-instances .ollama-name-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 200px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+.ollama-instances .ollama-name {
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ollama-instances .ollama-url {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Only the primary row carries the (aggregate) reachability dot; this spacer
+   keeps the other rows' labels aligned with it. */
+.ollama-instances .ollama-dot-spacer {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+}
+.ollama-instances .ollama-primary-tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+/* Name and URL inputs share a key-row; give the URL the extra room. */
+.ollama-instances .key-row input.ollama-url-input {
+  flex-grow: 2;
+}
+/* A validation FieldHint sits between key-rows; give it the row hairline so
+   the divider rhythm survives while editing/adding. */
+.ollama-instances .field-hint {
+  padding: 6px 2px;
+}
+.ollama-instances .key-row + .field-hint {
+  border-top: 1px solid var(--line);
+}
+
+/* --- OpenAI-compatible endpoints manager (Providers page) --- */
+/* Same row layout as the Ollama instances manager above (the shared
+   EndpointListCard reuses those inner class names), scoped separately so
+   either card can diverge without touching the other. */
+.endpoint-list .ollama-name-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 200px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+.endpoint-list .ollama-name {
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.endpoint-list .ollama-url {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.endpoint-list .ollama-dot-spacer {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+}
+.endpoint-list .ollama-primary-tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+.endpoint-list .key-row input.ollama-url-input {
+  flex-grow: 2;
+}
+.endpoint-list .field-hint {
+  padding: 6px 2px;
+}
+.endpoint-list .key-row + .field-hint {
+  border-top: 1px solid var(--line);
+}
+/* Per-endpoint API key field: write-only, narrower than the URL input. */
+.endpoint-list .key-row input.endpoint-key-input {
+  flex: 0 1 170px;
 }
 
 /* General tab: profile text inputs + custom-instructions textarea */
@@ -492,7 +604,7 @@
 .shortcut-row {
   display: flex;
   align-items: center;
-  padding: 11px 16px;
+  padding: 12px 18px;
   font-size: 13px;
   color: var(--ink-2);
   border-bottom: 1px solid var(--line);
@@ -523,7 +635,7 @@
 
 /* --- Permission rules (Permissions page, Bb4) --- */
 .rule-scope-head {
-  padding: 10px 16px 4px;
+  padding: 10px 18px 4px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -534,7 +646,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 9px 16px;
+  padding: 9px 18px;
   border-bottom: 1px solid var(--line);
 }
 .rule-row:last-child {
@@ -587,12 +699,12 @@
   overflow-wrap: anywhere;
 }
 .rule-empty {
-  padding: 14px 16px;
+  padding: 14px 18px;
   font-size: 12.5px;
   color: var(--ink-2);
 }
 .rule-error {
-  padding: 8px 16px 12px;
+  padding: 8px 18px 12px;
   font-size: 12px;
   color: var(--red);
   border-top: 1px solid var(--line);
@@ -707,8 +819,8 @@
 /* ---------- Toggle switch (F7) ---------- */
 .toggle {
   position: relative;
-  width: 36px;
-  height: 20px;
+  width: 40px;
+  height: 22px;
   border-radius: 999px;
   border: none;
   background: var(--hover-2);
@@ -735,14 +847,15 @@
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: var(--accent-fg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
   transition: transform var(--dur-press) var(--ease-out);
 }
 .toggle.on .toggle-knob {
-  transform: translateX(16px);
+  transform: translateX(18px);
 }
 @media (prefers-reduced-motion: reduce) {
   .toggle-knob {
@@ -839,7 +952,7 @@
 }
 /* Caution note: --orange on --orange-tint. */
 .browser-relaunch-note {
-  margin: 10px 16px 14px;
+  margin: 10px 18px 14px;
   padding: 9px 12px;
   border-radius: var(--radius-control);
   border: none;
@@ -904,13 +1017,13 @@
   background: var(--orange-tint);
 }
 .connector-tools {
-  padding: 0 16px 12px;
+  padding: 0 18px 12px;
 }
 .connector-consent {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 16px 12px;
+  margin: 0 18px 12px;
   padding: 9px 12px;
   border-radius: var(--radius-control);
   border: none;
@@ -933,7 +1046,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 0 16px 14px;
+  padding: 0 18px 14px;
 }
 
 /* Plugins */
@@ -1167,7 +1280,7 @@
   width: min(680px, calc(100% - 56px));
   max-height: min(720px, calc(100% - 56px));
   background: var(--canvas);
-  border-radius: var(--radius-overlay);
+  border-radius: 16px;
   box-shadow: var(--shadow-overlay);
   display: flex;
   flex-direction: column;
@@ -1211,16 +1324,16 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-overlay);
   background: var(--surface);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-hairline);
 }
 /* Claude-style connector row: avatar · name/description · type + install. */
 .smithery-hit {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 12px 18px;
   border-top: 1px solid var(--line);
 }
 .smithery-hit:first-child {

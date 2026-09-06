@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Markdown } from '../../lib/markdown'
-import { IconChevronRightSmall } from '../icons'
+import { ChevronRight } from 'lucide-react'
 import './events.css'
 
 export function ThinkingStep({
@@ -20,7 +20,7 @@ export function ThinkingStep({
           Thought for <b>{secs}s</b>
         </span>
         <span className="chev">
-          <IconChevronRightSmall />
+          <ChevronRight />
         </span>
       </div>
       <div className="step-reveal">

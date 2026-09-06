@@ -8,7 +8,7 @@
   max-height: 86vh;
   overflow-y: auto;
   background: var(--canvas);
-  border-radius: var(--radius-overlay);
+  border-radius: 16px;
   padding: 28px 30px 30px;
   box-shadow: var(--shadow-overlay);
 }
@@ -24,7 +24,7 @@
 .ps-swatch {
   width: 26px;
   height: 26px;
-  border-radius: var(--radius-control);
+  border-radius: 999px;
   border: 2px solid transparent;
   cursor: pointer;
   padding: 0;
@@ -44,7 +44,7 @@
 .ps-icon {
   width: 34px;
   height: 34px;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-card);
   border: none;
   background: var(--surface);
   box-shadow: var(--shadow-btn);

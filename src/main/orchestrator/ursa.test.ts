@@ -9,7 +9,8 @@ import {
   resolveSubagentModelRefs,
   resolvePipelineSteps,
   resolveDeepResearchPipeline,
-  DEEP_RESEARCH_PIPELINE
+  DEEP_RESEARCH_PIPELINE,
+  eligibleRoles
 } from './ursa'
 
 // graph.ts (imported below only to assert SUBAGENT_ROLE_MAP's keys against its
@@ -41,7 +42,8 @@ vi.mock('../title', () => ({
   CHEAP_MODEL: { anthropic: 'claude-haiku-4-5', openai: 'gpt-5.6-luna', google: 'gemini-2.5-flash' }
 }))
 vi.mock('../providers/registry', async () => {
-  const actual = await vi.importActual<typeof import('../providers/registry')>('../providers/registry')
+  const actual =
+    await vi.importActual<typeof import('../providers/registry')>('../providers/registry')
   return { ...actual, capabilitiesFor: vi.fn(actual.capabilitiesFor) }
 })
 
@@ -79,11 +81,36 @@ describe('CURATED_ROLES', () => {
   })
 })
 
+describe('eligibleRoles', () => {
+  it('treats compat (and ollama) roles as keyless-eligible while key-gated providers drop out', () => {
+    vi.mocked(keyStatus).mockReturnValue({
+      anthropic: false,
+      openai: false,
+      google: false,
+      openrouter: false,
+      perplexity: false,
+      xai: false
+    } as never)
+    const roles = [
+      { name: 'local-coder', modelRef: 'compat/qwen3:32b', description: 'd' },
+      { name: 'gpu-coder', modelRef: 'compat/gpu/qwen3:32b', description: 'd' },
+      { name: 'local-grunt', modelRef: 'ollama/llama3', description: 'd' },
+      { name: 'cloud-coder', modelRef: 'openai/gpt-5.6-sol', description: 'd' }
+    ]
+    expect(eligibleRoles(roles).map((r) => r.name)).toEqual([
+      'local-coder',
+      'gpu-coder',
+      'local-grunt'
+    ])
+  })
+})
+
 describe('resolveUrsaModelRef', () => {
   beforeEach(async () => {
     invokeSpy.mockReset()
     vi.mocked(makeModel).mockClear()
-    const actual = await vi.importActual<typeof import('../providers/registry')>('../providers/registry')
+    const actual =
+      await vi.importActual<typeof import('../providers/registry')>('../providers/registry')
     vi.mocked(capabilitiesFor).mockImplementation(actual.capabilitiesFor)
     vi.mocked(getSettings).mockReturnValue({ ursaEnabled: true } as never)
     vi.mocked(keyStatus).mockReturnValue({
@@ -167,7 +194,7 @@ describe('resolveUrsaModelRef', () => {
     expect(CURATED_ROLES.some((r) => r.name === result.roleName)).toBe(true)
   })
 
-  it('skips classification and resolves to the first eligible role, without throwing, when every eligible role\'s provider has a configured key but no CHEAP_MODEL entry', async () => {
+  it("skips classification and resolves to the first eligible role, without throwing, when every eligible role's provider has a configured key but no CHEAP_MODEL entry", async () => {
     // Only anthropic-backed roles (architect, reviewer) are eligible; simulate
     // anthropic having a key but no cheap-model table entry -- the
     // classifier must never be constructed in this case (that used to be
@@ -262,7 +289,7 @@ describe('resolveUrsaModelRef', () => {
     )
   })
 
-  it("omits the guidance block when ursaInstructions is empty or whitespace", async () => {
+  it('omits the guidance block when ursaInstructions is empty or whitespace', async () => {
     vi.mocked(getSettings).mockReturnValue({
       ursaEnabled: true,
       ursaInstructions: '   '
@@ -275,7 +302,8 @@ describe('resolveUrsaModelRef', () => {
 
   it('renders a role without the strengths/cost-tier suffix when capabilitiesFor returns null for its modelRef', async () => {
     const coderModelRef = CURATED_ROLES.find((r) => r.name === 'coder')!.modelRef
-    const actual = await vi.importActual<typeof import('../providers/registry')>('../providers/registry')
+    const actual =
+      await vi.importActual<typeof import('../providers/registry')>('../providers/registry')
     vi.mocked(capabilitiesFor).mockImplementation((ref: string) =>
       ref === coderModelRef ? null : actual.capabilitiesFor(ref)
     )
@@ -336,7 +364,7 @@ describe('resolveUrsaModelRef', () => {
 
   // --- Ursa Phase 2: pipeline proposal ---
 
-  it('resolves a classifier-proposed pipeline to each step\'s concrete curated modelRef', async () => {
+  it("resolves a classifier-proposed pipeline to each step's concrete curated modelRef", async () => {
     invokeSpy.mockResolvedValue({
       parsed: {
         role: 'coder',
@@ -402,7 +430,7 @@ describe('resolveUrsaModelRef', () => {
     expect(result.roleName).toBe('coder')
   })
 
-  it('omits pipeline when the classifier proposes none (today\'s single-role behavior)', async () => {
+  it("omits pipeline when the classifier proposes none (today's single-role behavior)", async () => {
     invokeSpy.mockResolvedValue({ parsed: { role: 'coder' }, raw: {} })
     const result = await resolveUrsaModelRef({ userText: 'refactor this module' })
     expect(result.pipeline).toBeUndefined()
@@ -519,7 +547,6 @@ describe('resolveDeepResearchPipeline (Ursa Modes Task 6)', () => {
       expect(result.steps.map((s) => s.role)).toEqual(['verifier'])
     }
   })
-
 })
 
 describe('SUBAGENT_ROLE_MAP', () => {

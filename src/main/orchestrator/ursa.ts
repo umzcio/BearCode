@@ -188,12 +188,15 @@ export const DEEP_RESEARCH_PIPELINE: ReadonlyArray<{ role: string; subtask: stri
 // Roles stay curated: only names present in CURATED_ROLES resolve. Exported for
 // tests.
 export function resolveDeepResearchPipeline():
-  | { steps: Array<{ role: string; modelRef: string; subtask: string }> }
-  | { error: string } {
+  { steps: Array<{ role: string; modelRef: string; subtask: string }> } | { error: string } {
   const status = keyStatus()
   const isKeyed = (modelRef: string): boolean => {
     const { provider } = parseModelRef(modelRef)
-    return provider === 'ollama' || Boolean(status[provider])
+    // ollama and compat need no PROVIDER key: ollama is keyless local
+    // inference, and compat's keys are per-endpoint vault entries
+    // (compat:<endpointId>), not provider keys -- its eligibility is
+    // reachability, discovered via /v1/models, never key-gated.
+    return provider === 'ollama' || provider === 'compat' || Boolean(status[provider])
   }
   const steps: Array<{ role: string; modelRef: string; subtask: string }> = []
   for (const preset of DEEP_RESEARCH_PIPELINE) {
@@ -215,11 +218,14 @@ export function resolveDeepResearchPipeline():
 // A role is eligible only if its provider currently has a configured key
 // (mirrors ModelPicker.tsx's provider.reachable / requiresKey && !keyConfigured
 // dimming logic) -- Ursa must never select a role it cannot actually run.
-function eligibleRoles(roles: readonly UrsaRole[]): UrsaRole[] {
+// ollama and compat are keyless-eligible: compat endpoint keys live per-endpoint
+// in the vault (compat:<endpointId>), not in the provider key vault, and its
+// reachability is discovered, not key-gated. Exported for tests.
+export function eligibleRoles(roles: readonly UrsaRole[]): UrsaRole[] {
   const status = keyStatus()
   return roles.filter((r) => {
     const { provider } = parseModelRef(r.modelRef)
-    return provider === 'ollama' || status[provider]
+    return provider === 'ollama' || provider === 'compat' || status[provider]
   })
 }
 
@@ -363,8 +369,9 @@ export async function resolveUrsaModelRef(opts: {
       pipeline = resolvePipelineSteps(result.parsed.pipeline, roles)
       // Same usage_metadata fields usage.ts reads for the main turn. Absent on
       // providers that report nothing -- then classifierUsage stays undefined.
-      const um = (result.raw as { usage_metadata?: { input_tokens?: number; output_tokens?: number } })
-        .usage_metadata
+      const um = (
+        result.raw as { usage_metadata?: { input_tokens?: number; output_tokens?: number } }
+      ).usage_metadata
       if (um && (um.input_tokens != null || um.output_tokens != null)) {
         classifierUsage = {
           modelRef: `${providerId}/${cheapId}`,

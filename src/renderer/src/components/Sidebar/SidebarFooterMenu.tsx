@@ -2,6 +2,8 @@ import { useRef, useState } from 'react'
 import { useAppStore } from '../../state/store'
 import { Popover } from '../ui/Popover'
 import { Hint } from '../Hint'
+import { Avatar, AvatarFallback } from '@renderer/components/ui/avatar'
+import { Badge } from '@renderer/components/ui/badge'
 import { IconChevronDown, IconMoon, IconSettings } from '../icons'
 import './SidebarFooterMenu.css'
 
@@ -19,6 +21,8 @@ export function SidebarFooterMenu(): React.JSX.Element {
   // click path and instead defers to the full Settings > Appearance picker,
   // which already offers all four modes.
   const isBinary = theme === 'dark' || theme === 'light'
+  const displayName = profileName || 'You'
+  const initial = displayName.trim().charAt(0).toUpperCase() || 'Y'
 
   return (
     <div className="sb-footer">
@@ -30,7 +34,13 @@ export function SidebarFooterMenu(): React.JSX.Element {
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
-        <span className="name">{profileName || 'You'}</span>
+        <Avatar className="sb-avatar">
+          <AvatarFallback className="sb-avatar-fallback">{initial}</AvatarFallback>
+        </Avatar>
+        <span className="name">{displayName}</span>
+        <Badge variant="outline" className="sb-plan-badge">
+          Local
+        </Badge>
         <IconChevronDown />
       </button>
       <Popover
@@ -54,9 +64,7 @@ export function SidebarFooterMenu(): React.JSX.Element {
           </button>
           <div className="menu-divider" />
           <Hint
-            label={
-              isBinary ? 'Toggle dark mode' : 'Following System/Custom — manage in Settings'
-            }
+            label={isBinary ? 'Toggle dark mode' : 'Following System/Custom — manage in Settings'}
             side="bottom"
           >
             <button

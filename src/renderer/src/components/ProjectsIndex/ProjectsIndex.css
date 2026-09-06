@@ -1,7 +1,7 @@
-/* Projects index — Beautiful UI InsightCards language: the list is a
-   hairline-wrapped --surface card over the --canvas page; rows are quiet
-   chip-radius buttons that light up with --hover. */
-.projects-index {
+/* Projects index — Kimi-like gallery: a calm centered column on --canvas;
+   each project is a soft rounded card (hairline + low card shadow) that lifts
+   to --shadow-raised on hover. Motion uses the --ease-*/
+--dur-* tokens and drops transforms under reduced motion. */ .projects-index {
   flex: 1;
   min-width: 0;
   background: var(--canvas);
@@ -9,24 +9,20 @@
   display: flex;
   flex-direction: column;
 }
+.pidx-inner {
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 28px 36px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
 .pidx-head {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 22px 28px 18px;
-  border-bottom: 1px solid var(--line);
-}
-.pidx-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-control);
-  background: var(--inset);
-  box-shadow: var(--shadow-hairline);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ink-2);
-  flex-shrink: 0;
+  align-items: flex-end;
+  gap: 16px;
+  padding: 34px 4px 20px;
 }
 .pidx-title {
   flex: 1;
@@ -34,58 +30,75 @@
 }
 .pidx-title h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--ink);
 }
 .pidx-title .pidx-meta {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
-  margin-top: 2px;
+  margin-top: 4px;
 }
 .pidx-sort {
   flex-shrink: 0;
 }
 .pidx-list {
-  margin: 16px 24px 28px;
-  padding: 5px;
-  background: var(--surface);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-card);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
+  gap: 12px;
 }
+/* The card keeps the historical `.pidx-row` class name: tests and the
+   keyboard-open convention key off it, and `.selected` marks the project
+   whose page is currently open (view: { kind: 'project', path }). */
 .pidx-row {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 10px;
-  border-radius: var(--radius-chip);
+  flex-direction: column;
+  padding: 14px 14px 13px;
+  background: var(--surface);
+  border-radius: var(--radius-overlay);
+  box-shadow: var(--shadow-card);
   cursor: pointer;
-  /* BUI hover color grammar: 100ms standard curve. */
   transition:
-    background-color var(--dur-hover) var(--ease-standard),
-    color var(--dur-hover) var(--ease-standard);
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    background-color var(--dur-hover) var(--ease-standard);
 }
 .pidx-row:hover {
-  background: var(--hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-raised);
+}
+.pidx-row:active {
+  transform: translateY(0);
+  transition-duration: var(--dur-press);
 }
 .pidx-row:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
-/* Matches Sidebar.css's .sb-flatrow.selected treatment (same tokens) so the
-   active-project highlight reads as one visual language across the sidebar's
-   Pinned Projects rows and this index page. */
+/* Selected = a single accent hairline (the one place this page spends the
+   blue), layered over the card's own shadow; the first 1px ring fully covers
+   the shadow token's --line ring. */
 .pidx-row.selected {
-  background: var(--hover-2);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    var(--shadow-card);
 }
-.pidx-row.selected .name {
-  color: var(--ink);
+.pidx-row.selected:hover {
+  box-shadow:
+    0 0 0 1px var(--accent),
+    var(--shadow-raised);
+}
+.pidx-card-head {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 10px;
 }
 .pidx-row .chip {
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-chip);
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -95,37 +108,85 @@
   color: var(--ink-2);
 }
 .pidx-row .name {
-  flex: 1;
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--ink-2);
-}
-.pidx-row:hover .name {
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--ink);
 }
-.pidx-row .cnt {
+/* Full folder path as tertiary meta: mono (it's a path), quiet, truncated. */
+.pidx-row .pidx-path {
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: 11px;
   color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pidx-row .cnt {
+  margin-top: 10px;
+  color: var(--ink-2);
   font-size: 12px;
-  flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
-/* Hover-revealed Settings/Terminal/New/Pin actions, same pattern as
-   Sidebar.css's `.sb-rowact` and ProjectPage.css's `.pp-rowact` -- opacity-
-   only reveal on this wrapper; `.row-act` itself (defined in
-   ProjectPage.css) stays a plain, always-visible, focusable button. */
+/* Hover-revealed Settings/Terminal/New/Pin actions. Unlike Sidebar/ProjectPage
+   (whole-wrapper fade), the reveal here is per-button so a pinned project's
+   accent pin stays visible without hovering. `.row-act` itself is defined in
+   ProjectPage.css; the transition below must redeclare that rule's full
+   transition list because this higher-specificity rule replaces (not merges)
+   it, independent of stylesheet order. */
 .pidx-rowact {
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  margin-left: auto;
   flex-shrink: 0;
-  opacity: 0;
-  /* Hover reveal = hover feedback: 100ms. */
-  transition: opacity var(--dur-hover) var(--ease-standard);
 }
-.pidx-row:hover .pidx-rowact,
-.pidx-row:focus-within .pidx-rowact {
+.pidx-rowact .row-act {
+  padding: 5px;
+  border-radius: var(--radius-control);
+  opacity: 0;
+  transition:
+    opacity var(--dur-hover) var(--ease-standard),
+    background-color var(--dur-hover) var(--ease-standard),
+    color var(--dur-hover) var(--ease-standard),
+    transform var(--dur-press-release) var(--ease-out);
+}
+.pidx-row:hover .pidx-rowact .row-act,
+.pidx-row:focus-within .pidx-rowact .row-act,
+.pidx-rowact .row-act.active {
   opacity: 1;
+}
+/* Empty state: the shared EmptyState primitive recast as a calm centered
+   hero (chrome removed, generous padding) rather than a card in the grid. */
+.pidx-empty {
+  flex: 1;
+  min-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pidx-empty .empty-state {
+  background: none;
+  box-shadow: none;
+  text-align: center;
+  padding: 48px 24px;
+}
+.pidx-empty .empty-state-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.pidx-empty .empty-state-hint {
+  margin-top: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pidx-row:hover,
+  .pidx-row:active {
+    transform: none;
+  }
+}
+:root[data-motion='reduced'] .pidx-row:hover,
+:root[data-motion='reduced'] .pidx-row:active {
+  transform: none;
 }

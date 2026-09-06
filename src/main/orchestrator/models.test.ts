@@ -2,8 +2,33 @@ import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('../keys', () => ({
   getKey: (p: string) =>
-    ['anthropic', 'perplexity', 'xai', 'openai', 'openrouter'].includes(p) ? 'sk-test' : undefined
+    ['anthropic', 'perplexity', 'xai', 'openai', 'openrouter'].includes(p) ? 'sk-test' : undefined,
+  // Only the 'gpu' compat endpoint has a vaulted key, so makeModel tests
+  // exercise both the real-key and the placeholder-key paths.
+  getCompatKey: (endpointId: string) => (endpointId === 'gpu' ? 'sk-compat-gpu' : undefined)
 }))
+
+const defaultSettings = vi.hoisted(() => () => ({
+  ollamaBaseUrl: 'http://localhost:11434',
+  // Two Ollama instances so makeModel's resolveOllamaTarget routing is exercised
+  // against a real multi-instance config (first entry = primary).
+  ollamaInstances: [
+    { id: 'local', name: 'Local', baseUrl: 'http://localhost:11434' },
+    { id: 'gpu', name: 'GPU Box', baseUrl: 'http://gpu.local:11434' }
+  ],
+  // Two OpenAI-compatible endpoints (first = primary). 'gpu' carries a
+  // trailing slash so the baseURL trimming in makeModel is exercised.
+  compatEndpoints: [
+    { id: 'local', name: 'Local vLLM', baseUrl: 'http://localhost:8000' },
+    { id: 'gpu', name: 'GPU LM Studio', baseUrl: 'http://gpu.local:1234/' }
+  ]
+}))
+
+vi.mock('../settings', () => ({
+  getSettings: vi.fn(defaultSettings)
+}))
+
+import { getSettings } from '../settings'
 
 import { makeModel, buildModelExtras, attachOpenRouterCost } from './models'
 
@@ -15,6 +40,80 @@ describe('makeModel', () => {
   })
   it('throws a clear error when the key is missing', () => {
     expect(() => makeModel('google/gemini-2.5-pro')).toThrow(/google/i)
+  })
+
+  it('builds a bare Ollama ref against the primary instance with the model id intact', () => {
+    const m = makeModel('ollama/llama3')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).baseUrl).toBe('http://localhost:11434')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).model).toBe('llama3')
+  })
+
+  it('routes a namespaced Ollama ref to its instance baseUrl with the stripped model name', () => {
+    const m = makeModel('ollama/gpu/qwen3:32b')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).baseUrl).toBe('http://gpu.local:11434')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).model).toBe('qwen3:32b')
+  })
+
+  it('keeps a two-segment Ollama ref whose first segment is no instance id on the primary, intact', () => {
+    const m = makeModel('ollama/foo/bar:latest')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).baseUrl).toBe('http://localhost:11434')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).model).toBe('foo/bar:latest')
+  })
+
+  it('builds a bare compat ref as a ChatOpenAI against the primary endpoint with a placeholder key', () => {
+    const m = makeModel('compat/qwen3:32b')
+    expect(m._llmType()).toContain('openai')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).clientConfig.baseURL).toBe('http://localhost:8000/v1')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).model).toBe('qwen3:32b')
+    // No vault key for the primary endpoint: ChatOpenAI needs SOME key
+    // (it throws without one) and local servers ignore it.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).apiKey ?? (m as any).openAIApiKey).toBe('bearcode-unused')
+  })
+
+  it('routes a namespaced compat ref to its endpoint with the vault key and the slash-containing model name intact', () => {
+    const m = makeModel('compat/gpu/meta-llama/Llama-3.1-8B-Instruct')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).clientConfig.baseURL).toBe('http://gpu.local:1234/v1')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).model).toBe('meta-llama/Llama-3.1-8B-Instruct')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).apiKey ?? (m as any).openAIApiKey).toBe('sk-compat-gpu')
+  })
+
+  it('keeps a slash-containing compat model id on the primary endpoint when the first segment is no endpoint id', () => {
+    const m = makeModel('compat/meta-llama/Llama-3.1-8B-Instruct')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).clientConfig.baseURL).toBe('http://localhost:8000/v1')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).model).toBe('meta-llama/Llama-3.1-8B-Instruct')
+  })
+
+  it('compat never gets Responses-API forcing (extras come from the default branch)', () => {
+    const m = makeModel('compat/qwen3:32b')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((m as any).useResponsesApi).toBeFalsy()
+    expect(buildModelExtras('compat', 'qwen3:32b', {})).toEqual({})
+  })
+
+  it('throws when no compat endpoints are configured (stale ref after endpoint deletion fails loudly)', () => {
+    vi.mocked(getSettings).mockReturnValue({
+      ollamaBaseUrl: 'http://localhost:11434',
+      ollamaInstances: [{ id: 'local', name: 'Local', baseUrl: 'http://localhost:11434' }]
+    } as never)
+    try {
+      expect(() => makeModel('compat/qwen3:32b')).toThrow(/No compat endpoints configured/)
+    } finally {
+      vi.mocked(getSettings).mockImplementation(() => defaultSettings() as never)
+    }
   })
 
   it('builds Perplexity as an OpenAI-compatible client pointed at the Perplexity baseURL', () => {
@@ -221,7 +320,14 @@ describe('makeModel', () => {
       id: 'x',
       choices: [],
       annotations: [
-        { type: 'url_citation', url: 'https://a.com', title: 'A', content: 'excerpt', start_index: 0, end_index: 5 },
+        {
+          type: 'url_citation',
+          url: 'https://a.com',
+          title: 'A',
+          content: 'excerpt',
+          start_index: 0,
+          end_index: 5
+        },
         { type: 'url_citation', url: 'https://b.com', content: 'excerpt with no title' },
         { type: 'something_else', url: 'https://ignored.com' }
       ]

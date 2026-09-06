@@ -1,5 +1,7 @@
-/* Models page shell — Beautiful UI: page content sits on --canvas; tables and
-   cards below supply their own --surface + hairline depth. */
+/* Models page shell — Kimi-like management page: a calm centered column over
+   --canvas, generous whitespace, a segmented ui/tabs switcher instead of
+   underline tabs, and tables/cards below supplying their own --surface +
+   hairline depth. */
 .models-page {
   flex: 1;
   min-width: 0;
@@ -8,60 +10,72 @@
   display: flex;
   flex-direction: column;
 }
+.mp-head,
+.mp-tabs,
+.mp-body {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+}
 .mp-head {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 22px 28px 0;
+  align-items: flex-end;
+  gap: 16px;
+  padding: 30px 32px 0;
 }
 .mp-headtext {
   flex: 1;
   min-width: 0;
+}
+.mp-headtext .page-sub {
+  margin-bottom: 0;
+}
+/* Sync action: soft raised button (hairline + soft shadow) with a leading
+   lucide glyph; spins while a sync is in flight. */
+.pill-btn.mp-sync {
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+  border-radius: var(--radius-control);
+  padding: 7px 14px;
+  flex-shrink: 0;
+}
+.pill-btn.mp-sync:hover:not(:disabled) {
+  background: var(--hover);
+}
+.pill-btn.mp-sync:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.mp-sync-spin {
+  animation: mp-spin 0.9s linear infinite;
+}
+@keyframes mp-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .mp-synced {
   font-size: 12px;
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  padding-bottom: 8px;
 }
 .mp-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 18px 28px 0;
-  border-bottom: 1px solid var(--line);
-}
-.mp-tab {
-  border: none;
-  background: transparent;
-  color: var(--ink-2);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 8px 4px 10px;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-right: 18px;
-  /* BUI hover color grammar: 100ms standard curve. */
-  transition:
-    color var(--dur-hover) var(--ease-standard),
-    transform var(--dur-press-release) var(--ease-out);
-}
-.mp-tab:hover {
-  color: var(--ink);
-}
-.mp-tab.active {
-  color: var(--ink);
-  border-bottom-color: var(--accent);
-}
-.mp-tab:active {
-  transform: scale(0.97);
-  transition: transform var(--dur-press) var(--ease-out);
+  padding: 18px 32px 0;
 }
 .mp-body {
-  padding: 20px 28px 28px;
+  padding: 20px 32px 36px;
+}
+/* Keep the sync-error alert aligned with the centered column. */
+.models-page > .ui-error-card {
+  width: 100%;
+  max-width: calc(1120px - 64px);
+  margin: 16px auto 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mp-tab:active {
-    transform: none;
+  .mp-sync-spin {
+    animation: none;
   }
 }

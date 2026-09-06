@@ -377,7 +377,6 @@ describe('Conversation row actions (Pin/Archive/⋮)', () => {
   })
 
   it('Recents row: the ⋮ menu opens with Rename/Delete and wires them to store actions', () => {
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('New title')
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     mount({
       conversations: {
@@ -386,14 +385,20 @@ describe('Conversation row actions (Pin/Archive/⋮)', () => {
     })
     fireEvent.click(screen.getByLabelText('More'))
     fireEvent.click(screen.getByText('Rename'))
+    // Inline rename: the title swaps for an in-place field, committed on Enter.
+    const field = screen.getByLabelText('Rename conversation')
+    expect((field as HTMLInputElement).value).toBe('Recent one')
+    fireEvent.change(field, { target: { value: 'New title' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    fireEvent.blur(field, { target: { value: 'New title' } })
     expect(useAppStore.getState().renameConversation).toHaveBeenCalledWith('r1', 'New title')
+    expect(useAppStore.getState().openConvo).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByLabelText('More'))
     fireEvent.click(screen.getByText('Delete Conversation'))
     expect(useAppStore.getState().deleteConvo).toHaveBeenCalledWith('r1')
     expect(useAppStore.getState().openConvo).not.toHaveBeenCalled()
 
-    promptSpy.mockRestore()
     confirmSpy.mockRestore()
   })
 })

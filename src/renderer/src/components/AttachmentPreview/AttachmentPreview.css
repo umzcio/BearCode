@@ -1,6 +1,9 @@
 .attachment-preview-loading {
   flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 12px 14px;
-  color: var(--ink-2);
+  color: var(--ink-3);
   font-size: 13px;
 }

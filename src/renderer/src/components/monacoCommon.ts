@@ -96,6 +96,8 @@ export const EDITOR_OPTIONS = {
   fontSize: 12.5,
   fontFamily: "'JetBrains Mono Variable', 'SF Mono', ui-monospace, Menlo, Consolas, monospace",
   lineHeight: 22,
+  /* Breathing room so code doesn't butt against the pane's header hairline. */
+  padding: { top: 8, bottom: 8 },
   glyphMargin: true,
   contextmenu: false,
   // Antigravity wraps long lines; it also keeps view-zone widgets (the

@@ -15,6 +15,9 @@ export const TERMINAL_FONT = {
 
 // Matches .terminal-pane-surface's `padding: 8px` + `box-sizing: border-box`.
 const SURFACE_PADDING_PX = 8
+// Matches .terminal-pane's `padding: 10px` frame inset (TerminalPane.css) --
+// the surface sits that far inside the measured host box on every side.
+const FRAME_PADDING_PX = 10
 
 // Measure the pty geometry a terminal would have if it were opened inside
 // `host`, WITHOUT creating a session first.
@@ -30,8 +33,9 @@ const SURFACE_PADDING_PX = 8
 // character cell metrics once attached to a laid-out element.
 export function measureTerminalSize(host: HTMLElement): TerminalSize | undefined {
   const rect = host.getBoundingClientRect()
-  const width = rect.width - SURFACE_PADDING_PX * 2
-  const height = rect.height - SURFACE_PADDING_PX * 2
+  const inset = SURFACE_PADDING_PX + FRAME_PADDING_PX
+  const width = rect.width - inset * 2
+  const height = rect.height - inset * 2
   // Not laid out yet (hidden view, zero-size parent). Returning undefined lets
   // the caller fall back to the main-process default rather than spawning at a
   // geometry derived from a zero box.

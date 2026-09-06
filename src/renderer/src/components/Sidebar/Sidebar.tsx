@@ -264,7 +264,7 @@ export function Sidebar({
 
       <Hint label="New Conversation" keys="⌘N" side="right">
         <button
-          className={'nav-item' + (view.kind === 'home' ? ' selected' : '')}
+          className={'sb-new-task' + (view.kind === 'home' ? ' selected' : '')}
           onClick={() =>
             mode === 'hermes' && hermesEnabled ? void newHermesConversation() : goHome()
           }

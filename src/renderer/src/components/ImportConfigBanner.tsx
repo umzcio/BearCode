@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { FolderInput } from 'lucide-react'
 import { useAppStore } from '../state/store'
 import { useAnimatedUnmount } from '../lib/useAnimatedUnmount'
+import './Banners.css'
 
 const TOOL_LABEL: Record<string, string> = {
   'claude-code': 'Claude Code',
@@ -33,7 +35,8 @@ export function ImportConfigBanner(): React.JSX.Element | null {
   }
 
   return (
-    <div className="trust-banner" data-state={state} role="alert">
+    <div className="trust-banner banner-accent" data-state={state} role="alert">
+      <FolderInput size={15} className="trust-banner-icon" aria-hidden="true" />
       <span className="trust-banner-msg">
         This folder has existing agent config from {tools.join(', ')}. Import it into BearCode?
       </span>

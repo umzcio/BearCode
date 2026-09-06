@@ -1,14 +1,28 @@
 /* F4: placeholder rect the main-side WebContentsView paints over. Fills the
    aux pane column; the recessed canvas keeps a neutral backdrop while the
-   view loads or when it is hidden. */
+   view loads or when it is hidden. The rounded corners + inset hairline read
+   as a quiet inset frame in the idle/loading states; live native pixels are a
+   square rect painted exactly over this element's bounds, so they cover the
+   frame entirely when the browser is showing. */
 .browser-pane {
   width: 100%;
   height: 100%;
   background: var(--canvas);
+  border-radius: var(--radius-overlay);
+  box-shadow: inset 0 0 0 1px var(--line);
+  display: flex;
 }
 
+/* Idle/loading/error feedback: a calm centered hero instead of top-left text. */
 .browser-pane-state {
-  padding: 14px 16px;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
   opacity: 1;
   transition: opacity var(--dur-fast) var(--ease-out);
 }

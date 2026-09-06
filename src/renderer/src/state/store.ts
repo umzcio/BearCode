@@ -19,6 +19,7 @@ import type {
   ManualRuleInfo,
   MentionRef,
   ModelRef,
+  OllamaInstance,
   OutsideAccessInfo,
   PermissionMode,
   PermissionRulesInfo,
@@ -607,7 +608,9 @@ function plural(n: number, noun: string): string {
 
 export function modelDisplay(
   providers: ProviderModels[],
-  ref: ModelRef | null
+  ref: ModelRef | null,
+  ollamaInstances?: OllamaInstance[],
+  compatEndpoints?: OllamaInstance[]
 ): { name: string; color: string } {
   // Orange, matching ursa-teddy.svg's dominant body colour (the composer aura
   // uses the same palette) -- was BearCode blue, which matched nothing.
@@ -622,7 +625,32 @@ export function modelDisplay(
     const provider = providers.find((p) => p.id === providerId)
     if (provider) {
       const model = provider.models.find((m) => m.id === modelId)
-      return { name: model?.label ?? modelId, color: provider.color }
+      let name = model?.label ?? modelId
+      // Multi-instance Ollama: non-primary models carry an `<instanceId>/`
+      // prefix on their id -- disambiguate the display with the instance name.
+      if (provider.id === 'ollama' && ollamaInstances && ollamaInstances.length > 1) {
+        const segEnd = modelId.indexOf('/')
+        const instance =
+          segEnd > 0
+            ? ollamaInstances.find(
+                (i) => i.id === modelId.slice(0, segEnd) && i.id !== ollamaInstances[0].id
+              )
+            : undefined
+        if (instance) name = `${name} · ${instance.name}`
+      }
+      // Compat endpoints: same namespacing convention as Ollama (the remainder
+      // after the endpoint segment is the whole model id, slashes included).
+      if (provider.id === 'compat' && compatEndpoints && compatEndpoints.length > 1) {
+        const segEnd = modelId.indexOf('/')
+        const endpoint =
+          segEnd > 0
+            ? compatEndpoints.find(
+                (e) => e.id === modelId.slice(0, segEnd) && e.id !== compatEndpoints[0].id
+              )
+            : undefined
+        if (endpoint) name = `${name} · ${endpoint.name}`
+      }
+      return { name, color: provider.color }
     }
   }
   return { name: 'Choose a model', color: '#6f6f6f' }
@@ -1894,6 +1922,8 @@ export const useAppStore = create<AppState>((set, get) => {
       // every picker/meter reflects opt-out + Add-model immediately (F7).
       if (
         patch.ollamaBaseUrl !== undefined ||
+        patch.ollamaInstances !== undefined ||
+        patch.compatEndpoints !== undefined ||
         patch.disabledModels !== undefined ||
         patch.customModels !== undefined ||
         patch.enabledLiveModels !== undefined

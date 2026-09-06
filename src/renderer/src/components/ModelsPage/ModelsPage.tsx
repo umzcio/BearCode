@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
+import { RefreshCw } from 'lucide-react'
 import { useAppStore } from '../../state/store'
 import { relativeAge } from '../../lib/time'
 import { ModelsTab } from './ModelsTab'
 import { CatalogTab } from './CatalogTab'
 import { PricingTab } from './PricingTab'
 import { ErrorCard } from '../ui/ErrorCard'
+import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import './ModelsPage.css'
 
 type Tab = 'models' | 'catalog' | 'pricing'
@@ -36,7 +38,9 @@ export function ModelsPage(): React.JSX.Element {
     setSync({ status: 'pending', msg: '' })
     void syncPricing()
       .then(() => setSync({ status: 'idle', msg: '' }))
-      .catch((e) => setSync({ status: 'error', msg: e instanceof Error ? e.message : 'Sync failed' }))
+      .catch((e) =>
+        setSync({ status: 'error', msg: e instanceof Error ? e.message : 'Sync failed' })
+      )
   }
 
   return (
@@ -50,10 +54,11 @@ export function ModelsPage(): React.JSX.Element {
         </div>
         <button
           type="button"
-          className="pill-btn"
+          className="pill-btn mp-sync"
           onClick={runSync}
           disabled={sync.status === 'pending'}
         >
+          <RefreshCw size={13} className={sync.status === 'pending' ? 'mp-sync-spin' : undefined} />
           {sync.status === 'pending' ? 'Syncing…' : 'Sync metadata'}
         </button>
         <span className="mp-synced">
@@ -65,19 +70,18 @@ export function ModelsPage(): React.JSX.Element {
 
       {sync.status === 'error' ? <ErrorCard>{sync.msg}</ErrorCard> : null}
 
-      <div className="mp-tabs" role="tablist">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            className={'mp-tab' + (tab === t.id ? ' active' : '')}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="mp-tabs">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+          <TabsList aria-label="Models page sections">
+            {TABS.map((t) => (
+              // Radix activates tabs on mousedown; the explicit onClick keeps
+              // state in sync for click-only event streams too.
+              <TabsTrigger key={t.id} value={t.id} onClick={() => setTab(t.id)}>
+                {t.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
 
       <div className="mp-body">

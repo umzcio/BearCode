@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Composer } from './Composer/Composer'
 import { PixelBear } from './brand/PixelBear'
+import { RoarBear } from './brand/RoarBear'
 import { useAppStore } from '../state/store'
 import { Hint } from './Hint'
 import { IconChevronDown, IconFolder, IconFolderPlus } from './icons'
@@ -74,6 +75,10 @@ export function Home(): React.JSX.Element {
 
   return (
     <div className="home">
+      <div className="home-bear-bg" aria-hidden="true">
+        <RoarBear scale={44} />
+      </div>
+      <h1 className="home-greeting">What can BearCode help you build?</h1>
       <div className="composer-wrap">
         <div className="project-picker">
           <Hint label="Select Folder" keys="⌘;" side="top" disabled={open}>

@@ -1,7 +1,7 @@
 import { memo, useState } from 'react'
 import type { Event } from '@shared/types'
 import { Markdown } from '../../lib/markdown'
-import { IconChevronRightSmall } from '../icons'
+import { ChevronRight } from 'lucide-react'
 import './events.css'
 
 type CouncilSeatEvent = Extract<Event, { type: 'council_seat' }>
@@ -40,7 +40,7 @@ function CouncilSeatRow({ seat }: { seat: CouncilSeatEvent }): React.JSX.Element
           <span className="council-seat-failed">failed</span>
         ) : (
           <span className="chev">
-            <IconChevronRightSmall />
+            <ChevronRight />
           </span>
         )}
       </div>

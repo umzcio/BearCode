@@ -4,6 +4,8 @@ import { DEFAULT_CUSTOM_COLORS } from '../../shared/appearance'
 export function makeAppSettings(overrides: Partial<AppSettings> = {}): AppSettings {
   return {
     ollamaBaseUrl: 'http://localhost:11434',
+    ollamaInstances: [{ id: 'local', name: 'Local', baseUrl: 'http://localhost:11434' }],
+    compatEndpoints: [],
     defaultModelRef: null,
     defaultPermissionMode: 'accept-edits',
     disabledBuiltins: [],
