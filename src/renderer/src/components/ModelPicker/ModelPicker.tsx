@@ -10,6 +10,7 @@ import ursaTeddy from '../../assets/ursa-teddy.svg'
 import ursusTeddy from '../../assets/ursus-teddy.svg'
 import { useCloseOnSettingsOpen } from '../../lib/useCloseOnSettingsOpen'
 import { groupEndpointRefs } from './groupEndpointRefs'
+import { isLikelyEmbeddingModel } from '../../lib/modelRows'
 import './ModelPicker.css'
 
 // Favorites-first picker (approved prototype, 2026-08-13): opens on the
@@ -71,7 +72,7 @@ export function ModelPicker(): React.JSX.Element {
   const ollamaUsable = providers.some((p) => p.id === 'ollama' && p.reachable)
   const ursusSelectable = ursusEnabled && (openrouterUsable || ollamaUsable)
   const [open, setOpen] = useState(false)
-  const settingsOpen = useAppStore((s) => s.settingsOpen)
+  const settingsOpen = useAppStore((s) => s.view.kind === 'settings')
   useCloseOnSettingsOpen(open, settingsOpen, () => setOpen(false))
   // Every open gets a fresh generation; tab/search/highlight are stored KEYED
   // to the generation and derived back to their defaults ('fav', '', current
@@ -147,6 +148,7 @@ export function ModelPicker(): React.JSX.Element {
   const viewRefs: string[] = []
   if (searching) {
     for (const [ref, { provider, model }] of selectable) {
+      if (isLikelyEmbeddingModel(model.id)) continue
       const hay =
         `${model.label} ${provider.displayName} ${(model.strengths ?? []).join(' ')}`.toLowerCase()
       if (hay.includes(q)) viewRefs.push(ref)
@@ -160,7 +162,12 @@ export function ModelPicker(): React.JSX.Element {
     viewRefs.push(...recents)
   } else if (rail !== 'modes') {
     // All tab, prototype-B pane: only the rail-selected vendor's models.
-    for (const ref of selectable.keys()) if (ref.startsWith(`${rail}/`)) viewRefs.push(ref)
+    // Embedding models are skipped here and in search (they can't chat);
+    // explicit Favorites/Recents are left alone.
+    for (const [ref, { model }] of selectable) {
+      if (!ref.startsWith(`${rail}/`) || isLikelyEmbeddingModel(model.id)) continue
+      viewRefs.push(ref)
+    }
   }
 
   // All-tab endpoint rails (Ollama instances, compat endpoints) with multiple

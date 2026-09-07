@@ -36,6 +36,16 @@ export const MODE_LABEL: Record<ModelMode, string> = {
   other: 'Other'
 }
 
+// Embedding/reranker models can't chat, so chat surfaces (the model picker,
+// the Models-tab default-model dropdown) shouldn't offer them. Catalog-known
+// models are authoritative via mode; endpoint models (ollama/compat) carry no
+// metadata, so fall back to the id patterns every major embedding family uses.
+const EMBEDDING_ID_PATTERN = /embed|bge[-_]|e5[-_]|gte[-_]|nomic|rerank/i
+export function isLikelyEmbeddingModel(modelId: string, mode?: ModelMode): boolean {
+  if (mode !== undefined) return mode === 'embedding'
+  return EMBEDDING_ID_PATTERN.test(modelId)
+}
+
 export type CapabilityKey =
   | 'functionCalling'
   | 'vision'

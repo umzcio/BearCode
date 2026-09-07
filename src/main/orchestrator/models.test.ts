@@ -116,6 +116,21 @@ describe('makeModel', () => {
     }
   })
 
+  it('accepts a compat endpoint URL that already ends in /v1 without doubling it', () => {
+    vi.mocked(getSettings).mockReturnValue({
+      ollamaBaseUrl: 'http://localhost:11434',
+      ollamaInstances: [{ id: 'local', name: 'Local', baseUrl: 'http://localhost:11434' }],
+      compatEndpoints: [{ id: 'spark', name: 'Spark', baseUrl: 'http://spark.local:8888/v1' }]
+    } as never)
+    try {
+      const m = makeModel('compat/glm-5.3-flash')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((m as any).clientConfig.baseURL).toBe('http://spark.local:8888/v1')
+    } finally {
+      vi.mocked(getSettings).mockImplementation(() => defaultSettings() as never)
+    }
+  })
+
   it('builds Perplexity as an OpenAI-compatible client pointed at the Perplexity baseURL', () => {
     const m = makeModel('perplexity/sonar-pro')
     expect(m._llmType()).toContain('openai')

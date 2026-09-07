@@ -16,6 +16,7 @@ import { Toggle } from '../Toggle'
 import { Hint } from '../Hint'
 import { Menu } from '../ui/Menu'
 import { IconClose, IconCopy, IconDots, IconStar } from '../icons'
+import { formatPricePer1M } from '../../lib/formatPrice'
 import './ModelDetailModal.css'
 
 // The Models page's popup detail view (not a docked rail -- that direction was
@@ -213,7 +214,7 @@ export function ModelDetailModal({
             <span className="mdp-label">Pricing</span>
             <span className="mdp-value">
               {row.price
-                ? `$${row.price.inputPer1M} in / $${row.price.outputPer1M} out per 1M tokens`
+                ? `$${formatPricePer1M(row.price.inputPer1M)} in / $${formatPricePer1M(row.price.outputPer1M)} out per 1M tokens`
                 : 'Unknown'}
             </span>
           </div>

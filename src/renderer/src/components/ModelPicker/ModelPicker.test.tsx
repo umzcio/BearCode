@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, act, within } from '@testing-library/react'
 import { ModelPicker } from './ModelPicker'
 import { useAppStore } from '../../state/store'
 
@@ -212,9 +212,14 @@ describe('ModelPicker — closes on Settings open', () => {
     // re-render under React 19 + RTL's automatic batching outside act() --
     // wrap it so the assertion below observes the post-close DOM.
     act(() => {
-      useAppStore.setState({ settingsOpen: true })
+      useAppStore.setState({ view: { kind: 'settings' } })
     })
     expect(screen.queryByRole('listbox')).toBeNull()
+    // No beforeEach store reset in this file -- restore the view so it can't
+    // leak into later tests.
+    act(() => {
+      useAppStore.setState({ view: { kind: 'home' } })
+    })
   })
 })
 
@@ -604,5 +609,36 @@ describe('ModelPicker — multi-endpoint compat', () => {
     })
     openCompatRail()
     expect(screen.queryByText('free')).not.toBeInTheDocument()
+  })
+})
+
+describe('ModelPicker — embedding models are not offered for chat', () => {
+  it('excludes embedding models from the provider rail but keeps chat models', () => {
+    useAppStore.setState({
+      providers: [
+        {
+          id: 'ollama',
+          displayName: 'Ollama',
+          color: '#3ecf8e',
+          requiresKey: false,
+          keyConfigured: true,
+          reachable: true,
+          models: [
+            { id: 'qwen3.5:9b', label: 'qwen3.5:9b' },
+            { id: 'mxbai-embed-large:latest', label: 'mxbai-embed-large' }
+          ]
+        }
+      ] as never,
+      modelRef: null,
+      conversations: {} as never,
+      settings: { ursaEnabled: false, favoriteModels: [] } as never
+    })
+    render(<ModelPicker />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByRole('tab', { name: /^all$/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ollama' }))
+    const listbox = screen.getByRole('listbox')
+    expect(within(listbox).queryByText('mxbai-embed-large')).toBeNull()
+    expect(within(listbox).getByText('qwen3.5:9b')).toBeTruthy()
   })
 })

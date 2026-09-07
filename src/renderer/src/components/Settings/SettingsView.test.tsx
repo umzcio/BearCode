@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, cleanup, within, waitFor } from '@testing-library/react'
 import { useAppStore } from '../../state/store'
-import { SettingsModal } from './SettingsModal'
+import { SettingsView } from './SettingsView'
 import { ProvidersPage } from './pages/ProvidersPage'
 import { GeneralPage } from './pages/GeneralPage'
 import { FEEDBACK_URL } from './SettingsNav'
@@ -28,6 +28,7 @@ beforeEach(() => {
     settings: { set: setSpy },
     compatSetKey: vi.fn(() => Promise.resolve()),
     compatKeyStatus: vi.fn(() => Promise.resolve({})),
+    probeEndpoint: vi.fn(() => Promise.resolve({ reachable: true, modelCount: 1 })),
     permissions: { list: vi.fn(() => Promise.resolve({ userRules: [], builtins: [] })) },
     models: {
       list: vi.fn(() => Promise.resolve([])),
@@ -83,7 +84,8 @@ beforeEach(() => {
     }
   }
   useAppStore.setState({
-    settingsOpen: true,
+    view: { kind: 'settings' },
+    settingsReturnView: null,
     settings: settings as never,
     providers: [],
     conversations: {}
@@ -94,9 +96,9 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('SettingsModal default permission mode', () => {
+describe('SettingsView default permission mode', () => {
   it('offers the four selectable modes (never Bypass) and saves the pick', () => {
-    render(<SettingsModal />)
+    render(<SettingsView />)
     fireEvent.click(screen.getByText('Permissions')) // rail nav to the Permissions page
     fireEvent.click(screen.getByLabelText('Default permission mode')) // open the custom dropdown
     // role="option" matches only the menu items (not the trigger). Each item's
@@ -110,7 +112,7 @@ describe('SettingsModal default permission mode', () => {
   })
 })
 
-describe('SettingsModal Providers split', () => {
+describe('SettingsView Providers split', () => {
   it('Providers page shows the API-key inputs and the Ollama URL field', () => {
     render(<ProvidersPage />)
     // Anthropic key input (unconfigured → its placeholder shows)
@@ -120,7 +122,7 @@ describe('SettingsModal Providers split', () => {
   })
 })
 
-describe('SettingsModal Ollama instances', () => {
+describe('SettingsView Ollama instances', () => {
   const twoInstances = [
     { id: 'local', name: 'Local', baseUrl: 'http://localhost:11434' },
     { id: 'gpu-box', name: 'GPU Box', baseUrl: 'http://192.168.1.10:11434' }
@@ -131,14 +133,66 @@ describe('SettingsModal Ollama instances', () => {
     })
   }
 
-  it('lists each configured instance with its name, URL, and the primary tag', () => {
+  it('lists each configured instance with its name, URL, and no PRIMARY badge', () => {
     withInstances(twoInstances)
     render(<ProvidersPage />)
     expect(screen.getByText('Local')).toBeTruthy()
     expect(screen.getByText('GPU Box')).toBeTruthy()
     expect(screen.getByText('http://192.168.1.10:11434')).toBeTruthy()
-    // First entry is labeled as the primary (only shown with 2+ instances).
-    expect(screen.getByText('Primary')).toBeTruthy()
+    // The shouty badge is gone; the first-server rule lives only in hint text.
+    expect(screen.queryByText('Primary')).toBeNull()
+    expect(screen.getAllByText(/first server keep their unprefixed/).length).toBe(2)
+  })
+
+  it('shows a per-row reachability dot from the providers payload breakdown', () => {
+    withInstances(twoInstances)
+    useAppStore.setState({
+      providers: [
+        {
+          id: 'ollama',
+          displayName: 'Ollama',
+          color: '#3ecf8e',
+          requiresKey: false,
+          keyConfigured: true,
+          reachable: true,
+          models: [],
+          endpoints: [
+            { id: 'local', name: 'Local', reachable: true, modelCount: 4 },
+            { id: 'gpu-box', name: 'GPU Box', reachable: false, modelCount: 0 }
+          ]
+        }
+      ] as never
+    })
+    render(<ProvidersPage />)
+    const reachable = screen.getByTitle('4 models reachable')
+    expect(reachable.className).toContain('ok')
+    const down = screen.getByTitle('Not reachable')
+    expect(down.className).not.toContain('ok')
+  })
+
+  it('Test probes the row server and reflects the result on its dot immediately', async () => {
+    const probe = (window as unknown as { bearcode: { probeEndpoint: ReturnType<typeof vi.fn> } })
+      .bearcode.probeEndpoint
+    probe.mockResolvedValue({ reachable: true, modelCount: 3 })
+    render(<ProvidersPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Test Local' }))
+    expect(probe).toHaveBeenCalledWith({
+      provider: 'ollama',
+      baseUrl: 'http://localhost:11434',
+      endpointId: 'local'
+    })
+    expect(await screen.findByTitle('3 models reachable')).toBeTruthy()
+  })
+
+  it('Test shows a transient inline note on failure and leaves the dot gray', async () => {
+    const probe = (window as unknown as { bearcode: { probeEndpoint: ReturnType<typeof vi.fn> } })
+      .bearcode.probeEndpoint
+    probe.mockResolvedValue({ reachable: false, note: 'Ollama not running' })
+    render(<ProvidersPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Test Local' }))
+    expect(await screen.findByText('Ollama not running')).toBeTruthy()
+    const dot = screen.getByTitle('Not reachable')
+    expect(dot.className).not.toContain('ok')
   })
 
   it('adds a server from the add row, deriving a kebab id from the name', () => {
@@ -194,7 +248,7 @@ describe('SettingsModal Ollama instances', () => {
   })
 })
 
-describe('SettingsModal compat endpoints (OpenAI-compatible servers)', () => {
+describe('SettingsView compat endpoints (OpenAI-compatible servers)', () => {
   const oneEndpoint = [{ id: 'vllm', name: 'vLLM', baseUrl: 'http://localhost:8000/v1' }]
   const withEndpoints = (endpoints: typeof oneEndpoint): void => {
     useAppStore.setState({
@@ -256,9 +310,67 @@ describe('SettingsModal compat endpoints (OpenAI-compatible servers)', () => {
     withEndpoints(oneEndpoint)
     compatMocks().status.mockResolvedValue({ vllm: true })
     render(<ProvidersPage />)
-    // Placeholder flips once the async status fetch resolves.
-    expect(await screen.findByPlaceholderText('Configured')).toBeTruthy()
-    expect(screen.getByTitle('API key configured')).toBeTruthy()
+    // The dead-width input collapses to a compact chip once the async status
+    // fetch resolves. Key presence is reported by the chip only -- the row dot
+    // means reachability now.
+    const chip = await screen.findByRole('button', { name: 'Replace API key for vLLM' })
+    expect(chip.textContent).toBe('Configured')
+    // Clicking the chip expands the write-only field for replacement.
+    fireEvent.click(chip)
+    expect(screen.getByPlaceholderText('New key (optional)')).toBeTruthy()
+  })
+
+  it('shows a per-row reachability dot separate from the key indicator', async () => {
+    withEndpoints(oneEndpoint)
+    compatMocks().status.mockResolvedValue({ vllm: true })
+    useAppStore.setState({
+      providers: [
+        {
+          id: 'compat',
+          displayName: 'OpenAI-Compatible',
+          color: '#fb7185',
+          requiresKey: false,
+          keyConfigured: true,
+          reachable: true,
+          models: [],
+          endpoints: [{ id: 'vllm', name: 'vLLM', reachable: true, modelCount: 2 }]
+        }
+      ] as never
+    })
+    render(<ProvidersPage />)
+    expect(screen.getByTitle('2 models reachable')).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Replace API key for vLLM' })).toBeTruthy()
+  })
+
+  it('Test on a compat row probes with the endpoint id (so main attaches its vault key)', async () => {
+    withEndpoints(oneEndpoint)
+    const probe = (window as unknown as { bearcode: { probeEndpoint: ReturnType<typeof vi.fn> } })
+      .bearcode.probeEndpoint
+    probe.mockResolvedValue({ reachable: true, modelCount: 5 })
+    render(<ProvidersPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Test vLLM' }))
+    expect(probe).toHaveBeenCalledWith({
+      provider: 'compat',
+      baseUrl: 'http://localhost:8000/v1',
+      endpointId: 'vllm'
+    })
+    expect(await screen.findByTitle('5 models reachable')).toBeTruthy()
+  })
+
+  it('Test on the add row probes the draft URL unauthenticated (no endpointId)', async () => {
+    const probe = (window as unknown as { bearcode: { probeEndpoint: ReturnType<typeof vi.fn> } })
+      .bearcode.probeEndpoint
+    probe.mockResolvedValue({ reachable: true, modelCount: 2 })
+    render(<ProvidersPage />)
+    fireEvent.change(screen.getByLabelText('New endpoint URL'), {
+      target: { value: 'http://localhost:1234/v1' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Test new endpoint URL' }))
+    expect(probe).toHaveBeenCalledWith({
+      provider: 'compat',
+      baseUrl: 'http://localhost:1234/v1'
+    })
+    expect(await screen.findByText('Reachable — 2 models')).toBeTruthy()
   })
 
   it('saves a per-endpoint key write-only and refetches status', async () => {
@@ -298,11 +410,11 @@ describe('SettingsModal compat endpoints (OpenAI-compatible servers)', () => {
   })
 })
 
-describe('SettingsModal shell — grouped nav, routing, feedback', () => {
+describe('SettingsView shell — grouped nav, routing, feedback', () => {
   const rail = (): HTMLElement => document.querySelector('.settings-rail') as HTMLElement
 
   it('renders both group labels, every item label, and the pinned footer', () => {
-    render(<SettingsModal />)
+    render(<SettingsView />)
     const nav = within(rail())
     expect(nav.getByText('Settings')).toBeTruthy()
     expect(nav.getByText('Customize')).toBeTruthy()
@@ -324,21 +436,21 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
   })
 
   it('defaults to the General page', () => {
-    render(<SettingsModal />)
+    render(<SettingsView />)
     // General page shows the Profile + Custom Instructions sections.
     expect(screen.getByText('Custom Instructions')).toBeTruthy()
     expect(screen.getByPlaceholderText('Your name')).toBeTruthy()
   })
 
   it('has no Account, Projects, or Conversations nav entries', () => {
-    render(<SettingsModal />)
+    render(<SettingsView />)
     expect(screen.queryByText('Account')).toBeNull()
     expect(screen.queryByText('Projects')).toBeNull()
     expect(screen.queryByText('Conversations')).toBeNull()
   })
 
   it('portals the dropdown menu outside .app-select so it is not clipped', () => {
-    render(<SettingsModal />)
+    render(<SettingsView />)
     fireEvent.click(screen.getByText('Permissions'))
     fireEvent.click(screen.getByLabelText('Default permission mode'))
     const option = screen.getAllByRole('option')[0]
@@ -347,55 +459,55 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
   })
 
   it('routes to Providers and shows a key input', () => {
-    render(<SettingsModal />)
+    render(<SettingsView />)
     fireEvent.click(screen.getByText('Providers'))
     expect(screen.getByPlaceholderText('sk-ant-…')).toBeTruthy()
   })
 
   it('opens directly on the Providers page when openSettings targets it (missing-key flow)', () => {
-    useAppStore.setState({ settingsInitialPage: 'providers' })
-    render(<SettingsModal />)
+    useAppStore.setState({ view: { kind: 'settings', page: 'providers' } })
+    render(<SettingsView />)
     // Lands on Providers (API-key input visible) without any nav click.
     expect(screen.getByPlaceholderText('sk-ant-…')).toBeTruthy()
   })
 
   it('the Memory tab renders the real Memory page (not a placeholder)', () => {
-    render(<SettingsModal />)
+    render(<SettingsView />)
     fireEvent.click(within(rail()).getByText('Memory'))
     expect(document.querySelector('.coming-block')).toBeNull()
     expect(document.querySelector('.page-title')?.textContent).toBe('Memory')
   })
 
   it('the Skills tab renders the real Skills page (not a placeholder)', () => {
-    render(<SettingsModal />)
+    render(<SettingsView />)
     fireEvent.click(within(rail()).getByText('Skills'))
     expect(document.querySelector('.coming-block')).toBeNull()
     expect(document.querySelector('.page-title')?.textContent).toBe('Skills')
   })
 
   it('the Browser tab renders the real Browser page (not a placeholder)', () => {
-    render(<SettingsModal />)
+    render(<SettingsView />)
     fireEvent.click(within(rail()).getByText('Browser'))
     expect(document.querySelector('.coming-block')).toBeNull()
     expect(screen.getByRole('switch', { name: /enable browser/i })).toBeTruthy()
   })
 
   it('the Connectors tab renders the real Connectors page (not a placeholder)', () => {
-    render(<SettingsModal />)
+    render(<SettingsView />)
     fireEvent.click(within(rail()).getByText('Connectors'))
     expect(document.querySelector('.coming-block')).toBeNull()
     expect(screen.getByRole('switch', { name: /enable connectors/i })).toBeTruthy()
   })
 
   it('the Integrations tab renders the real Integrations page (not a placeholder)', async () => {
-    render(<SettingsModal />)
+    render(<SettingsView />)
     fireEvent.click(within(rail()).getByText('Integrations'))
     expect(document.querySelector('.coming-block')).toBeNull()
     expect(await screen.findByRole('button', { name: /connect github/i })).toBeTruthy()
   })
 
   it('never renders the text "coming soon"', () => {
-    render(<SettingsModal />)
+    render(<SettingsView />)
     const labels = [
       'General',
       'Permissions',
@@ -417,14 +529,72 @@ describe('SettingsModal shell — grouped nav, routing, feedback', () => {
   it('Provide Feedback opens the feedback URL via window.open', () => {
     const openSpy = vi.fn()
     ;(window as unknown as { open: unknown }).open = openSpy
-    render(<SettingsModal />)
+    render(<SettingsView />)
     fireEvent.click(screen.getByText('Provide Feedback'))
     fireEvent.click(screen.getByRole('button', { name: /github/i }))
     expect(openSpy).toHaveBeenCalledWith(FEEDBACK_URL, '_blank')
   })
 })
 
-describe('SettingsModal General page', () => {
+describe('SettingsView open/close choreography', () => {
+  it('openSettings switches to the settings view and remembers the return view', () => {
+    useAppStore.setState({ view: { kind: 'models' }, settingsReturnView: null })
+    useAppStore.getState().openSettings()
+    expect(useAppStore.getState().view).toEqual({ kind: 'settings' })
+    expect(useAppStore.getState().settingsReturnView).toEqual({ kind: 'models' })
+  })
+
+  it('openSettings with a page deep-links it on the view', () => {
+    useAppStore.setState({ view: { kind: 'home' }, settingsReturnView: null })
+    useAppStore.getState().openSettings('providers')
+    expect(useAppStore.getState().view).toEqual({ kind: 'settings', page: 'providers' })
+  })
+
+  it('re-opening while already in settings keeps the original return view', () => {
+    useAppStore.setState({
+      view: { kind: 'settings' },
+      settingsReturnView: { kind: 'models' }
+    })
+    useAppStore.getState().openSettings()
+    expect(useAppStore.getState().view).toEqual({ kind: 'settings' })
+    expect(useAppStore.getState().settingsReturnView).toEqual({ kind: 'models' })
+  })
+
+  it('the rail Back row returns to the view settings was opened from', () => {
+    useAppStore.setState({
+      view: { kind: 'settings' },
+      settingsReturnView: { kind: 'conversation', id: 'c1' }
+    })
+    render(<SettingsView />)
+    const rail = document.querySelector('.settings-rail') as HTMLElement
+    fireEvent.click(within(rail).getByText('Back'))
+    expect(useAppStore.getState().view).toEqual({ kind: 'conversation', id: 'c1' })
+  })
+
+  it('Esc returns to the view settings was opened from', () => {
+    useAppStore.setState({
+      view: { kind: 'settings' },
+      settingsReturnView: { kind: 'projects' }
+    })
+    render(<SettingsView />)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(useAppStore.getState().view).toEqual({ kind: 'projects' })
+  })
+
+  it('closeSettings falls back to home when there is no return view', () => {
+    useAppStore.setState({ view: { kind: 'settings' }, settingsReturnView: null })
+    useAppStore.getState().closeSettings()
+    expect(useAppStore.getState().view).toEqual({ kind: 'home' })
+  })
+
+  it('closeSettings is a no-op outside the settings view', () => {
+    useAppStore.setState({ view: { kind: 'models' }, settingsReturnView: { kind: 'home' } })
+    useAppStore.getState().closeSettings()
+    expect(useAppStore.getState().view).toEqual({ kind: 'models' })
+  })
+})
+
+describe('SettingsView General page', () => {
   it('shows the Profile fields, Custom Instructions, the data Location, and Delete-all', () => {
     render(<GeneralPage />)
     // Profile fields
@@ -449,11 +619,44 @@ describe('SettingsModal General page', () => {
     fireEvent.blur(name)
     expect(setSpy).toHaveBeenCalledWith({ profileName: 'Ursa' })
   })
+
+  it('offers the relocated default-model picker (chat models only — no embeddings) and saves a choice', () => {
+    useAppStore.setState({
+      providers: [
+        {
+          id: 'openai',
+          displayName: 'OpenAI',
+          color: '#9ad0b7',
+          requiresKey: true,
+          keyConfigured: true,
+          reachable: true,
+          models: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' }]
+        },
+        {
+          id: 'ollama',
+          displayName: 'Ollama',
+          color: '#3ecf8e',
+          requiresKey: false,
+          keyConfigured: true,
+          reachable: true,
+          models: [
+            { id: 'qwen3.5:9b', label: 'qwen3.5:9b' },
+            { id: 'mxbai-embed-large:latest', label: 'mxbai-embed-large:latest' }
+          ]
+        }
+      ] as never
+    })
+    render(<GeneralPage />)
+    fireEvent.click(screen.getByLabelText('Default model'))
+    expect(screen.queryByText('Ollama: mxbai-embed-large:latest')).toBeNull()
+    fireEvent.click(screen.getByText('OpenAI: GPT-5.6 Sol'))
+    expect(setSpy).toHaveBeenCalledWith({ defaultModelRef: 'openai/gpt-5.6-sol' })
+  })
 })
 
-describe('SettingsModal Voice input', () => {
+describe('SettingsView Voice input', () => {
   it('renders the STT backend picker and saves the pick', () => {
-    render(<SettingsModal />)
+    render(<SettingsView />)
     fireEvent.click(screen.getByText('Voice'))
     fireEvent.click(screen.getByLabelText('Speech-to-text backend')) // open the custom dropdown
     const options = screen.getAllByRole('option').map((o) => o.textContent?.replace('✓', ''))

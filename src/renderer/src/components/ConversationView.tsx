@@ -21,7 +21,7 @@ import { remapCitations } from '../lib/citations'
 import { ErrorCard } from './events/ErrorCard'
 import { CompactionMarker } from './events/CompactionMarker'
 import { EmptyState } from './ui/EmptyState'
-import { IconCheck, IconCopy, IconThumbsDown, IconThumbsUp } from './icons'
+import { IconCheck, IconCopy } from './icons'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Hint } from './Hint'
 import { messageTimestamp } from '../lib/time'
@@ -115,7 +115,6 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
   const send = useAppStore((s) => s.send)
   const cancelRun = useAppStore((s) => s.cancelRun)
   const retryRun = useAppStore((s) => s.retryRun)
-  const showToast = useAppStore((s) => s.showToast)
   const initialDraft = useAppStore((s) =>
     s.conversationDraftHandoff?.conversationId === convoId
       ? s.conversationDraftHandoff.draft
@@ -451,24 +450,6 @@ export function ConversationView({ convoId }: { convoId: string }): React.JSX.El
                       {turn.done || turn.errors.length > 0 ? (
                         <div className="msg-actions">
                           <CopyButton text={turn.texts.map((t) => t.text).join('\n\n')} />
-                          <Hint label="Good response" side="top">
-                            <button
-                              className="icon-btn"
-                              aria-label="Good response"
-                              onClick={() => showToast('Noted')}
-                            >
-                              <IconThumbsUp />
-                            </button>
-                          </Hint>
-                          <Hint label="Bad response" side="top">
-                            <button
-                              className="icon-btn"
-                              aria-label="Bad response"
-                              onClick={() => showToast('Noted')}
-                            >
-                              <IconThumbsDown />
-                            </button>
-                          </Hint>
                         </div>
                       ) : null}
                     </div>

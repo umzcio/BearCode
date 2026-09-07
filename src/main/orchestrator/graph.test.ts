@@ -142,6 +142,7 @@ import {
   citationsFromInlineLinks,
   shouldEmitBridgedText,
   shouldEmitBridgedThinking,
+  reasoningFromKwargs,
   supersedesSegment,
   visibleAnswer,
   shouldRetryEmptyFinal,
@@ -497,6 +498,27 @@ describe('shouldEmitBridgedText (containment guard)', () => {
 
   it('emits when the streamed answer differs from the bridged text', () => {
     expect(shouldEmitBridgedText('Full final answer.', 'partial intro only')).toBe(true)
+  })
+})
+
+describe('reasoningFromKwargs (vLLM/LM Studio reasoning_content)', () => {
+  it('reads reasoning_content LangChain parks on additional_kwargs', () => {
+    expect(reasoningFromKwargs({ reasoning_content: 'Let me think about this.' })).toBe(
+      'Let me think about this.'
+    )
+  })
+
+  it("also reads the `reasoning` variant (vLLM's GLM parser field name)", () => {
+    expect(reasoningFromKwargs({ reasoning: 'Thinking out loud.' })).toBe('Thinking out loud.')
+    // reasoning_content wins when both are present
+    expect(reasoningFromKwargs({ reasoning_content: 'a', reasoning: 'b' })).toBe('a')
+  })
+
+  it('returns empty when the field is absent, null, or not a string', () => {
+    expect(reasoningFromKwargs(undefined)).toBe('')
+    expect(reasoningFromKwargs({})).toBe('')
+    expect(reasoningFromKwargs({ reasoning_content: null })).toBe('')
+    expect(reasoningFromKwargs({ reasoning_content: ['not', 'a', 'string'] })).toBe('')
   })
 })
 

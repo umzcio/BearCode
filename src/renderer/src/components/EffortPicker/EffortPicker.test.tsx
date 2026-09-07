@@ -67,7 +67,7 @@ describe('EffortPicker', () => {
     // re-render under React 19 + RTL's automatic batching outside act() --
     // wrap it so the assertion below observes the post-close DOM.
     act(() => {
-      useAppStore.setState({ settingsOpen: true })
+      useAppStore.setState({ view: { kind: 'settings' } })
     })
     expect(screen.queryByRole('listbox')).toBeNull()
   })

@@ -17,7 +17,7 @@ export function EffortPicker(): React.JSX.Element {
   const setWebSearch = useAppStore((s) => s.setWebSearch)
   const modelRef = useAppStore((s) => s.modelRef)
   const [open, setOpen] = useState(false)
-  const settingsOpen = useAppStore((s) => s.settingsOpen)
+  const settingsOpen = useAppStore((s) => s.view.kind === 'settings')
   useCloseOnSettingsOpen(open, settingsOpen, () => setOpen(false))
   const [activeIndex, setActiveIndex] = useState(0)
   const triggerRef = useRef<HTMLButtonElement>(null)

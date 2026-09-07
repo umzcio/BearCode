@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { SettingsInfo } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import {
-  IconClose,
+  IconChevronLeft,
   IconGear,
   IconShield,
   IconPalette,
@@ -40,9 +40,6 @@ import { SettingPlaceholder } from './SettingPlaceholder'
 import { SETTINGS_NAV, SETTINGS_FOOTER, FEEDBACK_URL } from './SettingsNav'
 import type { SettingsPageId } from './SettingsNav'
 import { Select } from '../Select'
-import { Hint } from '../Hint'
-import { useModalDialog } from '../../lib/useModalDialog'
-import { useAnimatedUnmount } from '../../lib/useAnimatedUnmount'
 import './Settings.css'
 
 const SHORTCUTS: { label: string; keys: string[] }[] = [
@@ -82,28 +79,18 @@ const NAV_ICONS: Record<string, (props: { size?: number }) => React.JSX.Element>
 // Intentional WIP panels for the Customize group (not "coming soon" badges).
 const PLACEHOLDERS: Record<string, { title: string; description: string }> = {}
 
-export function SettingsModal(): React.JSX.Element | null {
-  const open = useAppStore((s) => s.settingsOpen)
+// Settings as a full in-app view (Kimi-desktop style): the rail + pages render
+// into .main-view like the Models page -- no scrim, no focus trap. App keys
+// .main-view by view kind, so every entry mounts fresh (fresh page drafts from
+// current settings -- this is what the modal's generation-keyed remount
+// existed to force).
+export function SettingsView(): React.JSX.Element | null {
   const settings = useAppStore((s) => s.settings)
-  const initialPage = useAppStore((s) => s.settingsInitialPage)
-  const { mounted, state } = useAnimatedUnmount(open && !!settings)
-  // Reopening within the 220ms closing window keeps the panel mounted (that's
-  // the point of the exit animation), so a plain "remounts on each open"
-  // assumption no longer holds -- a fast close+reopen wouldn't otherwise
-  // remount and drafts would keep stale state. Track the closed->open edge
-  // with a generation counter (adjusted during render, mirroring
-  // useAnimatedUnmount's own pattern -- no ref access during render) and key
-  // the panel on it so every real reopen forces a fresh mount (fresh drafts
-  // from current settings), regardless of whether the previous close had
-  // finished animating out.
-  const [wasOpen, setWasOpen] = useState(open)
-  const [gen, setGen] = useState(0)
-  if (open !== wasOpen) {
-    setWasOpen(open)
-    if (open) setGen((g) => g + 1)
-  }
-  if (!mounted || !settings) return null
-  return <SettingsPanel key={gen} settings={settings} initialPage={initialPage} state={state} />
+  const initialPage = useAppStore((s) =>
+    s.view.kind === 'settings' ? (s.view.page ?? null) : null
+  )
+  if (!settings) return null
+  return <SettingsLayout settings={settings} initialPage={initialPage} />
 }
 
 function Row({
@@ -135,31 +122,32 @@ function PageHead({ title, sub }: { title: string; sub: string }): React.JSX.Ele
   )
 }
 
-function SettingsPanel({
+function SettingsLayout({
   settings,
-  initialPage,
-  state
+  initialPage
 }: {
   settings: SettingsInfo
   initialPage: string | null
-  state: 'open' | 'closing'
 }): React.JSX.Element {
-  const close = useAppStore((s) => s.closeSettings)
+  const back = useAppStore((s) => s.closeSettings)
   const setAppearance = useAppStore((s) => s.setAppearance)
-  const { ref: dialogRef, dialogProps } = useModalDialog(close)
 
   const [page, setPage] = useState<SettingsPageId>(() => {
     const ids = [...SETTINGS_NAV.flatMap((g) => g.items), ...SETTINGS_FOOTER].map((i) => i.id)
     return ids.includes(initialPage as SettingsPageId) ? (initialPage as SettingsPageId) : 'general'
   })
 
+  // Esc returns to the view settings was opened from. Popover (and Menu, which
+  // is built on it) dismisses its own Esc in the capture phase with
+  // stopPropagation, so an open dropdown eats the keypress first and never
+  // reaches this bubble-phase listener.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') close()
+      if (e.key === 'Escape') back()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [close])
+  }, [back])
 
   const railItem = (item: {
     id: SettingsPageId
@@ -180,36 +168,24 @@ function SettingsPanel({
   }
 
   return (
-    <div
-      className="modal-overlay open"
-      data-state={state}
-      onClick={(e) => e.target === e.currentTarget && close()}
-    >
-      <div
-        className="settings-panel"
-        data-state={state}
-        ref={dialogRef}
-        {...dialogProps}
-        aria-label="Settings"
-      >
-        <div className="settings-rail">
-          {SETTINGS_NAV.map((group) => (
-            <div className="rail-group" key={group.label ?? 'ungrouped'}>
-              {group.label ? <div className="rail-group-label">{group.label}</div> : null}
-              {group.items.map((item) => railItem(item))}
-            </div>
-          ))}
-          <div className="rail-spacer" />
-          <div className="rail-footer">{SETTINGS_FOOTER.map((item) => railItem(item))}</div>
-        </div>
+    <div className="settings-view">
+      <div className="settings-rail">
+        <button className="rail-item rail-back" onClick={back}>
+          <IconChevronLeft size={16} />
+          <span>Back</span>
+        </button>
+        {SETTINGS_NAV.map((group) => (
+          <div className="rail-group" key={group.label ?? 'ungrouped'}>
+            {group.label ? <div className="rail-group-label">{group.label}</div> : null}
+            {group.items.map((item) => railItem(item))}
+          </div>
+        ))}
+        <div className="rail-spacer" />
+        <div className="rail-footer">{SETTINGS_FOOTER.map((item) => railItem(item))}</div>
+      </div>
 
+      <div className="settings-view-body">
         <div className="settings-content">
-          <Hint label="Close" side="bottom">
-            <button className="content-close" aria-label="Close" onClick={close}>
-              <IconClose />
-            </button>
-          </Hint>
-
           {page === 'general' ? <GeneralPage /> : null}
 
           {page === 'providers' ? <ProvidersPage /> : null}

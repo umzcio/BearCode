@@ -421,6 +421,20 @@ function reasoningTextOf(block: { type: string; reasoning?: string; value?: unkn
   return ''
 }
 
+// OpenAI-compatible servers (vLLM, LM Studio) stream reasoning in a dedicated
+// delta field instead of content blocks; LangChain's completions converter
+// parks it on additional_kwargs.reasoning_content (converters/completions.js,
+// including our patch for vLLM's `reasoning`-named variant), never in
+// contentBlocks, so the block path above never sees it. Read it here so those
+// servers' thinking lands in the same collapsible step as everyone else's.
+// Exported for tests.
+export function reasoningFromKwargs(kwargs: unknown): string {
+  const k = kwargs as { reasoning_content?: unknown; reasoning?: unknown } | undefined
+  if (typeof k?.reasoning_content === 'string') return k.reasoning_content
+  if (typeof k?.reasoning === 'string') return k.reasoning
+  return ''
+}
+
 // `agent.getState()` is real at runtime (it delegates to the compiled
 // Pregel graph LangGraph Platform relies on) but is typed `never` on
 // ReactAgent/DeepAgent -- the JSDoc on langchain/dist/agents/ReactAgent.d.ts
@@ -1572,8 +1586,11 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
     // GenerationChunk (the non-chat member of the fields union) has no
     // `message`, so widen through a structural cast; thinkingTextOfMessage
     // returns '' for anything that isn't a content array.
-    const chunk = fields?.chunk as { message?: { content?: unknown } } | undefined
-    this.streamedReasoning += thinkingTextOfMessage(chunk?.message?.content)
+    const chunk = fields?.chunk as
+      { message?: { content?: unknown; additional_kwargs?: unknown } } | undefined
+    this.streamedReasoning +=
+      thinkingTextOfMessage(chunk?.message?.content) +
+      reasoningFromKwargs(chunk?.message?.additional_kwargs)
   }
   handleLLMEnd(output: LLMResult, runId: string, parentRunId?: string): void {
     const started = this.startedAt.get(runId) ?? Date.now()
@@ -1589,11 +1606,13 @@ class ReasoningBridgeHandler extends BaseCallbackHandler {
           gen as {
             message?: {
               content?: unknown
+              additional_kwargs?: unknown
               tool_calls?: { id?: string; name?: string; args?: unknown }[]
             }
           }
         ).message
-        thinking += thinkingTextOfMessage(message?.content)
+        thinking +=
+          thinkingTextOfMessage(message?.content) + reasoningFromKwargs(message?.additional_kwargs)
         // Record tool calls the same way, and BEFORE the thinking early-return
         // below: Deep Agents strips them from the stream when they ride in a
         // thought-bearing chunk (Gemini), so the drive() post-loop uses these as a
@@ -1909,26 +1928,35 @@ async function drive(
         )
       }
     }
+    // Reasoning can arrive two ways: content blocks (Anthropic/Gemini/xAI) or
+    // additional_kwargs.reasoning_content (vLLM/LM Studio via plain
+    // ChatOpenAI completions). Both feed the same accumulation so the
+    // collapsible thinking step and its timing behave identically.
+    const addReasoning = (text: string): void => {
+      if (!s.thinkId) {
+        s.thinkId = randomUUID()
+        s.thinkStartedAt = Date.now()
+      } else if (s.thinkEndedAt) {
+        // A later model call's reasoning is joining a block that already
+        // "ended" (answer text arrived since). Separate the segments so a
+        // multi-call turn (xai streams reasoning per agent-loop round)
+        // doesn't run sentences together, and clear the end stamp so the
+        // next answer token re-marks where thinking stopped.
+        s.think += '\n\n'
+        s.thinkEndedAt = 0
+      }
+      s.think += text
+      ctx.sink.emit(
+        ctx.conversationId,
+        thinkingDeltaEvent(s.thinkId, s.think, Date.now() - s.thinkStartedAt, agentId)
+      )
+    }
+    const kwargsReasoning = reasoningFromKwargs(aiChunk.additional_kwargs)
+    if (kwargsReasoning) addReasoning(kwargsReasoning)
     for (const block of aiChunk.contentBlocks ?? []) {
       const reasoning = reasoningTextOf(block)
       if (reasoning) {
-        if (!s.thinkId) {
-          s.thinkId = randomUUID()
-          s.thinkStartedAt = Date.now()
-        } else if (s.thinkEndedAt) {
-          // A later model call's reasoning is joining a block that already
-          // "ended" (answer text arrived since). Separate the segments so a
-          // multi-call turn (xai streams reasoning per agent-loop round)
-          // doesn't run sentences together, and clear the end stamp so the
-          // next answer token re-marks where thinking stopped.
-          s.think += '\n\n'
-          s.thinkEndedAt = 0
-        }
-        s.think += reasoning
-        ctx.sink.emit(
-          ctx.conversationId,
-          thinkingDeltaEvent(s.thinkId, s.think, Date.now() - s.thinkStartedAt, agentId)
-        )
+        addReasoning(reasoning)
       } else if (block.type === 'text' && block.text) {
         if (s.thinkId && !s.thinkEndedAt) s.thinkEndedAt = Date.now()
         // Mark when the main agent's answer began, so the reasoning handler can

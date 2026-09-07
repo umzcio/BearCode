@@ -180,7 +180,7 @@ describe('listAllOllamaInstances', () => {
     expect(note).toBe('Unreachable: Local')
   })
 
-  it('is byte-identical to the legacy single-instance behavior on the default config', async () => {
+  it('is byte-identical to the legacy single-instance behavior on the default config, plus its endpoint breakdown', async () => {
     getSettingsImpl.mockReturnValue({
       ollamaBaseUrl: 'http://localhost:11434',
       ollamaInstances: [INSTANCES[0]]
@@ -188,11 +188,33 @@ describe('listAllOllamaInstances', () => {
     stubOllamaFetch({ 'http://localhost:11434': { tags: ['llama3'] } })
     const { listAllOllamaInstances } = await import('./registry')
     const up = await listAllOllamaInstances()
-    expect(up).toEqual({ models: [{ id: 'llama3', label: 'llama3' }], reachable: true })
+    expect(up).toEqual({
+      models: [{ id: 'llama3', label: 'llama3' }],
+      reachable: true,
+      endpoints: [{ id: 'local', name: 'Local', reachable: true, modelCount: 1 }]
+    })
 
     stubOllamaFetch({ 'http://localhost:11434': { tags: null } })
     const down = await listAllOllamaInstances()
-    expect(down).toEqual({ models: [], reachable: false, note: 'Ollama not running' })
+    expect(down).toEqual({
+      models: [],
+      reachable: false,
+      note: 'Ollama not running',
+      endpoints: [{ id: 'local', name: 'Local', reachable: false, modelCount: 0 }]
+    })
+  })
+
+  it('reports a per-endpoint breakdown (reachable flags + model counts) across instances', async () => {
+    stubOllamaFetch({
+      'http://localhost:11434': { tags: ['llama3', 'qwen3:8b'] },
+      'http://gpu.local:11434': { tags: null }
+    })
+    const { listAllOllamaInstances } = await import('./registry')
+    const { endpoints } = await listAllOllamaInstances()
+    expect(endpoints).toEqual([
+      { id: 'local', name: 'Local', reachable: true, modelCount: 2 },
+      { id: 'gpu', name: 'GPU Box', reachable: false, modelCount: 0 }
+    ])
   })
 
   it("drives the REGISTRY 'ollama' entry with context windows per instance", async () => {

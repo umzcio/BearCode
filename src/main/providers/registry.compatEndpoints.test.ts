@@ -65,6 +65,35 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+describe('compatApiRoot / listCompatModels URL normalization', () => {
+  it('never doubles /v1 whether the baseUrl includes it, lacks it, or trails a slash', async () => {
+    const seen: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        seen.push(url)
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ object: 'list', data: [{ id: 'glm-5.3-flash', object: 'model' }] })
+        })
+      })
+    )
+    const { listCompatModels } = await import('./registry')
+    const withSuffix = await listCompatModels({ baseUrl: 'http://spark.local:8888/v1' })
+    const bare = await listCompatModels({ baseUrl: 'http://spark.local:8888' })
+    const trailing = await listCompatModels({ baseUrl: 'http://spark.local:8888/' })
+    expect(seen).toEqual([
+      'http://spark.local:8888/v1/models',
+      'http://spark.local:8888/v1/models',
+      'http://spark.local:8888/v1/models'
+    ])
+    for (const r of [withSuffix, bare, trailing]) {
+      expect(r.reachable).toBe(true)
+      expect(r.models.map((m) => m.id)).toEqual(['glm-5.3-flash'])
+    }
+  })
+})
+
 describe('resolveCompatTarget', () => {
   it('routes a bare ref to the primary endpoint, with no apiKey when none is vaulted', async () => {
     const { resolveCompatTarget } = await import('./registry')
@@ -188,7 +217,12 @@ describe('listAllCompatEndpoints', () => {
     const fetchSpy = stubCompatFetch({})
     const { listAllCompatEndpoints } = await import('./registry')
     const result = await listAllCompatEndpoints()
-    expect(result).toEqual({ models: [], reachable: false, note: 'No endpoints configured' })
+    expect(result).toEqual({
+      models: [],
+      reachable: false,
+      note: 'No endpoints configured',
+      endpoints: []
+    })
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
@@ -196,7 +230,25 @@ describe('listAllCompatEndpoints', () => {
     getSettingsImpl.mockReturnValue({})
     const { listAllCompatEndpoints } = await import('./registry')
     const result = await listAllCompatEndpoints()
-    expect(result).toEqual({ models: [], reachable: false, note: 'No endpoints configured' })
+    expect(result).toEqual({
+      models: [],
+      reachable: false,
+      note: 'No endpoints configured',
+      endpoints: []
+    })
+  })
+
+  it('reports a per-endpoint breakdown (reachable flags + model counts) across endpoints', async () => {
+    stubCompatFetch({
+      'http://gpu.local:8000': ['qwen3-32b', 'hermes-3'],
+      'http://localhost:1234': null
+    })
+    const { listAllCompatEndpoints } = await import('./registry')
+    const { endpoints } = await listAllCompatEndpoints()
+    expect(endpoints).toEqual([
+      { id: 'vllm', name: 'vLLM box', reachable: true, modelCount: 2 },
+      { id: 'lm-studio', name: 'LM Studio', reachable: false, modelCount: 0 }
+    ])
   })
 
   it("drives the REGISTRY 'compat' entry (requiresKey: false)", async () => {

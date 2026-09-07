@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ProviderId } from '@shared/types'
 import { useAppStore } from '../../state/store'
 import { buildModelRows, type ModelRow } from '../../lib/modelRows'
+import { formatPricePer1M } from '../../lib/formatPrice'
 import { EmptyState } from '../ui/EmptyState'
 import { ProviderIcon } from '../ProviderIcon'
 import { Select, type SelectOption } from '../Select'
@@ -115,8 +116,8 @@ export function PricingTab(): React.JSX.Element | null {
                       </div>
                     </div>
                   </td>
-                  <td>{row.price ? `$${row.price.inputPer1M}` : '—'}</td>
-                  <td>{row.price ? `$${row.price.outputPer1M}` : '—'}</td>
+                  <td>{row.price ? `$${formatPricePer1M(row.price.inputPer1M)}` : '—'}</td>
+                  <td>{row.price ? `$${formatPricePer1M(row.price.outputPer1M)}` : '—'}</td>
                   <td>
                     {row.priceSource ? (
                       <span className={'price-src ' + row.priceSource}>{row.priceSource}</span>

@@ -18,6 +18,7 @@ import { ProviderIcon } from '../ProviderIcon'
 import { IconDots, IconSearch, IconStar } from '../icons'
 import { ModelDetailModal } from './ModelDetailModal'
 import { AddCustomModelModal } from './AddCustomModelModal'
+import { formatPricePer1M } from '../../lib/formatPrice'
 import './ModelsTab.css'
 
 const CAPABILITY_OPTIONS: SelectOption<'all' | CapabilityKey>[] = [
@@ -55,6 +56,10 @@ export function ModelsTab(): React.JSX.Element {
     useState<(typeof CAPABILITY_OPTIONS)[number]['value']>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | ModelStatus>('all')
   const [enabledOnly, setEnabledOnly] = useState(true)
+  // Endpoint models (ollama/compat servers) carry no capabilities/pricing, so
+  // their rows are all "Unknown"/"—" in this table -- noise by default. The
+  // toggle opts back into managing (starring/disabling) them.
+  const [showLocalServers, setShowLocalServers] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<'10' | '25' | '50'>('25')
   const [openRef, setOpenRef] = useState<string | null>(null)
@@ -67,22 +72,13 @@ export function ModelsTab(): React.JSX.Element {
     ...manageableModels.map((p) => ({ value: p.id, label: p.displayName }))
   ]
 
-  // The default-model box: the EFFECTIVE (enabled) model set across
-  // providers, same source `Settings/pages/ModelsPage.tsx` used to use --
-  // never the manageable (including-disabled) set.
-  const defaultModelOptions: SelectOption<string>[] = [
-    { value: '', label: 'Last used' },
-    ...providers.flatMap((p) =>
-      p.models.map((m) => ({ value: `${p.id}/${m.id}`, label: `${p.displayName}: ${m.label}` }))
-    )
-  ]
-
   const allRows = useMemo(
     () => (settings ? buildModelRows(manageableModels, providers, settings) : []),
     [manageableModels, providers, settings]
   )
 
-  const filtered = allRows.filter((row) => {
+  const ENDPOINT_PROVIDERS = new Set<ProviderId>(['ollama', 'compat'])
+  const otherFilters = (row: (typeof allRows)[number]): boolean => {
     const q = search.trim().toLowerCase()
     if (
       q &&
@@ -96,7 +92,12 @@ export function ModelsTab(): React.JSX.Element {
     if (statusFilter !== 'all' && row.status !== statusFilter) return false
     if (enabledOnly && !row.enabled) return false
     return true
-  })
+  }
+  const passingOtherFilters = allRows.filter(otherFilters)
+  const filtered = showLocalServers
+    ? passingOtherFilters
+    : passingOtherFilters.filter((row) => !ENDPOINT_PROVIDERS.has(row.providerId))
+  const hiddenByToggle = passingOtherFilters.length - filtered.length
 
   // Favorites-first, stable otherwise (Array.prototype.sort is a stable sort
   // in modern engines, so relative order among non-favorites is preserved).
@@ -129,13 +130,6 @@ export function ModelsTab(): React.JSX.Element {
   return (
     <div className="models-tab">
       <div className="mt-toolbar">
-        <Select
-          ariaLabel="Default model"
-          value={settings.defaultModelRef ?? ''}
-          onChange={(v) => void saveSettings({ defaultModelRef: v || null })}
-          options={defaultModelOptions}
-          compact
-        />
         <div className="mt-search">
           <IconSearch size={14} />
           <input
@@ -188,6 +182,17 @@ export function ModelsTab(): React.JSX.Element {
           />
           Show enabled only
         </label>
+        <label className="mt-enabled-only">
+          <Toggle
+            checked={showLocalServers}
+            ariaLabel="Show local server models"
+            onChange={(on) => {
+              setShowLocalServers(on)
+              setPage(1)
+            }}
+          />
+          Local servers
+        </label>
         <button
           ref={bulkBtnRef}
           type="button"
@@ -215,7 +220,14 @@ export function ModelsTab(): React.JSX.Element {
       </div>
 
       {pageRows.length === 0 ? (
-        <EmptyState title="No models match these filters" />
+        <EmptyState
+          title="No models match these filters"
+          hint={
+            hiddenByToggle > 0
+              ? `${hiddenByToggle} model${hiddenByToggle === 1 ? '' : 's'} on local servers hidden — enable Local servers to view`
+              : undefined
+          }
+        />
       ) : (
         <div className="mt-table-wrap">
           <table className="mt-table">
@@ -283,8 +295,8 @@ export function ModelsTab(): React.JSX.Element {
                     <td>
                       {row.price ? (
                         <div className="mt-price">
-                          <div>${row.price.inputPer1M} in</div>
-                          <div>${row.price.outputPer1M} out</div>
+                          <div>${formatPricePer1M(row.price.inputPer1M)} in</div>
+                          <div>${formatPricePer1M(row.price.outputPer1M)} out</div>
                         </div>
                       ) : (
                         '—'

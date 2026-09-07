@@ -53,6 +53,7 @@ import { isEffortLevel } from '../shared/effort'
 import { isUrsaMode } from '../shared/ursaMode'
 import {
   compatKeyStatus,
+  getCompatKey,
   getHermesPlatformKey,
   getHermesToken,
   getOrCreateHermesInstallationId,
@@ -91,8 +92,15 @@ import {
 import { mcpManager } from './mcp/manager'
 import { smitherySearch, fetchSmitheryConfig } from './mcp/registry'
 import { addUserRule, deleteUserRule, listRulesInfo, setBuiltinDisabled } from './permissions'
-import { getSettings, setSettings, settingsInfo } from './settings'
-import { allKnownModelRefs, clearLiveDiscoveryCache, listAllModels, listManageableModels } from './providers/registry'
+import { getSettings, isHttpUrl, setSettings, settingsInfo } from './settings'
+import {
+  allKnownModelRefs,
+  clearLiveDiscoveryCache,
+  listAllModels,
+  listCompatModels,
+  listManageableModels,
+  listOllamaModels
+} from './providers/registry'
 import { syncPricing } from './pricing/sync'
 import { filePathFor, getDiff, revertFile } from './diffs'
 import { transcribe } from './voice/transcribe'
@@ -603,6 +611,35 @@ export function registerIpc(): void {
   ipcMain.handle('bearcode:compat:key-status', () => {
     const configured = (getSettings().compatEndpoints ?? []).map((ep) => ep.id)
     return compatKeyStatus(configured)
+  })
+
+  // On-demand single-server reachability probe for the Providers page's
+  // per-row Test buttons. Input is renderer-supplied and validated here;
+  // every failure mode -- bad input, unreachable server, an unexpected throw
+  // -- resolves as { reachable: false, note } rather than rejecting, so the
+  // renderer can always render the result straight onto the row.
+  ipcMain.handle('bearcode:endpoints:probe', async (_e, args: unknown) => {
+    try {
+      const a = (args ?? {}) as Record<string, unknown>
+      const provider = a.provider === 'ollama' || a.provider === 'compat' ? a.provider : null
+      if (!provider || !isHttpUrl(a.baseUrl)) {
+        return { reachable: false, note: 'Invalid endpoint URL' }
+      }
+      const endpointId =
+        typeof a.endpointId === 'string' && a.endpointId.length > 0 ? a.endpointId : undefined
+      const result =
+        provider === 'ollama'
+          ? await listOllamaModels({ baseUrl: a.baseUrl })
+          : await listCompatModels({
+              baseUrl: a.baseUrl,
+              // The vault key rides along only for a SAVED endpoint; draft
+              // rows (no endpointId) probe unauthenticated.
+              apiKey: endpointId ? getCompatKey(endpointId) : undefined
+            })
+      return { reachable: result.reachable, modelCount: result.models.length, note: result.note }
+    } catch {
+      return { reachable: false, note: 'Probe failed' }
+    }
   })
 
   const assertHermesConnectionUrl = (

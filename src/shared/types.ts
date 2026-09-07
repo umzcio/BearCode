@@ -975,6 +975,16 @@ export interface OllamaInstance {
   baseUrl: string // validated http(s) URL
 }
 
+// One configured server's slice of a provider's reachability, for the
+// endpoint-list providers (ollama, compat). modelCount is the number of
+// models that endpoint returned on the last probe (0 when unreachable).
+export interface EndpointStatus {
+  id: string
+  name: string
+  reachable: boolean
+  modelCount: number
+}
+
 export interface ProviderModels {
   id: ProviderId
   displayName: string
@@ -983,6 +993,27 @@ export interface ProviderModels {
   keyConfigured: boolean
   reachable: boolean
   models: ModelInfo[]
+  note?: string
+  // Per-endpoint breakdown for the endpoint-list providers (ollama, compat),
+  // driving the per-row reachability dots on the Providers settings page.
+  // Absent for providers without endpoints; an empty array for zero-config
+  // compat (no endpoints configured).
+  endpoints?: EndpointStatus[]
+}
+
+// On-demand single-server probe from the Providers page's per-row Test
+// button. endpointId is the saved endpoint's id when probing a configured
+// compat server (its vault key rides along); omitted for draft URLs, which
+// probe unauthenticated.
+export interface EndpointProbeArgs {
+  provider: 'ollama' | 'compat'
+  baseUrl: string
+  endpointId?: string
+}
+
+export interface EndpointProbeResult {
+  reachable: boolean
+  modelCount?: number
   note?: string
 }
 
@@ -1650,6 +1681,10 @@ export interface BearcodeApi {
   compatSetKey(endpointId: string, value: string): Promise<void>
   // Per-endpoint key presence (booleans only), keyed by endpointId.
   compatKeyStatus(): Promise<Record<string, boolean>>
+  // On-demand reachability probe for one Ollama/compat server (Providers page
+  // Test buttons). Never rejects: invalid input and probe failures both
+  // resolve as { reachable: false, note }.
+  probeEndpoint(args: EndpointProbeArgs): Promise<EndpointProbeResult>
   hermes: {
     testConnection(
       mode: HermesConnectionMode,

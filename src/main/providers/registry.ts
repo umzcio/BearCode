@@ -4,6 +4,7 @@
 // pure data/config, no LLM client code.
 import type {
   CustomModel,
+  EndpointStatus,
   ManageableModel,
   ManageableProvider,
   ModelCapabilities,
@@ -28,7 +29,12 @@ interface ProviderRegistryEntry {
   displayName: string
   color: string
   requiresKey: boolean
-  listModels(): Promise<{ models: ModelInfo[]; reachable: boolean; note?: string }>
+  listModels(): Promise<{
+    models: ModelInfo[]
+    reachable: boolean
+    note?: string
+    endpoints?: EndpointStatus[]
+  }>
 }
 
 export const ANTHROPIC_MODELS: ModelInfo[] = [
@@ -290,15 +296,31 @@ export async function listOllamaModels(
 // and merge into one list. Primary-instance models keep their bare ids;
 // non-primary models are namespaced '<instanceId>/<modelName>' so refs stay
 // unambiguous (resolveOllamaTarget reverses the namespacing). `reachable` is
-// true when ANY instance answers; `note` names the ones that didn't. With a
-// single configured instance (the default), this is byte-identical to the
-// legacy listOllamaModels behavior, including the 'Ollama not running' note.
-export async function listAllOllamaInstances(
-  opts: { withContextWindows?: boolean } = {}
-): Promise<{ models: ModelInfo[]; reachable: boolean; note?: string }> {
+// true when ANY instance answers; `note` names the ones that didn't;
+// `endpoints` carries the per-instance breakdown (reachable + model count) for
+// the Providers page's per-row dots. With a single configured instance (the
+// default), the models/reachable/note fields are byte-identical to the legacy
+// listOllamaModels behavior, including the 'Ollama not running' note.
+export async function listAllOllamaInstances(opts: { withContextWindows?: boolean } = {}): Promise<{
+  models: ModelInfo[]
+  reachable: boolean
+  note?: string
+  endpoints: EndpointStatus[]
+}> {
   const instances = configuredOllamaInstances()
   if (instances.length === 1) {
-    return listOllamaModels({ baseUrl: instances[0].baseUrl, ...opts })
+    const r = await listOllamaModels({ baseUrl: instances[0].baseUrl, ...opts })
+    return {
+      ...r,
+      endpoints: [
+        {
+          id: instances[0].id,
+          name: instances[0].name,
+          reachable: r.reachable,
+          modelCount: r.models.length
+        }
+      ]
+    }
   }
   const results = await Promise.all(
     instances.map((inst) => listOllamaModels({ baseUrl: inst.baseUrl, ...opts }))
@@ -318,7 +340,13 @@ export async function listAllOllamaInstances(
   return {
     models,
     reachable: results.some((r) => r.reachable),
-    ...(unreachable.length > 0 ? { note: `Unreachable: ${unreachable.join(', ')}` } : {})
+    ...(unreachable.length > 0 ? { note: `Unreachable: ${unreachable.join(', ')}` } : {}),
+    endpoints: instances.map((inst, i) => ({
+      id: inst.id,
+      name: inst.name,
+      reachable: results[i].reachable,
+      modelCount: results[i].models.length
+    }))
   }
 }
 
@@ -367,7 +395,15 @@ export function resolveCompatTarget(modelId: string): {
   return { baseUrl: primary.baseUrl, modelName: modelId, ...(apiKey ? { apiKey } : {}) }
 }
 
-// One endpoint's OpenAI-compatible model catalog: GET {base}/v1/models with
+// Endpoint base URLs are accepted with or without the /v1 suffix (the
+// settings placeholder suggests including it, so users do). Normalize so
+// exactly one /v1 is ever used at the API root.
+export function compatApiRoot(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/+$/, '')
+  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`
+}
+
+// One endpoint's OpenAI-compatible model catalog: GET {root}/models with
 // the OpenAI `{ data: [{id}] }` shape. Authorization: Bearer is sent ONLY
 // when the caller has a vaulted key -- many local servers (llama.cpp,
 // default vLLM) reject or ignore an empty bearer, and several log headers.
@@ -379,11 +415,10 @@ export async function listCompatModels(opts: { baseUrl: string; apiKey?: string 
   reachable: boolean
   note?: string
 }> {
-  const base = opts.baseUrl.replace(/\/$/, '')
   try {
     const headers: Record<string, string> = {}
     if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`
-    const res = await fetch(`${base}/v1/models`, {
+    const res = await fetch(`${compatApiRoot(opts.baseUrl)}/models`, {
       headers,
       signal: AbortSignal.timeout(2000)
     })
@@ -404,17 +439,20 @@ export async function listCompatModels(opts: { baseUrl: string; apiKey?: string 
 // Primary-endpoint models keep their bare ids; non-primary models are
 // namespaced '<endpointId>/<modelId>' so refs stay unambiguous
 // (resolveCompatTarget reverses the namespacing). `reachable` is true when
-// ANY endpoint answers; `note` names the ones that didn't, BY DISPLAY NAME.
-// With zero configured endpoints (the default) the provider is simply absent:
-// reachable:false and a 'No endpoints configured' note.
+// ANY endpoint answers; `note` names the ones that didn't, BY DISPLAY NAME;
+// `endpoints` carries the per-endpoint breakdown (reachable + model count) for
+// the Providers page's per-row dots. With zero configured endpoints (the
+// default) the provider is simply absent: reachable:false, an empty endpoints
+// list, and a 'No endpoints configured' note.
 export async function listAllCompatEndpoints(): Promise<{
   models: ModelInfo[]
   reachable: boolean
   note?: string
+  endpoints: EndpointStatus[]
 }> {
   const endpoints = configuredCompatEndpoints()
   if (endpoints.length === 0) {
-    return { models: [], reachable: false, note: 'No endpoints configured' }
+    return { models: [], reachable: false, note: 'No endpoints configured', endpoints: [] }
   }
   const results = await Promise.all(
     endpoints.map((ep) => listCompatModels({ baseUrl: ep.baseUrl, apiKey: getCompatKey(ep.id) }))
@@ -434,7 +472,13 @@ export async function listAllCompatEndpoints(): Promise<{
   return {
     models,
     reachable: results.some((r) => r.reachable),
-    ...(unreachable.length > 0 ? { note: `Unreachable: ${unreachable.join(', ')}` } : {})
+    ...(unreachable.length > 0 ? { note: `Unreachable: ${unreachable.join(', ')}` } : {}),
+    endpoints: endpoints.map((ep, i) => ({
+      id: ep.id,
+      name: ep.name,
+      reachable: results[i].reachable,
+      modelCount: results[i].models.length
+    }))
   }
 }
 
@@ -888,7 +932,7 @@ export async function listAllModels(): Promise<ProviderModels[]> {
   const enabledLiveSet = new Set(enabledLiveModels)
   return Promise.all(
     REGISTRY.map(async (entry) => {
-      const { models, reachable, note } = await entry.listModels()
+      const { models, reachable, note, endpoints } = await entry.listModels()
       // Return the effective set: curated/dynamic + custom, minus opted-out refs
       // (F7), further filtered so a live-only model only appears once the user
       // has opted it in via enabledLiveModels. Every picker/meter/pricing
@@ -927,7 +971,10 @@ export async function listAllModels(): Promise<ProviderModels[]> {
             ...(pricing ? { pricing } : {})
           }
         }),
-        note
+        note,
+        // Per-endpoint reachability breakdown (ollama/compat only); omitted
+        // for providers without endpoints.
+        ...(endpoints ? { endpoints } : {})
       }
     })
   )

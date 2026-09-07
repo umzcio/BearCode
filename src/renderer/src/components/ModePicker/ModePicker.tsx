@@ -31,7 +31,7 @@ export function ModePicker(): React.JSX.Element {
   const permMenuTick = useAppStore((s) => s.permMenuTick)
   const defaultMode = useAppStore((s) => s.settings?.defaultPermissionMode ?? 'accept-edits')
   const [open, setOpen] = useState(false)
-  const settingsOpen = useAppStore((s) => s.settingsOpen)
+  const settingsOpen = useAppStore((s) => s.view.kind === 'settings')
   useCloseOnSettingsOpen(open, settingsOpen, () => setOpen(false))
   const [confirmingBypass, setConfirmingBypass] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)

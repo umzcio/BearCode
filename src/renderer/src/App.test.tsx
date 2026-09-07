@@ -51,7 +51,7 @@ beforeEach(() => {
     outsideAccess: null,
     updaterStatus: { state: 'idle' },
     updateBannerDismissed: false,
-    settingsOpen: false,
+    settingsReturnView: null,
     projectSettingsPath: null,
     auxSelection: null,
     toast: null,
@@ -76,6 +76,27 @@ describe('App window chrome ownership', () => {
     fireEvent.keyDown(window, { key, metaKey: true })
 
     expect(useAppStore.getState().view).toEqual({ kind: destination })
+  })
+
+  it('Command-, opens the settings view and toggles back to where it opened from', () => {
+    render(<App />)
+
+    fireEvent.keyDown(window, { key: ',', metaKey: true })
+    expect(useAppStore.getState().view).toEqual({ kind: 'settings' })
+    expect(useAppStore.getState().settingsReturnView).toEqual({ kind: 'home' })
+
+    fireEvent.keyDown(window, { key: ',', metaKey: true })
+    expect(useAppStore.getState().view).toEqual({ kind: 'home' })
+  })
+
+  it('shows a plain Settings crumb in the topbar while the settings view is active', () => {
+    render(<App />)
+    act(() => {
+      useAppStore.setState({ view: { kind: 'settings' } })
+    })
+
+    const topbar = document.querySelector('.topbar') as HTMLElement
+    expect(topbar.textContent).toContain('Settings')
   })
 
   it('keeps a no-drag hit area inside each draggable row behind the fixed controls', () => {

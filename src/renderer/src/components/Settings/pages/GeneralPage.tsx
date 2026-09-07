@@ -1,12 +1,15 @@
 import { useState } from 'react'
 import type { JSX } from 'react'
 import { useAppStore } from '../../../state/store'
+import { isLikelyEmbeddingModel } from '../../../lib/modelRows'
+import { Select, type SelectOption } from '../../Select'
 import { Loading } from '../../ui/Loading'
 import { ErrorCard } from '../../ui/ErrorCard'
 
 export function GeneralPage(): JSX.Element | null {
   const settings = useAppStore((s) => s.settings)
   const saveSettings = useAppStore((s) => s.saveSettings)
+  const providers = useAppStore((s) => s.providers)
   const deleteAll = useAppStore((s) => s.deleteAllConversations)
   const appVersion = useAppStore((s) => s.appVersion)
   const updaterStatus = useAppStore((s) => s.updaterStatus)
@@ -49,6 +52,17 @@ export function GeneralPage(): JSX.Element | null {
     }
   }
 
+  // Same source the Models-tab toolbar used: the effective (enabled) model
+  // set across providers, embedding models excluded (they can't chat).
+  const defaultModelOptions: SelectOption<string>[] = [
+    { value: '', label: 'Last used' },
+    ...providers.flatMap((p) =>
+      p.models
+        .filter((m) => !isLikelyEmbeddingModel(m.id))
+        .map((m) => ({ value: `${p.id}/${m.id}`, label: `${p.displayName}: ${m.label}` }))
+    )
+  ]
+
   return (
     <>
       <div className="page-title">General</div>
@@ -82,6 +96,25 @@ export function GeneralPage(): JSX.Element | null {
             value={callMe}
             onChange={(e) => setCallMe(e.target.value)}
             onBlur={saveCallMe}
+          />
+        </div>
+      </div>
+
+      <div className="set-group-title">Conversation</div>
+      <div className="set-card">
+        <div className="set-row">
+          <div className="set-row-text">
+            <div className="set-row-title">Default model</div>
+            <div className="set-row-desc">
+              New conversations start with this model. “Last used” reuses your most recent one.
+            </div>
+          </div>
+          <Select
+            ariaLabel="Default model"
+            value={settings.defaultModelRef ?? ''}
+            onChange={(v) => void saveSettings({ defaultModelRef: v || null })}
+            options={defaultModelOptions}
+            compact
           />
         </div>
       </div>

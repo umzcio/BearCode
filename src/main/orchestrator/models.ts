@@ -11,7 +11,8 @@ import {
   parseModelRef,
   capabilitiesFor,
   resolveOllamaTarget,
-  resolveCompatTarget
+  resolveCompatTarget,
+  compatApiRoot
 } from '../providers/registry'
 import { webSearchCapability } from '../../shared/effort'
 import type { EffortLevel, ProviderId } from '../../shared/types'
@@ -468,7 +469,7 @@ export function makeModel(
       return new ChatOpenAI({
         apiKey: apiKey ?? 'bearcode-unused',
         model: modelName,
-        configuration: { baseURL: `${baseUrl.replace(/\/$/, '')}/v1` },
+        configuration: { baseURL: compatApiRoot(baseUrl) },
         ...extras
       })
     }

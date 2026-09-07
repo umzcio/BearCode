@@ -64,6 +64,41 @@
 .mp-tabs {
   padding: 18px 32px 0;
 }
+
+/* Segmented control (ui/tabs): same recipe as the artifacts pane — inset
+   track with a hairline, raised surface thumb. Unlayered so it wins over the
+   shadcn layered utilities. */
+.mp-tabs [data-slot='tabs-list'] {
+  height: auto;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-card);
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
+}
+.mp-tabs [data-slot='tabs-trigger'] {
+  padding: 4px 14px;
+  border-radius: var(--radius-control);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  transition:
+    color var(--dur-hover) var(--ease-standard),
+    background-color var(--dur-hover) var(--ease-standard),
+    box-shadow var(--dur-hover) var(--ease-standard);
+}
+.mp-tabs [data-slot='tabs-trigger']:hover {
+  color: var(--ink);
+}
+.mp-tabs [data-slot='tabs-trigger'][data-state='active'] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-btn);
+}
+.mp-tabs [data-slot='tabs-trigger']:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
 .mp-body {
   padding: 20px 32px 36px;
 }

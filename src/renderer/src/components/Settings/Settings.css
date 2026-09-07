@@ -95,6 +95,37 @@
   overflow: hidden;
 }
 
+/* --- Settings as a full in-app view (SettingsView) ---
+   The same slim rail re-contextualized from the modal: it sits on --page with
+   a hairline divider, and the content column gets the Models page's centered
+   max-width recipe (.mp-head/.mp-body in ModelsPage.css). */
+.settings-view {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+  background: var(--page);
+}
+.settings-view .settings-rail {
+  padding-top: 14px;
+}
+.rail-back {
+  margin-bottom: 6px;
+}
+.settings-view-body {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--canvas);
+}
+.settings-view .settings-content {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 30px 32px 40px;
+  overflow: visible;
+}
+
 /* --- Nav rail: slim, same surface as the panel, hairline divider --- */
 .settings-rail {
   width: 208px;
@@ -193,7 +224,7 @@
 }
 /* Switching rail sections re-mounts the page's content (each page renders
    conditionally), so the body fades up as one unit on every section switch --
-   BUI ApprovalCard's question-swap choreography. Covers SettingsModal and
+   BUI ApprovalCard's question-swap choreography. Covers SettingsView and
    ProjectSettingsModal alike; the shared keyframe carries reduced motion. */
 .settings-content .page-title,
 .settings-content .page-sub,
@@ -408,19 +439,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Only the primary row carries the (aggregate) reachability dot; this spacer
-   keeps the other rows' labels aligned with it. */
+/* Saved rows carry a per-server reachability dot; this spacer keeps the draft
+   rows' (add/edit) fields aligned with them. */
 .ollama-instances .ollama-dot-spacer {
   width: 8px;
   height: 8px;
-  flex-shrink: 0;
-}
-.ollama-instances .ollama-primary-tag {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-3);
   flex-shrink: 0;
 }
 /* Name and URL inputs share a key-row; give the URL the extra room. */
@@ -470,14 +493,6 @@
   height: 8px;
   flex-shrink: 0;
 }
-.endpoint-list .ollama-primary-tag {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  flex-shrink: 0;
-}
 .endpoint-list .key-row input.ollama-url-input {
   flex-grow: 2;
 }
@@ -490,6 +505,31 @@
 /* Per-endpoint API key field: write-only, narrower than the URL input. */
 .endpoint-list .key-row input.endpoint-key-input {
   flex: 0 1 170px;
+}
+/* Configured keys collapse to a compact chip (click to replace) instead of a
+   dead-width input. */
+.endpoint-list .endpoint-key-chip {
+  flex-shrink: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+  background: none;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-chip);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition:
+    color var(--dur-hover) var(--ease-standard),
+    border-color var(--dur-hover) var(--ease-standard);
+}
+.endpoint-list .endpoint-key-chip:hover {
+  color: var(--ink-2);
+  border-color: var(--ink-3);
+}
+.endpoint-list .endpoint-key-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* General tab: profile text inputs + custom-instructions textarea */

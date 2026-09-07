@@ -66,7 +66,7 @@ export function UrsaModePicker({ router = 'ursa' }: { router?: 'ursa' | 'ursus' 
   const mode = useAppStore((s) => s.ursaMode)
   const setUrsaMode = useAppStore((s) => s.setUrsaMode)
   const [open, setOpen] = useState(false)
-  const settingsOpen = useAppStore((s) => s.settingsOpen)
+  const settingsOpen = useAppStore((s) => s.view.kind === 'settings')
   useCloseOnSettingsOpen(open, settingsOpen, () => setOpen(false))
   const [activeIndex, setActiveIndex] = useState(0)
   const triggerRef = useRef<HTMLButtonElement>(null)

@@ -159,8 +159,9 @@ const OLLAMA_INSTANCE_NAME_MAX = 40
 
 // Accept only strings that parse as an http(s) URL. Used for Ollama instance
 // baseUrls AND the legacy ollamaBaseUrl field, so a hand-edited settings.json
-// can never persist a URL the provider layer can't fetch.
-function isHttpUrl(raw: unknown): raw is string {
+// can never persist a URL the provider layer can't fetch. Also exported for
+// ipc.ts's endpoint-probe guard.
+export function isHttpUrl(raw: unknown): raw is string {
   if (typeof raw !== 'string' || raw.length === 0) return false
   try {
     const u = new URL(raw)

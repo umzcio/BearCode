@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import type { ManageableProvider, ProviderModels } from '@shared/types'
-import { buildModelRows, formatTokens, modelStatus, CAPABILITY_LABEL } from './modelRows'
+import {
+  buildModelRows,
+  formatTokens,
+  modelStatus,
+  isLikelyEmbeddingModel,
+  CAPABILITY_LABEL
+} from './modelRows'
 
 const providers: ProviderModels[] = [
   {
@@ -215,5 +221,32 @@ describe('CAPABILITY_LABEL', () => {
   it('has a human label for codeExecution and pdfInput', () => {
     expect(CAPABILITY_LABEL.codeExecution).toBe('Code execution')
     expect(CAPABILITY_LABEL.pdfInput).toBe('PDF input')
+  })
+})
+
+describe('isLikelyEmbeddingModel', () => {
+  it('catches the major embedding families by id', () => {
+    for (const id of [
+      'mxbai-embed-large:latest',
+      'nomic-embed-text',
+      'text-embedding-3-large',
+      'bge-m3',
+      'gte-qwen2',
+      'e5-mistral-7b',
+      'rerank-english-v3'
+    ]) {
+      expect(isLikelyEmbeddingModel(id)).toBe(true)
+    }
+  })
+
+  it('leaves chat models alone', () => {
+    for (const id of ['qwen3.5:9b', 'llama3.2:latest', 'glm-5.3-flash', 'gpt-5.6-sol']) {
+      expect(isLikelyEmbeddingModel(id)).toBe(false)
+    }
+  })
+
+  it('defers to catalog mode metadata when present', () => {
+    expect(isLikelyEmbeddingModel('anything-at-all', 'embedding')).toBe(true)
+    expect(isLikelyEmbeddingModel('mxbai-embed-large', 'chat')).toBe(false)
   })
 })

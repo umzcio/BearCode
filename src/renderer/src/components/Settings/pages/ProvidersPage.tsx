@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import type { OllamaInstance, ProviderId } from '@shared/types'
+import type { EndpointProbeArgs, EndpointStatus, OllamaInstance, ProviderId } from '@shared/types'
 import { useAppStore } from '../../../state/store'
 import { ProviderIcon } from '../../ProviderIcon'
 import { FieldHint } from '../../ui/FieldHint'
@@ -63,23 +63,34 @@ interface EndpointListCardProps {
   hint: string
   // Accessible labels differ per card so both managers can live on one page
   // (and so tests can query either unambiguously).
-  labels: { newName: string; newUrl: string; editName: string; editUrl: string }
+  labels: {
+    newName: string
+    newUrl: string
+    editName: string
+    editUrl: string
+    testNew: string
+    testEdit: string
+  }
   // Accessible name for the Add button; omitted it stays the visible 'Add'.
   addAriaLabel?: string
   // Wrapper class scoping the row CSS ('ollama-instances' / 'endpoint-list').
   cardClassName: string
-  // Aggregate reachability dot shown on the primary row only (Ollama).
-  primaryDot?: { ok: boolean; title: string }
+  // Which provider the Test buttons probe (drives the main-side probe route).
+  probeProvider: 'ollama' | 'compat'
+  // Per-endpoint reachability from the providers payload, keyed by endpoint
+  // id; drives each row's dot (green = reachable, gray = not).
+  statuses: Record<string, EndpointStatus>
   // Per-endpoint write-only API keys in the main-process vault, namespaced
   // `compat:<endpointId>` (OpenAI-compatible servers only). The renderer only
   // ever sees booleans via compatKeyStatus -- plaintext keys never cross back.
   keySupport?: boolean
 }
 
-// Shared name/URL endpoint manager: rows with edit/remove, an add row with
-// FieldHint validation, first-is-primary semantics. Rendered twice on this
-// page -- Ollama instances and OpenAI-compatible servers; the compat card
-// adds a per-endpoint write-only API key field via `keySupport`.
+// Shared name/URL endpoint manager: rows with a reachability dot, Test/edit/
+// remove, an add row with FieldHint validation, first-server-keeps-bare-refs
+// semantics. Rendered twice on this page -- Ollama instances and
+// OpenAI-compatible servers; the compat card adds a per-endpoint write-only
+// API key field via `keySupport`.
 function EndpointListCard({
   title,
   subtitle,
@@ -93,7 +104,8 @@ function EndpointListCard({
   labels,
   addAriaLabel,
   cardClassName,
-  primaryDot,
+  probeProvider,
+  statuses,
   keySupport = false
 }: EndpointListCardProps): JSX.Element {
   const [addDraft, setAddDraft] = useState({ name: '', url: '' })
@@ -101,6 +113,62 @@ function EndpointListCard({
   const [editDraft, setEditDraft] = useState<{ id: string; name: string; url: string } | null>(null)
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({})
   const [keyStatus, setKeyStatus] = useState<Record<string, boolean>>({})
+  // Which configured row's key chip is expanded for replacement (id or null).
+  const [keyEditing, setKeyEditing] = useState<string | null>(null)
+  // Test-button state: busy flags, per-row probe results (override the
+  // payload-driven dot until the next providers refresh), and transient
+  // inline notes. Keys are endpoint ids for saved rows, 'add'/'edit' for the
+  // draft rows.
+  const [probing, setProbing] = useState<Record<string, boolean>>({})
+  const [probeResults, setProbeResults] = useState<
+    Record<string, { reachable: boolean; modelCount: number }>
+  >({})
+  const [probeNotes, setProbeNotes] = useState<Record<string, string>>({})
+  const noteTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  useEffect(
+    () => () => {
+      for (const t of Object.values(noteTimers.current)) clearTimeout(t)
+    },
+    []
+  )
+
+  const flashNote = (key: string, msg: string): void => {
+    setProbeNotes((n) => ({ ...n, [key]: msg }))
+    clearTimeout(noteTimers.current[key])
+    noteTimers.current[key] = setTimeout(() => {
+      setProbeNotes((n) => {
+        const { [key]: _gone, ...rest } = n
+        return rest
+      })
+    }, 5000)
+  }
+
+  // applyToDot: saved rows reflect the result on their dot immediately and
+  // only note failures; draft rows have no dot, so both outcomes note.
+  const runProbe = async (
+    key: string,
+    args: EndpointProbeArgs,
+    applyToDot: boolean
+  ): Promise<void> => {
+    setProbing((p) => ({ ...p, [key]: true }))
+    try {
+      const r = await window.bearcode.probeEndpoint(args)
+      if (applyToDot) {
+        setProbeResults((prev) => ({
+          ...prev,
+          [key]: { reachable: r.reachable, modelCount: r.modelCount ?? 0 }
+        }))
+      }
+      if (!applyToDot || !r.reachable) {
+        flashNote(
+          key,
+          r.reachable ? `Reachable — ${r.modelCount ?? 0} models` : (r.note ?? 'Not reachable')
+        )
+      }
+    } finally {
+      setProbing((p) => ({ ...p, [key]: false }))
+    }
+  }
 
   // Booleans only, keyed by endpoint id. Fetched on mount and after every
   // save so the 'Configured' indicators track the vault.
@@ -148,9 +216,9 @@ function EndpointListCard({
     setEditDraft(null)
   }
 
-  // Removing the primary promotes the next entry (order is significant: the
-  // first entry IS the primary). A removed endpoint's vault key is cleared
-  // too; an emptied list is main's cue to reset/clear defaults.
+  // Removing the first server promotes the next entry (order is significant:
+  // the first entry keeps bare model refs). A removed endpoint's vault key is
+  // cleared too; an emptied list is main's cue to reset/clear defaults.
   const removeEndpoint = (id: string): void => {
     if (editDraft?.id === id) setEditDraft(null)
     onSave(endpoints.filter((i) => i.id !== id))
@@ -158,11 +226,12 @@ function EndpointListCard({
   }
 
   // Mirrors the API Keys card: the field is write-only, an empty save clears
-  // the stored key, and the placeholder/dot report presence (never the key).
+  // the stored key, and the placeholder reports presence (never the key).
   const saveEndpointKey = (id: string): void => {
     const value = (keyDrafts[id] ?? '').trim()
     void window.bearcode.compatSetKey(id, value).then(refreshKeyStatus)
     setKeyDrafts((d) => ({ ...d, [id]: '' }))
+    setKeyEditing(null)
   }
 
   return (
@@ -174,7 +243,7 @@ function EndpointListCard({
         </div>
       )}
       <div className={`set-card pad ${cardClassName}`}>
-        {endpoints.map((inst, index) => (
+        {endpoints.map((inst) => (
           <Fragment key={inst.id}>
             {editDraft?.id === inst.id ? (
               <div className="key-row">
@@ -195,6 +264,20 @@ function EndpointListCard({
                 />
                 <button
                   className="small-btn"
+                  aria-label={labels.testEdit}
+                  disabled={!!probing.edit || !isHttpUrl(editDraft.url.trim())}
+                  onClick={() =>
+                    void runProbe(
+                      'edit',
+                      { provider: probeProvider, baseUrl: editDraft.url.trim() },
+                      false
+                    )
+                  }
+                >
+                  {probing.edit ? 'Testing…' : 'Test'}
+                </button>
+                <button
+                  className="small-btn"
                   disabled={!editDirty || editError !== null}
                   onClick={saveEdit}
                 >
@@ -206,37 +289,54 @@ function EndpointListCard({
               </div>
             ) : (
               <div className="key-row">
-                {keySupport ? (
-                  <span
-                    className={'status-dot' + (keyStatus[inst.id] ? ' ok' : '')}
-                    title={keyStatus[inst.id] ? 'API key configured' : 'No API key configured'}
-                  />
-                ) : index === 0 && primaryDot ? (
-                  <span
-                    className={'status-dot' + (primaryDot.ok ? ' ok' : '')}
-                    title={primaryDot.title}
-                  />
-                ) : (
-                  <span className="ollama-dot-spacer" />
-                )}
+                {(() => {
+                  const status = probeResults[inst.id] ?? statuses[inst.id]
+                  return (
+                    <span
+                      className={'status-dot' + (status?.reachable ? ' ok' : '')}
+                      title={
+                        status?.reachable
+                          ? `${status.modelCount} models reachable`
+                          : 'Not reachable'
+                      }
+                    />
+                  )
+                })()}
                 <span className="ollama-name-label">
                   <ProviderIcon provider={icon} size={14} />
                   <span className="ollama-name">{inst.name}</span>
                 </span>
-                {index === 0 && endpoints.length > 1 && (
-                  <span className="ollama-primary-tag">Primary</span>
-                )}
                 <span className="ollama-url">{inst.baseUrl}</span>
                 {keySupport && (
                   <>
-                    <input
-                      type="password"
-                      aria-label={`API key for ${inst.name}`}
-                      className="endpoint-key-input"
-                      placeholder={keyStatus[inst.id] ? 'Configured' : 'API key (optional)'}
-                      value={keyDrafts[inst.id] ?? ''}
-                      onChange={(e) => setKeyDrafts((d) => ({ ...d, [inst.id]: e.target.value }))}
-                    />
+                    {keyStatus[inst.id] && keyEditing !== inst.id ? (
+                      <button
+                        type="button"
+                        className="endpoint-key-chip"
+                        aria-label={`Replace API key for ${inst.name}`}
+                        title="API key configured — click to replace"
+                        onClick={() => setKeyEditing(inst.id)}
+                      >
+                        Configured
+                      </button>
+                    ) : (
+                      <input
+                        type="password"
+                        aria-label={`API key for ${inst.name}`}
+                        className="endpoint-key-input"
+                        placeholder={
+                          keyStatus[inst.id] ? 'New key (optional)' : 'API key (optional)'
+                        }
+                        value={keyDrafts[inst.id] ?? ''}
+                        autoFocus={keyEditing === inst.id}
+                        onChange={(e) =>
+                          setKeyDrafts((d) => ({ ...d, [inst.id]: e.target.value }))
+                        }
+                        onBlur={() => {
+                          if (!(keyDrafts[inst.id] ?? '').trim()) setKeyEditing(null)
+                        }}
+                      />
+                    )}
                     <button
                       className="small-btn"
                       disabled={!(keyDrafts[inst.id] ?? '').trim() && !keyStatus[inst.id]}
@@ -245,11 +345,25 @@ function EndpointListCard({
                       {(keyDrafts[inst.id] ?? '').trim()
                         ? 'Save'
                         : keyStatus[inst.id]
-                          ? 'Remove'
+                          ? 'Clear'
                           : 'Save'}
                     </button>
                   </>
                 )}
+                <button
+                  className="small-btn"
+                  aria-label={`Test ${inst.name}`}
+                  disabled={!!probing[inst.id]}
+                  onClick={() =>
+                    void runProbe(
+                      inst.id,
+                      { provider: probeProvider, baseUrl: inst.baseUrl, endpointId: inst.id },
+                      true
+                    )
+                  }
+                >
+                  {probing[inst.id] ? 'Testing…' : 'Test'}
+                </button>
                 <button
                   className="small-btn"
                   aria-label={`Edit ${inst.name}`}
@@ -268,6 +382,12 @@ function EndpointListCard({
             )}
             {editDraft?.id === inst.id && (
               <FieldHint show={editError !== null}>{editError}</FieldHint>
+            )}
+            {editDraft?.id === inst.id && (
+              <FieldHint show={!!probeNotes.edit}>{probeNotes.edit}</FieldHint>
+            )}
+            {editDraft?.id !== inst.id && (
+              <FieldHint show={!!probeNotes[inst.id]}>{probeNotes[inst.id]}</FieldHint>
             )}
           </Fragment>
         ))}
@@ -299,6 +419,16 @@ function EndpointListCard({
           )}
           <button
             className="small-btn"
+            aria-label={labels.testNew}
+            disabled={!!probing.add || !isHttpUrl(addDraft.url.trim())}
+            onClick={() =>
+              void runProbe('add', { provider: probeProvider, baseUrl: addDraft.url.trim() }, false)
+            }
+          >
+            {probing.add ? 'Testing…' : 'Test'}
+          </button>
+          <button
+            className="small-btn"
             aria-label={addAriaLabel}
             disabled={!addTouched || addError !== null}
             onClick={addEndpoint}
@@ -307,6 +437,7 @@ function EndpointListCard({
           </button>
         </div>
         <FieldHint show={addTouched && addError !== null}>{addError}</FieldHint>
+        <FieldHint show={!!probeNotes.add}>{probeNotes.add}</FieldHint>
         <div className="page-sub" style={{ marginTop: 6 }}>
           {hint}
         </div>
@@ -349,18 +480,11 @@ export function ProvidersPage(): JSX.Element | null {
       ? settings.ollamaInstances
       : [{ id: 'local', name: 'Local', baseUrl: settings.ollamaBaseUrl }]
 
-  // Per-instance reachability is not in the providers payload yet: the ollama
-  // provider row reports reachable when ANY instance answers, so the dot is
-  // shown only on the primary row as an aggregate, never per row.
-  const ollamaReachable = providers.find((p) => p.id === 'ollama')?.reachable ?? false
-  const ollamaPrimaryDotTitle =
-    instances.length > 1
-      ? ollamaReachable
-        ? 'At least one configured server is reachable'
-        : 'No configured server is reachable'
-      : ollamaReachable
-        ? 'Connected'
-        : 'Not reachable'
+  // Per-endpoint reachability breakdown from the providers payload (refreshed
+  // whenever endpoints are saved), keyed by endpoint id for the row dots. The
+  // Test buttons give immediate feedback between refreshes.
+  const endpointStatuses = (id: ProviderId): Record<string, EndpointStatus> =>
+    Object.fromEntries((providers.find((p) => p.id === id)?.endpoints ?? []).map((e) => [e.id, e]))
 
   // OpenAI-compatible endpoints are never seeded: absent stays empty and the
   // card shows just the add row.
@@ -370,7 +494,7 @@ export function ProvidersPage(): JSX.Element | null {
     <>
       <div className="page-title">Providers</div>
       <div className="page-sub">
-        API keys and local model endpoints. Connection status is shown per provider.
+        API keys and local model endpoints. Connection status is shown per server.
       </div>
 
       <div className="set-group-title">API Keys</div>
@@ -410,15 +534,18 @@ export function ProvidersPage(): JSX.Element | null {
         namePlaceholder="Name (e.g. GPU box)"
         urlPlaceholder="http://localhost:11434"
         urlExample="http://localhost:11434"
-        hint="The first server is the primary — its models keep their unprefixed ollama/model refs; models on other servers are namespaced by server. Removing the primary promotes the next one."
+        hint="Models on the first server keep their unprefixed ollama/model refs; models on other servers are namespaced by server. Removing the first server promotes the next one."
         labels={{
           newName: 'New server name',
           newUrl: 'New server URL',
           editName: 'Edit server name',
-          editUrl: 'Edit server URL'
+          editUrl: 'Edit server URL',
+          testNew: 'Test new server URL',
+          testEdit: 'Test edited server URL'
         }}
         cardClassName="ollama-instances"
-        primaryDot={{ ok: ollamaReachable, title: ollamaPrimaryDotTitle }}
+        probeProvider="ollama"
+        statuses={endpointStatuses('ollama')}
       />
 
       <EndpointListCard
@@ -430,15 +557,19 @@ export function ProvidersPage(): JSX.Element | null {
         namePlaceholder="Name (e.g. vLLM)"
         urlPlaceholder="http://localhost:8000/v1"
         urlExample="http://localhost:8000/v1"
-        hint="The first server is the primary — its models keep their unprefixed compat/model refs; models on other servers are namespaced by server. Removing the primary promotes the next one. API keys are optional and write-only; removing a server also clears its stored key."
+        hint="Models on the first server keep their unprefixed compat/model refs; models on other servers are namespaced by server. Removing the first server promotes the next one. API keys are optional and write-only; removing a server also clears its stored key."
         labels={{
           newName: 'New endpoint name',
           newUrl: 'New endpoint URL',
           editName: 'Edit endpoint name',
-          editUrl: 'Edit endpoint URL'
+          editUrl: 'Edit endpoint URL',
+          testNew: 'Test new endpoint URL',
+          testEdit: 'Test edited endpoint URL'
         }}
         addAriaLabel="Add endpoint"
         cardClassName="endpoint-list"
+        probeProvider="compat"
+        statuses={endpointStatuses('compat')}
         keySupport
       />
 

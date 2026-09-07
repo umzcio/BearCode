@@ -133,15 +133,6 @@ describe('ModelsTab', () => {
     expect(screen.getByLabelText('Claude Opus 4.8 details')).toBeTruthy()
   })
 
-  it('renders the default-model picker and saves a new choice', () => {
-    const saveSettings = vi.fn().mockResolvedValue(undefined)
-    seed({ saveSettings })
-    render(<ModelsTab />)
-    fireEvent.click(screen.getByLabelText('Default model'))
-    fireEvent.click(screen.getByText('OpenAI: GPT-5.6 Sol'))
-    expect(saveSettings).toHaveBeenCalledWith({ defaultModelRef: 'openai/gpt-5.6-sol' })
-  })
-
   it('paginates when there are more rows than the page size', () => {
     const many = Array.from({ length: 12 }, (_, i) => ({
       id: `m${i}`,
@@ -189,5 +180,27 @@ describe('ModelsTab', () => {
     expect(setModelEnabled).toHaveBeenCalledWith('anthropic/claude-opus-4-8', false)
     expect(setModelEnabled).toHaveBeenCalledWith('anthropic/claude-haiku-4-5', false)
     expect(setModelEnabled).not.toHaveBeenCalledWith('openai/gpt-5.6-sol', expect.anything())
+  })
+})
+
+describe('ModelsTab — intelligent filtering', () => {
+  const ollamaManageable = {
+    id: 'ollama',
+    displayName: 'Ollama',
+    color: '#3ecf8e',
+    models: [
+      { id: 'qwen3.5:9b', label: 'qwen3.5:9b', contextWindow: 32768, custom: false, enabled: true }
+    ]
+  }
+
+  it('hides local-server (ollama/compat) rows by default and reveals them via the Local servers toggle', () => {
+    seed({ manageableModels: [ollamaManageable] })
+    render(<ModelsTab />)
+    expect(screen.queryByText('qwen3.5:9b')).toBeNull()
+    // The hint names what was hidden when nothing else passes the filters.
+    expect(screen.getByText(/local servers hidden/i)).toBeTruthy()
+    fireEvent.click(screen.getByRole('switch', { name: /show local server/i }))
+    expect(screen.getByText('qwen3.5:9b')).toBeTruthy()
+    expect(screen.queryByText(/local servers hidden/i)).toBeNull()
   })
 })

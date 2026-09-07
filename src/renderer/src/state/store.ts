@@ -94,6 +94,10 @@ type View =
   | { kind: 'project'; path: string | null }
   | { kind: 'projects' }
   | { kind: 'models' }
+  // Settings is a full in-app view (no scrim/modal). `page` deep-links a
+  // specific settings page (the missing-key flow opens 'providers'); Back /
+  // Esc / Cmd+, returns to settingsReturnView.
+  | { kind: 'settings'; page?: string }
 
 export type TerminalTabMeta = {
   id: string
@@ -318,7 +322,7 @@ interface AppState {
   // for a group's color/icon/name and a new conversation's inherited defaults.
   folderSettings: FolderProject[]
   // The folder path whose Project Settings modal is open, or null. Mirrors the
-  // settingsOpen modal-flag idiom.
+  // open-modal-flag idiom.
   projectSettingsPath: string | null
   settings: SettingsInfo | null
   // Permissions manager read model; null until the Settings section first loads it.
@@ -336,10 +340,9 @@ interface AppState {
   appVersion: string | null
   updaterStatus: UpdaterStatus
   updateBannerDismissed: boolean
-  settingsOpen: boolean
-  // Which settings page to open on (e.g. 'providers' for the missing-key flow);
-  // null → default page. Consumed once by SettingsModal on open.
-  settingsInitialPage: string | null
+  // The view to return to when the settings view closes (Back/Esc/Cmd+,);
+  // null → closeSettings falls back to home.
+  settingsReturnView: View | null
   auxSelection: AuxSelection | null
   terminalTabs: Record<string, TerminalTabMeta[]>
   activeTerminalTab: Record<string, string | undefined>
@@ -804,8 +807,7 @@ export const useAppStore = create<AppState>((set, get) => {
     appVersion: null,
     updaterStatus: { state: 'idle' },
     updateBannerDismissed: false,
-    settingsOpen: false,
-    settingsInitialPage: null,
+    settingsReturnView: null,
     auxSelection: null,
     terminalTabs: {},
     activeTerminalTab: {},
@@ -1906,8 +1908,19 @@ export const useAppStore = create<AppState>((set, get) => {
     },
     toggleProjectMenu: () => set((s) => ({ projectMenuTick: s.projectMenuTick + 1 })),
 
-    openSettings: (page) => set({ settingsOpen: true, settingsInitialPage: page ?? null }),
-    closeSettings: () => set({ settingsOpen: false }),
+    openSettings: (page) =>
+      set((s) => ({
+        // Stepping INTO settings remembers where Back/Esc/Cmd+, returns to.
+        // Re-opening while already in settings (e.g. the sidebar footer menu,
+        // which stays visible) keeps the original return target and only
+        // re-targets the page.
+        settingsReturnView: s.view.kind === 'settings' ? s.settingsReturnView : s.view,
+        view: page ? { kind: 'settings', page } : { kind: 'settings' }
+      })),
+    closeSettings: () =>
+      set((s) =>
+        s.view.kind === 'settings' ? { view: s.settingsReturnView ?? { kind: 'home' } } : s
+      ),
 
     saveKey: async (provider, key) => {
       await window.bearcode.keys.set(provider, key)

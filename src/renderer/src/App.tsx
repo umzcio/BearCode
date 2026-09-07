@@ -12,7 +12,7 @@ import { ModelsPage } from './components/ModelsPage/ModelsPage'
 import { ConversationView } from './components/ConversationView'
 import { ArtifactsPane } from './components/ArtifactsPane'
 import { ResizeHandle } from './components/ResizeHandle'
-import { SettingsModal } from './components/Settings/SettingsModal'
+import { SettingsView } from './components/Settings/SettingsView'
 import { ProjectSettingsModal } from './components/ProjectSettings/ProjectSettingsModal'
 import { ConflictResolver } from './components/Worktree/ConflictResolver'
 import { TrustBanner } from './components/TrustBanner'
@@ -125,7 +125,9 @@ function App(): React.JSX.Element {
           break
         case ',':
           e.preventDefault()
-          s.openSettings()
+          // Cmd+, toggles: in settings → back to where it was opened from.
+          if (s.view.kind === 'settings') s.closeSettings()
+          else s.openSettings()
           break
         case '/':
           e.preventDefault()
@@ -218,6 +220,11 @@ function App(): React.JSX.Element {
               />
             </div>
           ) : null}
+          {view.kind === 'settings' ? (
+            <div className="breadcrumb">
+              <span className="crumb current">Settings</span>
+            </div>
+          ) : null}
         </div>
         <TrustBanner />
         <ImportConfigBanner />
@@ -241,9 +248,9 @@ function App(): React.JSX.Element {
           {view.kind === 'project' ? <ProjectPage path={view.path} /> : null}
           {view.kind === 'projects' ? <ProjectsIndex /> : null}
           {view.kind === 'models' ? <ModelsPage /> : null}
+          {view.kind === 'settings' ? <SettingsView /> : null}
           {convo ? <ConversationView key={convo.id} convoId={convo.id} /> : null}
         </div>
-        <SettingsModal />
         <ProjectSettingsModal />
         <ImportConfigReviewModal />
         <ConflictResolver />

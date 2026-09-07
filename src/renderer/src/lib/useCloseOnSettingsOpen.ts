@@ -10,8 +10,8 @@ import { useEffect, useRef } from 'react'
 //
 // Deliberately does NOT import useAppStore itself (unlike ui/ primitives and
 // other lib/ hooks, which stay store-agnostic and take values as parameters
-// -- see useModalDialog.ts) -- callers subscribe to `settingsOpen` themselves
-// and pass it in.
+// -- see useModalDialog.ts) -- callers derive "settings is open" from the
+// store themselves (`view.kind === 'settings'`) and pass it in.
 export function useCloseOnSettingsOpen(
   open: boolean,
   settingsOpen: boolean,

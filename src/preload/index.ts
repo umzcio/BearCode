@@ -25,6 +25,8 @@ import type {
   MentionRef,
   ModelRef,
   DiscoveredMcpServer,
+  EndpointProbeArgs,
+  EndpointProbeResult,
   McpServerConfig,
   McpServerStatus,
   McpServerView,
@@ -142,6 +144,8 @@ const bearcode: BearcodeApi = {
     ipcRenderer.invoke('bearcode:compat:set-key', endpointId, value),
   compatKeyStatus: (): Promise<Record<string, boolean>> =>
     ipcRenderer.invoke('bearcode:compat:key-status'),
+  probeEndpoint: (args: EndpointProbeArgs): Promise<EndpointProbeResult> =>
+    ipcRenderer.invoke('bearcode:endpoints:probe', args),
   hermes: {
     testConnection: (
       mode: HermesConnectionMode,

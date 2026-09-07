@@ -33,6 +33,7 @@ export const IconPanel = icon(
   </>
 )
 export const IconChevronRight = icon(<path d="M9 6l6 6-6 6" />)
+export const IconChevronLeft = icon(<path d="M15 6l-6 6 6 6" />)
 export const IconChevronDown = icon(<polyline points="6 9 12 15 18 9" />, 2)
 export const IconChevronRightSmall = icon(<polyline points="9 6 15 12 9 18" />, 2)
 export const IconPlus = icon(
@@ -125,14 +126,6 @@ export const IconCopy = icon(
   </>
 )
 export const IconCheck = icon(<path d="M5 13l4.5 4.5L19 8" />)
-export const IconThumbsUp = icon(
-  <path d="M7 10v11H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3zm0 0l4.2-7.2a2 2 0 0 1 3.7 1.1L14 9h5a2 2 0 0 1 2 2.4l-1.5 7A2 2 0 0 1 17.5 20H7" />
-)
-export const IconThumbsDown = icon(
-  <g transform="rotate(180 12 12)">
-    <path d="M7 10v11H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3zm0 0l4.2-7.2a2 2 0 0 1 3.7 1.1L14 9h5a2 2 0 0 1 2 2.4l-1.5 7A2 2 0 0 1 17.5 20H7" />
-  </g>
-)
 export const IconClose = icon(
   <>
     <line x1="6" y1="6" x2="18" y2="18" />

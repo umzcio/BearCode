@@ -1,3 +1,49 @@
+diff --git a/node_modules/@langchain/openai/dist/converters/completions.cjs b/node_modules/@langchain/openai/dist/converters/completions.cjs
+index e6953a9..027568b 100644
+--- a/node_modules/@langchain/openai/dist/converters/completions.cjs
++++ b/node_modules/@langchain/openai/dist/converters/completions.cjs
+@@ -157,7 +157,7 @@ const completionsApiContentBlockConverter = {
+ */
+ const convertCompletionsMessageToBaseMessage = ({ message, rawResponse, includeRawResponse }) => {
+ 	const rawToolCalls = message.tool_calls;
+-	const providerReasoningContent = message.reasoning_content;
++	const providerReasoningContent = message.reasoning_content ?? message.reasoning; // BearCode: vLLM's GLM parser emits `reasoning` (not reasoning_content)
+ 	switch (message.role) {
+ 		case "assistant": {
+ 			const toolCalls = [];
+@@ -261,7 +261,8 @@ const convertCompletionsDeltaToBaseMessageChunk = ({ delta, rawResponse, include
+ 	else if (delta.tool_calls) additional_kwargs = { tool_calls: delta.tool_calls };
+ 	else additional_kwargs = {};
+ 	if (includeRawResponse) additional_kwargs.__raw_response = rawResponse;
+-	if (delta.reasoning_content !== void 0) additional_kwargs.reasoning_content = delta.reasoning_content;
++	const deltaReasoning = delta.reasoning_content ?? delta.reasoning; // BearCode: vLLM's GLM parser emits `reasoning`
++	if (deltaReasoning !== void 0) additional_kwargs.reasoning_content = deltaReasoning;
+ 	if (delta.audio) additional_kwargs.audio = {
+ 		...delta.audio,
+ 		index: rawResponse.choices[0].index
+diff --git a/node_modules/@langchain/openai/dist/converters/completions.js b/node_modules/@langchain/openai/dist/converters/completions.js
+index 10fa07a..2d95020 100644
+--- a/node_modules/@langchain/openai/dist/converters/completions.js
++++ b/node_modules/@langchain/openai/dist/converters/completions.js
+@@ -157,7 +157,7 @@ const completionsApiContentBlockConverter = {
+ */
+ const convertCompletionsMessageToBaseMessage = ({ message, rawResponse, includeRawResponse }) => {
+ 	const rawToolCalls = message.tool_calls;
+-	const providerReasoningContent = message.reasoning_content;
++	const providerReasoningContent = message.reasoning_content ?? message.reasoning; // BearCode: vLLM's GLM parser emits `reasoning` (not reasoning_content)
+ 	switch (message.role) {
+ 		case "assistant": {
+ 			const toolCalls = [];
+@@ -261,7 +261,8 @@ const convertCompletionsDeltaToBaseMessageChunk = ({ delta, rawResponse, include
+ 	else if (delta.tool_calls) additional_kwargs = { tool_calls: delta.tool_calls };
+ 	else additional_kwargs = {};
+ 	if (includeRawResponse) additional_kwargs.__raw_response = rawResponse;
+-	if (delta.reasoning_content !== void 0) additional_kwargs.reasoning_content = delta.reasoning_content;
++	const deltaReasoning = delta.reasoning_content ?? delta.reasoning; // BearCode: vLLM's GLM parser emits `reasoning`
++	if (deltaReasoning !== void 0) additional_kwargs.reasoning_content = deltaReasoning;
+ 	if (delta.audio) additional_kwargs.audio = {
+ 		...delta.audio,
+ 		index: rawResponse.choices[0].index
 diff --git a/node_modules/@langchain/openai/dist/converters/responses.cjs b/node_modules/@langchain/openai/dist/converters/responses.cjs
 index e07fca1..8598f53 100644
 --- a/node_modules/@langchain/openai/dist/converters/responses.cjs
