@@ -1,8 +1,8 @@
 diff --git a/node_modules/@langchain/core/dist/messages/base.cjs b/node_modules/@langchain/core/dist/messages/base.cjs
-index 48313c0..51fbca1 100644
+index c79a86a..3f09c47 100644
 --- a/node_modules/@langchain/core/dist/messages/base.cjs
 +++ b/node_modules/@langchain/core/dist/messages/base.cjs
-@@ -255,6 +255,20 @@ function hasMergeableId(value) {
+@@ -253,6 +253,20 @@ function hasMergeableId(value) {
  	return id != null && id !== "";
  }
  function getMergeableTypeBase(type) {
@@ -24,10 +24,10 @@ index 48313c0..51fbca1 100644
  }
  function hasMismatchedMergeableType(left, right) {
 diff --git a/node_modules/@langchain/core/dist/messages/base.js b/node_modules/@langchain/core/dist/messages/base.js
-index 000b9c9..16eb6f8 100644
+index cd41deb..cfa021a 100644
 --- a/node_modules/@langchain/core/dist/messages/base.js
 +++ b/node_modules/@langchain/core/dist/messages/base.js
-@@ -255,6 +255,12 @@ function hasMergeableId(value) {
+@@ -253,6 +253,12 @@ function hasMergeableId(value) {
  	return id != null && id !== "";
  }
  function getMergeableTypeBase(type) {

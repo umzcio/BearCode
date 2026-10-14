@@ -1,5 +1,5 @@
 diff --git a/node_modules/@langchain/openai/dist/converters/completions.cjs b/node_modules/@langchain/openai/dist/converters/completions.cjs
-index e6953a9..027568b 100644
+index 312e42a..cdc01a0 100644
 --- a/node_modules/@langchain/openai/dist/converters/completions.cjs
 +++ b/node_modules/@langchain/openai/dist/converters/completions.cjs
 @@ -157,7 +157,7 @@ const completionsApiContentBlockConverter = {
@@ -11,7 +11,7 @@ index e6953a9..027568b 100644
  	switch (message.role) {
  		case "assistant": {
  			const toolCalls = [];
-@@ -261,7 +261,8 @@ const convertCompletionsDeltaToBaseMessageChunk = ({ delta, rawResponse, include
+@@ -260,7 +260,8 @@ const convertCompletionsDeltaToBaseMessageChunk = ({ delta, rawResponse, include
  	else if (delta.tool_calls) additional_kwargs = { tool_calls: delta.tool_calls };
  	else additional_kwargs = {};
  	if (includeRawResponse) additional_kwargs.__raw_response = rawResponse;
@@ -22,7 +22,7 @@ index e6953a9..027568b 100644
  		...delta.audio,
  		index: rawResponse.choices[0].index
 diff --git a/node_modules/@langchain/openai/dist/converters/completions.js b/node_modules/@langchain/openai/dist/converters/completions.js
-index 10fa07a..2d95020 100644
+index eee4d6c..14f2b81 100644
 --- a/node_modules/@langchain/openai/dist/converters/completions.js
 +++ b/node_modules/@langchain/openai/dist/converters/completions.js
 @@ -157,7 +157,7 @@ const completionsApiContentBlockConverter = {
@@ -34,7 +34,7 @@ index 10fa07a..2d95020 100644
  	switch (message.role) {
  		case "assistant": {
  			const toolCalls = [];
-@@ -261,7 +261,8 @@ const convertCompletionsDeltaToBaseMessageChunk = ({ delta, rawResponse, include
+@@ -260,7 +260,8 @@ const convertCompletionsDeltaToBaseMessageChunk = ({ delta, rawResponse, include
  	else if (delta.tool_calls) additional_kwargs = { tool_calls: delta.tool_calls };
  	else additional_kwargs = {};
  	if (includeRawResponse) additional_kwargs.__raw_response = rawResponse;
@@ -45,72 +45,68 @@ index 10fa07a..2d95020 100644
  		...delta.audio,
  		index: rawResponse.choices[0].index
 diff --git a/node_modules/@langchain/openai/dist/converters/responses.cjs b/node_modules/@langchain/openai/dist/converters/responses.cjs
-index e07fca1..8598f53 100644
+index 2d687c5..86e7c30 100644
 --- a/node_modules/@langchain/openai/dist/converters/responses.cjs
 +++ b/node_modules/@langchain/openai/dist/converters/responses.cjs
-@@ -1093,6 +1093,30 @@ const convertMessagesToResponsesInput = ({ messages, zdrEnabled, model }) => {
- 							filename: require_misc.getRequiredFilenameFromMetadata(item)
- 						};
+@@ -1164,6 +1164,28 @@ const convertMessagesToResponsesInput = ({ messages, zdrEnabled, model }) => {
+ 							});
+ 						}
  					}
 +					// BearCode patch (patches/@langchain+openai+*.patch): image data blocks
 +					// fell through to the Chat Completions converter below, which emits
 +					// {type:"image_url"} -- a Completions-format part the Responses endpoint
-+					// rejects ("400 Invalid value: 'image_url'"). The image_url->input_image
-+					// remap further down never runs for data blocks because this branch
-+					// returns first. Convert images to the Responses shape here, mirroring
-+					// the "file" cases above.
++					// rejects ("400 Invalid value: 'image_url'"). Convert images to the
++					// Responses shape here, mirroring the "file" cases above.
 +					if (item.type === "image") {
-+						if (item.source_type === "url") return {
++						if (item.source_type === "url") return require_misc.applyPromptCacheBreakpoint(item, {
 +							type: "input_image",
 +							detail: "auto",
 +							image_url: item.url
-+						};
-+						if (item.source_type === "id") return {
++						});
++						if (item.source_type === "id") return require_misc.applyPromptCacheBreakpoint(item, {
 +							type: "input_image",
 +							detail: "auto",
 +							file_id: item.id
-+						};
-+						if (item.source_type === "base64") return {
++						});
++						if (item.source_type === "base64") return require_misc.applyPromptCacheBreakpoint(item, {
 +							type: "input_image",
 +							detail: "auto",
 +							image_url: `data:${item.mime_type ?? "image/png"};base64,${item.data}`
-+						};
++						});
 +					}
- 					return (0, _langchain_core_messages.convertToProviderContentBlock)(item, require_completions.completionsApiContentBlockConverter);
+ 					return require_misc.applyPromptCacheBreakpoint(item, (0, _langchain_core_messages.convertToProviderContentBlock)(item, require_completions.completionsApiContentBlockConverter));
  				}
- 				if (item.type === "text") return {
+ 				if (item.type === "text") return require_misc.applyPromptCacheBreakpoint(item, {
 diff --git a/node_modules/@langchain/openai/dist/converters/responses.js b/node_modules/@langchain/openai/dist/converters/responses.js
-index ce1e1a3..cff050e 100644
+index 9ab3858..352ae03 100644
 --- a/node_modules/@langchain/openai/dist/converters/responses.js
 +++ b/node_modules/@langchain/openai/dist/converters/responses.js
-@@ -1093,6 +1093,30 @@ const convertMessagesToResponsesInput = ({ messages, zdrEnabled, model }) => {
- 							filename: getRequiredFilenameFromMetadata(item)
- 						};
+@@ -1164,6 +1164,28 @@ const convertMessagesToResponsesInput = ({ messages, zdrEnabled, model }) => {
+ 							});
+ 						}
  					}
 +					// BearCode patch (patches/@langchain+openai+*.patch): image data blocks
 +					// fell through to the Chat Completions converter below, which emits
 +					// {type:"image_url"} -- a Completions-format part the Responses endpoint
-+					// rejects ("400 Invalid value: 'image_url'"). The image_url->input_image
-+					// remap further down never runs for data blocks because this branch
-+					// returns first. Convert images to the Responses shape here, mirroring
-+					// the "file" cases above.
++					// rejects ("400 Invalid value: 'image_url'"). Convert images to the
++					// Responses shape here, mirroring the "file" cases above.
 +					if (item.type === "image") {
-+						if (item.source_type === "url") return {
++						if (item.source_type === "url") return applyPromptCacheBreakpoint(item, {
 +							type: "input_image",
 +							detail: "auto",
 +							image_url: item.url
-+						};
-+						if (item.source_type === "id") return {
++						});
++						if (item.source_type === "id") return applyPromptCacheBreakpoint(item, {
 +							type: "input_image",
 +							detail: "auto",
 +							file_id: item.id
-+						};
-+						if (item.source_type === "base64") return {
++						});
++						if (item.source_type === "base64") return applyPromptCacheBreakpoint(item, {
 +							type: "input_image",
 +							detail: "auto",
 +							image_url: `data:${item.mime_type ?? "image/png"};base64,${item.data}`
-+						};
++						});
 +					}
- 					return convertToProviderContentBlock(item, completionsApiContentBlockConverter);
+ 					return applyPromptCacheBreakpoint(item, convertToProviderContentBlock(item, completionsApiContentBlockConverter));
  				}
- 				if (item.type === "text") return {
+ 				if (item.type === "text") return applyPromptCacheBreakpoint(item, {
