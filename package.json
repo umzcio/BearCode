@@ -75,7 +75,7 @@
     "browserslist": "^4.29.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "deepagents": "^1.14.2",
+    "deepagents": "^1.15.0",
     "diff": "^9.0.0",
     "docx": "^9.10.0",
     "electron-updater": "^6.8.9",
